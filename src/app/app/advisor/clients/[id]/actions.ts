@@ -104,3 +104,41 @@ export async function recordClientPlayFollowUpAction(input: RecordPlayFollowUpIn
     };
   }
 }
+
+export async function selectClientPlayBenefitAction(input: {
+  playMemberId: number;
+  playBenefitId: number;
+}) {
+  try {
+    const ctx = await requireAuthContext();
+    if (!isAdvisorRole(ctx.roles) && !isMasterOrAdminRole(ctx.roles)) {
+      return { ok: false as const, message: 'No tienes permiso para seleccionar este beneficio.' };
+    }
+
+    const playMemberId = Math.trunc(Number(input.playMemberId));
+    const playBenefitId = Math.trunc(Number(input.playBenefitId));
+    if (playMemberId <= 0 || playBenefitId <= 0) {
+      return { ok: false as const, message: 'Selecciona una alternativa válida.' };
+    }
+
+    const { data, error } = await ctx.supabase.rpc('crm_select_play_benefit_v1', {
+      p_play_member_id: playMemberId,
+      p_play_benefit_id: playBenefitId,
+    });
+    if (error) return { ok: false as const, message: error.message };
+
+    const result = data as { client_id?: number | string } | null;
+    const clientId = Number(result?.client_id);
+    revalidatePath('/app/advisor/plays');
+    if (Number.isFinite(clientId) && clientId > 0) {
+      revalidatePath(`/app/advisor/clients/${Math.trunc(clientId)}`);
+    }
+
+    return { ok: true as const, message: 'Beneficio seleccionado. Este cliente solo podrá usar esta alternativa.' };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'No se pudo seleccionar el beneficio.',
+    };
+  }
+}

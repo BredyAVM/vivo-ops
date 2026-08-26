@@ -38,8 +38,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .select(`
         id, series_key, version, name, description, status, rules_snapshot,
         selection_summary, metric_window, gift_product_id, gift_quantity,
-        starts_at, ends_at, snapshot_at, activated_at, closed_at, created_at,
-        benefit:products!crm_plays_gift_product_id_fkey(id, name, sku)
+        starts_at, ends_at, snapshot_at, activated_at, closed_at, created_at
       `)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
@@ -55,6 +54,35 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
 
   if (playsResult.error) throw new Error(playsResult.error.message);
   if (productsResult.error) throw new Error(productsResult.error.message);
+
+  const playIds = (playsResult.data ?? []).map((row) => Number(row.id));
+  const benefitOptionsResult = await ctx.supabase
+    .from('crm_play_benefits')
+    .select(`
+      id, play_id, product_id, quantity, sort_order,
+      product:products!crm_play_benefits_product_id_fkey(id, name, sku)
+    `)
+    .in('play_id', playIds.length > 0 ? playIds : [-1])
+    .order('sort_order', { ascending: true })
+    .order('id', { ascending: true });
+  if (benefitOptionsResult.error) throw new Error(benefitOptionsResult.error.message);
+
+  const benefitOptionsByPlay = new Map<number, MasterPlay['benefits']>();
+  for (const row of benefitOptionsResult.data ?? []) {
+    const product = one(row.product);
+    if (!product) continue;
+    const playId = Number(row.play_id);
+    const options = benefitOptionsByPlay.get(playId) ?? [];
+    options.push({
+      id: Number(row.id),
+      productId: Number(row.product_id),
+      quantity: Number(row.quantity),
+      sortOrder: Number(row.sort_order),
+      name: String(product.name),
+      sku: product.sku == null ? null : String(product.sku),
+    });
+    benefitOptionsByPlay.set(playId, options);
+  }
 
   const plays: MasterPlay[] = (playsResult.data ?? []).map((row) => ({
     id: Number(row.id),
@@ -78,12 +106,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     activatedAt: row.activated_at == null ? null : String(row.activated_at),
     closedAt: row.closed_at == null ? null : String(row.closed_at),
     createdAt: String(row.created_at),
-    benefit: (() => {
-      const benefit = one(row.benefit);
-      return benefit
-        ? { id: Number(benefit.id), name: String(benefit.name), sku: benefit.sku == null ? null : String(benefit.sku) }
-        : null;
-    })(),
+    benefits: benefitOptionsByPlay.get(Number(row.id)) ?? [],
   }));
 
   const selectedPlay = plays.find((play) => play.id === requestedPlayId) ?? plays[0] ?? null;
@@ -99,7 +122,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         .select(`
           id, play_id, client_id, advisor_id_snapshot, first_purchase_on,
           last_purchase_on, purchase_count, net_revenue_usd, average_ticket_usd,
-          cadence_days, days_since_last_purchase, workflow_status,
+          last_gift_on, days_since_last_purchase, workflow_status,
           client:clients!inner(id, full_name, phone),
           advisor:profiles!crm_play_members_advisor_id_snapshot_fkey(id, full_name)
         `, { count: 'exact' })
@@ -139,7 +162,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         purchaseCount: Number(row.purchase_count),
         netRevenueUsd: Number(row.net_revenue_usd),
         averageTicketUsd: row.average_ticket_usd == null ? null : Number(row.average_ticket_usd),
-        cadenceDays: row.cadence_days == null ? null : Number(row.cadence_days),
+        lastGiftOn: row.last_gift_on == null ? null : String(row.last_gift_on),
         daysSinceLastPurchase: row.days_since_last_purchase == null ? null : Number(row.days_since_last_purchase),
         workflowStatus: String(row.workflow_status),
       };

@@ -18,6 +18,12 @@ type ClientRow = {
   full_name: string | null;
 };
 
+type BenefitRow = {
+  id: number | string;
+  quantity: number | string;
+  product: { name: string } | Array<{ name: string }> | null;
+};
+
 type MemberRow = {
   id: number | string;
   play_id: number | string;
@@ -262,7 +268,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     );
   }
 
-  const [membersResult, productResult] = await Promise.all([
+  const [membersResult, benefitOptionsResult] = await Promise.all([
     ctx.supabase
       .from('crm_play_members')
       .select(`
@@ -275,17 +281,22 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
       .order('id', { ascending: true })
       .limit(500),
     ctx.supabase
-      .from('products')
-      .select('id, name')
-      .eq('id', Number(selectedPlay.gift_product_id))
-      .maybeSingle(),
+      .from('crm_play_benefits')
+      .select('id, quantity, product:products!crm_play_benefits_product_id_fkey(name)')
+      .eq('play_id', Number(selectedPlay.id))
+      .order('sort_order', { ascending: true })
+      .order('id', { ascending: true }),
   ]);
 
   if (membersResult.error) console.error('Unable to load advisor CRM play members', membersResult.error.message);
   const members = (membersResult.data ?? []) as unknown as MemberRow[];
 
-  if (productResult.error) console.error('Unable to load CRM play gift product', productResult.error.message);
-  const giftProduct = productResult.data as { id: number; name: string } | null;
+  if (benefitOptionsResult.error) console.error('Unable to load CRM play benefits', benefitOptionsResult.error.message);
+  const benefitOptions = ((benefitOptionsResult.data ?? []) as unknown as BenefitRow[]).map((option) => ({
+    id: numberValue(option.id),
+    quantity: numberValue(option.quantity),
+    name: one(option.product)?.name?.trim() || 'Beneficio',
+  }));
 
   // This is a server-only request snapshot used to classify due follow-ups consistently.
   // eslint-disable-next-line react-hooks/purity
@@ -342,7 +353,9 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
             </p>
           </div>
           <div className="max-w-[52%] truncate rounded-full border border-[#564511] bg-[#2A2209] px-2.5 py-1 text-right text-[10px] font-medium text-[#F7DA66]">
-            {numberValue(selectedPlay.gift_quantity).toLocaleString('es-VE')} × {giftProduct?.name || 'Beneficio'}
+            {benefitOptions.length === 1
+              ? `${benefitOptions[0]?.quantity.toLocaleString('es-VE')} × ${benefitOptions[0]?.name}`
+              : `${benefitOptions.length} alternativas · se entrega 1`}
           </div>
         </div>
       </section>

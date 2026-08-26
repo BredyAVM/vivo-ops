@@ -5,9 +5,17 @@ import { requireMasterOrAdminContext } from '@/lib/auth';
 
 const PLAY_KINDS = ['anniversary', 'loyalty', 'new_client', 'reconnect', 'seasonal', 'custom'] as const;
 const FULFILLMENT_FILTERS = ['any', 'pickup', 'delivery'] as const;
+const ANNIVERSARY_MODES = ['any', 'include', 'exclude'] as const;
+const BENEFIT_PRODUCT_TYPES = ['product', 'combo', 'promo', 'gambit'] as const;
 
 export type PlayKind = (typeof PLAY_KINDS)[number];
 export type PlayFulfillmentFilter = (typeof FULFILLMENT_FILTERS)[number];
+export type PlayAnniversaryMode = (typeof ANNIVERSARY_MODES)[number];
+
+export type PlayBenefitInput = {
+  productId: number;
+  quantity: number;
+};
 
 export type SavePlayDraftInput = {
   playId?: number | null;
@@ -16,8 +24,7 @@ export type SavePlayDraftInput = {
   kind: PlayKind;
   startsOn: string;
   endsOn: string;
-  giftProductId: number;
-  giftQuantity: number;
+  benefits: PlayBenefitInput[];
   metricWindow: number;
   minPurchaseCount: number;
   maxPurchaseCount?: number | null;
@@ -28,6 +35,10 @@ export type SavePlayDraftInput = {
   firstPurchaseTo?: string;
   lastPurchaseFrom?: string;
   lastPurchaseTo?: string;
+  lastGiftFrom?: string;
+  lastGiftTo?: string;
+  includeNeverGifted?: boolean;
+  anniversaryMode: PlayAnniversaryMode;
   anniversaryMonth?: number | null;
   fulfillment: PlayFulfillmentFilter;
 };
@@ -82,12 +93,19 @@ function normalizeFulfillment(value: unknown): PlayFulfillmentFilter {
     : 'any';
 }
 
+function normalizeAnniversaryMode(value: unknown): PlayAnniversaryMode {
+  return ANNIVERSARY_MODES.includes(value as PlayAnniversaryMode)
+    ? (value as PlayAnniversaryMode)
+    : 'any';
+}
+
 function rulesFromInput(input: SavePlayDraftInput, excludedClientIds: number[]) {
   const minPurchaseCount = Math.max(0, Math.trunc(finiteNumber(input.minPurchaseCount, 1)));
   const maxPurchaseCount = optionalNonNegativeInteger(input.maxPurchaseCount);
   const minNetRevenueUsd = Math.max(0, finiteNumber(input.minNetRevenueUsd, 0));
   const minDaysSincePurchase = optionalNonNegativeInteger(input.minDaysSincePurchase);
   const maxDaysSincePurchase = optionalNonNegativeInteger(input.maxDaysSincePurchase);
+  const anniversaryMode = normalizeAnniversaryMode(input.anniversaryMode);
   const anniversaryMonth = input.anniversaryMonth == null || input.anniversaryMonth === 0
     ? null
     : Math.trunc(finiteNumber(input.anniversaryMonth, Number.NaN));
@@ -101,6 +119,9 @@ function rulesFromInput(input: SavePlayDraftInput, excludedClientIds: number[]) 
   if (anniversaryMonth != null && (!Number.isFinite(anniversaryMonth) || anniversaryMonth < 1 || anniversaryMonth > 12)) {
     throw new Error('El mes de aniversario debe estar entre 1 y 12.');
   }
+  if (anniversaryMode !== 'any' && anniversaryMonth == null) {
+    throw new Error('Selecciona el mes que deseas incluir o excluir por aniversario.');
+  }
 
   return {
     play_type: normalizeKind(input.kind),
@@ -113,6 +134,10 @@ function rulesFromInput(input: SavePlayDraftInput, excludedClientIds: number[]) 
     first_purchase_to: dateKey(input.firstPurchaseTo, 'La compra inicial hasta'),
     last_purchase_from: dateKey(input.lastPurchaseFrom, 'La última compra desde'),
     last_purchase_to: dateKey(input.lastPurchaseTo, 'La última compra hasta'),
+    last_gift_from: dateKey(input.lastGiftFrom, 'El último obsequio desde'),
+    last_gift_to: dateKey(input.lastGiftTo, 'El último obsequio hasta'),
+    include_never_gifted: input.includeNeverGifted !== false,
+    anniversary_mode: anniversaryMode,
     anniversary_month: anniversaryMonth,
     fulfillment: normalizeFulfillment(input.fulfillment),
     excluded_client_ids: Array.from(new Set(excludedClientIds.filter((id) => Number.isInteger(id) && id > 0))),
@@ -141,27 +166,41 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const description = cleanText(input.description, 1000) || null;
     const startsOn = dateKey(input.startsOn, 'La fecha inicial', true);
     const endsOn = dateKey(input.endsOn, 'La fecha final', true);
-    const giftProductId = Math.trunc(finiteNumber(input.giftProductId, 0));
-    const giftQuantity = finiteNumber(input.giftQuantity, 0);
     const metricWindow = Math.max(2, Math.min(50, Math.trunc(finiteNumber(input.metricWindow, 6))));
+    const benefitOptions = Array.isArray(input.benefits)
+      ? input.benefits.slice(0, 8).map((option) => ({
+          productId: Math.trunc(finiteNumber(option.productId, 0)),
+          quantity: finiteNumber(option.quantity, 0),
+        }))
+      : [];
 
     if (!name) throw new Error('Escribe un nombre para la jugada.');
     if (Date.parse(startBoundary(startsOn)) >= Date.parse(endBoundary(endsOn))) {
       throw new Error('La fecha final debe ser posterior a la fecha inicial.');
     }
-    if (giftProductId <= 0 || giftQuantity <= 0) {
-      throw new Error('Selecciona el beneficio y una cantidad válida.');
+    if (benefitOptions.length === 0) {
+      throw new Error('Selecciona al menos un beneficio.');
+    }
+    if (benefitOptions.some((option) => option.productId <= 0 || option.quantity <= 0)) {
+      throw new Error('Cada beneficio debe tener un producto y una cantidad válida.');
+    }
+    const benefitProductIds = benefitOptions.map((option) => option.productId);
+    if (new Set(benefitProductIds).size !== benefitProductIds.length) {
+      throw new Error('Un mismo beneficio no puede aparecer dos veces.');
     }
 
-    const { data: product, error: productError } = await ctx.supabase
+    const { data: products, error: productError } = await ctx.supabase
       .from('products')
       .select('id, is_active, type')
-      .eq('id', giftProductId)
-      .maybeSingle();
+      .in('id', benefitProductIds)
+      .eq('is_active', true)
+      .in('type', [...BENEFIT_PRODUCT_TYPES]);
     if (productError) throw new Error(productError.message);
-    if (!product || product.is_active === false || product.type === 'service') {
-      throw new Error('El beneficio seleccionado no está disponible para una jugada.');
+    if ((products ?? []).length !== benefitProductIds.length) {
+      throw new Error('Uno de los beneficios seleccionados no está disponible para una jugada.');
     }
+
+    const primaryBenefit = benefitOptions[0];
 
     let excludedClientIds: number[] = [];
     if (playId > 0) {
@@ -183,8 +222,8 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       rules_snapshot: rulesSnapshot,
       selection_summary: {},
       metric_window: metricWindow,
-      gift_product_id: giftProductId,
-      gift_quantity: Number(giftQuantity.toFixed(3)),
+      gift_product_id: primaryBenefit.productId,
+      gift_quantity: Number(primaryBenefit.quantity.toFixed(3)),
       starts_at: startBoundary(startsOn),
       ends_at: endBoundary(endsOn),
     };
@@ -198,12 +237,28 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
         .eq('play_id', playId);
       if (clearError) throw new Error(clearError.message);
 
+      const { error: clearBenefitsError } = await ctx.supabase
+        .from('crm_play_benefits')
+        .delete()
+        .eq('play_id', playId);
+      if (clearBenefitsError) throw new Error(clearBenefitsError.message);
+
       const { error: updateError } = await ctx.supabase
         .from('crm_plays')
         .update(payload)
         .eq('id', playId)
         .eq('status', 'draft');
       if (updateError) throw new Error(updateError.message);
+
+      const { error: benefitsError } = await ctx.supabase
+        .from('crm_play_benefits')
+        .insert(benefitOptions.map((option, index) => ({
+          play_id: playId,
+          product_id: option.productId,
+          quantity: Number(option.quantity.toFixed(3)),
+          sort_order: index + 1,
+        })));
+      if (benefitsError) throw new Error(benefitsError.message);
 
       revalidatePath('/app/master/plays');
       return { ok: true, playId, message: 'Definición actualizada. Genera nuevamente la lista.' };
@@ -233,6 +288,16 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     if (createError) throw new Error(createError.message);
 
     const createdId = Number(created.id);
+    const { error: benefitsError } = await ctx.supabase
+      .from('crm_play_benefits')
+      .insert(benefitOptions.map((option, index) => ({
+        play_id: createdId,
+        product_id: option.productId,
+        quantity: Number(option.quantity.toFixed(3)),
+        sort_order: index + 1,
+      })));
+    if (benefitsError) throw new Error(benefitsError.message);
+
     revalidatePath('/app/master/plays');
     return { ok: true, playId: createdId, message: 'Jugada guardada en diseño. Todavía no es visible para los asesores.' };
   } catch (error) {
@@ -287,12 +352,20 @@ export async function confirmPlayListAction(playIdInput: number): Promise<PlayAc
     const playId = Math.trunc(finiteNumber(playIdInput, 0));
     if (playId <= 0) throw new Error('La jugada no es válida.');
 
-    const { count, error: countError } = await ctx.supabase
-      .from('crm_play_members')
-      .select('id', { count: 'exact', head: true })
-      .eq('play_id', playId);
-    if (countError) throw new Error(countError.message);
-    if (!count) throw new Error('Genera y revisa una lista antes de confirmarla.');
+    const [membersResult, benefitsResult] = await Promise.all([
+      ctx.supabase
+        .from('crm_play_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('play_id', playId),
+      ctx.supabase
+        .from('crm_play_benefits')
+        .select('id', { count: 'exact', head: true })
+        .eq('play_id', playId),
+    ]);
+    if (membersResult.error) throw new Error(membersResult.error.message);
+    if (benefitsResult.error) throw new Error(benefitsResult.error.message);
+    if (!membersResult.count) throw new Error('Genera y revisa una lista antes de confirmarla.');
+    if (!benefitsResult.count) throw new Error('Selecciona al menos un beneficio antes de confirmar.');
 
     const snapshotAt = new Date().toISOString();
     const { data, error } = await ctx.supabase

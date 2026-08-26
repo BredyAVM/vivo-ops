@@ -3,6 +3,7 @@ import { getAuthContext } from '@/lib/auth';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { normalizePhoneDetailed } from '@/lib/phone/normalize-phone';
 import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
+import ClientBenefitSelector from './ClientBenefitSelector';
 import ClientFollowUpPanel from './ClientFollowUpPanel';
 
 type ClientProfile = {
@@ -85,13 +86,12 @@ type PlayMemberRow = {
   client_id: number | string;
   workflow_status: string;
   benefit_status: string;
+  selected_play_benefit_id: number | string | null;
   first_purchase_on: string | null;
   last_purchase_on: string | null;
   purchase_count: number | string;
   net_revenue_usd: number | string;
   average_ticket_usd: number | string | null;
-  cadence_days: number | string | null;
-  cadence_window: number | string;
   last_gift_on: string | null;
   days_since_last_purchase: number | string | null;
   eligibility_reasons: string[] | null;
@@ -113,6 +113,13 @@ type PlayEventRow = {
   follow_up_at: string | null;
   created_at: string;
   actor: { full_name: string | null } | Array<{ full_name: string | null }> | null;
+};
+
+type PlayBenefitRow = {
+  id: number | string;
+  product_id: number | string;
+  quantity: number | string;
+  product: { name: string; sku: string | null } | Array<{ name: string; sku: string | null }> | null;
 };
 
 type PageParams = Promise<{ id: string }>;
@@ -204,6 +211,7 @@ function eventLabel(eventType: string) {
     not_applicable: 'No aplica',
     closed: 'Seguimiento cerrado',
     note: 'Nota agregada',
+    benefit_selected: 'Beneficio seleccionado',
   };
   return labels[eventType] ?? eventType;
 }
@@ -256,8 +264,9 @@ export default async function AdvisorClientProfilePage({
       .from('crm_play_members')
       .select(`
         id, play_id, client_id, workflow_status, benefit_status,
+        selected_play_benefit_id,
         first_purchase_on, last_purchase_on, purchase_count, net_revenue_usd,
-        average_ticket_usd, cadence_days, cadence_window, last_gift_on,
+        average_ticket_usd, last_gift_on,
         days_since_last_purchase, eligibility_reasons, contact_attempt_count,
         last_contact_at, next_follow_up_at, last_note, last_event_at,
         play:crm_plays(
@@ -297,7 +306,7 @@ export default async function AdvisorClientProfilePage({
     ?? null;
   const selectedPlay = selectedMember ? one(selectedMember.play) : null;
 
-  const [eventsResult, productResult] = await Promise.all([
+  const [eventsResult, benefitOptionsResult] = await Promise.all([
     selectedMember
       ? ctx.supabase
           .from('crm_play_member_events')
@@ -309,18 +318,28 @@ export default async function AdvisorClientProfilePage({
       : Promise.resolve({ data: [], error: null }),
     selectedPlay
       ? ctx.supabase
-          .from('products')
-          .select('id, name, sku')
-          .eq('id', Number(selectedPlay.gift_product_id))
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
+          .from('crm_play_benefits')
+          .select('id, product_id, quantity, product:products!crm_play_benefits_product_id_fkey(name, sku)')
+          .eq('play_id', Number(selectedPlay.id))
+          .order('sort_order', { ascending: true })
+          .order('id', { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (eventsResult.error) console.error('Unable to load CRM follow-up events', eventsResult.error.message);
-  if (productResult.error) console.error('Unable to load CRM play product', productResult.error.message);
+  if (benefitOptionsResult.error) console.error('Unable to load CRM play benefits', benefitOptionsResult.error.message);
 
   const events = (eventsResult.data ?? []) as unknown as PlayEventRow[];
-  const giftProduct = productResult.data as { id: number; name: string; sku: string | null } | null;
+  const benefitOptions = ((benefitOptionsResult.data ?? []) as unknown as PlayBenefitRow[]).map((option) => {
+    const product = one(option.product);
+    return {
+      id: numberValue(option.id),
+      productId: numberValue(option.product_id),
+      name: product?.name?.trim() || 'Beneficio',
+      sku: product?.sku ?? null,
+      quantity: numberValue(option.quantity),
+    };
+  });
   const phone = normalizePhoneDetailed(profile.client.phone);
   const whatsappHref = phone.e164 ? `https://wa.me/${phone.e164.slice(1)}` : null;
   const cadence = optionalNumber(profile.metrics.cadence_days);
@@ -372,9 +391,9 @@ export default async function AdvisorClientProfilePage({
           detail={dateLabel(profile.metrics.last_purchase_on)}
         />
         <MetricCard
-          label={`Ritmo ${numberValue(profile.purchase_window)}`}
+          label="Frecuencia promedio"
           value={cadence === null ? '—' : `${Math.round(cadence)} d`}
-          detail={cadence === null ? 'Aún sin patrón' : 'Promedio entre compras'}
+          detail={cadence === null ? 'Aún sin patrón' : 'Tiempo aproximado entre compras'}
         />
       </div>
 
@@ -389,7 +408,6 @@ export default async function AdvisorClientProfilePage({
         </dl>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {profile.classification.needs_contact ? <StatusBadge label="Requiere contacto" tone="warning" /> : null}
-          {profile.classification.outside_rhythm ? <StatusBadge label="Fuera de ritmo" tone="warning" /> : null}
           {numberValue(profile.pending_order_count) > 0 ? <StatusBadge label={`${numberValue(profile.pending_order_count)} pedido en curso`} tone="neutral" /> : null}
         </div>
       </SectionCard>
@@ -402,10 +420,14 @@ export default async function AdvisorClientProfilePage({
             action={<StatusBadge label={workflowLabel(selectedMember.workflow_status)} tone={workflowTone(selectedMember.workflow_status)} />}
           >
             <div className="rounded-[16px] border border-[#2A3040] bg-[#0D1017] px-3.5 py-3 text-xs leading-5 text-[#AAB2C5]">
-              <div className="font-medium text-[#F5F7FB]">
-                Beneficio: {numberValue(selectedPlay.gift_quantity).toLocaleString('es-VE')} × {giftProduct?.name || 'producto definido en la jugada'}
-              </div>
-              <div className="mt-1">Disponible según las condiciones congeladas al activar la lista.</div>
+              <div className="mb-2 font-medium text-[#F5F7FB]">Beneficio para este cliente</div>
+              <ClientBenefitSelector
+                key={`${selectedMember.id}-${selectedMember.selected_play_benefit_id ?? 'none'}`}
+                playMemberId={numberValue(selectedMember.id)}
+                options={benefitOptions}
+                selectedBenefitId={selectedMember.selected_play_benefit_id == null ? null : numberValue(selectedMember.selected_play_benefit_id)}
+                isActive={isPlayActive}
+              />
               {selectedMember.next_follow_up_at ? (
                 <div className="mt-1 text-[#F7DA66]">Próximo seguimiento: {dateTimeLabel(selectedMember.next_follow_up_at)}</div>
               ) : null}
@@ -427,7 +449,6 @@ export default async function AdvisorClientProfilePage({
               <div><dt className="text-[#747E91]">Última compra</dt><dd className="mt-1 text-[#E2E6EF]">{dateLabel(selectedMember.last_purchase_on)}</dd></div>
               <div><dt className="text-[#747E91]">Cierres</dt><dd className="mt-1 text-[#E2E6EF]">{numberValue(selectedMember.purchase_count)}</dd></div>
               <div><dt className="text-[#747E91]">Facturación</dt><dd className="mt-1 text-[#E2E6EF]">{moneyFormatter.format(numberValue(selectedMember.net_revenue_usd))}</dd></div>
-              <div><dt className="text-[#747E91]">Ritmo</dt><dd className="mt-1 text-[#E2E6EF]">{selectedMember.cadence_days == null ? 'Sin patrón' : `${Math.round(numberValue(selectedMember.cadence_days))} días`}</dd></div>
               <div><dt className="text-[#747E91]">Último obsequio</dt><dd className="mt-1 text-[#E2E6EF]">{dateLabel(selectedMember.last_gift_on)}</dd></div>
             </dl>
             {selectedMember.eligibility_reasons?.length ? (

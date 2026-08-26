@@ -11,6 +11,7 @@ import {
   generatePlayListAction,
   savePlayDraftAction,
   type PlayActionResult,
+  type PlayAnniversaryMode,
   type PlayFulfillmentFilter,
   type PlayKind,
   type SavePlayDraftInput,
@@ -41,7 +42,14 @@ export type MasterPlay = {
   activatedAt: string | null;
   closedAt: string | null;
   createdAt: string;
-  benefit: { id: number; name: string; sku: string | null } | null;
+  benefits: Array<{
+    id: number;
+    productId: number;
+    quantity: number;
+    sortOrder: number;
+    name: string;
+    sku: string | null;
+  }>;
 };
 
 export type MasterPlayMember = {
@@ -57,7 +65,7 @@ export type MasterPlayMember = {
   purchaseCount: number;
   netRevenueUsd: number;
   averageTicketUsd: number | null;
-  cadenceDays: number | null;
+  lastGiftOn: string | null;
   daysSinceLastPurchase: number | null;
   workflowStatus: string;
 };
@@ -249,9 +257,9 @@ function PlayDefinitionForm({
   const [kind, setKind] = useState<PlayKind>(() => (play ? (stringValue(rules.play_type) || play.seriesKey) as PlayKind : 'custom'));
   const [startsOn, setStartsOn] = useState(play ? dateInput(play.startsAt) : today);
   const [endsOn, setEndsOn] = useState(play ? dateInput(play.endsAt) : endOfMonth(today));
-  const [giftProductId, setGiftProductId] = useState(play ? String(play.giftProductId) : benefits[0] ? String(benefits[0].id) : '');
-  const [giftQuantity, setGiftQuantity] = useState(play ? String(play.giftQuantity) : '1');
-  const [metricWindow, setMetricWindow] = useState(play ? String(play.metricWindow) : '6');
+  const [benefitOptions, setBenefitOptions] = useState(() => play?.benefits.length
+    ? play.benefits.map((option) => ({ productId: String(option.productId), quantity: String(option.quantity) }))
+    : [{ productId: benefits[0] ? String(benefits[0].id) : '', quantity: '1' }]);
   const [minPurchases, setMinPurchases] = useState(play ? optionalNumberString(rules.min_purchase_count) || '1' : '1');
   const [maxPurchases, setMaxPurchases] = useState(play ? optionalNumberString(rules.max_purchase_count) : '');
   const [minRevenue, setMinRevenue] = useState(play ? optionalNumberString(rules.min_net_revenue_usd) || '0' : '0');
@@ -261,6 +269,14 @@ function PlayDefinitionForm({
   const [firstTo, setFirstTo] = useState(play ? stringValue(rules.first_purchase_to) : '');
   const [lastFrom, setLastFrom] = useState(play ? stringValue(rules.last_purchase_from) : '');
   const [lastTo, setLastTo] = useState(play ? stringValue(rules.last_purchase_to) : '');
+  const [lastGiftFrom, setLastGiftFrom] = useState(play ? stringValue(rules.last_gift_from) : '');
+  const [lastGiftTo, setLastGiftTo] = useState(play ? stringValue(rules.last_gift_to) : '');
+  const [includeNeverGifted, setIncludeNeverGifted] = useState(play ? rules.include_never_gifted !== false : true);
+  const [anniversaryMode, setAnniversaryMode] = useState<PlayAnniversaryMode>(() => {
+    const storedMode = stringValue(rules.anniversary_mode);
+    if (storedMode === 'include' || storedMode === 'exclude') return storedMode;
+    return play && rules.anniversary_month ? 'include' : 'any';
+  });
   const [anniversaryMonth, setAnniversaryMonth] = useState(play ? optionalNumberString(rules.anniversary_month) : '');
   const [fulfillment, setFulfillment] = useState<PlayFulfillmentFilter>(() => play ? (stringValue(rules.fulfillment) || 'any') as PlayFulfillmentFilter : 'any');
 
@@ -273,6 +289,10 @@ function PlayDefinitionForm({
     setFirstTo('');
     setLastFrom('');
     setLastTo('');
+    setLastGiftFrom('');
+    setLastGiftTo('');
+    setIncludeNeverGifted(true);
+    setAnniversaryMode('any');
     setAnniversaryMonth('');
     setMinDays('');
     setMaxDays('');
@@ -283,12 +303,15 @@ function PlayDefinitionForm({
       setName(`Aniversario · ${monthYear}`);
       setMinPurchases('2');
       setMinRevenue('0');
+      setAnniversaryMode('include');
       setAnniversaryMonth(String(month));
     } else if (nextKind === 'loyalty') {
       setName(`Fidelidad · ${monthYear}`);
       setMinPurchases('8');
       setMinRevenue('0');
       setMaxDays('60');
+      setAnniversaryMode('exclude');
+      setAnniversaryMonth(String(month));
     } else if (nextKind === 'new_client') {
       const previous = previousMonthRange(startsOn);
       setName(`Clientes nuevos · ${monthYear}`);
@@ -321,9 +344,11 @@ function PlayDefinitionForm({
       kind,
       startsOn,
       endsOn,
-      giftProductId: Number(giftProductId),
-      giftQuantity: Number(giftQuantity),
-      metricWindow: Number(metricWindow),
+      benefits: benefitOptions.map((option) => ({
+        productId: Number(option.productId),
+        quantity: Number(option.quantity),
+      })),
+      metricWindow: play?.metricWindow ?? 6,
       minPurchaseCount: Number(minPurchases),
       maxPurchaseCount: maxPurchases === '' ? null : Number(maxPurchases),
       minNetRevenueUsd: Number(minRevenue),
@@ -333,6 +358,10 @@ function PlayDefinitionForm({
       firstPurchaseTo: firstTo,
       lastPurchaseFrom: lastFrom,
       lastPurchaseTo: lastTo,
+      lastGiftFrom,
+      lastGiftTo,
+      includeNeverGifted,
+      anniversaryMode,
       anniversaryMonth: anniversaryMonth === '' ? null : Number(anniversaryMonth),
       fulfillment,
     });
@@ -383,21 +412,69 @@ function PlayDefinitionForm({
           <textarea className={`${inputClass} min-h-16 resize-y py-2`} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Qué queremos lograr y cómo debe abordarse esta lista." />
         </Field>
 
-        <div className="grid gap-3 md:grid-cols-[1.6fr_0.55fr_0.55fr]">
-          <Field label="Beneficio que podrá ofrecerse">
-            <select className={inputClass} value={giftProductId} onChange={(event) => setGiftProductId(event.target.value)} required>
-              <option value="">Seleccionar beneficio</option>
-              {benefits.map((benefit) => (
-                <option key={benefit.id} value={benefit.id}>{benefit.name}{benefit.sku ? ` · ${benefit.sku}` : ''}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Cantidad">
-            <input className={inputClass} type="number" min="0.001" step="0.001" value={giftQuantity} onChange={(event) => setGiftQuantity(event.target.value)} required />
-          </Field>
-          <Field label="Ritmo" hint="compras">
-            <input className={inputClass} type="number" min="2" max="50" value={metricWindow} onChange={(event) => setMetricWindow(event.target.value)} required />
-          </Field>
+        <div className="rounded-2xl border border-[#3C3410] bg-[#171506] p-3">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-xs font-semibold text-[#FFF18B]">Beneficios disponibles</h3>
+              <p className="mt-0.5 text-[10px] text-[#A89F68]">Puedes agregar hasta ocho alternativas. Para cada cliente el asesor escogerá una sola; no se acumulan.</p>
+            </div>
+            <button
+              type="button"
+              disabled={benefitOptions.length >= 8}
+              onClick={() => setBenefitOptions((current) => [...current, { productId: '', quantity: '1' }])}
+              className={buttonSecondary}
+            >
+              + Agregar alternativa
+            </button>
+          </div>
+          <div className="space-y-2">
+            {benefitOptions.map((option, index) => {
+              const usedByAnother = new Set(benefitOptions
+                .filter((_, candidateIndex) => candidateIndex !== index)
+                .map((candidate) => candidate.productId)
+                .filter(Boolean));
+              return (
+                <div key={index} className="grid gap-2 rounded-xl border border-[#302B10] bg-[#0D0D0A] p-2 sm:grid-cols-[minmax(0,1fr)_120px_36px]">
+                  <Field label={`Alternativa ${index + 1}`}>
+                    <select
+                      className={inputClass}
+                      value={option.productId}
+                      onChange={(event) => setBenefitOptions((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, productId: event.target.value } : candidate))}
+                      required
+                    >
+                      <option value="">Seleccionar beneficio</option>
+                      {benefits.map((benefit) => (
+                        <option key={benefit.id} value={benefit.id} disabled={usedByAnother.has(String(benefit.id))}>
+                          {benefit.name}{benefit.sku ? ` · ${benefit.sku}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Cantidad">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0.001"
+                      step="0.001"
+                      value={option.quantity}
+                      onChange={(event) => setBenefitOptions((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, quantity: event.target.value } : candidate))}
+                      required
+                    />
+                  </Field>
+                  <button
+                    type="button"
+                    disabled={benefitOptions.length === 1}
+                    onClick={() => setBenefitOptions((current) => current.filter((_, candidateIndex) => candidateIndex !== index))}
+                    className="mt-5 flex h-9 w-9 items-center justify-center rounded-xl border border-red-500/20 text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-25"
+                    title="Quitar esta alternativa"
+                    aria-label={`Quitar alternativa ${index + 1}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <div className="rounded-2xl border border-[#242433] bg-[#0F0F14] p-3">
@@ -406,10 +483,10 @@ function PlayDefinitionForm({
             <p className="mt-0.5 text-[10px] text-[#666675]">Deja un campo vacío cuando no quieras usar ese límite.</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Field label="Compras mínimas">
+            <Field label="Cierres mínimos">
               <input className={inputClass} type="number" min="0" value={minPurchases} onChange={(event) => setMinPurchases(event.target.value)} />
             </Field>
-            <Field label="Compras máximas">
+            <Field label="Cierres máximos">
               <input className={inputClass} type="number" min="0" value={maxPurchases} onChange={(event) => setMaxPurchases(event.target.value)} placeholder="Sin límite" />
             </Field>
             <Field label="Facturación mínima USD">
@@ -428,27 +505,81 @@ function PlayDefinitionForm({
             <Field label="Días sin comprar: máximo">
               <input className={inputClass} type="number" min="0" value={maxDays} onChange={(event) => setMaxDays(event.target.value)} placeholder="Sin máximo" />
             </Field>
-            <Field label="Mes de aniversario">
-              <select className={inputClass} value={anniversaryMonth} onChange={(event) => setAnniversaryMonth(event.target.value)}>
-                <option value="">Cualquier mes</option>
-                {Array.from({ length: 12 }, (_, index) => (
-                  <option key={index + 1} value={index + 1}>{new Intl.DateTimeFormat('es-VE', { month: 'long' }).format(new Date(2026, index, 1))}</option>
-                ))}
-              </select>
-            </Field>
-            <div />
-            <Field label="Primera compra desde">
-              <input className={inputClass} type="date" value={firstFrom} onChange={(event) => setFirstFrom(event.target.value)} />
-            </Field>
-            <Field label="Primera compra hasta">
-              <input className={inputClass} type="date" value={firstTo} onChange={(event) => setFirstTo(event.target.value)} />
-            </Field>
-            <Field label="Última compra desde">
-              <input className={inputClass} type="date" value={lastFrom} onChange={(event) => setLastFrom(event.target.value)} />
-            </Field>
-            <Field label="Última compra hasta">
-              <input className={inputClass} type="date" value={lastTo} onChange={(event) => setLastTo(event.target.value)} />
-            </Field>
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+            <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+              <div className="mb-2">
+                <h4 className="text-[11px] font-semibold text-[#D8D8E0]">Aniversario de la primera compra</h4>
+                <p className="mt-0.5 text-[9px] text-[#666675]">Permite incluirlos o evitar que reciban dos reconocimientos el mismo mes.</p>
+              </div>
+              <div className="space-y-2">
+                <Field label="Cómo usarlo">
+                  <select className={inputClass} value={anniversaryMode} onChange={(event) => setAnniversaryMode(event.target.value as PlayAnniversaryMode)}>
+                    <option value="any">No filtrar por aniversario</option>
+                    <option value="include">Solo quienes cumplen aniversario</option>
+                    <option value="exclude">Excluir quienes cumplen aniversario</option>
+                  </select>
+                </Field>
+                <Field label="Mes">
+                  <select className={inputClass} disabled={anniversaryMode === 'any'} value={anniversaryMonth} onChange={(event) => setAnniversaryMonth(event.target.value)} required={anniversaryMode !== 'any'}>
+                    <option value="">Seleccionar mes</option>
+                    {Array.from({ length: 12 }, (_, index) => (
+                      <option key={index + 1} value={index + 1}>{new Intl.DateTimeFormat('es-VE', { month: 'long' }).format(new Date(2026, index, 1))}</option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+              <div className="mb-2">
+                <h4 className="text-[11px] font-semibold text-[#D8D8E0]">Fecha de la primera compra</h4>
+                <p className="mt-0.5 text-[9px] text-[#666675]">Filtra cuándo el cliente compró por primera vez. Es la base de clientes nuevos.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Desde esta fecha">
+                  <input className={inputClass} type="date" value={firstFrom} onChange={(event) => setFirstFrom(event.target.value)} />
+                </Field>
+                <Field label="Hasta esta fecha">
+                  <input className={inputClass} type="date" value={firstTo} onChange={(event) => setFirstTo(event.target.value)} />
+                </Field>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+              <div className="mb-2">
+                <h4 className="text-[11px] font-semibold text-[#D8D8E0]">Fecha de la última compra</h4>
+                <p className="mt-0.5 text-[9px] text-[#666675]">Filtra cuándo ocurrió su compra más reciente; no modifica la primera compra.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Desde esta fecha">
+                  <input className={inputClass} type="date" value={lastFrom} onChange={(event) => setLastFrom(event.target.value)} />
+                </Field>
+                <Field label="Hasta esta fecha">
+                  <input className={inputClass} type="date" value={lastTo} onChange={(event) => setLastTo(event.target.value)} />
+                </Field>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.04] p-3">
+            <div className="mb-2">
+              <h4 className="text-[11px] font-semibold text-emerald-200">Último obsequio recibido</h4>
+              <p className="mt-0.5 text-[9px] text-emerald-200/55">Para no repetir reconocimientos. Ejemplo: usa “hasta” con el último día anterior al período que deseas bloquear.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1.2fr]">
+              <Field label="Desde esta fecha">
+                <input className={inputClass} type="date" value={lastGiftFrom} onChange={(event) => setLastGiftFrom(event.target.value)} />
+              </Field>
+              <Field label="Hasta esta fecha">
+                <input className={inputClass} type="date" value={lastGiftTo} onChange={(event) => setLastGiftTo(event.target.value)} />
+              </Field>
+              <label className="mt-5 flex h-9 items-center gap-2 rounded-xl border border-[#2A2A35] bg-[#0B0B0D] px-3 text-[10px] text-[#B7B7C2]">
+                <input type="checkbox" checked={includeNeverGifted} onChange={(event) => setIncludeNeverGifted(event.target.checked)} className="accent-[#FEEF00]" />
+                Incluir clientes que nunca recibieron obsequio
+              </label>
+            </div>
           </div>
         </div>
       </fieldset>
@@ -505,11 +636,11 @@ function MemberList({
         </div>
       ) : (
         <div className="divide-y divide-[#242433]">
-          <div className="hidden grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_80px_34px] gap-3 bg-[#0D0D11] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#666675] lg:grid">
-            <span>Cliente</span><span>Asesor</span><span className="text-right">Compras</span><span className="text-right">Facturación</span><span className="text-right">Sin comprar</span><span className="text-right">Ritmo</span><span />
+          <div className="hidden grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px] gap-3 bg-[#0D0D11] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#666675] lg:grid">
+            <span>Cliente</span><span>Asesor</span><span className="text-right">Cierres</span><span className="text-right">Facturación</span><span className="text-right">Sin comprar</span><span className="text-right">Últ. obsequio</span><span />
           </div>
           {members.map((member) => (
-            <div key={member.id} className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 lg:grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_80px_34px]">
+            <div key={member.id} className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 lg:grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px]">
               <div className="min-w-0">
                 <div className="truncate text-xs font-semibold text-[#F5F5F7]">{member.clientName}</div>
                 <div className="mt-0.5 truncate text-[9px] text-[#666675]">#{member.clientId} · última {dateLabel(member.lastPurchaseOn)}</div>
@@ -518,7 +649,7 @@ function MemberList({
               <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.purchaseCount}</div>
               <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{moneyFormatter.format(member.netRevenueUsd)}</div>
               <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.daysSinceLastPurchase == null ? '—' : `${member.daysSinceLastPurchase} d`}</div>
-              <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.cadenceDays == null ? '—' : `${member.cadenceDays.toFixed(0)} d`}</div>
+              <div className="hidden text-right text-[10px] tabular-nums text-[#D5D5DD] lg:block">{dateLabel(member.lastGiftOn)}</div>
               {play.status === 'draft' ? (
                 <button
                   type="button"
@@ -532,7 +663,7 @@ function MemberList({
                 </button>
               ) : <span />}
               <div className="col-span-2 flex flex-wrap gap-1 text-[9px] text-[#8F8F9D] lg:hidden">
-                <span>{member.advisorName}</span><span>·</span><span>{member.purchaseCount} compras</span><span>·</span><span>{moneyFormatter.format(member.netRevenueUsd)}</span><span>·</span><span>{member.daysSinceLastPurchase ?? '—'} d</span>
+                <span>{member.advisorName}</span><span>·</span><span>{member.purchaseCount} cierres</span><span>·</span><span>{moneyFormatter.format(member.netRevenueUsd)}</span><span>·</span><span>{member.daysSinceLastPurchase ?? '—'} d</span><span>·</span><span>obsequio {dateLabel(member.lastGiftOn)}</span>
               </div>
             </div>
           ))}
@@ -672,8 +803,14 @@ export default function MasterPlaysClient({
                     <p className="mt-1 text-xs text-[#777785]">{selectedPlay.description || 'Sin objetivo interno descrito.'}</p>
                   </div>
                   <div className="shrink-0 rounded-xl border border-[#3C3410] bg-[#211E0A] px-3 py-2 text-right">
-                    <div className="text-[9px] uppercase tracking-[0.12em] text-[#A99D4D]">Beneficio</div>
-                    <div className="mt-0.5 max-w-64 truncate text-xs font-semibold text-[#FFF18B]">{selectedPlay.giftQuantity} × {selectedPlay.benefit?.name || 'Producto'}</div>
+                    <div className="text-[9px] uppercase tracking-[0.12em] text-[#A99D4D]">Beneficios · se entrega 1</div>
+                    <div className="mt-1 flex max-w-96 flex-wrap justify-end gap-1">
+                      {selectedPlay.benefits.map((option) => (
+                        <span key={option.id} className="rounded-full border border-[#554912] bg-[#151304] px-2 py-0.5 text-[9px] font-semibold text-[#FFF18B]">
+                          {option.quantity} × {option.name}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <PlayProgress status={selectedPlay.status} />
@@ -682,7 +819,7 @@ export default function MasterPlaysClient({
                   <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedSummaryTotal}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Clientes</div></div>
                   <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedAdvisorCount}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Asesores</div></div>
                   <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedExcludedCount}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Retirados</div></div>
-                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedPlay.metricWindow}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Compras ritmo</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedPlay.benefits.length}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Alternativas</div></div>
                 </div>
               </section>
 
