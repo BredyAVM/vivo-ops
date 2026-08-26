@@ -157,6 +157,40 @@ function concisePercent(value: number) {
   return `${new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 }).format(value)}%`;
 }
 
+function caracasDayKey() {
+  return new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'America/Caracas',
+  }).format(new Date());
+}
+
+function dateOnlyDistance(from: string, to: string) {
+  const fromTime = Date.parse(`${from.slice(0, 10)}T12:00:00Z`);
+  const toTime = Date.parse(`${to.slice(0, 10)}T12:00:00Z`);
+  if (!Number.isFinite(fromTime) || !Number.isFinite(toTime)) return 0;
+  return Math.round((toTime - fromTime) / 86_400_000);
+}
+
+function periodProgress(dateFrom: string, dateTo: string, isFinal: boolean) {
+  if (isFinal) {
+    return { phase: 'final' as const, label: 'Resultado cerrado' };
+  }
+
+  const today = caracasDayKey();
+  if (today < dateFrom) {
+    const days = Math.max(1, dateOnlyDistance(today, dateFrom));
+    return { phase: 'upcoming' as const, label: days === 1 ? 'Comienza mañana' : `Comienza en ${days} días` };
+  }
+  if (today > dateTo) {
+    return { phase: 'ended' as const, label: 'Período finalizado · en revisión' };
+  }
+
+  const days = Math.max(0, dateOnlyDistance(today, dateTo));
+  return { phase: 'active' as const, label: days === 0 ? 'Último día del período' : `Quedan ${days} días` };
+}
+
 function dateLabel(value: string | null | undefined) {
   if (!value) return 'Sin fecha';
   const parsed = new Date(`${value.slice(0, 10)}T12:00:00-04:00`);
@@ -288,6 +322,21 @@ function goalValue(key: AdvisorGoalMetricKey, value: number) {
   return numberValue(value).toFixed(0);
 }
 
+function goalMetricGapLabel(key: AdvisorGoalMetricKey, actual: number, target: number) {
+  const gap = target - actual;
+  if (gap > 0.0005) {
+    if (key === 'billing') return `Faltan ${money(gap)}`;
+    if (key === 'collection') return `Faltan ${(gap * 100).toFixed(1)} puntos porcentuales`;
+    const units = Math.max(1, Math.ceil(gap));
+    if (key === 'closures') return `Faltan ${units} cierre${units === 1 ? '' : 's'}`;
+    return `Faltan ${units} cliente${units === 1 ? '' : 's'}`;
+  }
+  if (target > 0 && actual > target + 0.0005) {
+    return `Sobrecumplimiento +${Math.round((actual / target - 1) * 100)}%`;
+  }
+  return 'Meta alcanzada';
+}
+
 function GoalMetricProgress({
   metricKey,
   label,
@@ -302,6 +351,7 @@ function GoalMetricProgress({
   basePoints: number;
 }) {
   const progress = metric.target > 0 ? Math.max(0, Math.min(100, metric.actual / metric.target * 100)) : 0;
+  const reached = metric.target > 0 && metric.actual >= metric.target;
   return (
     <details className="rounded-[16px] border border-[#252A37] bg-[#0D1017] px-3 py-3">
       <summary className="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
@@ -319,7 +369,18 @@ function GoalMetricProgress({
           </div>
         </div>
         <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-[#252A37]">
-          <div className="h-full rounded-full bg-[#F0D000]" style={{ width: `${progress}%` }} />
+          <div
+            aria-label={`Avance de ${label}: ${progress.toFixed(0)}%`}
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={Math.round(progress)}
+            className={`h-full rounded-full ${reached ? 'bg-emerald-400' : 'bg-[#F0D000]'}`}
+            role="progressbar"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className={`mt-1.5 text-[10px] font-semibold ${reached ? 'text-emerald-300' : 'text-[#C9BE76]'}`}>
+          {goalMetricGapLabel(metricKey, metric.actual, metric.target)}
         </div>
       </summary>
       <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#252A37] pt-3 text-xs">
@@ -560,6 +621,50 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
         new_assigned_clients: { ...visibleGoal.metrics.new_assigned_clients, actual: currentGoalAssignedClients },
         }
     : null;
+  const goalPeriodProgress = selectedPeriod
+    ? periodProgress(selectedPeriod.date_from, selectedPeriod.date_to, visibleGoal?.status === 'final')
+    : null;
+  const goalMetricRows = visibleGoal && liveGoalScore && liveGoalMetrics
+    ? ([
+        ['billing', 'Facturación', liveGoalMetrics.billing],
+        ['closures', 'Cierres', liveGoalMetrics.closures],
+        ['collection', 'Cobranza', liveGoalMetrics.collection],
+        ['new_own_clients', 'Clientes propios', liveGoalMetrics.new_own_clients],
+        ['new_assigned_clients', 'Clientes asignados', liveGoalMetrics.new_assigned_clients],
+      ] as const).map(([key, label, metric]) => {
+        const scoreMetric = liveGoalScore.metrics.find((item) => item.key === key);
+        return {
+          key,
+          label,
+          metric,
+          basePoints: scoreMetric?.basePoints ?? 0,
+          points: scoreMetric?.points ?? 0,
+        };
+      })
+    : [];
+  const achievedGoalMetrics = goalMetricRows.filter(({ metric }) => metric.target > 0 && metric.actual >= metric.target).length;
+  const nextGoalBand = liveGoalScore && visibleGoal?.status !== 'final'
+    ? orderedGoalBands.find((band) => band.minPoints > liveGoalScore.points) ?? null
+    : null;
+  const pointsToNextGoalBand = nextGoalBand && liveGoalScore
+    ? Math.max(0, nextGoalBand.minPoints - liveGoalScore.points)
+    : 0;
+  const incompleteGoalMetrics = goalMetricRows.filter(({ metric }) => metric.target > 0 && metric.actual < metric.target);
+  const focusGoalMetric = goalPeriodProgress?.phase === 'ended'
+    ? incompleteGoalMetrics.find(({ key }) => key === 'collection') ?? null
+    : [...incompleteGoalMetrics].sort(
+        (left, right) =>
+          Math.max(0, right.basePoints - right.points) - Math.max(0, left.basePoints - left.points)
+      )[0] ?? null;
+  const goalGuidance = visibleGoal?.status === 'final'
+    ? `Cerraste con ${achievedGoalMetrics} de 5 metas alcanzadas. Este resultado ya no cambia con la actividad actual.`
+    : goalPeriodProgress?.phase === 'ended'
+      ? focusGoalMetric
+        ? `El período comercial ya cerró. Revisa cobranza: ${goalMetricGapLabel(focusGoalMetric.key, focusGoalMetric.metric.actual, focusGoalMetric.metric.target).toLocaleLowerCase('es')}.`
+        : 'El período comercial ya cerró y sus cinco metas están alcanzadas. Administración está consolidando el resultado.'
+      : focusGoalMetric
+        ? `${goalPeriodProgress?.phase === 'upcoming' ? 'Tu mayor palanca al comenzar' : 'Tu mayor oportunidad ahora'} es ${focusGoalMetric.label.toLocaleLowerCase('es')}: ${goalMetricGapLabel(focusGoalMetric.key, focusGoalMetric.metric.actual, focusGoalMetric.metric.target).toLocaleLowerCase('es')}. Puede sumar hasta ${Math.max(0, focusGoalMetric.basePoints - focusGoalMetric.points).toFixed(1)} puntos base adicionales.`
+        : 'Ya alcanzaste las cinco metas. El sobrecumplimiento puede seguir sumando, con el límite configurado de 200% por indicador.';
 
   const giftsByName = new Map<string, { qty: number; deductionUsd: number; rows: SnapshotGift[] }>();
   for (const gift of gifts) {
@@ -751,30 +856,61 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 </div>
               </div>
 
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-[14px] border border-[#2A3040] bg-[#0D1017] px-3 py-2.5">
+                  <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#7F879A]">
+                    {visibleGoal.status === 'final' ? 'Metas logradas' : 'Próximo nivel'}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-[#F5F7FB]">
+                    {visibleGoal.status === 'final'
+                      ? `${achievedGoalMetrics} de 5`
+                      : nextGoalBand
+                        ? nextGoalBand.label
+                        : 'Nivel máximo'}
+                  </div>
+                  <div className="mt-0.5 text-[10px] leading-4 text-[#9FA7B9]">
+                    {visibleGoal.status === 'final'
+                      ? `Nivel ${liveGoalScore.band.label} confirmado`
+                      : nextGoalBand
+                        ? `Faltan ${pointsToNextGoalBand.toFixed(1)} pts · ${nextGoalBand.commissionPct.toFixed(2)}%`
+                        : `${liveGoalScore.band.label} · ${liveGoalScore.calculatedCommissionPct.toFixed(2)}%`}
+                  </div>
+                </div>
+                <div className="rounded-[14px] border border-[#2A3040] bg-[#0D1017] px-3 py-2.5">
+                  <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#7F879A]">Tiempo del período</div>
+                  <div className="mt-1 text-sm font-semibold text-[#F5F7FB]">{goalPeriodProgress?.label}</div>
+                  <div className="mt-0.5 text-[10px] leading-4 text-[#9FA7B9]">
+                    Hasta {dateLabel(selectedPeriod.date_to)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 rounded-[14px] border border-sky-400/20 bg-sky-400/5 px-3 py-2.5">
+                <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-sky-300">
+                  {visibleGoal.status === 'final'
+                    ? 'Lectura del resultado'
+                    : goalPeriodProgress?.phase === 'ended'
+                      ? 'En revisión'
+                      : 'Tu siguiente movimiento'}
+                </div>
+                <p className="mt-1 text-[11px] leading-5 text-sky-100">{goalGuidance}</p>
+              </div>
+
               {visibleGoal.status !== 'final' && currentGoalObservedAt ? (
                 <AdvisorGoalLiveRefresh observedAt={currentGoalObservedAt} />
               ) : null}
 
               <div className="mt-3 space-y-2.5">
-                {([
-                  ['billing', 'Facturación', liveGoalMetrics.billing],
-                  ['closures', 'Cierres', liveGoalMetrics.closures],
-                  ['collection', 'Cobranza', liveGoalMetrics.collection],
-                  ['new_own_clients', 'Clientes propios', liveGoalMetrics.new_own_clients],
-                  ['new_assigned_clients', 'Clientes asignados', liveGoalMetrics.new_assigned_clients],
-                ] as const).map(([metricKey, label, metric]) => {
-                  const scoreMetric = liveGoalScore.metrics.find((item) => item.key === metricKey);
-                  return (
-                    <GoalMetricProgress
-                      basePoints={scoreMetric?.basePoints ?? 0}
-                      key={metricKey}
-                      label={label}
-                      metric={metric}
-                      metricKey={metricKey}
-                      points={scoreMetric?.points ?? 0}
-                    />
-                  );
-                })}
+                {goalMetricRows.map(({ key, label, metric, basePoints, points }) => (
+                  <GoalMetricProgress
+                    basePoints={basePoints}
+                    key={key}
+                    label={label}
+                    metric={metric}
+                    metricKey={key}
+                    points={points}
+                  />
+                ))}
               </div>
 
               {currentGoalCollection ? (
