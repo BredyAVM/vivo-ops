@@ -9,7 +9,7 @@ import {
   confirmPlayListAction,
   excludePlayClientAction,
   generatePlayListAction,
-  savePlayDraftAction,
+  testPlayDefinitionAction,
   type PlayActionResult,
   type PlayAnniversaryMode,
   type PlayFulfillmentFilter,
@@ -22,6 +22,7 @@ export type PlayBenefit = {
   name: string;
   sku: string | null;
   type: string;
+  referenceBudgetCostUsd: number;
 };
 
 export type MasterPlay = {
@@ -36,6 +37,7 @@ export type MasterPlay = {
   metricWindow: number;
   giftProductId: number;
   giftQuantity: number;
+  plannedBudgetUsd: number | null;
   startsAt: string | null;
   endsAt: string | null;
   snapshotAt: string | null;
@@ -46,6 +48,7 @@ export type MasterPlay = {
     id: number;
     productId: number;
     quantity: number;
+    unitBudgetCostUsd: number;
     sortOrder: number;
     name: string;
     sku: string | null;
@@ -180,6 +183,13 @@ function summaryNumber(play: MasterPlay | null, key: string) {
   return Math.max(0, Math.trunc(numberValue(play?.summary?.[key], 0)));
 }
 
+function summaryAmount(play: MasterPlay | null, key: string) {
+  const raw = play?.summary?.[key];
+  if (raw == null || raw === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function advisorBreakdown(play: MasterPlay | null) {
   const raw = play?.summary?.by_advisor;
   if (!Array.isArray(raw)) return [];
@@ -210,16 +220,17 @@ const inputClass = 'h-9 w-full rounded-xl border border-[#2A2A35] bg-[#0B0B0D] p
 const buttonSecondary = 'inline-flex h-9 items-center justify-center rounded-xl border border-[#343440] bg-[#121218] px-3 text-xs font-semibold text-[#D1D1DA] transition hover:border-[#FEEF00]/50 disabled:cursor-not-allowed disabled:opacity-45';
 const buttonPrimary = 'inline-flex h-9 items-center justify-center rounded-xl bg-[#FEEF00] px-4 text-xs font-bold text-[#0B0B0D] transition hover:bg-[#FFF45A] disabled:cursor-not-allowed disabled:opacity-45';
 
-function PlayProgress({ status }: { status: MasterPlay['status'] }) {
-  const stage = status === 'draft' ? 1 : status === 'frozen' ? 2 : 3;
+function PlayProgress({ status, hasPreview }: { status: MasterPlay['status']; hasPreview: boolean }) {
+  const stage = status === 'draft' ? (hasPreview ? 2 : 1) : status === 'frozen' ? 3 : 4;
   const steps = [
-    { number: 1, label: 'Diseñar', detail: 'Condiciones' },
-    { number: 2, label: 'Revisar', detail: 'Lista final' },
-    { number: 3, label: 'Compartir', detail: 'Asesores' },
+    { number: 1, label: 'Definir', detail: 'Condiciones' },
+    { number: 2, label: 'Probar', detail: 'Candidatos' },
+    { number: 3, label: 'Confirmar', detail: 'Snapshot' },
+    { number: 4, label: 'Compartir', detail: 'Asesores' },
   ];
 
   return (
-    <div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-[#242433] bg-[#101014]">
+    <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-[#242433] bg-[#101014] sm:grid-cols-4">
       {steps.map((step) => {
         const complete = step.number < stage;
         const active = step.number === stage;
@@ -258,8 +269,17 @@ function PlayDefinitionForm({
   const [startsOn, setStartsOn] = useState(play ? dateInput(play.startsAt) : today);
   const [endsOn, setEndsOn] = useState(play ? dateInput(play.endsAt) : endOfMonth(today));
   const [benefitOptions, setBenefitOptions] = useState(() => play?.benefits.length
-    ? play.benefits.map((option) => ({ productId: String(option.productId), quantity: String(option.quantity) }))
-    : [{ productId: benefits[0] ? String(benefits[0].id) : '', quantity: '1' }]);
+    ? play.benefits.map((option) => ({
+        productId: String(option.productId),
+        quantity: String(option.quantity),
+        unitBudgetCostUsd: String(option.unitBudgetCostUsd),
+      }))
+    : [{
+        productId: benefits[0] ? String(benefits[0].id) : '',
+        quantity: '1',
+        unitBudgetCostUsd: benefits[0] ? String(benefits[0].referenceBudgetCostUsd) : '0',
+      }]);
+  const [plannedBudget, setPlannedBudget] = useState(play?.plannedBudgetUsd == null ? '' : String(play.plannedBudgetUsd));
   const [minPurchases, setMinPurchases] = useState(play ? optionalNumberString(rules.min_purchase_count) || '1' : '1');
   const [maxPurchases, setMaxPurchases] = useState(play ? optionalNumberString(rules.max_purchase_count) : '');
   const [minRevenue, setMinRevenue] = useState(play ? optionalNumberString(rules.min_net_revenue_usd) || '0' : '0');
@@ -279,6 +299,17 @@ function PlayDefinitionForm({
   });
   const [anniversaryMonth, setAnniversaryMonth] = useState(play ? optionalNumberString(rules.anniversary_month) : '');
   const [fulfillment, setFulfillment] = useState<PlayFulfillmentFilter>(() => play ? (stringValue(rules.fulfillment) || 'any') as PlayFulfillmentFilter : 'any');
+  const projectedCostPerClient = useMemo(() => {
+    const costs = benefitOptions.flatMap((option) => {
+      const quantity = Number(option.quantity);
+      const unitCost = Number(option.unitBudgetCostUsd);
+      return Number.isFinite(quantity) && quantity > 0 && Number.isFinite(unitCost) && unitCost >= 0
+        ? [quantity * unitCost]
+        : [];
+    });
+    if (costs.length === 0) return null;
+    return { minimum: Math.min(...costs), maximum: Math.max(...costs) };
+  }, [benefitOptions]);
 
   function applyPreset(nextKind: PlayKind) {
     setKind(nextKind);
@@ -335,6 +366,17 @@ function PlayDefinitionForm({
     }
   }
 
+  function updateBenefitProduct(index: number, productId: string) {
+    const selectedBenefit = benefits.find((benefit) => String(benefit.id) === productId);
+    setBenefitOptions((current) => current.map((candidate, candidateIndex) => candidateIndex === index
+      ? {
+          ...candidate,
+          productId,
+          unitBudgetCostUsd: selectedBenefit ? String(selectedBenefit.referenceBudgetCostUsd) : '0',
+        }
+      : candidate));
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onSubmit({
@@ -347,7 +389,9 @@ function PlayDefinitionForm({
       benefits: benefitOptions.map((option) => ({
         productId: Number(option.productId),
         quantity: Number(option.quantity),
+        unitBudgetCostUsd: Number(option.unitBudgetCostUsd),
       })),
+      plannedBudgetUsd: plannedBudget === '' ? null : Number(plannedBudget),
       metricWindow: play?.metricWindow ?? 6,
       minPurchaseCount: Number(minPurchases),
       maxPurchaseCount: maxPurchases === '' ? null : Number(maxPurchases),
@@ -375,7 +419,7 @@ function PlayDefinitionForm({
         <div className="mb-2 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-[#F5F5F7]">1. Definición de la jugada</h2>
-            <p className="mt-0.5 text-[11px] text-[#777785]">Los cambios aquí obligan a generar nuevamente la lista.</p>
+            <p className="mt-0.5 text-[11px] text-[#777785]">Prueba las condiciones cuantas veces necesites. Nada se comparte todavía.</p>
           </div>
           {play ? <span className="text-[10px] text-[#666675]">Versión {play.version}</span> : null}
         </div>
@@ -421,7 +465,7 @@ function PlayDefinitionForm({
             <button
               type="button"
               disabled={benefitOptions.length >= 8}
-              onClick={() => setBenefitOptions((current) => [...current, { productId: '', quantity: '1' }])}
+              onClick={() => setBenefitOptions((current) => [...current, { productId: '', quantity: '1', unitBudgetCostUsd: '0' }])}
               className={buttonSecondary}
             >
               + Agregar alternativa
@@ -434,12 +478,12 @@ function PlayDefinitionForm({
                 .map((candidate) => candidate.productId)
                 .filter(Boolean));
               return (
-                <div key={index} className="grid gap-2 rounded-xl border border-[#302B10] bg-[#0D0D0A] p-2 sm:grid-cols-[minmax(0,1fr)_120px_36px]">
+                <div key={index} className="grid gap-2 rounded-xl border border-[#302B10] bg-[#0D0D0A] p-2 sm:grid-cols-[minmax(0,1fr)_110px_150px_36px]">
                   <Field label={`Alternativa ${index + 1}`}>
                     <select
                       className={inputClass}
                       value={option.productId}
-                      onChange={(event) => setBenefitOptions((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, productId: event.target.value } : candidate))}
+                      onChange={(event) => updateBenefitProduct(index, event.target.value)}
                       required
                     >
                       <option value="">Seleccionar beneficio</option>
@@ -461,6 +505,17 @@ function PlayDefinitionForm({
                       required
                     />
                   </Field>
+                  <Field label="Costo unitario USD">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={option.unitBudgetCostUsd}
+                      onChange={(event) => setBenefitOptions((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, unitBudgetCostUsd: event.target.value } : candidate))}
+                      required
+                    />
+                  </Field>
                   <button
                     type="button"
                     disabled={benefitOptions.length === 1}
@@ -474,6 +529,33 @@ function PlayDefinitionForm({
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-blue-400/20 bg-blue-400/[0.04] p-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_220px] md:items-end">
+            <div>
+              <h3 className="text-xs font-semibold text-blue-100">Presupuesto de esta jugada</h3>
+              <p className="mt-1 text-[10px] text-blue-100/55">
+                La prueba multiplicará los candidatos por el costo de cada alternativa. Como el asesor elige una sola, verás un rango mínimo y máximo.
+              </p>
+              {projectedCostPerClient ? (
+                <div className="mt-2 text-[10px] font-semibold text-blue-100/80">
+                  Costo posible por cliente: {moneyFormatter.format(projectedCostPerClient.minimum)} — {moneyFormatter.format(projectedCostPerClient.maximum)}
+                </div>
+              ) : null}
+            </div>
+            <Field label="Presupuesto disponible USD" hint="Opcional">
+              <input
+                className={inputClass}
+                type="number"
+                min="0"
+                step="0.01"
+                value={plannedBudget}
+                onChange={(event) => setPlannedBudget(event.target.value)}
+                placeholder="Ej. 300"
+              />
+            </Field>
           </div>
         </div>
 
@@ -585,9 +667,10 @@ function PlayDefinitionForm({
       </fieldset>
 
       {editable ? (
-        <div className="flex items-center justify-end gap-2 border-t border-[#242433] pt-3">
+        <div className="flex flex-col gap-2 border-t border-[#242433] pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[10px] text-[#777785]">La prueba guardará el borrador y calculará inmediatamente los candidatos.</p>
           <button type="submit" disabled={busy || benefits.length === 0} className={buttonPrimary}>
-            {play ? 'Guardar cambios' : 'Guardar en diseño'}
+            {play ? 'Actualizar y probar de nuevo' : 'Probar definición'}
           </button>
         </div>
       ) : null}
@@ -632,7 +715,7 @@ function MemberList({
       {members.length === 0 ? (
         <div className="px-4 py-12 text-center">
           <div className="text-sm font-semibold text-[#D5D5DD]">{search ? 'No hay coincidencias' : 'La lista aún no ha sido generada'}</div>
-          <p className="mt-1 text-xs text-[#777785]">{search ? 'Prueba con otro nombre.' : 'Guarda la definición y usa Generar lista.'}</p>
+          <p className="mt-1 text-xs text-[#777785]">{search ? 'Prueba con otro nombre.' : 'Completa las condiciones y usa Probar definición.'}</p>
         </div>
       ) : (
         <div className="divide-y divide-[#242433]">
@@ -706,6 +789,14 @@ export default function MasterPlaysClient({
   const selectedSummaryTotal = summaryNumber(selectedPlay, 'total');
   const selectedAdvisorCount = summaryNumber(selectedPlay, 'advisor_count');
   const selectedExcludedCount = summaryNumber(selectedPlay, 'excluded_count');
+  const selectedTotalClosures = summaryNumber(selectedPlay, 'total_purchase_count');
+  const selectedRevenue = summaryAmount(selectedPlay, 'total_net_revenue_usd') ?? 0;
+  const selectedProjectedCostMin = summaryAmount(selectedPlay, 'projected_cost_min_usd');
+  const selectedProjectedCostMax = summaryAmount(selectedPlay, 'projected_cost_max_usd');
+  const selectedBudgetBalance = summaryAmount(selectedPlay, 'budget_balance_worst_case_usd');
+  const selectedBudgetCapacity = summaryAmount(selectedPlay, 'budget_capacity_worst_case');
+  const selectedBudgetStatus = stringValue(selectedPlay?.summary?.budget_status) || 'not_defined';
+  const selectedHasPreview = Boolean(selectedPlay?.summary?.generated_at);
   const advisors = advisorBreakdown(selectedPlay);
 
   function handleResult(result: PlayActionResult, navigateToPlay = false) {
@@ -813,14 +904,37 @@ export default function MasterPlaysClient({
                     </div>
                   </div>
                 </div>
-                <PlayProgress status={selectedPlay.status} />
+                <PlayProgress status={selectedPlay.status} hasPreview={selectedHasPreview} />
 
-                <div className="mt-3 grid grid-cols-4 gap-2">
+                <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
                   <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedSummaryTotal}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Clientes</div></div>
                   <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedAdvisorCount}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Asesores</div></div>
-                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedExcludedCount}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Retirados</div></div>
-                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedPlay.benefits.length}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Alternativas</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedTotalClosures.toLocaleString('es-VE')}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Cierres acumulados</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{moneyFormatter.format(selectedRevenue)}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Facturación acumulada</div></div>
                 </div>
+
+                {selectedHasPreview ? (
+                  <div className="mt-3 rounded-2xl border border-blue-400/20 bg-blue-400/[0.04] p-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-xs font-semibold text-blue-100">Simulación de presupuesto</h3>
+                          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${selectedBudgetStatus === 'within' ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' : selectedBudgetStatus === 'exceeds' ? 'border-red-400/30 bg-red-400/10 text-red-200' : 'border-slate-400/25 bg-slate-400/10 text-slate-300'}`}>
+                            {selectedBudgetStatus === 'within' ? 'Dentro del presupuesto' : selectedBudgetStatus === 'exceeds' ? 'Supera el presupuesto' : 'Presupuesto por definir'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[10px] text-blue-100/55">El rango cambia según cuál alternativa elija el asesor para cada cliente.</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-right sm:grid-cols-4">
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Disponible</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedPlay.plannedBudgetUsd == null ? '—' : moneyFormatter.format(selectedPlay.plannedBudgetUsd)}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Inversión estimada</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedProjectedCostMin == null || selectedProjectedCostMax == null ? '—' : selectedProjectedCostMin === selectedProjectedCostMax ? moneyFormatter.format(selectedProjectedCostMax) : `${moneyFormatter.format(selectedProjectedCostMin)} — ${moneyFormatter.format(selectedProjectedCostMax)}`}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Saldo conservador</div><div className={`mt-0.5 text-xs font-semibold tabular-nums ${selectedBudgetBalance != null && selectedBudgetBalance < 0 ? 'text-red-200' : 'text-blue-50'}`}>{selectedBudgetBalance == null ? '—' : moneyFormatter.format(selectedBudgetBalance)}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Capacidad máxima</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedBudgetCapacity == null ? '—' : `${Math.trunc(selectedBudgetCapacity).toLocaleString('es-VE')} clientes`}</div></div>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-[9px] text-blue-100/40">{selectedExcludedCount.toLocaleString('es-VE')} retirados manualmente · {selectedPlay.benefits.length} alternativas disponibles.</div>
+                  </div>
+                ) : null}
               </section>
 
               <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -829,19 +943,19 @@ export default function MasterPlaysClient({
                   play={selectedPlay}
                   benefits={benefits}
                   busy={pending}
-                  onSubmit={(input) => run(() => savePlayDraftAction(input), true)}
+                  onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
                 />
               </section>
 
               {selectedPlay.status === 'draft' ? (
                 <section className="flex flex-col gap-3 rounded-2xl border border-[#3A3210] bg-[#1A180B] p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <div className="text-sm font-semibold text-[#FFF18B]">Generar el corte de clientes</div>
-                    <p className="mt-1 text-[11px] text-[#A89F68]">Calcula una sola lista con estas condiciones. Luego podrás retirar casos antes de confirmarla.</p>
+                    <div className="text-sm font-semibold text-[#FFF18B]">{selectedHasPreview ? 'Prueba lista para revisar' : 'Todavía no has probado esta definición'}</div>
+                    <p className="mt-1 text-[11px] text-[#A89F68]">{selectedHasPreview ? 'Ajusta condiciones, retira casos o confirma el snapshot cuando la cantidad y el presupuesto estén correctos.' : 'Ejecuta la prueba para conocer candidatos, facturación y presupuesto antes de confirmar.'}</p>
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <button type="button" disabled={pending} onClick={() => run(() => generatePlayListAction(selectedPlay.id))} className={buttonSecondary}>{selectedSummaryTotal > 0 ? 'Regenerar lista' : 'Generar lista'}</button>
-                    <button type="button" disabled={pending || selectedSummaryTotal <= 0} onClick={() => run(() => confirmPlayListAction(selectedPlay.id))} className={buttonPrimary}>Confirmar lista</button>
+                    <button type="button" disabled={pending} onClick={() => run(() => generatePlayListAction(selectedPlay.id))} className={buttonSecondary}>Probar condiciones guardadas</button>
+                    <button type="button" disabled={pending || !selectedHasPreview || selectedSummaryTotal <= 0} onClick={() => run(() => confirmPlayListAction(selectedPlay.id))} className={buttonPrimary}>Confirmar snapshot</button>
                   </div>
                 </section>
               ) : selectedPlay.status === 'frozen' ? (
@@ -881,14 +995,14 @@ export default function MasterPlaysClient({
           ) : (
             <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="mb-4 rounded-xl border border-[#2A2A35] bg-[#0D0D11] px-3 py-2.5 text-xs text-[#B7B7C2]">
-                Esta jugada permanecerá privada mientras la diseñas. Guardarla no envía nada a los asesores.
+                Define y prueba la jugada cuantas veces necesites. Los asesores no verán nada hasta que confirmes el snapshot y lo compartas.
               </div>
               <PlayDefinitionForm
                 key="new-play"
                 play={null}
                 benefits={benefits}
                 busy={pending}
-                onSubmit={(input) => run(() => savePlayDraftAction(input), true)}
+                onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
               />
             </section>
           )}

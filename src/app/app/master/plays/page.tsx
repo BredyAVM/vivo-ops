@@ -38,14 +38,15 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .select(`
         id, series_key, version, name, description, status, rules_snapshot,
         selection_summary, metric_window, gift_product_id, gift_quantity,
-        starts_at, ends_at, snapshot_at, activated_at, closed_at, created_at
+        planned_budget_usd, starts_at, ends_at, snapshot_at, activated_at,
+        closed_at, created_at
       `)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(100),
     ctx.supabase
       .from('products')
-      .select('id, name, sku, type')
+      .select('id, name, sku, type, base_price_usd, advisor_gift_cost_usd:extra_fields->>advisor_gift_cost_usd')
       .eq('is_active', true)
       .in('type', ['product', 'combo', 'promo', 'gambit'])
       .order('name', { ascending: true })
@@ -59,7 +60,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
   const benefitOptionsResult = await ctx.supabase
     .from('crm_play_benefits')
     .select(`
-      id, play_id, product_id, quantity, sort_order,
+      id, play_id, product_id, quantity, unit_budget_cost_usd, sort_order,
       product:products!crm_play_benefits_product_id_fkey(id, name, sku)
     `)
     .in('play_id', playIds.length > 0 ? playIds : [-1])
@@ -77,6 +78,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       id: Number(row.id),
       productId: Number(row.product_id),
       quantity: Number(row.quantity),
+      unitBudgetCostUsd: Number(row.unit_budget_cost_usd),
       sortOrder: Number(row.sort_order),
       name: String(product.name),
       sku: product.sku == null ? null : String(product.sku),
@@ -100,6 +102,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     metricWindow: Number(row.metric_window),
     giftProductId: Number(row.gift_product_id),
     giftQuantity: Number(row.gift_quantity),
+    plannedBudgetUsd: row.planned_budget_usd == null ? null : Number(row.planned_budget_usd),
     startsAt: row.starts_at == null ? null : String(row.starts_at),
     endsAt: row.ends_at == null ? null : String(row.ends_at),
     snapshotAt: row.snapshot_at == null ? null : String(row.snapshot_at),
@@ -169,12 +172,19 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     });
   }
 
-  const benefits: PlayBenefit[] = (productsResult.data ?? []).map((row) => ({
-    id: Number(row.id),
-    name: String(row.name),
-    sku: row.sku == null ? null : String(row.sku),
-    type: String(row.type),
-  }));
+  const benefits: PlayBenefit[] = (productsResult.data ?? []).map((row) => {
+    const configuredGiftCost = numberValue(row.advisor_gift_cost_usd, Number.NaN);
+    const basePrice = Math.max(0, numberValue(row.base_price_usd, 0));
+    return {
+      id: Number(row.id),
+      name: String(row.name),
+      sku: row.sku == null ? null : String(row.sku),
+      type: String(row.type),
+      referenceBudgetCostUsd: Number.isFinite(configuredGiftCost) && configuredGiftCost >= 0
+        ? configuredGiftCost
+        : basePrice,
+    };
+  });
 
   return (
     <MasterPlaysClient

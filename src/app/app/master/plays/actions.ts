@@ -15,6 +15,7 @@ export type PlayAnniversaryMode = (typeof ANNIVERSARY_MODES)[number];
 export type PlayBenefitInput = {
   productId: number;
   quantity: number;
+  unitBudgetCostUsd: number;
 };
 
 export type SavePlayDraftInput = {
@@ -24,6 +25,7 @@ export type SavePlayDraftInput = {
   kind: PlayKind;
   startsOn: string;
   endsOn: string;
+  plannedBudgetUsd?: number | null;
   benefits: PlayBenefitInput[];
   metricWindow: number;
   minPurchaseCount: number;
@@ -166,11 +168,15 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const description = cleanText(input.description, 1000) || null;
     const startsOn = dateKey(input.startsOn, 'La fecha inicial', true);
     const endsOn = dateKey(input.endsOn, 'La fecha final', true);
+    const plannedBudgetUsd = input.plannedBudgetUsd == null
+      ? null
+      : finiteNumber(input.plannedBudgetUsd, Number.NaN);
     const metricWindow = Math.max(2, Math.min(50, Math.trunc(finiteNumber(input.metricWindow, 6))));
     const benefitOptions = Array.isArray(input.benefits)
       ? input.benefits.slice(0, 8).map((option) => ({
           productId: Math.trunc(finiteNumber(option.productId, 0)),
           quantity: finiteNumber(option.quantity, 0),
+          unitBudgetCostUsd: finiteNumber(option.unitBudgetCostUsd, Number.NaN),
         }))
       : [];
 
@@ -183,6 +189,12 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     }
     if (benefitOptions.some((option) => option.productId <= 0 || option.quantity <= 0)) {
       throw new Error('Cada beneficio debe tener un producto y una cantidad válida.');
+    }
+    if (benefitOptions.some((option) => !Number.isFinite(option.unitBudgetCostUsd) || option.unitBudgetCostUsd < 0)) {
+      throw new Error('Cada beneficio debe tener un costo presupuestario válido.');
+    }
+    if (plannedBudgetUsd != null && (!Number.isFinite(plannedBudgetUsd) || plannedBudgetUsd < 0)) {
+      throw new Error('El presupuesto de la jugada no es válido.');
     }
     const benefitProductIds = benefitOptions.map((option) => option.productId);
     if (new Set(benefitProductIds).size !== benefitProductIds.length) {
@@ -224,6 +236,7 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       metric_window: metricWindow,
       gift_product_id: primaryBenefit.productId,
       gift_quantity: Number(primaryBenefit.quantity.toFixed(3)),
+      planned_budget_usd: plannedBudgetUsd == null ? null : Number(plannedBudgetUsd.toFixed(2)),
       starts_at: startBoundary(startsOn),
       ends_at: endBoundary(endsOn),
     };
@@ -256,6 +269,7 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
           play_id: playId,
           product_id: option.productId,
           quantity: Number(option.quantity.toFixed(3)),
+          unit_budget_cost_usd: Number(option.unitBudgetCostUsd.toFixed(2)),
           sort_order: index + 1,
         })));
       if (benefitsError) throw new Error(benefitsError.message);
@@ -294,6 +308,7 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
         play_id: createdId,
         product_id: option.productId,
         quantity: Number(option.quantity.toFixed(3)),
+        unit_budget_cost_usd: Number(option.unitBudgetCostUsd.toFixed(2)),
         sort_order: index + 1,
       })));
     if (benefitsError) throw new Error(benefitsError.message);
@@ -305,25 +320,50 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
   }
 }
 
+async function refreshPlayPreviewSummary(
+  supabase: Awaited<ReturnType<typeof requireMasterOrAdminContext>>['supabase'],
+  playId: number,
+) {
+  const { data, error } = await supabase.rpc('crm_refresh_play_preview_summary_v1', {
+    p_play_id: playId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function generatePlayListAction(playIdInput: number): Promise<PlayActionResult> {
   try {
     const ctx = await requireMasterOrAdminContext();
     const playId = Math.trunc(finiteNumber(playIdInput, 0));
     if (playId <= 0) throw new Error('La jugada no es válida.');
 
-    const { data, error } = await ctx.supabase.rpc('crm_rebuild_play_members_v1', {
+    const { error } = await ctx.supabase.rpc('crm_rebuild_play_members_v1', {
       p_play_id: playId,
     });
     if (error) throw new Error(error.message);
+
+    const data = await refreshPlayPreviewSummary(ctx.supabase, playId);
 
     const total = data && typeof data === 'object' && !Array.isArray(data)
       ? Math.max(0, Math.trunc(finiteNumber((data as Record<string, unknown>).total, 0)))
       : 0;
     revalidatePath('/app/master/plays');
-    return { ok: true, playId, message: `Lista generada con ${total.toLocaleString('es-VE')} clientes.` };
+    return { ok: true, playId, message: `Prueba generada con ${total.toLocaleString('es-VE')} candidatos.` };
   } catch (error) {
     return actionError(error);
   }
+}
+
+export async function testPlayDefinitionAction(input: SavePlayDraftInput): Promise<PlayActionResult> {
+  const saved = await savePlayDraftAction(input);
+  if (!saved.ok || !saved.playId) return saved;
+
+  const generated = await generatePlayListAction(saved.playId);
+  if (!generated.ok) return generated;
+  return {
+    ...generated,
+    message: generated.message || 'La definición fue probada. Revisa los candidatos antes de confirmar.',
+  };
 }
 
 export async function excludePlayClientAction(playIdInput: number, clientIdInput: number): Promise<PlayActionResult> {
@@ -338,6 +378,8 @@ export async function excludePlayClientAction(playIdInput: number, clientIdInput
       p_client_id: clientId,
     });
     if (error) throw new Error(error.message);
+
+    await refreshPlayPreviewSummary(ctx.supabase, playId);
 
     revalidatePath('/app/master/plays');
     return { ok: true, playId, message: 'Cliente retirado. No volverá al regenerar esta lista.' };
