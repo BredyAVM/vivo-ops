@@ -33,6 +33,7 @@ import {
   type CounterHistoricalSearchCursor,
   type CounterHistoricalSearchResult,
   updateCounterPickupScheduleAction,
+  waiveCounterOrderChangeAction,
 } from './actions';
 import { CounterPendingSettlementsPanel } from './CounterDeliveryWorkspace';
 import type {
@@ -44,6 +45,8 @@ import type {
   CounterGiveChangeResult,
   CounterPaymentIntent,
   CounterPaymentOperationResult,
+  CounterWaiveChangeIntent,
+  CounterWaiveChangeResult,
   CounterRefundAuthorization,
   CounterRefundExecutionIntent,
   CounterRefundExecutionResult,
@@ -1683,6 +1686,31 @@ export default function CounterClient({
     }
   }
 
+  async function handleWaiveOrderChange(
+    order: CounterOrder,
+    input: CounterWaiveChangeIntent
+  ): Promise<CounterWaiveChangeResult> {
+    setMessage(null);
+    setWorkingOrderId(order.id);
+    try {
+      const result = await waiveCounterOrderChangeAction(input);
+      setMessage({
+        tone: 'success',
+        text: `Diferencia de ${moneyUsd(result.waivedAmountUsd)} cerrada en la orden #${order.displayNumber}.`,
+      });
+      return result;
+    } catch (error) {
+      const message = getCounterUiErrorMessage(
+        error,
+        'No se pudo cerrar la diferencia. Revisa el monto e intenta nuevamente.'
+      );
+      setMessage({ tone: 'error', text: message });
+      throw error;
+    } finally {
+      setWorkingOrderId(null);
+    }
+  }
+
   async function handlePaymentSessionFinished(order: CounterOrder) {
     if (activePaymentSessionOrderIdRef.current === order.id) {
       activePaymentSessionOrderIdRef.current = null;
@@ -2067,6 +2095,7 @@ export default function CounterClient({
         onPaymentSessionFinished={() => handlePaymentSessionFinished(order)}
         onCreatePaymentReport={handleCreatePaymentReport}
         onGiveOrderChange={handleGiveOrderChange}
+        onWaiveOrderChange={handleWaiveOrderChange}
         onLoadPaymentQuote={loadCounterPaymentQuoteAction}
         onRequestRefund={handleRequestRefund}
         onExecuteRefund={handleExecuteRefund}

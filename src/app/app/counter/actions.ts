@@ -7,6 +7,8 @@ import type {
   CounterGiveChangeResult,
   CounterPaymentIntent,
   CounterPaymentOperationResult,
+  CounterWaiveChangeIntent,
+  CounterWaiveChangeResult,
   CounterRefundExecutionIntent,
   CounterRefundExecutionResult,
   CounterRefundRequestIntent,
@@ -454,6 +456,63 @@ export async function giveCounterOrderChangeAction(
         ? null
         : Number(result.exchange_rate_ves_per_usd),
     amountUsdEquivalent: roundCounterMoney(result.amount_usd_equivalent),
+    remainingChangeUsd: roundCounterMoney(result.remaining_change_usd),
+  };
+}
+
+export async function waiveCounterOrderChangeAction(
+  input: CounterWaiveChangeIntent
+): Promise<CounterWaiveChangeResult> {
+  const ctx = await requireCounterOperatorContext();
+  const orderId = Math.trunc(Number(input.orderId || 0));
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  const expectedAmountUsd = roundCounterMoney(input.expectedAmountUsd);
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('La orden indicada no es valida.');
+  }
+  if (!isUuid(idempotencyKey)) {
+    throw new Error('El cierre de la diferencia no tiene una clave valida.');
+  }
+  if (expectedAmountUsd <= 0 || expectedAmountUsd > 1) {
+    throw new Error('Counter solo puede cerrar diferencias de hasta $1,00.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('counter_waive_order_change', {
+    p_idempotency_key: idempotencyKey,
+    p_order_id: orderId,
+    p_expected_amount_usd: expectedAmountUsd,
+    p_notes: String(input.notes || '').trim() || null,
+  });
+
+  if (error) {
+    const message = String(error.message || '');
+    if (message.includes('no change remainder')) {
+      throw new Error('Esta orden ya no tiene una diferencia pendiente.');
+    }
+    if (message.includes('remainder changed')) {
+      throw new Error('La diferencia cambió. Cierra y vuelve a abrir el cobro para revisar el monto actual.');
+    }
+    if (message.includes('up to 1.00 USD')) {
+      throw new Error('Counter solo puede cerrar diferencias de hasta $1,00.');
+    }
+    throw new Error(message || 'No se pudo cerrar la diferencia.');
+  }
+
+  const result = asRecord(data);
+
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
+
+  return {
+    ok: true,
+    idempotencyKey: String(result.idempotency_key || idempotencyKey),
+    orderId: Math.trunc(Number(result.order_id || orderId)),
+    waivedAmountUsd: roundCounterMoney(result.waived_amount_usd),
+    fundMovementId: Math.trunc(Number(result.fund_movement_id || 0)),
+    adjustmentId: Math.trunc(Number(result.adjustment_id || 0)),
     remainingChangeUsd: roundCounterMoney(result.remaining_change_usd),
   };
 }

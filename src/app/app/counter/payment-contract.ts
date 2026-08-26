@@ -71,6 +71,23 @@ export type CounterGiveChangeResult = {
   remainingChangeUsd: number;
 };
 
+export type CounterWaiveChangeIntent = {
+  idempotencyKey: string;
+  orderId: number;
+  expectedAmountUsd: number;
+  notes: string | null;
+};
+
+export type CounterWaiveChangeResult = {
+  ok: true;
+  idempotencyKey: string;
+  orderId: number;
+  waivedAmountUsd: number;
+  fundMovementId: number;
+  adjustmentId: number;
+  remainingChangeUsd: number;
+};
+
 export type CounterRefundLineInput = {
   lineKey: string;
   moneyAccountId: number;

@@ -26,6 +26,8 @@ import type {
   CounterGiveChangeResult,
   CounterPaymentIntent,
   CounterPaymentOperationResult,
+  CounterWaiveChangeIntent,
+  CounterWaiveChangeResult,
   CounterRefundExecutionIntent,
   CounterRefundExecutionResult,
   CounterRefundRequestIntent,
@@ -527,6 +529,7 @@ export function OrderDetail({
   onPaymentSessionFinished,
   onCreatePaymentReport,
   onGiveOrderChange,
+  onWaiveOrderChange,
   onLoadPaymentQuote,
   onRequestRefund,
   onExecuteRefund,
@@ -561,6 +564,10 @@ export function OrderDetail({
     order: CounterOrder,
     input: CounterGiveChangeIntent
   ) => Promise<CounterGiveChangeResult>;
+  onWaiveOrderChange: (
+    order: CounterOrder,
+    input: CounterWaiveChangeIntent
+  ) => Promise<CounterWaiveChangeResult>;
   onLoadPaymentQuote: (input: {
     orderId: number;
     operationDate: string;
@@ -922,6 +929,7 @@ export function OrderDetail({
                 isWorking={isWorking}
                 onSubmit={(input) => onCreatePaymentReport(order, input)}
                 onGiveChange={(input) => onGiveOrderChange(order, input)}
+                onWaiveChange={(input) => onWaiveOrderChange(order, input)}
                 onLoadPaymentQuote={onLoadPaymentQuote}
                 onFinish={closePaymentSession}
               />

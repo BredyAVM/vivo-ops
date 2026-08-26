@@ -253,20 +253,23 @@ Resultado canonico:
 - al confirmar, crea `money_movements` hacia la cuenta de retenciones
 - si genera excedente, se decide fondo/devolucion
 
-### 9. Cierre por redondeo
+### 9. Cierre por redondeo o diferencia cedida
 
-Solo admin.
+Reglas:
 
-Regla:
-
-- faltante maximo permitido: `0.09 USD`
-- si falta dinero hasta ese limite, admin puede cerrar diferencia
-- si sobra dinero, se mantiene el flujo actual de fondo/devolucion/cierre de excedente segun decision
+- si falta dinero, solo Administración puede cerrar una diferencia máxima de `0.09 USD`;
+- si sobra dinero y el cliente solicita recibirlo, se entrega como cambio;
+- si el cliente desea conservarlo, se mantiene en su fondo;
+- si el cliente manifiesta que deja voluntariamente el remanente, Counter puede cerrar directamente hasta `1.00 USD` como diferencia cedida;
+- un excedente cedido superior a `1.00 USD` requiere revisión administrativa y no puede cerrarse directamente desde Counter;
+- la diferencia cedida no crea una salida de caja, no permanece en el fondo y no altera el precio original de la venta;
+- si el excedente había sido acreditado temporalmente al fondo, el cierre debita exactamente ese remanente mediante el ledger de fondo.
 
 Resultado:
 
 - debe quedar registro auditable en `order_admin_adjustments`
-- idealmente tambien debe existir movimiento/ajuste financiero canonico para que reportes no dependan solo de `extra_fields`
+- debe quedar un movimiento de fondo ligado a la orden, el operador y la operación idempotente;
+- no se crea un movimiento de efectivo adicional porque el ingreso real ya fue registrado.
 
 ## Inconsistencias actuales detectadas
 

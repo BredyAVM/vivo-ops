@@ -197,6 +197,8 @@ esa deuda de custodia.
 | Marcar delivery entregado al cliente final | No | Master |
 | Liquidar efectivo devuelto por motorizado | Sí | No |
 | Ejecutar cambio digital | No | Asesor; Master si no existe asesor |
+| Cerrar un remanente que el cliente deja voluntariamente, hasta USD 1 | Sí, con trazabilidad | No |
+| Cerrar un excedente cedido superior a USD 1 | No | Administración revisa |
 | Devolver saldo originado por reducción de pickup | Sí, después de autorización | Master/Admin autoriza |
 | Crear gasto operativo manual de hasta USD 20 equivalentes | Sí | No |
 | Crear gasto operativo manual superior a USD 20 equivalentes | Sí, como solicitud pendiente | Administración confirma |
@@ -470,7 +472,12 @@ financieros no se agrupan en un único movimiento:
 3. cada entrega de cambio desde una caja se confirma como otra operación
    independiente, con su propio comprobante y grupo de movimiento;
 4. si se usa otra caja o moneda, se registra una nueva entrega;
-5. la parte que no se entregue permanece en el fondo del cliente.
+5. la parte que no se entregue permanece en el fondo del cliente, salvo que el
+   cliente manifieste que deja voluntariamente el remanente;
+6. Counter puede cerrar directamente una diferencia cedida de hasta `1.00 USD`;
+   el cierre debita solo ese remanente del fondo temporal, no genera salida de
+   caja, no cambia el precio de la orden y deja auditoría idempotente;
+7. una diferencia cedida superior a `1.00 USD` requiere revisión administrativa.
 
 Los pagos mixtos siguen la misma regla: Counter registra y cierra un medio de
 pago antes de continuar con el siguiente. Todas las operaciones permanecen
@@ -482,8 +489,9 @@ La sesión visual no termina al confirmar un ingreso ni una salida de cambio.
 Counter debe conservar abierta y fijada la misma orden —incluidas las órdenes
 recuperadas por búsqueda de días anteriores— hasta que el operador elija
 explícitamente terminar. Después de cada paso debe mostrar el saldo todavía a
-favor y permitir entregar desde otra caja, usar otra moneda o dejar el remanente
-en el fondo.
+favor y permitir entregar desde otra caja, usar otra moneda, dejar el remanente
+en el fondo o registrar que el cliente deja una diferencia permitida. Counter no
+debe obligar a entregar cambio cuando el cliente manifiesta que no lo desea.
 
 ### 11.2 Cambio digital
 

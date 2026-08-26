@@ -16,6 +16,8 @@ import type {
   CounterGiveChangeResult,
   CounterPaymentIntent,
   CounterPaymentOperationResult,
+  CounterWaiveChangeIntent,
+  CounterWaiveChangeResult,
 } from './payment-contract';
 
 type PaymentDraft = {
@@ -31,7 +33,7 @@ type PaymentDraft = {
 
 type CashierView = 'payment' | 'change' | 'finished';
 type PaymentStage = 'input' | 'review' | 'receipt';
-type ChangeStage = 'input' | 'review' | 'receipt';
+type ChangeStage = 'choice' | 'input' | 'review' | 'receipt' | 'waive-review' | 'waive-receipt';
 
 const PAYMENT_METHOD_PRIORITY = [
   'pos',
@@ -156,6 +158,7 @@ export function CounterPaymentEngine({
   isWorking,
   onSubmit,
   onGiveChange,
+  onWaiveChange,
   onLoadPaymentQuote,
   onFinish,
 }: {
@@ -164,6 +167,7 @@ export function CounterPaymentEngine({
   isWorking: boolean;
   onSubmit: (intent: CounterPaymentIntent) => Promise<CounterPaymentOperationResult>;
   onGiveChange: (intent: CounterGiveChangeIntent) => Promise<CounterGiveChangeResult>;
+  onWaiveChange: (intent: CounterWaiveChangeIntent) => Promise<CounterWaiveChangeResult>;
   onLoadPaymentQuote: (input: {
     orderId: number;
     operationDate: string;
@@ -207,6 +211,7 @@ export function CounterPaymentEngine({
 
   const paymentKeyRef = useRef<string | null>(null);
   const changeKeyRef = useRef<string | null>(null);
+  const waiveKeyRef = useRef<string | null>(null);
   const paymentQuoteRequestId = useRef(0);
   const [paymentQuote, setPaymentQuote] = useState(order.paymentQuote);
   const [quoteLoading, startQuoteTransition] = useTransition();
@@ -216,7 +221,7 @@ export function CounterPaymentEngine({
       : 'payment'
   );
   const [paymentStage, setPaymentStage] = useState<PaymentStage>('input');
-  const [changeStage, setChangeStage] = useState<ChangeStage>('input');
+  const [changeStage, setChangeStage] = useState<ChangeStage>('choice');
   const [paymentDraft, setPaymentDraft] = useState<PaymentDraft | null>(
     firstAccount ? createPaymentDraft(firstAccount, order.paymentQuote) : null
   );
@@ -238,6 +243,7 @@ export function CounterPaymentEngine({
   );
   const [changeNotes, setChangeNotes] = useState('');
   const [changeReceipt, setChangeReceipt] = useState<CounterGiveChangeResult | null>(null);
+  const [waiveReceipt, setWaiveReceipt] = useState<CounterWaiveChangeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const paymentAccount = paymentDraft
@@ -502,10 +508,48 @@ export function CounterPaymentEngine({
     }
   }
 
+  function reviewWaiver() {
+    if (changeAvailableUsd <= 0.005) {
+      setError('Esta orden ya no tiene una diferencia pendiente.');
+      return;
+    }
+    if (changeAvailableUsd > 1.005) {
+      setError('Counter solo puede cerrar directamente diferencias de hasta $1,00.');
+      return;
+    }
+    waiveKeyRef.current = null;
+    setWaiveReceipt(null);
+    setError(null);
+    setChangeStage('waive-review');
+  }
+
+  async function confirmWaiver() {
+    if (!waiveKeyRef.current) waiveKeyRef.current = crypto.randomUUID();
+    try {
+      const result = await onWaiveChange({
+        idempotencyKey: waiveKeyRef.current,
+        orderId: order.id,
+        expectedAmountUsd: changeAvailableUsd,
+        notes: 'El cliente indicó que deja la diferencia.',
+      });
+      setWaiveReceipt(result);
+      setChangeAvailableUsd(result.remainingChangeUsd);
+      setChangeStage('waive-receipt');
+      setError(null);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : 'No se pudo cerrar esta diferencia.'
+      );
+    }
+  }
+
   function startAnotherChange() {
     const account = changeAccount ?? firstCashChangeAccount;
     changeKeyRef.current = null;
     setChangeReceipt(null);
+    setWaiveReceipt(null);
     setChangeNotes('');
     setChangeStage('input');
     setError(null);
@@ -513,6 +557,16 @@ export function CounterPaymentEngine({
       setChangeAccountKey(paymentAccountKey(account));
       setChangeAmount(amountForCurrency(account.currencyCode, changeAvailableUsd, changeRate));
     }
+  }
+
+  function openChangeChoices() {
+    changeKeyRef.current = null;
+    waiveKeyRef.current = null;
+    setChangeReceipt(null);
+    setWaiveReceipt(null);
+    setChangeStage('choice');
+    setError(null);
+    setView('change');
   }
 
   if (reportAccounts.length === 0 && changeAvailableUsd <= 0.005) {
@@ -527,7 +581,7 @@ export function CounterPaymentEngine({
     <div>
       <div className="mb-4 grid grid-cols-3 gap-2" aria-label="Proceso de caja">
         <ProgressStep active={view === 'payment'} completed={view !== 'payment'} label="1. Recibir" />
-        <ProgressStep active={view === 'change'} completed={view === 'finished'} label="2. Dar cambio" />
+        <ProgressStep active={view === 'change'} completed={view === 'finished'} label="2. Resolver saldo" />
         <ProgressStep active={view === 'finished'} completed={false} label="3. Terminar" />
       </div>
 
@@ -678,12 +732,11 @@ export function CounterPaymentEngine({
                       <button
                         type="button"
                         onClick={() => {
-                          startAnotherChange();
-                          setView('change');
+                          openChangeChoices();
                         }}
                         className="min-h-11 rounded-[8px] border border-sky-300/35 px-4 py-2 text-sm font-semibold text-sky-100"
                       >
-                        Entregar cambio disponible
+                        Resolver saldo a favor
                       </button>
                     ) : <span />}
                     <button
@@ -754,10 +807,10 @@ export function CounterPaymentEngine({
                 {changeAvailableUsd > 0.005 ? (
                   <button
                     type="button"
-                    onClick={() => { startAnotherChange(); setView('change'); }}
+                    onClick={openChangeChoices}
                     className="min-h-11 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black"
                   >
-                    Entregar cambio
+                    Resolver saldo a favor
                   </button>
                 ) : (
                   <button type="button" onClick={onFinish} className="min-h-11 rounded-[8px] border border-emerald-200/40 px-4 py-2 text-sm font-semibold text-emerald-50">Terminar</button>
@@ -771,10 +824,55 @@ export function CounterPaymentEngine({
       {view === 'change' ? (
         <div>
           <div className="rounded-[10px] border border-sky-300/35 bg-sky-300/[0.07] p-4 text-center">
-            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-100/70">Disponible para entregar</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-100/70">Saldo a favor del cliente</div>
             <div className="mt-1 text-3xl font-bold text-sky-100">{moneyUsd(changeAvailableUsd)}</div>
-            <div className="mt-1 text-xs text-sky-100/70">Cada caja se guarda como una operacion independiente.</div>
+            <div className="mt-1 text-xs text-sky-100/70">Elige una sola acción para continuar.</div>
           </div>
+
+          {changeStage === 'choice' ? (
+            <div className="mt-4 rounded-[10px] border border-[#303044] bg-[#111118] p-4">
+              <div className="text-center text-sm font-semibold">¿Qué desea hacer el cliente?</div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={startAnotherChange}
+                  disabled={cashChangeAccounts.length === 0}
+                  className="min-h-14 rounded-[8px] border border-sky-300/40 bg-sky-300/10 px-4 py-3 text-sm font-semibold text-sky-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Entregar cambio
+                </button>
+                <button
+                  type="button"
+                  onClick={onFinish}
+                  className="min-h-14 rounded-[8px] border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-100"
+                >
+                  Dejar en fondo
+                </button>
+                <button
+                  type="button"
+                  onClick={reviewWaiver}
+                  disabled={changeAvailableUsd > 1.005}
+                  className="min-h-14 rounded-[8px] border border-[#FEEF00]/60 bg-[#FEEF00]/10 px-4 py-3 text-sm font-semibold text-[#FEEF00] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Cliente deja la diferencia
+                </button>
+              </div>
+              {changeAvailableUsd > 1.005 ? (
+                <div className="mt-3 text-center text-xs text-orange-200">
+                  Para cerrar más de $1,00 se necesita revisión administrativa.
+                </div>
+              ) : null}
+              {paymentQuote.pendingUsd > 0.005 ? (
+                <button
+                  type="button"
+                  onClick={() => setView('payment')}
+                  className="mx-auto mt-4 block min-h-11 rounded-[8px] border border-[#303044] px-4 py-2 text-sm font-semibold text-[#C7C8D1]"
+                >
+                  Volver al cobro
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           {changeStage === 'input' ? (
             <div className="mt-4 rounded-[10px] border border-[#303044] bg-[#111118] p-4">
@@ -827,15 +925,13 @@ export function CounterPaymentEngine({
                     Esta entrega equivale a {moneyUsd(changeAmountUsd)}. Al confirmarla quedara cerrada por separado.
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                    {paymentQuote.pendingUsd > 0.005 ? (
-                      <button type="button" onClick={() => setView('payment')} className="min-h-11 rounded-[8px] border border-[#303044] px-4 py-2 text-sm font-semibold text-[#C7C8D1]">Volver al cobro</button>
-                    ) : <span />}
+                    <button type="button" onClick={() => setChangeStage('choice')} className="min-h-11 rounded-[8px] border border-[#303044] px-4 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
                     <button type="button" onClick={reviewChange} className="min-h-12 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black">Revisar esta entrega</button>
                   </div>
                 </>
               ) : (
                 <div className="rounded-[8px] border border-orange-400/35 bg-orange-400/10 p-3 text-sm text-orange-100">
-                  No hay una caja de efectivo habilitada para entregar cambio. El saldo permanece seguro en el fondo del cliente.
+                  No hay una caja de efectivo habilitada para entregar cambio.
                 </div>
               )}
             </div>
@@ -882,12 +978,47 @@ export function CounterPaymentEngine({
                 {changeReceipt.remainingChangeUsd > 0.005 ? (
                   <button type="button" onClick={startAnotherChange} className="min-h-11 rounded-[8px] border border-emerald-200/40 px-4 py-2 text-sm font-semibold text-emerald-50">Entregar desde otra caja</button>
                 ) : null}
+                {changeReceipt.remainingChangeUsd > 0.005 && changeReceipt.remainingChangeUsd <= 1.005 ? (
+                  <button type="button" onClick={reviewWaiver} className="min-h-11 rounded-[8px] border border-[#FEEF00]/60 px-4 py-2 text-sm font-semibold text-[#FEEF00]">Cliente deja la diferencia</button>
+                ) : null}
                 <button type="button" onClick={onFinish} className="min-h-11 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black">
                   {changeReceipt.remainingChangeUsd > 0.005
-                    ? `Terminar y dejar ${moneyUsd(changeReceipt.remainingChangeUsd)} en fondo`
+                    ? `Dejar ${moneyUsd(changeReceipt.remainingChangeUsd)} en fondo`
                     : 'Terminar'}
                 </button>
               </div>
+            </div>
+          ) : null}
+
+          {changeStage === 'waive-review' ? (
+            <div className="mt-4 rounded-[10px] border border-[#FEEF00]/40 bg-[#FEEF00]/[0.06] p-4">
+              <div className="text-center text-base font-semibold text-[#FEEF00]">Cliente deja la diferencia</div>
+              <div className="mt-3 text-center text-3xl font-bold text-[#F5F5F7]">{moneyUsd(changeAvailableUsd)}</div>
+              <div className="mx-auto mt-3 max-w-md text-center text-sm text-[#C7C8D1]">
+                Este monto no se entregará ni quedará en el fondo del cliente. La decisión quedará registrada en la orden.
+              </div>
+              <div className="mt-4 flex items-center justify-between gap-2">
+                <button type="button" onClick={() => setChangeStage('choice')} className="min-h-11 rounded-[8px] border border-[#303044] px-4 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
+                <button
+                  type="button"
+                  onClick={() => void confirmWaiver()}
+                  disabled={isWorking}
+                  className="min-h-12 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black disabled:opacity-60"
+                >
+                  {isWorking ? 'Cerrando...' : 'Confirmar y cerrar diferencia'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {changeStage === 'waive-receipt' && waiveReceipt ? (
+            <div className="mt-4 rounded-[10px] border border-emerald-400/35 bg-emerald-400/10 p-4 text-center">
+              <div className="text-base font-semibold text-emerald-100">Diferencia cerrada</div>
+              <div className="mt-2 text-2xl font-bold text-emerald-50">{moneyUsd(waiveReceipt.waivedAmountUsd)}</div>
+              <div className="mt-2 text-sm text-emerald-100/75">
+                No se entregó cambio ni se guardó saldo en el fondo.
+              </div>
+              <button type="button" onClick={onFinish} className="mt-4 min-h-11 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-5 py-2 text-sm font-bold text-black">Terminar</button>
             </div>
           ) : null}
         </div>
