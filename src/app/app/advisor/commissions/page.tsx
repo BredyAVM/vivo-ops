@@ -10,9 +10,14 @@ import {
   resolveAdvisorGoalScoringConfiguration,
   type AdvisorGoalMetricPublication,
 } from '@/lib/commissions/goal-snapshot';
-import { loadAdvisorGoalCollectionForClosure } from '@/lib/commissions/goal-data';
+import {
+  loadAdvisorGoalCollectionForClosure,
+  loadAdvisorGoalCurrentCollection,
+  loadAdvisorGoalCurrentCommercialMetric,
+} from '@/lib/commissions/goal-data';
 import { AdvisorGoalCollectionBreakdown } from '@/app/app/commissions/AdvisorGoalCollectionBreakdown';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
+import { AdvisorGoalLiveRefresh } from './AdvisorGoalLiveRefresh';
 
 type CommissionDetail =
   | 'sales'
@@ -451,35 +456,69 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const storedGoal = readAdvisorGoalPublicationSnapshot(closure?.snapshot);
   const visibleGoal = storedGoal && storedGoal.status !== 'draft' ? storedGoal : null;
   let currentGoalCollection = null;
+  let currentGoalCommercialMetric: Awaited<ReturnType<typeof loadAdvisorGoalCurrentCommercialMetric>> = null;
+  let currentGoalObservedAt: string | null = null;
   if (visibleGoal && closure && selectedPeriod) {
-    try {
-      currentGoalCollection = await loadAdvisorGoalCollectionForClosure({
-        supabase: ctx.supabase,
-        advisorUserId: ctx.user.id,
-        snapshot: closure.snapshot,
-        periodTo: selectedPeriod.date_to,
-      });
-    } catch (error) {
-      console.warn(
-        'advisor goal collection detail skipped',
-        error instanceof Error ? error.message : 'unknown collection detail error'
-      );
+    if (visibleGoal.status === 'final') {
+      try {
+        currentGoalCollection = await loadAdvisorGoalCollectionForClosure({
+          supabase: ctx.supabase,
+          advisorUserId: ctx.user.id,
+          snapshot: closure.snapshot,
+          periodTo: selectedPeriod.date_to,
+        });
+      } catch (error) {
+        console.warn(
+          'advisor final goal collection detail skipped',
+          error instanceof Error ? error.message : 'unknown collection detail error'
+        );
+      }
+    } else {
+      const [commercialResult, collectionResult] = await Promise.allSettled([
+        loadAdvisorGoalCurrentCommercialMetric({
+          supabase: ctx.supabase,
+          periodFrom: selectedPeriod.date_from,
+          periodTo: selectedPeriod.date_to,
+        }),
+        loadAdvisorGoalCurrentCollection({
+          supabase: ctx.supabase,
+          advisorUserId: ctx.user.id,
+          periodFrom: selectedPeriod.date_from,
+          periodTo: selectedPeriod.date_to,
+        }),
+      ]);
+      if (commercialResult.status === 'fulfilled') {
+        currentGoalCommercialMetric = commercialResult.value;
+        currentGoalObservedAt = commercialResult.value?.observedAt ?? null;
+      } else {
+        console.warn('advisor live commercial metric skipped', commercialResult.reason);
+      }
+      if (collectionResult.status === 'fulfilled') {
+        currentGoalCollection = collectionResult.value;
+        currentGoalObservedAt ??= new Date().toISOString();
+      } else {
+        console.warn('advisor live collection detail skipped', collectionResult.reason);
+      }
     }
   }
+  const currentGoalBilling = currentGoalCommercialMetric?.billingUsd ?? numberValue(closure?.billed_usd);
+  const currentGoalClosures = currentGoalCommercialMetric?.closuresCount ?? numberValue(closure?.delivered_orders_count);
+  const currentGoalOwnClients = currentGoalCommercialMetric?.newOwnClientsCount ?? numberValue(closure?.new_own_clients_count);
+  const currentGoalAssignedClients = currentGoalCommercialMetric?.newAssignedClientsCount ?? numberValue(closure?.new_assigned_clients_count);
   const liveGoalScore = visibleGoal
     ? visibleGoal.status === 'final'
       ? visibleGoal.score
       : calculateAdvisorGoalScore([
           {
             key: 'billing',
-            actual: numberValue(closure?.billed_usd),
+            actual: currentGoalBilling,
             reference: visibleGoal.metrics.billing.personalReference,
             target: visibleGoal.metrics.billing.target,
             basePoints: goalScoring.metricBasePoints.billing,
           },
           {
             key: 'closures',
-            actual: numberValue(closure?.delivered_orders_count),
+            actual: currentGoalClosures,
             reference: visibleGoal.metrics.closures.personalReference,
             target: visibleGoal.metrics.closures.target,
             basePoints: goalScoring.metricBasePoints.closures,
@@ -493,14 +532,14 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
           },
           {
             key: 'new_own_clients',
-            actual: numberValue(closure?.new_own_clients_count),
+            actual: currentGoalOwnClients,
             reference: visibleGoal.metrics.new_own_clients.personalReference,
             target: visibleGoal.metrics.new_own_clients.target,
             basePoints: goalScoring.metricBasePoints.new_own_clients,
           },
           {
             key: 'new_assigned_clients',
-            actual: numberValue(closure?.new_assigned_clients_count),
+            actual: currentGoalAssignedClients,
             reference: visibleGoal.metrics.new_assigned_clients.personalReference,
             target: visibleGoal.metrics.new_assigned_clients.target,
             basePoints: goalScoring.metricBasePoints.new_assigned_clients,
@@ -511,14 +550,14 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
     ? visibleGoal.status === 'final'
       ? visibleGoal.metrics
       : {
-        billing: { ...visibleGoal.metrics.billing, actual: numberValue(closure?.billed_usd) },
-        closures: { ...visibleGoal.metrics.closures, actual: numberValue(closure?.delivered_orders_count) },
+        billing: { ...visibleGoal.metrics.billing, actual: currentGoalBilling },
+        closures: { ...visibleGoal.metrics.closures, actual: currentGoalClosures },
         collection: {
           ...visibleGoal.metrics.collection,
           actual: currentGoalCollection?.ratio ?? visibleGoal.metrics.collection.actual,
         },
-        new_own_clients: { ...visibleGoal.metrics.new_own_clients, actual: numberValue(closure?.new_own_clients_count) },
-        new_assigned_clients: { ...visibleGoal.metrics.new_assigned_clients, actual: numberValue(closure?.new_assigned_clients_count) },
+        new_own_clients: { ...visibleGoal.metrics.new_own_clients, actual: currentGoalOwnClients },
+        new_assigned_clients: { ...visibleGoal.metrics.new_assigned_clients, actual: currentGoalAssignedClients },
         }
     : null;
 
@@ -711,6 +750,10 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   ))}
                 </div>
               </div>
+
+              {visibleGoal.status !== 'final' && currentGoalObservedAt ? (
+                <AdvisorGoalLiveRefresh observedAt={currentGoalObservedAt} />
+              ) : null}
 
               <div className="mt-3 space-y-2.5">
                 {([

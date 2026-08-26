@@ -29,6 +29,30 @@ type CommercialMetricDbRow = {
   new_assigned_clients_count: number | string;
 };
 
+type CurrentCommercialMetricDbRow = {
+  period_from: string;
+  period_to: string;
+  advisor_user_id: string;
+  billing_usd: number | string;
+  closures_count: number | string;
+  new_own_clients_count: number | string;
+  new_assigned_clients_count: number | string;
+  observed_at: string;
+};
+
+type CurrentCommercialFactDbRow = {
+  source_record_id: number | string;
+  source_control: string | null;
+  client_id: number | string;
+  purchased_at: string;
+  net_total_usd: number | string;
+};
+
+type ClientDbRow = {
+  id: number | string;
+  full_name: string | null;
+};
+
 type ClosureDbRow = {
   id: number | string;
   advisor_user_id: string;
@@ -129,6 +153,41 @@ function metricRow(row: CommercialMetricDbRow): AdvisorGoalCommercialMetricRow {
     closuresCount: numberValue(row.closures_count),
     newOwnClientsCount: numberValue(row.new_own_clients_count),
     newAssignedClientsCount: numberValue(row.new_assigned_clients_count),
+  };
+}
+
+export type AdvisorGoalCurrentCommercialMetric = {
+  periodFrom: string;
+  periodTo: string;
+  advisorUserId: string;
+  billingUsd: number;
+  closuresCount: number;
+  newOwnClientsCount: number;
+  newAssignedClientsCount: number;
+  observedAt: string;
+};
+
+export async function loadAdvisorGoalCurrentCommercialMetric(params: {
+  supabase: SupabaseServerClient;
+  periodFrom: string;
+  periodTo: string;
+}): Promise<AdvisorGoalCurrentCommercialMetric | null> {
+  const result = await params.supabase.rpc('advisor_goal_current_commercial_metric_v1', {
+    p_from: params.periodFrom,
+    p_to: params.periodTo,
+  });
+  if (result.error) throw new Error(result.error.message);
+  const row = ((result.data ?? []) as CurrentCommercialMetricDbRow[])[0];
+  if (!row) return null;
+  return {
+    periodFrom: row.period_from,
+    periodTo: row.period_to,
+    advisorUserId: row.advisor_user_id,
+    billingUsd: numberValue(row.billing_usd),
+    closuresCount: numberValue(row.closures_count),
+    newOwnClientsCount: numberValue(row.new_own_clients_count),
+    newAssignedClientsCount: numberValue(row.new_assigned_clients_count),
+    observedAt: row.observed_at,
   };
 }
 
@@ -270,6 +329,65 @@ export async function loadAdvisorGoalCollectionForClosure(params: {
   const summaries = await loadCollectionByAdvisorId({
     supabase: params.supabase,
     closures: [{ id: 0, advisor_user_id: params.advisorUserId, snapshot: params.snapshot }],
+    cutoffDate: datePlusDays(params.periodTo, 5),
+  });
+  return summaries.get(params.advisorUserId) ?? null;
+}
+
+export async function loadAdvisorGoalCurrentCollection(params: {
+  supabase: SupabaseServerClient;
+  advisorUserId: string;
+  periodFrom: string;
+  periodTo: string;
+}) {
+  const factsResult = await params.supabase
+    .from('commercial_order_facts')
+    .select('source_record_id, source_control, client_id, purchased_at, net_total_usd')
+    .eq('fact_origin', 'live')
+    .eq('event_kind', 'purchase')
+    .eq('attributed_advisor_id', params.advisorUserId)
+    .gte('purchased_at', `${params.periodFrom}T00:00:00-04:00`)
+    .lte('purchased_at', `${params.periodTo}T23:59:59.999-04:00`)
+    .gt('net_total_usd', 0)
+    .order('purchased_at', { ascending: true });
+  if (factsResult.error) throw new Error(factsResult.error.message);
+  const facts = (factsResult.data ?? []) as CurrentCommercialFactDbRow[];
+  const clientIds = Array.from(new Set(
+    facts.map((fact) => Number(fact.client_id)).filter((clientId) => Number.isInteger(clientId) && clientId > 0)
+  ));
+  const clientNameById = new Map<number, string>();
+  for (let index = 0; index < clientIds.length; index += 250) {
+    const clientsResult = await params.supabase
+      .from('clients')
+      .select('id, full_name')
+      .in('id', clientIds.slice(index, index + 250));
+    if (clientsResult.error) throw new Error(clientsResult.error.message);
+    for (const client of (clientsResult.data ?? []) as ClientDbRow[]) {
+      const clientId = Number(client.id);
+      if (Number.isInteger(clientId) && clientId > 0) {
+        clientNameById.set(clientId, String(client.full_name || 'Cliente').trim() || 'Cliente');
+      }
+    }
+  }
+  const orders = facts.flatMap<AdvisorGoalCollectionSnapshotOrder>((fact) => {
+    const orderId = Number(fact.source_record_id);
+    const clientId = Number(fact.client_id);
+    const deliveryDate = caracasDate(fact.purchased_at);
+    const totalUsd = numberValue(fact.net_total_usd);
+    if (!Number.isInteger(orderId) || orderId <= 0 || !deliveryDate || totalUsd <= 0.005) return [];
+    return [{
+      orderId,
+      orderNumber: fact.source_control,
+      clientName: clientNameById.get(clientId) ?? 'Cliente',
+      deliveryDate,
+      totalUsd,
+      confirmedPaidUsd: 0,
+      pendingUsd: totalUsd,
+    }];
+  });
+  const summaries = await loadCollectionByAdvisorId({
+    supabase: params.supabase,
+    closures: [{ id: 0, advisor_user_id: params.advisorUserId, snapshot: { orders } }],
     cutoffDate: datePlusDays(params.periodTo, 5),
   });
   return summaries.get(params.advisorUserId) ?? null;
