@@ -413,6 +413,12 @@ equivalentes USD por línea. Esto aplica igualmente a Punto, efectivo VES,
 de cobranza dolarizada: saldo USD pendiente por la tasa vigente de la fecha de
 operación.
 
+Cuando un pago confirmado y realizado antes o durante el día de entrega cubre
+el `pending_bs` exacto, la orden queda pagada tanto en Bs como en su equivalente
+USD. Una diferencia creada exclusivamente porque el total USD y el equivalente
+USD del pago se redondearon por separado no constituye deuda, no requiere un
+pago adicional y no puede reaparecer al consultar la orden en días posteriores.
+
 ### 10.2 Efectivo y punto
 
 Efectivo y punto pueden confirmarse automáticamente solo cuando:

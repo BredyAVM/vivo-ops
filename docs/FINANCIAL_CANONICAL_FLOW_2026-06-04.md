@@ -86,7 +86,8 @@ Invariante tecnica obligatoria:
 - antes o durante el dia de entrega, la pantalla de cobro en VES consume directamente el `pending_bs` del estado financiero canonico;
 - si existe un abono parcial en USD, su cobertura en Bs se valora con la tasa snapshot almacenada, nunca con el cociente entre totales;
 - si existe un abono parcial en VES, se descuenta su monto VES confirmado de forma directa;
-- un pago VES por el `pending_bs` exacto aplica el `pending_usd` canonico completo para que el redondeo contable no deje un residuo artificial.
+- un pago VES por el `pending_bs` exacto aplica el `pending_usd` canonico completo para que el redondeo contable no deje un residuo artificial, sin importar si el pago fue registrado por Counter, asesor, Master o Administración;
+- si la suma confirmada y elegible en Bs cubrió el snapshot VES antes o durante el día de entrega, `pending_bs` y `pending_usd` deben cerrar juntos; el equivalente USD redondeado de los movimientos no puede reabrir un centavo ficticio después.
 
 Para bolivares antes de entrega:
 
