@@ -78,6 +78,16 @@ El snapshot Bs de la orden se construye por linea y debe conservar la moneda en 
 
 Ejemplo canonico: si las lineas nacidas en VES suman exactamente `Bs 15.000`, pero su equivalente contable redondeado suma `$20,34`, el monto a cobrar antes o durante el dia de entrega sigue siendo `Bs 15.000`; no `20,34 * tasa`.
 
+Invariante tecnica obligatoria:
+
+- `extra_fields.pricing.fx_rate` conserva la tasa snapshot usada al construir la orden;
+- `extra_fields.pricing.total_bs` / `orders.total_bs_snapshot` conserva el total comercial exacto en Bs;
+- el cociente `total_bs / total_usd` **no es una tasa** y no puede usarse para cotizar pagos, saldos parciales, punto de venta ni cambio: el total USD ya puede contener redondeos por linea;
+- antes o durante el dia de entrega, la pantalla de cobro en VES consume directamente el `pending_bs` del estado financiero canonico;
+- si existe un abono parcial en USD, su cobertura en Bs se valora con la tasa snapshot almacenada, nunca con el cociente entre totales;
+- si existe un abono parcial en VES, se descuenta su monto VES confirmado de forma directa;
+- un pago VES por el `pending_bs` exacto aplica el `pending_usd` canonico completo para que el redondeo contable no deje un residuo artificial.
+
 Para bolivares antes de entrega:
 
 ```text

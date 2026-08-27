@@ -403,6 +403,16 @@ Registrar un movimiento particular no obliga a cerrar financieramente toda la
 orden. Un cobro o una entrega de cambio puede quedar terminado mientras el saldo
 restante continúa bajo cobranza del asesor.
 
+Para cobros en bolívares, Counter no calcula el monto desde el total USD de la
+orden. Antes o durante el día de entrega debe mostrar y registrar el `pending_bs`
+exacto de la cotización financiera canónica. La tasa snapshot proviene de
+`extra_fields.pricing.fx_rate`; queda prohibido inferirla mediante
+`total_bs / total_usd`, porque ese cociente incorpora redondeos de los
+equivalentes USD por línea. Esto aplica igualmente a Punto, efectivo VES,
+órdenes mixtas y pagos parciales. Después del día de entrega prevalece la regla
+de cobranza dolarizada: saldo USD pendiente por la tasa vigente de la fecha de
+operación.
+
 ### 10.2 Efectivo y punto
 
 Efectivo y punto pueden confirmarse automáticamente solo cuando:
