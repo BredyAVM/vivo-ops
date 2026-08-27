@@ -78,6 +78,9 @@ type PlayRecord = {
   ends_at: string | null;
   gift_product_id: number | string;
   gift_quantity: number | string;
+  benefit_selection_mode: 'single' | 'multiple';
+  purchase_requirement_mode: 'none' | 'minimum_order';
+  minimum_order_amount_usd: number | string | null;
 };
 
 type PlayMemberRow = {
@@ -119,6 +122,7 @@ type PlayBenefitRow = {
   id: number | string;
   product_id: number | string;
   quantity: number | string;
+  unit_advisor_cost_usd: number | string;
   product: { name: string; sku: string | null } | Array<{ name: string; sku: string | null }> | null;
 };
 
@@ -271,7 +275,8 @@ export default async function AdvisorClientProfilePage({
         last_contact_at, next_follow_up_at, last_note, last_event_at,
         play:crm_plays(
           id, name, description, status, starts_at, ends_at,
-          gift_product_id, gift_quantity
+          gift_product_id, gift_quantity, benefit_selection_mode,
+          purchase_requirement_mode, minimum_order_amount_usd
         )
       `)
       .eq('client_id', clientId)
@@ -306,7 +311,7 @@ export default async function AdvisorClientProfilePage({
     ?? null;
   const selectedPlay = selectedMember ? one(selectedMember.play) : null;
 
-  const [eventsResult, benefitOptionsResult] = await Promise.all([
+  const [eventsResult, benefitOptionsResult, benefitSelectionsResult] = await Promise.all([
     selectedMember
       ? ctx.supabase
           .from('crm_play_member_events')
@@ -319,15 +324,22 @@ export default async function AdvisorClientProfilePage({
     selectedPlay
       ? ctx.supabase
           .from('crm_play_benefits')
-          .select('id, product_id, quantity, product:products!crm_play_benefits_product_id_fkey(name, sku)')
+          .select('id, product_id, quantity, unit_advisor_cost_usd, product:products!crm_play_benefits_product_id_fkey(name, sku)')
           .eq('play_id', Number(selectedPlay.id))
           .order('sort_order', { ascending: true })
           .order('id', { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+    selectedMember
+      ? ctx.supabase
+          .from('crm_play_member_benefit_selections')
+          .select('play_benefit_id')
+          .eq('play_member_id', Number(selectedMember.id))
       : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (eventsResult.error) console.error('Unable to load CRM follow-up events', eventsResult.error.message);
   if (benefitOptionsResult.error) console.error('Unable to load CRM play benefits', benefitOptionsResult.error.message);
+  if (benefitSelectionsResult.error) console.error('Unable to load CRM benefit selections', benefitSelectionsResult.error.message);
 
   const events = (eventsResult.data ?? []) as unknown as PlayEventRow[];
   const benefitOptions = ((benefitOptionsResult.data ?? []) as unknown as PlayBenefitRow[]).map((option) => {
@@ -338,8 +350,12 @@ export default async function AdvisorClientProfilePage({
       name: product?.name?.trim() || 'Beneficio',
       sku: product?.sku ?? null,
       quantity: numberValue(option.quantity),
+      unitAdvisorCostUsd: numberValue(option.unit_advisor_cost_usd),
     };
   });
+  const selectedBenefitIds = (benefitSelectionsResult.data ?? [])
+    .map((selection) => numberValue(selection.play_benefit_id))
+    .filter((benefitId) => benefitId > 0);
   const phone = normalizePhoneDetailed(profile.client.phone);
   const whatsappHref = phone.e164 ? `https://wa.me/${phone.e164.slice(1)}` : null;
   const cadence = optionalNumber(profile.metrics.cadence_days);
@@ -375,7 +391,9 @@ export default async function AdvisorClientProfilePage({
           </div>
         )}
         <Link
-          href="/app/advisor/new"
+          href={selectedMember && selectedPlay && isPlayActive
+            ? `/app/advisor/new?client=${clientId}&playMember=${numberValue(selectedMember.id)}`
+            : '/app/advisor/new'}
           className="inline-flex h-11 flex-1 items-center justify-center rounded-[13px] border border-[#F0D000] px-4 text-sm font-semibold text-[#F7DA66]"
         >
           Crear pedido
@@ -422,10 +440,13 @@ export default async function AdvisorClientProfilePage({
             <div className="rounded-[16px] border border-[#2A3040] bg-[#0D1017] px-3.5 py-3 text-xs leading-5 text-[#AAB2C5]">
               <div className="mb-2 font-medium text-[#F5F7FB]">Beneficio para este cliente</div>
               <ClientBenefitSelector
-                key={`${selectedMember.id}-${selectedMember.selected_play_benefit_id ?? 'none'}`}
+                key={`${selectedMember.id}-${selectedBenefitIds.join('-') || 'none'}`}
                 playMemberId={numberValue(selectedMember.id)}
                 options={benefitOptions}
-                selectedBenefitId={selectedMember.selected_play_benefit_id == null ? null : numberValue(selectedMember.selected_play_benefit_id)}
+                selectedBenefitIds={selectedBenefitIds}
+                selectionMode={selectedPlay.benefit_selection_mode || 'single'}
+                purchaseRequirementMode={selectedPlay.purchase_requirement_mode || 'none'}
+                minimumOrderAmountUsd={selectedPlay.minimum_order_amount_usd == null ? null : numberValue(selectedPlay.minimum_order_amount_usd)}
                 isActive={isPlayActive}
               />
               {selectedMember.next_follow_up_at ? (

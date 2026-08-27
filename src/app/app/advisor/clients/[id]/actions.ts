@@ -107,7 +107,7 @@ export async function recordClientPlayFollowUpAction(input: RecordPlayFollowUpIn
 
 export async function selectClientPlayBenefitAction(input: {
   playMemberId: number;
-  playBenefitId: number;
+  playBenefitIds: number[];
 }) {
   try {
     const ctx = await requireAuthContext();
@@ -116,14 +116,18 @@ export async function selectClientPlayBenefitAction(input: {
     }
 
     const playMemberId = Math.trunc(Number(input.playMemberId));
-    const playBenefitId = Math.trunc(Number(input.playBenefitId));
-    if (playMemberId <= 0 || playBenefitId <= 0) {
-      return { ok: false as const, message: 'Selecciona una alternativa válida.' };
+    const playBenefitIds = Array.from(new Set(
+      (Array.isArray(input.playBenefitIds) ? input.playBenefitIds : [])
+        .map((value) => Math.trunc(Number(value)))
+        .filter((value) => value > 0)
+    ));
+    if (playMemberId <= 0 || playBenefitIds.length === 0) {
+      return { ok: false as const, message: 'Selecciona al menos un beneficio válido.' };
     }
 
-    const { data, error } = await ctx.supabase.rpc('crm_select_play_benefit_v1', {
+    const { data, error } = await ctx.supabase.rpc('crm_set_play_benefits_v2', {
       p_play_member_id: playMemberId,
-      p_play_benefit_id: playBenefitId,
+      p_play_benefit_ids: playBenefitIds,
     });
     if (error) return { ok: false as const, message: error.message };
 
@@ -134,7 +138,12 @@ export async function selectClientPlayBenefitAction(input: {
       revalidatePath(`/app/advisor/clients/${Math.trunc(clientId)}`);
     }
 
-    return { ok: true as const, message: 'Beneficio seleccionado. Este cliente solo podrá usar esta alternativa.' };
+    return {
+      ok: true as const,
+      message: playBenefitIds.length === 1
+        ? 'Beneficio seleccionado para este cliente.'
+        : `${playBenefitIds.length} beneficios seleccionados para este cliente.`,
+    };
   } catch (error) {
     return {
       ok: false as const,

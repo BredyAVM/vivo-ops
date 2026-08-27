@@ -82,6 +82,8 @@ type SnapshotProduct = {
 type SnapshotGift = SnapshotProduct & {
   clientName?: string | null;
   deductionUsd?: number | string | null;
+  crmPlayName?: string | null;
+  companyCostUsd?: number | string | null;
 };
 
 type SnapshotClient = {
@@ -669,11 +671,13 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const giftsByName = new Map<string, { qty: number; deductionUsd: number; rows: SnapshotGift[] }>();
   for (const gift of gifts) {
     const name = String(gift.productName || 'Obsequio').trim();
-    const current = giftsByName.get(name) ?? { qty: 0, deductionUsd: 0, rows: [] };
+    const playName = String(gift.crmPlayName || '').trim();
+    const groupName = playName ? `${name} · ${playName}` : name;
+    const current = giftsByName.get(groupName) ?? { qty: 0, deductionUsd: 0, rows: [] };
     current.qty += numberValue(gift.qty);
     current.deductionUsd += numberValue(gift.deductionUsd);
     current.rows.push(gift);
-    giftsByName.set(name, current);
+    giftsByName.set(groupName, current);
   }
   const giftQty = gifts.reduce((sum, gift) => sum + numberValue(gift.qty), 0);
   const baseCommissionPct = numberValue(closure?.base_commission_pct);

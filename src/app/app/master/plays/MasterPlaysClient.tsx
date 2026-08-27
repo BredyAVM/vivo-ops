@@ -7,13 +7,16 @@ import { ModulePreference } from '../../ModulePreference';
 import {
   activatePlayAction,
   confirmPlayListAction,
+  deleteDraftPlayAction,
   excludePlayClientAction,
   generatePlayListAction,
   testPlayDefinitionAction,
   type PlayActionResult,
   type PlayAnniversaryMode,
+  type PlayBenefitSelectionMode,
   type PlayFulfillmentFilter,
   type PlayKind,
+  type PlayPurchaseRequirementMode,
   type SavePlayDraftInput,
 } from './actions';
 
@@ -22,7 +25,9 @@ export type PlayBenefit = {
   name: string;
   sku: string | null;
   type: string;
-  referenceBudgetCostUsd: number;
+  referenceValueUsd: number;
+  referenceAdvisorCostUsd: number;
+  referenceCompanyCostUsd: number;
 };
 
 export type MasterPlay = {
@@ -38,6 +43,9 @@ export type MasterPlay = {
   giftProductId: number;
   giftQuantity: number;
   plannedBudgetUsd: number | null;
+  benefitSelectionMode: PlayBenefitSelectionMode;
+  purchaseRequirementMode: PlayPurchaseRequirementMode;
+  minimumOrderAmountUsd: number | null;
   startsAt: string | null;
   endsAt: string | null;
   snapshotAt: string | null;
@@ -48,7 +56,9 @@ export type MasterPlay = {
     id: number;
     productId: number;
     quantity: number;
-    unitBudgetCostUsd: number;
+    unitBenefitValueUsd: number;
+    unitAdvisorCostUsd: number;
+    unitCompanyCostUsd: number;
     sortOrder: number;
     name: string;
     sku: string | null;
@@ -166,6 +176,21 @@ function dateInput(value: string | null) {
   return match?.[0] ?? '';
 }
 
+function monthInput(value: string | null | undefined) {
+  if (!value) return '';
+  const match = value.match(/^\d{4}-\d{2}/);
+  return match?.[0] ?? '';
+}
+
+function monthStart(value: string) {
+  return /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : '';
+}
+
+function monthEnd(value: string) {
+  const start = monthStart(value);
+  return start ? endOfMonth(start) : '';
+}
+
 function dateLabel(value: string | null) {
   if (!value) return '—';
   const parsed = new Date(value.length === 10 ? `${value}T12:00:00-04:00` : value);
@@ -272,25 +297,32 @@ function PlayDefinitionForm({
     ? play.benefits.map((option) => ({
         productId: String(option.productId),
         quantity: String(option.quantity),
-        unitBudgetCostUsd: String(option.unitBudgetCostUsd),
+        unitBenefitValueUsd: String(option.unitBenefitValueUsd),
+        unitAdvisorCostUsd: String(option.unitAdvisorCostUsd),
+        unitCompanyCostUsd: String(option.unitCompanyCostUsd),
       }))
     : [{
         productId: benefits[0] ? String(benefits[0].id) : '',
         quantity: '1',
-        unitBudgetCostUsd: benefits[0] ? String(benefits[0].referenceBudgetCostUsd) : '0',
+        unitBenefitValueUsd: benefits[0] ? String(benefits[0].referenceValueUsd) : '0',
+        unitAdvisorCostUsd: benefits[0] ? String(benefits[0].referenceAdvisorCostUsd) : '0',
+        unitCompanyCostUsd: benefits[0] ? String(benefits[0].referenceCompanyCostUsd) : '0',
       }]);
+  const [benefitSelectionMode, setBenefitSelectionMode] = useState<PlayBenefitSelectionMode>(play?.benefitSelectionMode ?? 'single');
+  const [purchaseRequirementMode, setPurchaseRequirementMode] = useState<PlayPurchaseRequirementMode>(play?.purchaseRequirementMode ?? 'none');
+  const [minimumOrderAmount, setMinimumOrderAmount] = useState(play?.minimumOrderAmountUsd == null ? '' : String(play.minimumOrderAmountUsd));
   const [plannedBudget, setPlannedBudget] = useState(play?.plannedBudgetUsd == null ? '' : String(play.plannedBudgetUsd));
   const [minPurchases, setMinPurchases] = useState(play ? optionalNumberString(rules.min_purchase_count) || '1' : '1');
   const [maxPurchases, setMaxPurchases] = useState(play ? optionalNumberString(rules.max_purchase_count) : '');
   const [minRevenue, setMinRevenue] = useState(play ? optionalNumberString(rules.min_net_revenue_usd) || '0' : '0');
   const [minDays, setMinDays] = useState(play ? optionalNumberString(rules.min_days_since_purchase) : '');
   const [maxDays, setMaxDays] = useState(play ? optionalNumberString(rules.max_days_since_purchase) : '');
-  const [firstFrom, setFirstFrom] = useState(play ? stringValue(rules.first_purchase_from) : '');
-  const [firstTo, setFirstTo] = useState(play ? stringValue(rules.first_purchase_to) : '');
-  const [lastFrom, setLastFrom] = useState(play ? stringValue(rules.last_purchase_from) : '');
-  const [lastTo, setLastTo] = useState(play ? stringValue(rules.last_purchase_to) : '');
-  const [lastGiftFrom, setLastGiftFrom] = useState(play ? stringValue(rules.last_gift_from) : '');
-  const [lastGiftTo, setLastGiftTo] = useState(play ? stringValue(rules.last_gift_to) : '');
+  const [firstFrom, setFirstFrom] = useState(play ? monthInput(stringValue(rules.first_purchase_from)) : '');
+  const [firstTo, setFirstTo] = useState(play ? monthInput(stringValue(rules.first_purchase_to)) : '');
+  const [lastFrom, setLastFrom] = useState(play ? monthInput(stringValue(rules.last_purchase_from)) : '');
+  const [lastTo, setLastTo] = useState(play ? monthInput(stringValue(rules.last_purchase_to)) : '');
+  const [lastGiftFrom, setLastGiftFrom] = useState(play ? monthInput(stringValue(rules.last_gift_from)) : '');
+  const [lastGiftTo, setLastGiftTo] = useState(play ? monthInput(stringValue(rules.last_gift_to)) : '');
   const [includeNeverGifted, setIncludeNeverGifted] = useState(play ? rules.include_never_gifted !== false : true);
   const [anniversaryMode, setAnniversaryMode] = useState<PlayAnniversaryMode>(() => {
     const storedMode = stringValue(rules.anniversary_mode);
@@ -299,17 +331,34 @@ function PlayDefinitionForm({
   });
   const [anniversaryMonth, setAnniversaryMonth] = useState(play ? optionalNumberString(rules.anniversary_month) : '');
   const [fulfillment, setFulfillment] = useState<PlayFulfillmentFilter>(() => play ? (stringValue(rules.fulfillment) || 'any') as PlayFulfillmentFilter : 'any');
-  const projectedCostPerClient = useMemo(() => {
-    const costs = benefitOptions.flatMap((option) => {
+  const projectedEconomicsPerClient = useMemo(() => {
+    const rows = benefitOptions.flatMap((option) => {
       const quantity = Number(option.quantity);
-      const unitCost = Number(option.unitBudgetCostUsd);
-      return Number.isFinite(quantity) && quantity > 0 && Number.isFinite(unitCost) && unitCost >= 0
-        ? [quantity * unitCost]
+      const companyCost = Number(option.unitCompanyCostUsd);
+      const advisorCost = Number(option.unitAdvisorCostUsd);
+      return Number.isFinite(quantity) && quantity > 0
+        && Number.isFinite(companyCost) && companyCost >= 0
+        && Number.isFinite(advisorCost) && advisorCost >= 0
+        ? [{ company: quantity * companyCost, advisor: quantity * advisorCost }]
         : [];
     });
-    if (costs.length === 0) return null;
-    return { minimum: Math.min(...costs), maximum: Math.max(...costs) };
-  }, [benefitOptions]);
+    if (rows.length === 0) return null;
+    const companyValues = rows.map((row) => row.company);
+    const advisorValues = rows.map((row) => row.advisor);
+    return benefitSelectionMode === 'multiple'
+      ? {
+          companyMinimum: Math.min(...companyValues),
+          companyMaximum: companyValues.reduce((sum, value) => sum + value, 0),
+          advisorMinimum: Math.min(...advisorValues),
+          advisorMaximum: advisorValues.reduce((sum, value) => sum + value, 0),
+        }
+      : {
+          companyMinimum: Math.min(...companyValues),
+          companyMaximum: Math.max(...companyValues),
+          advisorMinimum: Math.min(...advisorValues),
+          advisorMaximum: Math.max(...advisorValues),
+        };
+  }, [benefitOptions, benefitSelectionMode]);
 
   function applyPreset(nextKind: PlayKind) {
     setKind(nextKind);
@@ -348,8 +397,8 @@ function PlayDefinitionForm({
       setName(`Clientes nuevos · ${monthYear}`);
       setMinPurchases('1');
       setMinRevenue('0');
-      setFirstFrom(previous.from);
-      setFirstTo(previous.to);
+      setFirstFrom(previous.from.slice(0, 7));
+      setFirstTo(previous.to.slice(0, 7));
     } else if (nextKind === 'reconnect') {
       setName(`Reconexión · ${monthYear}`);
       setMinPurchases('2');
@@ -372,9 +421,32 @@ function PlayDefinitionForm({
       ? {
           ...candidate,
           productId,
-          unitBudgetCostUsd: selectedBenefit ? String(selectedBenefit.referenceBudgetCostUsd) : '0',
+          unitBenefitValueUsd: selectedBenefit ? String(selectedBenefit.referenceValueUsd) : '0',
+          unitAdvisorCostUsd: selectedBenefit ? String(selectedBenefit.referenceAdvisorCostUsd) : '0',
+          unitCompanyCostUsd: selectedBenefit ? String(selectedBenefit.referenceCompanyCostUsd) : '0',
         }
       : candidate));
+  }
+
+  function updateBenefitEconomics(
+    index: number,
+    field: 'unitBenefitValueUsd' | 'unitAdvisorCostUsd' | 'unitCompanyCostUsd',
+    value: string,
+  ) {
+    setBenefitOptions((current) => current.map((candidate, candidateIndex) => {
+      if (candidateIndex !== index) return candidate;
+      const next = { ...candidate, [field]: value };
+      const total = Number(next.unitBenefitValueUsd);
+      const advisor = Number(next.unitAdvisorCostUsd);
+      const company = Number(next.unitCompanyCostUsd);
+
+      if (field === 'unitCompanyCostUsd' && Number.isFinite(company) && Number.isFinite(advisor)) {
+        next.unitBenefitValueUsd = String(Number((company + advisor).toFixed(2)));
+      } else if (Number.isFinite(total) && Number.isFinite(advisor)) {
+        next.unitCompanyCostUsd = String(Number(Math.max(0, total - advisor).toFixed(2)));
+      }
+      return next;
+    }));
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -389,8 +461,15 @@ function PlayDefinitionForm({
       benefits: benefitOptions.map((option) => ({
         productId: Number(option.productId),
         quantity: Number(option.quantity),
-        unitBudgetCostUsd: Number(option.unitBudgetCostUsd),
+        unitBenefitValueUsd: Number(option.unitBenefitValueUsd),
+        unitAdvisorCostUsd: Number(option.unitAdvisorCostUsd),
+        unitCompanyCostUsd: Number(option.unitCompanyCostUsd),
       })),
+      benefitSelectionMode,
+      purchaseRequirementMode,
+      minimumOrderAmountUsd: purchaseRequirementMode === 'minimum_order' && minimumOrderAmount !== ''
+        ? Number(minimumOrderAmount)
+        : null,
       plannedBudgetUsd: plannedBudget === '' ? null : Number(plannedBudget),
       metricWindow: play?.metricWindow ?? 6,
       minPurchaseCount: Number(minPurchases),
@@ -398,12 +477,12 @@ function PlayDefinitionForm({
       minNetRevenueUsd: Number(minRevenue),
       minDaysSincePurchase: minDays === '' ? null : Number(minDays),
       maxDaysSincePurchase: maxDays === '' ? null : Number(maxDays),
-      firstPurchaseFrom: firstFrom,
-      firstPurchaseTo: firstTo,
-      lastPurchaseFrom: lastFrom,
-      lastPurchaseTo: lastTo,
-      lastGiftFrom,
-      lastGiftTo,
+      firstPurchaseFrom: monthStart(firstFrom),
+      firstPurchaseTo: monthEnd(firstTo),
+      lastPurchaseFrom: monthStart(lastFrom),
+      lastPurchaseTo: monthEnd(lastTo),
+      lastGiftFrom: monthStart(lastGiftFrom),
+      lastGiftTo: monthEnd(lastGiftTo),
       includeNeverGifted,
       anniversaryMode,
       anniversaryMonth: anniversaryMonth === '' ? null : Number(anniversaryMonth),
@@ -460,15 +539,39 @@ function PlayDefinitionForm({
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-xs font-semibold text-[#FFF18B]">Beneficios disponibles</h3>
-              <p className="mt-0.5 text-[10px] text-[#A89F68]">Puedes agregar hasta ocho alternativas. Para cada cliente el asesor escogerá una sola; no se acumulan.</p>
+              <p className="mt-0.5 text-[10px] text-[#A89F68]">Cada jugada congela su propio valor, cargo al asesor y aporte de la empresa.</p>
             </div>
             <button
               type="button"
               disabled={benefitOptions.length >= 8}
-              onClick={() => setBenefitOptions((current) => [...current, { productId: '', quantity: '1', unitBudgetCostUsd: '0' }])}
+              onClick={() => setBenefitOptions((current) => [...current, {
+                productId: '',
+                quantity: '1',
+                unitBenefitValueUsd: '0',
+                unitAdvisorCostUsd: '0',
+                unitCompanyCostUsd: '0',
+              }])}
               className={buttonSecondary}
             >
               + Agregar alternativa
+            </button>
+          </div>
+          <div className="mb-3 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setBenefitSelectionMode('single')}
+              className={`rounded-xl border px-3 py-2 text-left transition ${benefitSelectionMode === 'single' ? 'border-[#FEEF00]/70 bg-[#FEEF00]/10 text-[#FFF18B]' : 'border-[#302B10] bg-[#0D0D0A] text-[#A89F68]'}`}
+            >
+              <span className="block text-[11px] font-semibold">Un solo obsequio</span>
+              <span className="mt-0.5 block text-[9px] opacity-70">El asesor debe escoger exactamente una alternativa.</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setBenefitSelectionMode('multiple')}
+              className={`rounded-xl border px-3 py-2 text-left transition ${benefitSelectionMode === 'multiple' ? 'border-[#FEEF00]/70 bg-[#FEEF00]/10 text-[#FFF18B]' : 'border-[#302B10] bg-[#0D0D0A] text-[#A89F68]'}`}
+            >
+              <span className="block text-[11px] font-semibold">Combinación de obsequios</span>
+              <span className="mt-0.5 block text-[9px] opacity-70">El asesor puede escoger uno o varios de la lista.</span>
             </button>
           </div>
           <div className="space-y-2">
@@ -478,7 +581,7 @@ function PlayDefinitionForm({
                 .map((candidate) => candidate.productId)
                 .filter(Boolean));
               return (
-                <div key={index} className="grid gap-2 rounded-xl border border-[#302B10] bg-[#0D0D0A] p-2 sm:grid-cols-[minmax(0,1fr)_110px_150px_36px]">
+                <div key={index} className="grid gap-2 rounded-xl border border-[#302B10] bg-[#0D0D0A] p-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.5fr)_88px_110px_110px_110px_36px]">
                   <Field label={`Alternativa ${index + 1}`}>
                     <select
                       className={inputClass}
@@ -505,14 +608,36 @@ function PlayDefinitionForm({
                       required
                     />
                   </Field>
-                  <Field label="Costo unitario USD">
+                  <Field label="Valor USD" hint="Total">
                     <input
                       className={inputClass}
                       type="number"
                       min="0"
                       step="0.01"
-                      value={option.unitBudgetCostUsd}
-                      onChange={(event) => setBenefitOptions((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, unitBudgetCostUsd: event.target.value } : candidate))}
+                      value={option.unitBenefitValueUsd}
+                      onChange={(event) => updateBenefitEconomics(index, 'unitBenefitValueUsd', event.target.value)}
+                      required
+                    />
+                  </Field>
+                  <Field label="Asesor USD" hint="Cargo">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={option.unitAdvisorCostUsd}
+                      onChange={(event) => updateBenefitEconomics(index, 'unitAdvisorCostUsd', event.target.value)}
+                      required
+                    />
+                  </Field>
+                  <Field label="Empresa USD" hint="Aporte">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={option.unitCompanyCostUsd}
+                      onChange={(event) => updateBenefitEconomics(index, 'unitCompanyCostUsd', event.target.value)}
                       required
                     />
                   </Field>
@@ -537,11 +662,12 @@ function PlayDefinitionForm({
             <div>
               <h3 className="text-xs font-semibold text-blue-100">Presupuesto de esta jugada</h3>
               <p className="mt-1 text-[10px] text-blue-100/55">
-                La prueba multiplicará los candidatos por el costo de cada alternativa. Como el asesor elige una sola, verás un rango mínimo y máximo.
+                El presupuesto usa únicamente el aporte de la empresa. El cargo del asesor se proyecta por separado.
               </p>
-              {projectedCostPerClient ? (
-                <div className="mt-2 text-[10px] font-semibold text-blue-100/80">
-                  Costo posible por cliente: {moneyFormatter.format(projectedCostPerClient.minimum)} — {moneyFormatter.format(projectedCostPerClient.maximum)}
+              {projectedEconomicsPerClient ? (
+                <div className="mt-2 grid gap-1 text-[10px] font-semibold text-blue-100/80 sm:grid-cols-2">
+                  <span>Empresa por cliente: {moneyFormatter.format(projectedEconomicsPerClient.companyMinimum)} — {moneyFormatter.format(projectedEconomicsPerClient.companyMaximum)}</span>
+                  <span>Asesor por cliente: {moneyFormatter.format(projectedEconomicsPerClient.advisorMinimum)} — {moneyFormatter.format(projectedEconomicsPerClient.advisorMaximum)}</span>
                 </div>
               ) : null}
             </div>
@@ -559,6 +685,47 @@ function PlayDefinitionForm({
           </div>
         </div>
 
+        <div className="rounded-2xl border border-violet-400/20 bg-violet-400/[0.04] p-3">
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold text-violet-100">Condición para aplicar el obsequio</h3>
+            <p className="mt-0.5 text-[10px] text-violet-100/55">Esto se valida en la orden del canje; no es la facturación histórica usada para construir la lista.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_220px]">
+            <button
+              type="button"
+              onClick={() => {
+                setPurchaseRequirementMode('none');
+                setMinimumOrderAmount('');
+              }}
+              className={`rounded-xl border px-3 py-2 text-left ${purchaseRequirementMode === 'none' ? 'border-violet-300/60 bg-violet-300/10 text-violet-100' : 'border-[#2A2A35] bg-[#0B0B0D] text-[#8F8F9D]'}`}
+            >
+              <span className="block text-[11px] font-semibold">Sin compra requerida</span>
+              <span className="mt-0.5 block text-[9px] opacity-65">Puede entregarse en una orden de valor cero.</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPurchaseRequirementMode('minimum_order')}
+              className={`rounded-xl border px-3 py-2 text-left ${purchaseRequirementMode === 'minimum_order' ? 'border-violet-300/60 bg-violet-300/10 text-violet-100' : 'border-[#2A2A35] bg-[#0B0B0D] text-[#8F8F9D]'}`}
+            >
+              <span className="block text-[11px] font-semibold">Condicionada a compra</span>
+              <span className="mt-0.5 block text-[9px] opacity-65">La orden debe alcanzar un monto mínimo.</span>
+            </button>
+            <Field label="Compra mínima USD" hint="Orden actual">
+              <input
+                className={inputClass}
+                type="number"
+                min="0.01"
+                step="0.01"
+                disabled={purchaseRequirementMode === 'none'}
+                required={purchaseRequirementMode === 'minimum_order'}
+                value={minimumOrderAmount}
+                onChange={(event) => setMinimumOrderAmount(event.target.value)}
+                placeholder={purchaseRequirementMode === 'none' ? 'No aplica' : 'Ej. 20'}
+              />
+            </Field>
+          </div>
+        </div>
+
         <div className="rounded-2xl border border-[#242433] bg-[#0F0F14] p-3">
           <div className="mb-3">
             <h3 className="text-xs font-semibold text-[#E7E7ED]">Condiciones comerciales</h3>
@@ -571,7 +738,7 @@ function PlayDefinitionForm({
             <Field label="Cierres máximos">
               <input className={inputClass} type="number" min="0" value={maxPurchases} onChange={(event) => setMaxPurchases(event.target.value)} placeholder="Sin límite" />
             </Field>
-            <Field label="Facturación mínima USD">
+            <Field label="Facturación histórica mínima USD">
               <input className={inputClass} type="number" min="0" step="0.01" value={minRevenue} onChange={(event) => setMinRevenue(event.target.value)} />
             </Field>
             <Field label="Canal utilizado">
@@ -620,11 +787,11 @@ function PlayDefinitionForm({
                 <p className="mt-0.5 text-[9px] text-[#666675]">Filtra cuándo el cliente compró por primera vez. Es la base de clientes nuevos.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <Field label="Desde esta fecha">
-                  <input className={inputClass} type="date" value={firstFrom} onChange={(event) => setFirstFrom(event.target.value)} />
+                <Field label="Desde mes">
+                  <input className={inputClass} type="month" value={firstFrom} onChange={(event) => setFirstFrom(event.target.value)} />
                 </Field>
-                <Field label="Hasta esta fecha">
-                  <input className={inputClass} type="date" value={firstTo} onChange={(event) => setFirstTo(event.target.value)} />
+                <Field label="Hasta mes">
+                  <input className={inputClass} type="month" value={firstTo} onChange={(event) => setFirstTo(event.target.value)} />
                 </Field>
               </div>
             </div>
@@ -635,11 +802,11 @@ function PlayDefinitionForm({
                 <p className="mt-0.5 text-[9px] text-[#666675]">Filtra cuándo ocurrió su compra más reciente; no modifica la primera compra.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <Field label="Desde esta fecha">
-                  <input className={inputClass} type="date" value={lastFrom} onChange={(event) => setLastFrom(event.target.value)} />
+                <Field label="Desde mes">
+                  <input className={inputClass} type="month" value={lastFrom} onChange={(event) => setLastFrom(event.target.value)} />
                 </Field>
-                <Field label="Hasta esta fecha">
-                  <input className={inputClass} type="date" value={lastTo} onChange={(event) => setLastTo(event.target.value)} />
+                <Field label="Hasta mes">
+                  <input className={inputClass} type="month" value={lastTo} onChange={(event) => setLastTo(event.target.value)} />
                 </Field>
               </div>
             </div>
@@ -651,11 +818,11 @@ function PlayDefinitionForm({
               <p className="mt-0.5 text-[9px] text-emerald-200/55">Para no repetir reconocimientos. Ejemplo: usa “hasta” con el último día anterior al período que deseas bloquear.</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1.2fr]">
-              <Field label="Desde esta fecha">
-                <input className={inputClass} type="date" value={lastGiftFrom} onChange={(event) => setLastGiftFrom(event.target.value)} />
+              <Field label="Desde mes">
+                <input className={inputClass} type="month" value={lastGiftFrom} onChange={(event) => setLastGiftFrom(event.target.value)} />
               </Field>
-              <Field label="Hasta esta fecha">
-                <input className={inputClass} type="date" value={lastGiftTo} onChange={(event) => setLastGiftTo(event.target.value)} />
+              <Field label="Hasta mes">
+                <input className={inputClass} type="month" value={lastGiftTo} onChange={(event) => setLastGiftTo(event.target.value)} />
               </Field>
               <label className="mt-5 flex h-9 items-center gap-2 rounded-xl border border-[#2A2A35] bg-[#0B0B0D] px-3 text-[10px] text-[#B7B7C2]">
                 <input type="checkbox" checked={includeNeverGifted} onChange={(event) => setIncludeNeverGifted(event.target.checked)} className="accent-[#FEEF00]" />
@@ -793,6 +960,8 @@ export default function MasterPlaysClient({
   const selectedRevenue = summaryAmount(selectedPlay, 'total_net_revenue_usd') ?? 0;
   const selectedProjectedCostMin = summaryAmount(selectedPlay, 'projected_cost_min_usd');
   const selectedProjectedCostMax = summaryAmount(selectedPlay, 'projected_cost_max_usd');
+  const selectedAdvisorChargeMin = summaryAmount(selectedPlay, 'projected_advisor_charge_min_usd');
+  const selectedAdvisorChargeMax = summaryAmount(selectedPlay, 'projected_advisor_charge_max_usd');
   const selectedBudgetBalance = summaryAmount(selectedPlay, 'budget_balance_worst_case_usd');
   const selectedBudgetCapacity = summaryAmount(selectedPlay, 'budget_capacity_worst_case');
   const selectedBudgetStatus = stringValue(selectedPlay?.summary?.budget_status) || 'not_defined';
@@ -815,6 +984,20 @@ export default function MasterPlaysClient({
   function run(action: () => Promise<PlayActionResult>, navigateToPlay = false) {
     setNotice(null);
     startTransition(async () => handleResult(await action(), navigateToPlay));
+  }
+
+  function removeDraft(playId: number) {
+    if (!window.confirm('¿Eliminar por completo esta prueba y su lista de candidatos?')) return;
+    setNotice(null);
+    startTransition(async () => {
+      const result = await deleteDraftPlayAction(playId);
+      if (!result.ok) {
+        setNotice({ tone: 'error', text: result.error || 'No se pudo eliminar la prueba.' });
+        return;
+      }
+      router.push('/app/master/plays?create=1');
+      router.refresh();
+    });
   }
 
   return (
@@ -894,11 +1077,13 @@ export default function MasterPlaysClient({
                     <p className="mt-1 text-xs text-[#777785]">{selectedPlay.description || 'Sin objetivo interno descrito.'}</p>
                   </div>
                   <div className="shrink-0 rounded-xl border border-[#3C3410] bg-[#211E0A] px-3 py-2 text-right">
-                    <div className="text-[9px] uppercase tracking-[0.12em] text-[#A99D4D]">Beneficios · se entrega 1</div>
+                    <div className="text-[9px] uppercase tracking-[0.12em] text-[#A99D4D]">
+                      Beneficios · {selectedPlay.benefitSelectionMode === 'multiple' ? 'uno o varios' : 'se entrega uno'}
+                    </div>
                     <div className="mt-1 flex max-w-96 flex-wrap justify-end gap-1">
                       {selectedPlay.benefits.map((option) => (
                         <span key={option.id} className="rounded-full border border-[#554912] bg-[#151304] px-2 py-0.5 text-[9px] font-semibold text-[#FFF18B]">
-                          {option.quantity} × {option.name}
+                          {option.quantity} × {option.name} · asesor {moneyFormatter.format(option.unitAdvisorCostUsd * option.quantity)}
                         </span>
                       ))}
                     </div>
@@ -923,11 +1108,12 @@ export default function MasterPlaysClient({
                             {selectedBudgetStatus === 'within' ? 'Dentro del presupuesto' : selectedBudgetStatus === 'exceeds' ? 'Supera el presupuesto' : 'Presupuesto por definir'}
                           </span>
                         </div>
-                        <p className="mt-1 text-[10px] text-blue-100/55">El rango cambia según cuál alternativa elija el asesor para cada cliente.</p>
+                        <p className="mt-1 text-[10px] text-blue-100/55">Empresa y asesor se calculan con los valores congelados en esta jugada.</p>
                       </div>
                       <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-right sm:grid-cols-4">
                         <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Disponible</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedPlay.plannedBudgetUsd == null ? '—' : moneyFormatter.format(selectedPlay.plannedBudgetUsd)}</div></div>
                         <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Inversión estimada</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedProjectedCostMin == null || selectedProjectedCostMax == null ? '—' : selectedProjectedCostMin === selectedProjectedCostMax ? moneyFormatter.format(selectedProjectedCostMax) : `${moneyFormatter.format(selectedProjectedCostMin)} — ${moneyFormatter.format(selectedProjectedCostMax)}`}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Cargo asesores</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedAdvisorChargeMin == null || selectedAdvisorChargeMax == null ? '—' : selectedAdvisorChargeMin === selectedAdvisorChargeMax ? moneyFormatter.format(selectedAdvisorChargeMax) : `${moneyFormatter.format(selectedAdvisorChargeMin)} — ${moneyFormatter.format(selectedAdvisorChargeMax)}`}</div></div>
                         <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Saldo conservador</div><div className={`mt-0.5 text-xs font-semibold tabular-nums ${selectedBudgetBalance != null && selectedBudgetBalance < 0 ? 'text-red-200' : 'text-blue-50'}`}>{selectedBudgetBalance == null ? '—' : moneyFormatter.format(selectedBudgetBalance)}</div></div>
                         <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Capacidad máxima</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedBudgetCapacity == null ? '—' : `${Math.trunc(selectedBudgetCapacity).toLocaleString('es-VE')} clientes`}</div></div>
                       </div>
@@ -954,6 +1140,7 @@ export default function MasterPlaysClient({
                     <p className="mt-1 text-[11px] text-[#A89F68]">{selectedHasPreview ? 'Ajusta condiciones, retira casos o confirma el snapshot cuando la cantidad y el presupuesto estén correctos.' : 'Ejecuta la prueba para conocer candidatos, facturación y presupuesto antes de confirmar.'}</p>
                   </div>
                   <div className="flex shrink-0 gap-2">
+                    <button type="button" disabled={pending} onClick={() => removeDraft(selectedPlay.id)} className="inline-flex h-9 items-center justify-center rounded-xl border border-red-500/30 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:opacity-45">Eliminar prueba</button>
                     <button type="button" disabled={pending} onClick={() => run(() => generatePlayListAction(selectedPlay.id))} className={buttonSecondary}>Probar condiciones guardadas</button>
                     <button type="button" disabled={pending || !selectedHasPreview || selectedSummaryTotal <= 0} onClick={() => run(() => confirmPlayListAction(selectedPlay.id))} className={buttonPrimary}>Confirmar snapshot</button>
                   </div>

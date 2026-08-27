@@ -823,6 +823,36 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
   return { ok: true as const, lastModifiedAt: nowIso };
 }
 
+export async function redeemAdvisorCrmPlayBenefitsAction(input: {
+  playMemberId: number;
+  orderId: number;
+}) {
+  try {
+    const ctx = await requireAuthContext();
+    const playMemberId = Math.trunc(Number(input.playMemberId));
+    const orderId = Math.trunc(Number(input.orderId));
+    if (playMemberId <= 0 || orderId <= 0) {
+      return { ok: false as const, message: 'La jugada o la orden no son válidas.' };
+    }
+
+    const { data, error } = await ctx.supabase.rpc('crm_redeem_play_benefits_v2', {
+      p_play_member_id: playMemberId,
+      p_order_id: orderId,
+    });
+    if (error) return { ok: false as const, message: error.message };
+
+    revalidatePath('/app/advisor/plays');
+    revalidatePath(`/app/advisor/orders/${orderId}`);
+    revalidatePath('/app/advisor/commissions');
+    return { ok: true as const, data, message: 'Beneficio de la jugada aplicado y vinculado a la comisión.' };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'No se pudo aplicar el beneficio de la jugada.',
+    };
+  }
+}
+
 export async function submitAdvisorOrderCorrectionForReviewAction(input: {
   orderId: number;
   changeSummary?: AdvisorOrderChangeSummaryInput | null;

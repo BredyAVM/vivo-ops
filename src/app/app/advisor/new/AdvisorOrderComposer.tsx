@@ -23,6 +23,7 @@ import {
 import {
   ensureAdvisorOrderCreatedEventAction,
   markAdvisorOrderDraftConvertedAction,
+  redeemAdvisorCrmPlayBenefitsAction,
   replaceAdvisorOrderItemsAction,
   saveAdvisorOrderDraftAction,
   submitAdvisorOrderCorrectionForReviewAction,
@@ -352,6 +353,21 @@ type AdvisorOrderDraftInitial = {
   fx_rate: number | string | null;
   quoted_at: string | null;
   updated_at: string | null;
+};
+
+export type AdvisorCrmOrderContext = {
+  playMemberId: number;
+  playName: string;
+  purchaseRequirementMode: 'none' | 'minimum_order';
+  minimumOrderAmountUsd: number | null;
+  client: ClientRow;
+  benefits: Array<{
+    playBenefitId: number;
+    productId: number;
+    quantity: number;
+    name: string;
+    sku: string | null;
+  }>;
 };
 
 const STORAGE_KEYS = {
@@ -1383,10 +1399,12 @@ export default function AdvisorOrderComposer({
   existingOrderId = null,
   templateOrderId = null,
   initialDraft = null,
+  initialCrmContext = null,
 }: {
   existingOrderId?: number | null;
   templateOrderId?: number | null;
   initialDraft?: AdvisorOrderDraftInitial | null;
+  initialCrmContext?: AdvisorCrmOrderContext | null;
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowser(), []);
@@ -2186,13 +2204,45 @@ export default function AdvisorOrderComposer({
         }
       } else if (initialDraft) {
         applyInitialDraft(initialDraft);
+      } else if (initialCrmContext) {
+        const productById = new Map(nextProducts.map((product) => [product.id, product]));
+        const crmItems = initialCrmContext.benefits.flatMap((benefit) => {
+          const product = productById.get(benefit.productId);
+          if (!product) return [];
+          return [{
+            localId: `crm-${initialCrmContext.playMemberId}-${benefit.playBenefitId}`,
+            product_id: product.id,
+            product_type: product.type,
+            sku_snapshot: benefit.sku ?? product.sku,
+            product_name_snapshot: benefit.name || product.name,
+            units_per_service: Number(product.units_per_service ?? 0) || 0,
+            qty: benefit.quantity,
+            source_price_currency: 'USD' as const,
+            source_price_amount: 0,
+            unit_price_usd_snapshot: 0,
+            line_total_usd: 0,
+            editable_detail_lines: [`Jugada CRM: ${initialCrmContext.playName}`],
+          } satisfies DraftItem];
+        });
+
+        setSelectedClient(initialCrmContext.client);
+        rememberClient(initialCrmContext.client);
+        setSearchTerm(initialCrmContext.client.phone || initialCrmContext.client.full_name || '');
+        setClientResults([]);
+        setIsNewClientMode(false);
+        setDraftItems(crmItems);
+        setInfo(
+          initialCrmContext.purchaseRequirementMode === 'minimum_order'
+            ? `Beneficio de ${initialCrmContext.playName} cargado. Agrega una compra mínima de $${Number(initialCrmContext.minimumOrderAmountUsd ?? 0).toFixed(2)}.`
+            : `Beneficio de ${initialCrmContext.playName} cargado sin costo para el cliente.`
+        );
       }
 
       setLoading(false);
     }
 
     void boot();
-  }, [initialDraft, isEditingOrder, rounded, router, sourceOrderId, supabase]);
+  }, [initialCrmContext, initialDraft, isEditingOrder, rounded, router, sourceOrderId, supabase]);
 
   useEffect(() => {
     if (
@@ -3408,6 +3458,13 @@ export default function AdvisorOrderComposer({
         quote_only: false,
         surface: 'advisor_mobile',
       },
+      crm: initialCrmContext
+        ? {
+            play_member_id: initialCrmContext.playMemberId,
+            play_name: initialCrmContext.playName,
+            benefit_ids: initialCrmContext.benefits.map((benefit) => benefit.playBenefitId),
+          }
+        : null,
     };
   }
 
@@ -3539,6 +3596,25 @@ export default function AdvisorOrderComposer({
         'Hay items con precios distintos al catalogo vigente. Recalcula los precios antes de guardar para no conservar snapshots vencidos.'
       );
       return;
+    }
+
+    if (initialCrmContext && !isEditingOrder) {
+      const missingBenefit = initialCrmContext.benefits.find((benefit) => !draftItems.some((item) =>
+        item.product_id === benefit.productId
+        && Math.abs(Number(item.qty) - benefit.quantity) <= 0.001
+        && Math.abs(Number(item.line_total_usd)) <= 0.01
+      ));
+      if (missingBenefit) {
+        setError(`Falta el beneficio ${missingBenefit.name} de la jugada o dejó de tener precio cero.`);
+        return;
+      }
+      if (
+        initialCrmContext.purchaseRequirementMode === 'minimum_order'
+        && subtotalAfterDiscountUsd + 0.005 < Number(initialCrmContext.minimumOrderAmountUsd ?? 0)
+      ) {
+        setError(`Esta jugada requiere una compra mínima de $${Number(initialCrmContext.minimumOrderAmountUsd ?? 0).toFixed(2)}.`);
+        return;
+      }
     }
 
     savingOrderRef.current = true;
@@ -3675,6 +3751,16 @@ export default function AdvisorOrderComposer({
             'No se pudo registrar el evento de creación.',
             timelineError instanceof Error ? timelineError.message : timelineError
           );
+        }
+
+        if (initialCrmContext) {
+          const redemption = await redeemAdvisorCrmPlayBenefitsAction({
+            playMemberId: initialCrmContext.playMemberId,
+            orderId: targetOrderId,
+          });
+          if (!redemption.ok) {
+            throw new Error(`La orden fue creada, pero no se pudo vincular el beneficio: ${redemption.message}`);
+          }
         }
       }
 

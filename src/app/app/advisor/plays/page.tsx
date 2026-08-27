@@ -11,6 +11,9 @@ type PlayRow = {
   ends_at: string | null;
   gift_product_id: number | string;
   gift_quantity: number | string;
+  benefit_selection_mode: 'single' | 'multiple';
+  purchase_requirement_mode: 'none' | 'minimum_order';
+  minimum_order_amount_usd: number | string | null;
 };
 
 type ClientRow = {
@@ -21,6 +24,7 @@ type ClientRow = {
 type BenefitRow = {
   id: number | string;
   quantity: number | string;
+  unit_advisor_cost_usd: number | string;
   product: { name: string } | Array<{ name: string }> | null;
 };
 
@@ -234,7 +238,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const view = viewValue(query.view);
   const playsResult = await ctx.supabase
     .from('crm_plays')
-    .select('id, name, status, starts_at, ends_at, gift_product_id, gift_quantity')
+    .select('id, name, status, starts_at, ends_at, gift_product_id, gift_quantity, benefit_selection_mode, purchase_requirement_mode, minimum_order_amount_usd')
     // Draft and frozen plays remain private to the master dashboard.
     .in('status', ['active', 'paused'])
     .order('starts_at', { ascending: false })
@@ -282,7 +286,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
       .limit(500),
     ctx.supabase
       .from('crm_play_benefits')
-      .select('id, quantity, product:products!crm_play_benefits_product_id_fkey(name)')
+      .select('id, quantity, unit_advisor_cost_usd, product:products!crm_play_benefits_product_id_fkey(name)')
       .eq('play_id', Number(selectedPlay.id))
       .order('sort_order', { ascending: true })
       .order('id', { ascending: true }),
@@ -295,6 +299,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const benefitOptions = ((benefitOptionsResult.data ?? []) as unknown as BenefitRow[]).map((option) => ({
     id: numberValue(option.id),
     quantity: numberValue(option.quantity),
+    advisorCostUsd: numberValue(option.unit_advisor_cost_usd) * numberValue(option.quantity),
     name: one(option.product)?.name?.trim() || 'Beneficio',
   }));
 
@@ -355,8 +360,24 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
           <div className="max-w-[52%] truncate rounded-full border border-[#564511] bg-[#2A2209] px-2.5 py-1 text-right text-[10px] font-medium text-[#F7DA66]">
             {benefitOptions.length === 1
               ? `${benefitOptions[0]?.quantity.toLocaleString('es-VE')} × ${benefitOptions[0]?.name}`
-              : `${benefitOptions.length} alternativas · se entrega 1`}
+              : selectedPlay.benefit_selection_mode === 'multiple'
+                ? `${benefitOptions.length} opciones · uno o varios`
+                : `${benefitOptions.length} alternativas · se entrega 1`}
           </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] text-[#AAB2C5]">
+          <span className="rounded-full border border-[#2A3040] px-2 py-0.5">
+            {selectedPlay.purchase_requirement_mode === 'minimum_order'
+              ? `Compra mínima $${numberValue(selectedPlay.minimum_order_amount_usd).toFixed(2)}`
+              : 'Sin compra mínima'}
+          </span>
+          <span className="rounded-full border border-[#2A3040] px-2 py-0.5">
+            Cargo según selección: {benefitOptions.length === 0
+              ? '$0.00'
+              : selectedPlay.benefit_selection_mode === 'multiple'
+                ? `hasta $${benefitOptions.reduce((sum, option) => sum + option.advisorCostUsd, 0).toFixed(2)}`
+                : `$${Math.min(...benefitOptions.map((option) => option.advisorCostUsd)).toFixed(2)}–$${Math.max(...benefitOptions.map((option) => option.advisorCostUsd)).toFixed(2)}`}
+          </span>
         </div>
       </section>
 

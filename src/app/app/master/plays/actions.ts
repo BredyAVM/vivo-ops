@@ -7,15 +7,21 @@ const PLAY_KINDS = ['anniversary', 'loyalty', 'new_client', 'reconnect', 'season
 const FULFILLMENT_FILTERS = ['any', 'pickup', 'delivery'] as const;
 const ANNIVERSARY_MODES = ['any', 'include', 'exclude'] as const;
 const BENEFIT_PRODUCT_TYPES = ['product', 'combo', 'promo', 'gambit'] as const;
+const BENEFIT_SELECTION_MODES = ['single', 'multiple'] as const;
+const PURCHASE_REQUIREMENT_MODES = ['none', 'minimum_order'] as const;
 
 export type PlayKind = (typeof PLAY_KINDS)[number];
 export type PlayFulfillmentFilter = (typeof FULFILLMENT_FILTERS)[number];
 export type PlayAnniversaryMode = (typeof ANNIVERSARY_MODES)[number];
+export type PlayBenefitSelectionMode = (typeof BENEFIT_SELECTION_MODES)[number];
+export type PlayPurchaseRequirementMode = (typeof PURCHASE_REQUIREMENT_MODES)[number];
 
 export type PlayBenefitInput = {
   productId: number;
   quantity: number;
-  unitBudgetCostUsd: number;
+  unitBenefitValueUsd: number;
+  unitAdvisorCostUsd: number;
+  unitCompanyCostUsd: number;
 };
 
 export type SavePlayDraftInput = {
@@ -27,6 +33,9 @@ export type SavePlayDraftInput = {
   endsOn: string;
   plannedBudgetUsd?: number | null;
   benefits: PlayBenefitInput[];
+  benefitSelectionMode: PlayBenefitSelectionMode;
+  purchaseRequirementMode: PlayPurchaseRequirementMode;
+  minimumOrderAmountUsd?: number | null;
   metricWindow: number;
   minPurchaseCount: number;
   maxPurchaseCount?: number | null;
@@ -101,6 +110,18 @@ function normalizeAnniversaryMode(value: unknown): PlayAnniversaryMode {
     : 'any';
 }
 
+function normalizeBenefitSelectionMode(value: unknown): PlayBenefitSelectionMode {
+  return BENEFIT_SELECTION_MODES.includes(value as PlayBenefitSelectionMode)
+    ? (value as PlayBenefitSelectionMode)
+    : 'single';
+}
+
+function normalizePurchaseRequirementMode(value: unknown): PlayPurchaseRequirementMode {
+  return PURCHASE_REQUIREMENT_MODES.includes(value as PlayPurchaseRequirementMode)
+    ? (value as PlayPurchaseRequirementMode)
+    : 'none';
+}
+
 function rulesFromInput(input: SavePlayDraftInput, excludedClientIds: number[]) {
   const minPurchaseCount = Math.max(0, Math.trunc(finiteNumber(input.minPurchaseCount, 1)));
   const maxPurchaseCount = optionalNonNegativeInteger(input.maxPurchaseCount);
@@ -171,12 +192,19 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const plannedBudgetUsd = input.plannedBudgetUsd == null
       ? null
       : finiteNumber(input.plannedBudgetUsd, Number.NaN);
+    const benefitSelectionMode = normalizeBenefitSelectionMode(input.benefitSelectionMode);
+    const purchaseRequirementMode = normalizePurchaseRequirementMode(input.purchaseRequirementMode);
+    const minimumOrderAmountUsd = purchaseRequirementMode === 'minimum_order'
+      ? finiteNumber(input.minimumOrderAmountUsd, Number.NaN)
+      : null;
     const metricWindow = Math.max(2, Math.min(50, Math.trunc(finiteNumber(input.metricWindow, 6))));
     const benefitOptions = Array.isArray(input.benefits)
       ? input.benefits.slice(0, 8).map((option) => ({
           productId: Math.trunc(finiteNumber(option.productId, 0)),
           quantity: finiteNumber(option.quantity, 0),
-          unitBudgetCostUsd: finiteNumber(option.unitBudgetCostUsd, Number.NaN),
+          unitBenefitValueUsd: finiteNumber(option.unitBenefitValueUsd, Number.NaN),
+          unitAdvisorCostUsd: finiteNumber(option.unitAdvisorCostUsd, Number.NaN),
+          unitCompanyCostUsd: finiteNumber(option.unitCompanyCostUsd, Number.NaN),
         }))
       : [];
 
@@ -190,11 +218,24 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     if (benefitOptions.some((option) => option.productId <= 0 || option.quantity <= 0)) {
       throw new Error('Cada beneficio debe tener un producto y una cantidad válida.');
     }
-    if (benefitOptions.some((option) => !Number.isFinite(option.unitBudgetCostUsd) || option.unitBudgetCostUsd < 0)) {
-      throw new Error('Cada beneficio debe tener un costo presupuestario válido.');
+    if (benefitOptions.some((option) =>
+      !Number.isFinite(option.unitBenefitValueUsd) || option.unitBenefitValueUsd < 0
+      || !Number.isFinite(option.unitAdvisorCostUsd) || option.unitAdvisorCostUsd < 0
+      || !Number.isFinite(option.unitCompanyCostUsd) || option.unitCompanyCostUsd < 0
+    )) {
+      throw new Error('Cada beneficio debe tener valores válidos para el asesor y la empresa.');
+    }
+    if (benefitOptions.some((option) =>
+      Math.abs(option.unitBenefitValueUsd - option.unitAdvisorCostUsd - option.unitCompanyCostUsd) > 0.011
+    )) {
+      throw new Error('En cada beneficio, el aporte del asesor más el de la empresa debe ser igual al valor total.');
     }
     if (plannedBudgetUsd != null && (!Number.isFinite(plannedBudgetUsd) || plannedBudgetUsd < 0)) {
       throw new Error('El presupuesto de la jugada no es válido.');
+    }
+    if (purchaseRequirementMode === 'minimum_order'
+      && (!Number.isFinite(minimumOrderAmountUsd) || Number(minimumOrderAmountUsd) <= 0)) {
+      throw new Error('Indica una compra mínima mayor que cero o marca la jugada sin condición de compra.');
     }
     const benefitProductIds = benefitOptions.map((option) => option.productId);
     if (new Set(benefitProductIds).size !== benefitProductIds.length) {
@@ -237,6 +278,11 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       gift_product_id: primaryBenefit.productId,
       gift_quantity: Number(primaryBenefit.quantity.toFixed(3)),
       planned_budget_usd: plannedBudgetUsd == null ? null : Number(plannedBudgetUsd.toFixed(2)),
+      benefit_selection_mode: benefitSelectionMode,
+      purchase_requirement_mode: purchaseRequirementMode,
+      minimum_order_amount_usd: minimumOrderAmountUsd == null
+        ? null
+        : Number(Number(minimumOrderAmountUsd).toFixed(2)),
       starts_at: startBoundary(startsOn),
       ends_at: endBoundary(endsOn),
     };
@@ -269,7 +315,10 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
           play_id: playId,
           product_id: option.productId,
           quantity: Number(option.quantity.toFixed(3)),
-          unit_budget_cost_usd: Number(option.unitBudgetCostUsd.toFixed(2)),
+          unit_benefit_value_usd: Number(option.unitBenefitValueUsd.toFixed(2)),
+          unit_advisor_cost_usd: Number(option.unitAdvisorCostUsd.toFixed(2)),
+          unit_company_cost_usd: Number(option.unitCompanyCostUsd.toFixed(2)),
+          unit_budget_cost_usd: Number(option.unitCompanyCostUsd.toFixed(2)),
           sort_order: index + 1,
         })));
       if (benefitsError) throw new Error(benefitsError.message);
@@ -308,7 +357,10 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
         play_id: createdId,
         product_id: option.productId,
         quantity: Number(option.quantity.toFixed(3)),
-        unit_budget_cost_usd: Number(option.unitBudgetCostUsd.toFixed(2)),
+        unit_benefit_value_usd: Number(option.unitBenefitValueUsd.toFixed(2)),
+        unit_advisor_cost_usd: Number(option.unitAdvisorCostUsd.toFixed(2)),
+        unit_company_cost_usd: Number(option.unitCompanyCostUsd.toFixed(2)),
+        unit_budget_cost_usd: Number(option.unitCompanyCostUsd.toFixed(2)),
         sort_order: index + 1,
       })));
     if (benefitsError) throw new Error(benefitsError.message);
@@ -451,6 +503,24 @@ export async function activatePlayAction(playIdInput: number): Promise<PlayActio
     revalidatePath('/app/master/plays');
     revalidatePath('/app/advisor/plays');
     return { ok: true, playId, message: 'Jugada compartida. Cada asesor ya puede ver únicamente sus clientes.' };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+export async function deleteDraftPlayAction(playIdInput: number): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireMasterOrAdminContext();
+    const playId = Math.trunc(finiteNumber(playIdInput, 0));
+    if (playId <= 0) throw new Error('La jugada no es válida.');
+
+    const { error } = await ctx.supabase.rpc('crm_delete_draft_play_v1', {
+      p_play_id: playId,
+    });
+    if (error) throw new Error(error.message);
+
+    revalidatePath('/app/master/plays');
+    return { ok: true, playId, message: 'La prueba fue eliminada por completo.' };
   } catch (error) {
     return actionError(error);
   }

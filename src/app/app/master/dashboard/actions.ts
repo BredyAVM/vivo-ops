@@ -12173,6 +12173,13 @@ type AdvisorCommissionItemTerms = {
   value: number | null;
 };
 
+type AdvisorCommissionGiftOverride = {
+  quantity: number;
+  advisorChargeUsd: number;
+  companyCostUsd: number;
+  playName: string | null;
+};
+
 const ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF = '2026-06-02';
 
 function getAdvisorCommissionClient(order: AdvisorCommissionOrderRow) {
@@ -12303,6 +12310,7 @@ function buildAdvisorCommissionSnapshots(params: {
   defaultBaseCommissionPct: number;
   baseCommissionPctByAdvisor: Map<string, number>;
   commissionTermsByOrderItemId: Map<number, AdvisorCommissionItemTerms>;
+  giftOverridesByOrderItemId: Map<number, AdvisorCommissionGiftOverride>;
 }) {
   const {
     orders,
@@ -12315,6 +12323,7 @@ function buildAdvisorCommissionSnapshots(params: {
     defaultBaseCommissionPct,
     baseCommissionPctByAdvisor,
     commissionTermsByOrderItemId,
+    giftOverridesByOrderItemId,
   } = params;
 
   const closuresByAdvisor = new Map<string, {
@@ -12424,10 +12433,15 @@ function buildAdvisorCommissionSnapshots(params: {
 
         const productType = String(product?.type || '').toLowerCase();
         const productName = item.product_name_snapshot || product?.name || 'Producto';
-        if (productType === 'gambit' || productName.toLowerCase().includes('obsequio')) {
+        const giftOverride = giftOverridesByOrderItemId.get(Number(item.id));
+        if (giftOverride || productType === 'gambit' || productName.toLowerCase().includes('obsequio')) {
           const qty = toSafeNumber(item.qty, 0);
-          const unitDeductionUsd = getAdvisorGiftCostUsd(product);
-          const deductionUsd = roundMoney(unitDeductionUsd * qty);
+          const deductionUsd = giftOverride
+            ? roundMoney(giftOverride.advisorChargeUsd)
+            : roundMoney(getAdvisorGiftCostUsd(product) * qty);
+          const unitDeductionUsd = giftOverride && giftOverride.quantity > 0
+            ? roundMoney(deductionUsd / giftOverride.quantity)
+            : getAdvisorGiftCostUsd(product);
           closure.totals.giftDeductionsUsd += deductionUsd;
           closure.gifts.push({
             orderId,
@@ -12438,6 +12452,8 @@ function buildAdvisorCommissionSnapshots(params: {
             clientName: getAdvisorCommissionClient(order)?.full_name || 'Cliente',
             unitDeductionUsd,
             deductionUsd,
+            crmPlayName: giftOverride?.playName ?? null,
+            companyCostUsd: giftOverride?.companyCostUsd ?? null,
           });
         }
 
@@ -12824,8 +12840,27 @@ export async function generateAdvisorCommissionClosuresAction(input: {
   const paymentLedgerEntries: AdvisorCommissionPaymentLedgerEntry[] = [];
   const firstPurchaseOrdersByClientId = new Map<number, AdvisorCommissionFirstOrderRow>();
   const commissionTermsByOrderItemId = new Map<number, AdvisorCommissionItemTerms>();
+  const giftOverridesByOrderItemId = new Map<number, AdvisorCommissionGiftOverride>();
 
   if (orderIds.length > 0) {
+    const { data: crmRedemptions, error: crmRedemptionsError } = await supabase
+      .from('crm_play_redemptions')
+      .select('order_item_id, quantity, advisor_charge_usd, company_cost_usd, play_name_snapshot')
+      .in('order_id', orderIds)
+      .eq('status', 'redeemed');
+
+    if (crmRedemptionsError) throw new Error(crmRedemptionsError.message);
+    for (const redemption of crmRedemptions ?? []) {
+      const orderItemId = Number(redemption.order_item_id ?? 0);
+      if (!Number.isFinite(orderItemId) || orderItemId <= 0) continue;
+      giftOverridesByOrderItemId.set(orderItemId, {
+        quantity: Math.max(0, toSafeNumber(redemption.quantity, 0)),
+        advisorChargeUsd: roundMoney(redemption.advisor_charge_usd),
+        companyCostUsd: roundMoney(redemption.company_cost_usd),
+        playName: redemption.play_name_snapshot == null ? null : String(redemption.play_name_snapshot),
+      });
+    }
+
     const { data: commercialTermsRows, error: commercialTermsError } = await supabase
       .from('order_admin_adjustments')
       .select('id, order_item_id, payload, created_at')
@@ -13107,6 +13142,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     defaultBaseCommissionPct,
     baseCommissionPctByAdvisor,
     commissionTermsByOrderItemId,
+    giftOverridesByOrderItemId,
   });
 
   for (const snapshot of snapshots) {

@@ -51,6 +51,8 @@ export type CommissionAuditGift = CommissionAuditProduct & {
   productId?: number | string | null;
   deductionUsd?: number | string | null;
   unitDeductionUsd?: number | string | null;
+  crmPlayName?: string | null;
+  companyCostUsd?: number | string | null;
 };
 
 export type CommissionAuditClient = {
