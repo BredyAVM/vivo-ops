@@ -4291,7 +4291,7 @@ export default function MasterOpsClient({
       } else if (action === "reapprove") {
         result = await reapproveQueuedOrderAction({
           orderId: order.id,
-          notes: "Re-aprobado desde modulo operativo.",
+          notes: "",
         });
       } else if (action === "send-kitchen") {
         result = await sendToKitchenAction({ orderId: order.id });

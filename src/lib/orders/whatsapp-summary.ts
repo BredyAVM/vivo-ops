@@ -65,6 +65,14 @@ function hasText(value: string | null | undefined) {
   return clean(value).length > 0;
 }
 
+export function sanitizeWhatsAppCustomerNote(value: string | null | undefined) {
+  return clean(value)
+    .split(/\s*\|\s*/)
+    .map((part) => part.trim())
+    .filter((part) => part && !/^master_reapprove\s*=/i.test(part))
+    .join(' | ');
+}
+
 export function formatWhatsAppUsd(value: number) {
   const amount = Number(value);
   return `$${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'}`;
@@ -335,7 +343,7 @@ export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) 
   pushSeparatedField(parts, 'Estatus de pago', input.paymentStatus);
   pushSeparatedField(parts, 'Factura', buildDocumentText(input.invoice));
   pushSeparatedField(parts, 'Nota de entrega', buildDeliveryNoteText(input.deliveryNote));
-  pushSeparatedField(parts, 'Nota', input.notes);
+  pushSeparatedField(parts, 'Nota', sanitizeWhatsAppCustomerNote(input.notes));
 
   return parts.join('\n');
 }
