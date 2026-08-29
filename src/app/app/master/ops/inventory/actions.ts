@@ -48,6 +48,14 @@ function normalizePositiveQuantity(value: unknown) {
   return quantity;
 }
 
+function normalizeNonNegativeQuantity(value: unknown, label: string) {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity) || quantity < 0) {
+    throw new Error(`${label} debe ser cero o una cantidad positiva.`);
+  }
+  return quantity;
+}
+
 function normalizeOptionalText(value: unknown, label: string, maxLength: number) {
   const normalized = String(value ?? '').trim();
   if (normalized.length > maxLength) {
@@ -224,6 +232,43 @@ export async function cancelMasterInventoryExpectedReceiptAction(input: {
   if (error) throw new Error(error.message);
   revalidateMasterInventoryWorkspace();
   return { expectedFlowId };
+}
+
+export async function saveMasterInventoryProtectedBalanceAction(input: {
+  operationId: string;
+  primaryInventoryItemId: number;
+  expectedFlowId?: number | null;
+  safetyReserveUnits?: number | null;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const operationId = normalizeOperationId(input.operationId);
+  const primaryInventoryItemId = normalizeItemId(input.primaryInventoryItemId);
+  const expectedFlowId = input.expectedFlowId == null
+    ? null
+    : normalizeItemId(input.expectedFlowId);
+  const safetyReserveUnits = normalizeNonNegativeQuantity(
+    input.safetyReserveUnits ?? 0,
+    'La reserva de seguridad',
+  );
+  const notes = normalizeNotes(input.notes);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_save_protected_balance_v1', {
+    p_operation_id: operationId,
+    p_primary_inventory_item_id: primaryInventoryItemId,
+    p_expected_flow_id: expectedFlowId,
+    p_safety_reserve_units: safetyReserveUnits,
+    p_notes: notes,
+  });
+
+  if (error) throw new Error(error.message);
+  const protectionFlowId = normalizeItemId(
+    (data as { protection_flow_id?: unknown } | null)?.protection_flow_id,
+  );
+  revalidateMasterInventoryWorkspace();
+  revalidatePath('/app/advisor/new');
+  revalidatePath('/app/counter');
+  return { protectionFlowId };
 }
 
 export async function saveMasterInventorySuspensionAction(input: {

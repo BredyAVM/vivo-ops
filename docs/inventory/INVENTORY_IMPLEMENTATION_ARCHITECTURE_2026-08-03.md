@@ -778,3 +778,38 @@ existentes. Migraciones vigentes:
 
 - `20260820184644_inventory_consume_on_dispatch_v1.sql`;
 - `20260820185313_inventory_dispatch_issue_resolution_v1.sql`.
+
+## 31. Protección explícita del saldo por familia
+
+El control operativo de Máster incorpora **Vender solo hasta agotar el saldo**.
+No reemplaza la suspensión comercial inmediata: la suspensión detiene toda
+venta por decisión explícita, mientras que la protección permite vender el
+saldo físico restante y rechaza únicamente el excedente para la fecha
+consultada.
+
+La implementación no crea estructura paralela:
+
+- `inventory_planned_flows` guarda la protección como
+  `declared_unavailability` con `unavailability_mode = protected_balance`;
+- `products.extra_fields.inventory_routes_v1` declara la ruta primaria cruda y
+  la ruta alternativa prefrita;
+- `orders.extra_fields.inventory_protected_allocations_v1` conserva la
+  distribución crudo/prefrito elegida al aprobar o confirmar la venta;
+- el catálogo canónico devuelve la capacidad flexible, la cantidad máxima
+  protegida y el indicador de bloqueo para Asesor y Counter.
+
+Las rutas iniciales cubren Minis, Empanadas, Cachitas, Mandocas y Bombys. El
+resolver usa primero crudo y después el equivalente prefrito. La reserva de
+seguridad se descuenta de la capacidad combinada de la familia, no solamente
+del crudo. Los combos fijos heredan la menor capacidad de sus componentes y los
+seleccionables validan su composición real.
+
+La entrada esperada vinculada es opcional. Si tiene cantidad conocida, su fecha
+delimita la protección; una recepción cumplida la cierra. Una expectativa
+cancelada o fallida nunca reabre ventas por sí sola. Sin entrada vinculada, la
+protección es indefinida y debe liberarse desde Máster.
+
+Las migraciones `20260829170122_inventory_protected_family_sales_v1.sql` y
+`20260829203000_inventory_protected_family_reserve_fix_v1.sql` implementan el
+contrato. El resto de las alertas y saldos negativos continúa siendo
+informativo y no bloqueante.

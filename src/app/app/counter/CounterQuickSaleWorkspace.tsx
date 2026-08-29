@@ -39,7 +39,46 @@ type CounterProductAvailability = {
   message: string;
   requires_master_review: boolean;
   inventory_blocks_submission: boolean;
+  protected_balance_active?: boolean;
+  protected_maximum_quantity?: number | null;
+  protected_available_component_units?: number | null;
 };
+
+function protectedCartViolation(
+  items: CounterQuickSaleCartItem[],
+  availabilityByProductId: Map<number, CounterProductAvailability>,
+) {
+  const productQuantities = new Map<number, number>();
+  const componentQuantities = new Map<number, number>();
+  for (const item of items) {
+    productQuantities.set(
+      item.productId,
+      (productQuantities.get(item.productId) ?? 0) + toDecimalInput(item.qty),
+    );
+    for (const line of item.editableDetailLines) {
+      const match = line.match(/^@sel\|([1-9][0-9]*)\|([0-9]+(?:\.[0-9]+)?)$/);
+      if (!match) continue;
+      const componentId = Number(match[1]);
+      const quantity = Number(match[2]);
+      componentQuantities.set(componentId, (componentQuantities.get(componentId) ?? 0) + quantity);
+    }
+  }
+  for (const [productId, quantity] of productQuantities) {
+    const availability = availabilityByProductId.get(productId);
+    const maximum = Number(availability?.protected_maximum_quantity);
+    if (availability?.protected_balance_active && Number.isFinite(maximum) && quantity > maximum + 0.0001) {
+      return availability;
+    }
+  }
+  for (const [productId, quantity] of componentQuantities) {
+    const availability = availabilityByProductId.get(productId);
+    const maximum = Number(availability?.protected_available_component_units);
+    if (availability?.protected_balance_active && Number.isFinite(maximum) && quantity > maximum + 0.0001) {
+      return availability;
+    }
+  }
+  return null;
+}
 
 const QUICK_SALE_PAYMENT_METHODS = [
   { code: 'pos', label: 'Punto' },
@@ -506,6 +545,19 @@ export function CounterQuickSalePanel({
       setLocalError('Indica una cantidad valida.');
       return;
     }
+    const availability = availabilityByProductId.get(product.id);
+    const protectedMaximum = Number(availability?.protected_maximum_quantity);
+    const existingQuantity = cartItems
+      .filter((item) => item.productId === product.id)
+      .reduce((sum, item) => sum + toDecimalInput(item.qty), 0);
+    if (
+      availability?.protected_balance_active
+      && Number.isFinite(protectedMaximum)
+      && existingQuantity + itemQty > protectedMaximum + 0.0001
+    ) {
+      setLocalError(availability.message || 'La cantidad supera el saldo protegido disponible para esa fecha.');
+      return;
+    }
 
     if (product.isDetailEditable) {
       if (itemQty !== 1) {
@@ -585,6 +637,20 @@ export function CounterQuickSalePanel({
     );
     if (suspendedSelection) {
       setLocalError(`${suspendedSelection.componentName} está detenido temporalmente por Máster.`);
+      return;
+    }
+    const protectedSelection = configSelections.find((selection) => {
+      const availability = availabilityByProductId.get(selection.componentProductId);
+      const maximum = Number(availability?.protected_available_component_units);
+      return availability?.protected_balance_active
+        && Number.isFinite(maximum)
+        && selection.qty > maximum + 0.0001;
+    });
+    if (protectedSelection) {
+      setLocalError(
+        availabilityByProductId.get(protectedSelection.componentProductId)?.message
+          ?? `${protectedSelection.componentName} supera el saldo protegido disponible.`,
+      );
       return;
     }
 
@@ -677,6 +743,11 @@ export function CounterQuickSalePanel({
         availabilityByProductId.get(blockedItem.productId)?.message
           ?? 'Máster detuvo temporalmente uno de los productos de la venta.',
       );
+      return;
+    }
+    const protectedItem = protectedCartViolation(cartItems, availabilityByProductId);
+    if (protectedItem) {
+      setLocalError(protectedItem.message || 'La venta supera el saldo protegido disponible para esa fecha.');
       return;
     }
 

@@ -57,6 +57,13 @@ export type InventoryProductAvailability = {
   requires_master_review: boolean;
   review_reason_codes: InventoryAvailabilityState[];
   inventory_blocks_submission: boolean;
+  protected_balance_active?: boolean;
+  protected_maximum_quantity?: number;
+  protected_primary_quantity?: number;
+  protected_available_component_units?: number;
+  prefried_fallback_available?: boolean;
+  prefried_fallback_required?: boolean;
+  safety_reserve_units?: number;
   is_commercially_suspended?: boolean;
   suspended_until?: string;
   suspended_inventory_items?: string[];
@@ -79,7 +86,7 @@ export type InventoryCatalogAvailability = {
   horizon_ends_at: string;
   surface: InventoryAvailabilitySurface;
   inventory_mode: 'legacy' | 'opening' | 'canonical';
-  inventory_blocks_submission: false;
+  inventory_blocks_submission: boolean;
   unknown_product_ids: number[];
   summary: {
     product_count: number;

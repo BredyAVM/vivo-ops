@@ -175,6 +175,7 @@ function directSaleErrorMessage(message: string) {
     ['counter_items_count_invalid', 'La venta debe tener entre uno y cien productos.'],
     ['counter_product_unavailable', 'Uno de los productos o componentes ya no está disponible.'],
     ['counter_product_suspended', 'Máster detuvo temporalmente uno de los productos o componentes para esa fecha.'],
+    ['counter_product_protected_balance', 'La cantidad supera el saldo protegido disponible para esa fecha. Reduce la cantidad o consulta a Máster.'],
     ['counter_configurable_product_quantity_must_be_one', 'Los productos configurables se agregan uno por uno.'],
     ['counter_item_component_unavailable', 'La configuración contiene un componente no disponible.'],
     ['counter_item_fixed_component_quantity_invalid', 'La cantidad de un componente fijo cambió. Vuelve a armar el producto.'],
@@ -208,6 +209,7 @@ function directSaleFailure(message: string): CounterDirectSaleFailure {
     'counter_items_count_invalid',
     'counter_product_unavailable',
     'counter_product_suspended',
+    'counter_product_protected_balance',
     'counter_configurable_product_quantity_must_be_one',
     'counter_item_component_unavailable',
     'counter_item_fixed_component_quantity_invalid',
@@ -218,6 +220,7 @@ function directSaleFailure(message: string): CounterDirectSaleFailure {
   const refreshCatalog = [
     'counter_product_unavailable',
     'counter_product_suspended',
+    'counter_product_protected_balance',
     'counter_item_component_unavailable',
     'counter_item_fixed_component_quantity_invalid',
     'counter_item_required_component_missing',
@@ -898,10 +901,54 @@ async function executeCounterQuickSaleAction(
   );
   if (!availabilityError) {
     const availabilityRows = Array.isArray(availabilityData?.products)
-      ? availabilityData.products as Array<{ inventory_blocks_submission?: boolean }>
+      ? availabilityData.products as Array<{
+          product_id?: number;
+          inventory_blocks_submission?: boolean;
+          protected_balance_active?: boolean;
+          protected_maximum_quantity?: number | null;
+          protected_available_component_units?: number | null;
+        }>
       : [];
     if (availabilityRows.some((row) => row.inventory_blocks_submission === true)) {
       throw new Error('counter_product_suspended');
+    }
+    const availabilityByProductId = new Map(
+      availabilityRows.map((row) => [Number(row.product_id), row]),
+    );
+    const productQuantities = new Map<number, number>();
+    const componentQuantities = new Map<number, number>();
+    for (const item of items) {
+      productQuantities.set(
+        item.productId,
+        (productQuantities.get(item.productId) ?? 0) + item.qty,
+      );
+      for (const line of item.editableDetailLines) {
+        const match = line.match(/^@sel\|([1-9][0-9]*)\|([0-9]+(?:\.[0-9]+)?)$/);
+        if (!match) continue;
+        const componentId = Number(match[1]);
+        const quantity = Number(match[2]);
+        componentQuantities.set(
+          componentId,
+          (componentQuantities.get(componentId) ?? 0) + quantity,
+        );
+      }
+    }
+    const exceedsProductProtection = Array.from(productQuantities).some(([productId, quantity]) => {
+      const availability = availabilityByProductId.get(productId);
+      const maximum = Number(availability?.protected_maximum_quantity);
+      return availability?.protected_balance_active === true
+        && Number.isFinite(maximum)
+        && quantity > maximum + 0.0001;
+    });
+    const exceedsComponentProtection = Array.from(componentQuantities).some(([productId, quantity]) => {
+      const availability = availabilityByProductId.get(productId);
+      const maximum = Number(availability?.protected_available_component_units);
+      return availability?.protected_balance_active === true
+        && Number.isFinite(maximum)
+        && quantity > maximum + 0.0001;
+    });
+    if (exceedsProductProtection || exceedsComponentProtection) {
+      throw new Error('counter_product_protected_balance');
     }
   }
 
@@ -913,6 +960,12 @@ async function executeCounterQuickSaleAction(
   const result = asRecord(data);
   const orderId = Math.trunc(toSafeNumber(result.id, 0));
   if (orderId <= 0) throw new Error('La venta se creo sin un numero de orden valido.');
+
+  const { error: protectionError } = await ctx.supabase.rpc(
+    'inventory_refresh_order_protected_allocations_v1',
+    { p_order_id: orderId },
+  );
+  if (protectionError) throw new Error(protectionError.message);
 
   revalidatePath('/app/counter');
   revalidatePath('/app/kitchen');

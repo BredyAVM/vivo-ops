@@ -13,6 +13,7 @@ import {
   cancelMasterInventorySuspensionAction,
   requestMasterInventoryCountAction,
   saveMasterInventoryExpectedReceiptAction,
+  saveMasterInventoryProtectedBalanceAction,
   saveMasterInventoryProductSuspensionAction,
   saveMasterInventorySuspensionAction,
 } from './actions';
@@ -96,6 +97,31 @@ export type MasterInventorySuspension = {
   createdAt: string;
 };
 
+export type MasterInventoryFamilyOption = {
+  productId: number;
+  productName: string;
+  primaryInventoryItemId: number;
+  primaryItemName: string;
+  primaryUnitName: string;
+  fallbackInventoryItemId: number;
+  fallbackItemName: string;
+  rawUnitsPerPrefriedUnit: number;
+};
+
+export type MasterInventoryProtection = {
+  id: number;
+  primaryInventoryItemId: number;
+  primaryItemName: string;
+  primaryUnitName: string;
+  fallbackInventoryItemId: number;
+  fallbackItemName: string;
+  safetyReserveUnits: number;
+  expectedFlowId: number | null;
+  availableFrom: string | null;
+  notes: string | null;
+  createdAt: string;
+};
+
 export type MasterInventoryProduct = {
   id: number;
   sku: string | null;
@@ -173,6 +199,8 @@ export default function MasterInventoryClient({
   counts,
   supplies,
   alerts,
+  families,
+  protections,
   suspensions,
 }: {
   initialView: MasterInventoryView;
@@ -181,6 +209,8 @@ export default function MasterInventoryClient({
   counts: MasterInventoryCount[];
   supplies: MasterInventorySupply[];
   alerts: MasterInventoryAlert[];
+  families: MasterInventoryFamilyOption[];
+  protections: MasterInventoryProtection[];
   suspensions: MasterInventorySuspension[];
 }) {
   const router = useRouter();
@@ -206,6 +236,14 @@ export default function MasterInventoryClient({
   const [receiptSuccess, setReceiptSuccess] = useState<string | null>(null);
   const [isSavingReceipt, startReceiptTransition] = useTransition();
   const [cancellingSupplyId, setCancellingSupplyId] = useState<number | null>(null);
+  const [protectionItemId, setProtectionItemId] = useState('');
+  const [protectionExpectedFlowId, setProtectionExpectedFlowId] = useState('');
+  const [protectionReserve, setProtectionReserve] = useState('0');
+  const [protectionNotes, setProtectionNotes] = useState('');
+  const [protectionError, setProtectionError] = useState<string | null>(null);
+  const [protectionSuccess, setProtectionSuccess] = useState<string | null>(null);
+  const [isSavingProtection, startProtectionTransition] = useTransition();
+  const [cancellingProtectionId, setCancellingProtectionId] = useState<number | null>(null);
   const [suspensionItemId, setSuspensionItemId] = useState('');
   const [suspensionScope, setSuspensionScope] = useState<'product' | 'inventory_item'>('product');
   const [suspensionProductId, setSuspensionProductId] = useState('');
@@ -260,6 +298,14 @@ export default function MasterInventoryClient({
       .filter((section) => section.items.length > 0),
     [availableGroups, visibleStock],
   );
+  const selectedProtectionFamily = families.find(
+    (family) => family.primaryInventoryItemId === Number(protectionItemId),
+  ) ?? null;
+  const protectionReceipts = supplies.filter((supply) => (
+    supply.type === 'expected_receipt'
+    && supply.inventoryItemId === selectedProtectionFamily?.primaryInventoryItemId
+    && supply.quantityUnits > 0
+  ));
 
   function toggleItem(itemId: number) {
     setSelectedIds((current) => current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]);
@@ -372,6 +418,63 @@ export default function MasterInventoryClient({
         setReceiptError(submissionError instanceof Error ? submissionError.message : 'No se pudo cancelar la entrada esperada.');
       } finally {
         setCancellingSupplyId(null);
+      }
+    });
+  }
+
+  function submitProtection() {
+    setProtectionError(null);
+    setProtectionSuccess(null);
+    const primaryInventoryItemId = Number(protectionItemId);
+    const expectedFlowId = protectionExpectedFlowId ? Number(protectionExpectedFlowId) : null;
+    const safetyReserveUnits = Number(protectionReserve || 0);
+    if (!Number.isSafeInteger(primaryInventoryItemId) || primaryInventoryItemId <= 0) {
+      setProtectionError('Selecciona la familia que se venderá solo hasta agotar el saldo.');
+      return;
+    }
+    if (!Number.isFinite(safetyReserveUnits) || safetyReserveUnits < 0) {
+      setProtectionError('La reserva debe ser cero o una cantidad positiva.');
+      return;
+    }
+
+    startProtectionTransition(async () => {
+      try {
+        const result = await saveMasterInventoryProtectedBalanceAction({
+          operationId: crypto.randomUUID(),
+          primaryInventoryItemId,
+          expectedFlowId,
+          safetyReserveUnits,
+          notes: protectionNotes,
+        });
+        setProtectionSuccess(`Protección #${result.protectionFlowId} activada.`);
+        setProtectionItemId('');
+        setProtectionExpectedFlowId('');
+        setProtectionReserve('0');
+        setProtectionNotes('');
+        router.refresh();
+      } catch (submissionError) {
+        setProtectionError(submissionError instanceof Error ? submissionError.message : 'No se pudo proteger el saldo de venta.');
+      }
+    });
+  }
+
+  function cancelProtection(protectionId: number) {
+    if (!window.confirm('¿Liberar esta protección? El inventario normal volverá a ser solo informativo.')) return;
+    setProtectionError(null);
+    setProtectionSuccess(null);
+    setCancellingProtectionId(protectionId);
+    startProtectionTransition(async () => {
+      try {
+        await cancelMasterInventorySuspensionAction({
+          suspensionId: protectionId,
+          notes: 'Protección de saldo liberada desde el control operativo de Máster.',
+        });
+        setProtectionSuccess(`Protección #${protectionId} liberada.`);
+        router.refresh();
+      } catch (submissionError) {
+        setProtectionError(submissionError instanceof Error ? submissionError.message : 'No se pudo liberar la protección.');
+      } finally {
+        setCancellingProtectionId(null);
       }
     });
   }
@@ -514,7 +617,7 @@ export default function MasterInventoryClient({
         <SummaryCard label="Esperando a Cocina" value={waitingKitchen.length} detail="solicitudes abiertas" tone={waitingKitchen.length ? 'warning' : 'default'} />
         <SummaryCard label="Esperando a Máster" value={waitingMaster.length} detail="reportes por decidir" tone={waitingMaster.length ? 'danger' : 'default'} />
         <SummaryCard label="Stock bajo" value={lowStockCount} detail="según umbral configurado" tone={lowStockCount ? 'warning' : 'default'} />
-        <SummaryCard label="Ventas detenidas" value={suspensions.length} detail="solo por decisión explícita" tone={suspensions.length ? 'danger' : 'default'} />
+        <SummaryCard label="Ventas protegidas" value={protections.length} detail="hasta agotar saldo" tone={protections.length ? 'warning' : 'default'} />
       </div>
 
       {activeView === 'overview' ? (
@@ -620,6 +723,150 @@ export default function MasterInventoryClient({
             <button type="button" disabled={isSavingReceipt} onClick={submitExpectedReceipt} className="rounded-xl bg-violet-200 px-4 py-2.5 text-sm font-black text-violet-950 disabled:cursor-not-allowed disabled:opacity-50">
               {isSavingReceipt ? 'Guardando…' : 'Registrar lo que viene'}
             </button>
+          </div>
+        </section>
+      ) : null}
+
+      {activeView === 'overview' ? (
+        <section className="rounded-2xl border border-amber-300/30 bg-amber-300/5 p-4 sm:p-5">
+          <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+            <div>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-amber-100">Vender solo hasta agotar el saldo</h2>
+                  <p className="mt-1 text-sm leading-6 text-[#C9BB91]">
+                    Protege lo que realmente queda, descuenta primero del crudo y usa prefritos como respaldo.
+                    Al agotarse ambas fuentes, Asesor y Counter no podrán agregar más para fechas anteriores a la reposición.
+                  </p>
+                </div>
+                <span className="rounded-full border border-amber-200/25 px-2.5 py-1 text-[10px] font-black text-amber-100">
+                  DECISIÓN DE MÁSTER
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="text-sm text-[#D5CBAE] sm:col-span-2">Familia que se está agotando
+                  <select
+                    value={protectionItemId}
+                    onChange={(event) => {
+                      setProtectionItemId(event.target.value);
+                      setProtectionExpectedFlowId('');
+                    }}
+                    className={`mt-1 ${inputClass}`}
+                  >
+                    <option value="">Seleccionar familia</option>
+                    {families.map((family) => (
+                      <option key={family.primaryInventoryItemId} value={family.primaryInventoryItemId}>
+                        {family.productName} · {family.primaryItemName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm text-[#D5CBAE]">Reposición confirmada
+                  <select
+                    value={protectionExpectedFlowId}
+                    onChange={(event) => setProtectionExpectedFlowId(event.target.value)}
+                    disabled={!selectedProtectionFamily}
+                    className={`mt-1 ${inputClass} disabled:opacity-45`}
+                  >
+                    <option value="">Sin fecha confirmada</option>
+                    {protectionReceipts.map((receipt) => (
+                      <option key={receipt.id} value={receipt.id}>
+                        {formatDate(receipt.effectiveAt)} · +{formatQuantity(receipt.quantityUnits)} {receipt.unitName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm text-[#D5CBAE]">Reserva por seguridad ({selectedProtectionFamily?.primaryUnitName ?? 'UND'})
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={protectionReserve}
+                    onChange={(event) => setProtectionReserve(event.target.value)}
+                    className={`mt-1 ${inputClass}`}
+                    placeholder="Ej. 10"
+                  />
+                </label>
+
+                {selectedProtectionFamily ? (
+                  <div className="sm:col-span-2 rounded-xl border border-amber-200/15 bg-black/20 p-3 text-xs leading-5 text-[#CFC5A7]">
+                    <span className="font-bold text-amber-100">Respaldo:</span>{' '}
+                    {selectedProtectionFamily.fallbackItemName}. Cada servicio prefrito cubre{' '}
+                    {formatQuantity(selectedProtectionFamily.rawUnitsPerPrefriedUnit)} UND de la familia frita.
+                    {!protectionReceipts.length ? ' Registra primero una entrada esperada si ya conoces la reposición.' : ''}
+                  </div>
+                ) : null}
+
+                <label className="text-sm text-[#D5CBAE] sm:col-span-2">Nota opcional
+                  <input
+                    value={protectionNotes}
+                    onChange={(event) => setProtectionNotes(event.target.value)}
+                    maxLength={1000}
+                    className={`mt-1 ${inputClass}`}
+                    placeholder="Ej. Reservar 10 UND por posibles averías"
+                  />
+                </label>
+              </div>
+
+              {protectionError ? <div className="mt-3 rounded-xl border border-rose-400/35 bg-rose-400/10 p-3 text-sm text-rose-100">{protectionError}</div> : null}
+              {protectionSuccess ? <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-100">{protectionSuccess}</div> : null}
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  disabled={isSavingProtection || !families.length}
+                  onClick={submitProtection}
+                  className="rounded-xl bg-amber-200 px-4 py-2.5 text-sm font-black text-amber-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isSavingProtection ? 'Activando…' : 'Vender solo hasta agotar'}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-white">Protecciones activas</h3>
+                  <p className="mt-1 text-xs leading-5 text-[#AFA582]">
+                    No cancelan pedidos. Si un conteo reduce el saldo, Máster recibirá la alerta de compromisos en riesgo.
+                  </p>
+                </div>
+                <span className="rounded-full border border-amber-200/25 px-2.5 py-1 text-xs text-amber-100">{protections.length}</span>
+              </div>
+              <div className="mt-4 space-y-2">
+                {protections.length ? protections.map((protection) => (
+                  <article key={protection.id} className="rounded-xl border border-amber-200/20 bg-[#17140B] p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-white">{protection.primaryItemName}</div>
+                        <div className="mt-1 text-xs text-amber-100">
+                          Reserva: {formatQuantity(protection.safetyReserveUnits)} {protection.primaryUnitName}
+                        </div>
+                        <div className="mt-1 text-xs text-[#B8AD8D]">Respaldo: {protection.fallbackItemName}</div>
+                        <div className="mt-1 text-xs font-semibold text-sky-200">
+                          {protection.availableFrom ? `Reposición: ${formatDate(protection.availableFrom)}` : 'Reposición sin fecha confirmada'}
+                        </div>
+                        {protection.notes ? <p className="mt-2 text-xs leading-5 text-[#AFA582]">{protection.notes}</p> : null}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isSavingProtection}
+                        onClick={() => cancelProtection(protection.id)}
+                        className="shrink-0 text-xs font-black text-emerald-200 hover:underline disabled:opacity-45"
+                      >
+                        {cancellingProtectionId === protection.id ? 'Liberando…' : 'Liberar'}
+                      </button>
+                    </div>
+                  </article>
+                )) : (
+                  <div className="rounded-xl border border-dashed border-amber-200/20 px-4 py-5 text-sm text-[#C9BB91]">
+                    No hay familias vendiéndose bajo saldo protegido.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </section>
       ) : null}

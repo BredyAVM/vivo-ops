@@ -715,6 +715,12 @@ export async function selectMasterOpsOrderInventoryRouteAction(input: {
       throw new Error("Supabase no devolvió la orden actualizada.");
     }
 
+    const { error: protectionError } = await supabase.rpc(
+      "inventory_refresh_order_protected_allocations_v1",
+      { p_order_id: orderId },
+    );
+    if (protectionError) throw new Error(protectionError.message);
+
     revalidatePath("/app/master/ops");
     revalidatePath(`/orders/${orderId}`);
     return {

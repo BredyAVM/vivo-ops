@@ -99,6 +99,9 @@ type ProductAvailability = {
   next_available_at: string | null;
   requires_master_review: boolean;
   inventory_blocks_submission: boolean;
+  protected_balance_active?: boolean;
+  protected_maximum_quantity?: number | null;
+  protected_available_component_units?: number | null;
 };
 
 type ProductComponentRow = {
@@ -354,6 +357,40 @@ type AdvisorOrderDraftInitial = {
   quoted_at: string | null;
   updated_at: string | null;
 };
+
+function protectedDraftViolation(
+  items: DraftItem[],
+  availabilityByProductId: Map<number, ProductAvailability>,
+) {
+  const productQuantities = new Map<number, number>();
+  const componentQuantities = new Map<number, number>();
+  for (const item of items) {
+    productQuantities.set(item.product_id, (productQuantities.get(item.product_id) ?? 0) + item.qty);
+    for (const line of item.editable_detail_lines) {
+      const match = line.match(/^@sel\|([1-9][0-9]*)\|([0-9]+(?:\.[0-9]+)?)$/);
+      if (!match) continue;
+      const componentId = Number(match[1]);
+      const quantity = Number(match[2]);
+      componentQuantities.set(componentId, (componentQuantities.get(componentId) ?? 0) + quantity);
+    }
+  }
+
+  for (const [productId, quantity] of productQuantities) {
+    const availability = availabilityByProductId.get(productId);
+    const maximum = Number(availability?.protected_maximum_quantity);
+    if (availability?.protected_balance_active && Number.isFinite(maximum) && quantity > maximum + 0.0001) {
+      return availability;
+    }
+  }
+  for (const [productId, quantity] of componentQuantities) {
+    const availability = availabilityByProductId.get(productId);
+    const maximum = Number(availability?.protected_available_component_units);
+    if (availability?.protected_balance_active && Number.isFinite(maximum) && quantity > maximum + 0.0001) {
+      return availability;
+    }
+  }
+  return null;
+}
 
 export type AdvisorCrmOrderContext = {
   playMemberId: number;
@@ -2976,6 +3013,21 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    const availability = availabilityByProductId.get(selectedProduct.id);
+    const protectedMaximum = Number(availability?.protected_maximum_quantity);
+    const existingQuantity = draftItems
+      .filter((item) => item.product_id === selectedProduct.id)
+      .reduce((sum, item) => sum + item.qty, 0);
+    if (
+      !isEditingOrder
+      && availability?.protected_balance_active
+      && Number.isFinite(protectedMaximum)
+      && existingQuantity + quantity > protectedMaximum + 0.0001
+    ) {
+      setError(availability.message || 'La cantidad supera el saldo protegido disponible para esa fecha.');
+      return;
+    }
+
     const hasConfigurableComponents = productComponents.some(
       (row) =>
         row.parent_product_id === selectedProduct.id &&
@@ -3045,6 +3097,20 @@ export default function AdvisorOrderComposer({
       setError('No se encontro el producto a configurar.');
       return;
     }
+    const availability = availabilityByProductId.get(configProduct.id);
+    const protectedMaximum = Number(availability?.protected_maximum_quantity);
+    const existingQuantity = draftItems
+      .filter((item) => item.product_id === configProduct.id && item.localId !== configEditingLocalId)
+      .reduce((sum, item) => sum + item.qty, 0);
+    if (
+      !isEditingOrder
+      && availability?.protected_balance_active
+      && Number.isFinite(protectedMaximum)
+      && existingQuantity + configQty > protectedMaximum + 0.0001
+    ) {
+      setError(availability.message || 'La cantidad supera el saldo protegido disponible para esa fecha.');
+      return;
+    }
 
     const blockedSelection = !isEditingOrder && configSelections.find(
       (selection) =>
@@ -3053,6 +3119,20 @@ export default function AdvisorOrderComposer({
     );
     if (blockedSelection) {
       setError(`${blockedSelection.name} está detenido temporalmente por Máster.`);
+      return;
+    }
+    const protectedSelection = !isEditingOrder && configSelections.find((selection) => {
+      const availability = availabilityByProductId.get(selection.componentProductId);
+      const maximum = Number(availability?.protected_available_component_units);
+      return availability?.protected_balance_active
+        && Number.isFinite(maximum)
+        && selection.qty > maximum + 0.0001;
+    });
+    if (protectedSelection) {
+      setError(
+        availabilityByProductId.get(protectedSelection.componentProductId)?.message
+          ?? `${protectedSelection.name} supera el saldo protegido disponible.`,
+      );
       return;
     }
 
@@ -3484,6 +3564,13 @@ export default function AdvisorOrderComposer({
       );
       return;
     }
+    const protectedDraft = !isEditingOrder
+      ? protectedDraftViolation(draftItems, availabilityByProductId)
+      : null;
+    if (protectedDraft) {
+      setError(protectedDraft.message || 'La orden supera el saldo protegido disponible para esa fecha.');
+      return;
+    }
 
     if (!createReady) {
       if (!scheduleReady) {
@@ -3541,10 +3628,12 @@ export default function AdvisorOrderComposer({
         },
       );
       if (!availabilityValidationError) {
-        const blocked = Array.isArray(currentAvailability?.products)
-          ? (currentAvailability.products as ProductAvailability[])
-            .find((product) => product.inventory_blocks_submission)
-          : null;
+        const currentRows = Array.isArray(currentAvailability?.products)
+          ? currentAvailability.products as ProductAvailability[]
+          : [];
+        const currentMap = new Map(currentRows.map((product) => [Number(product.product_id), product]));
+        const blocked = currentRows.find((product) => product.inventory_blocks_submission)
+          ?? protectedDraftViolation(draftItems, currentMap);
         if (blocked) {
           setError(blocked.message || 'Máster detuvo temporalmente uno de los productos para esa fecha.');
           return;

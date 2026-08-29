@@ -7,7 +7,9 @@ import MasterInventoryClient, {
   type MasterInventoryAlert,
   type MasterInventoryCount,
   type MasterInventoryItem,
+  type MasterInventoryFamilyOption,
   type MasterInventoryProduct,
+  type MasterInventoryProtection,
   type MasterInventorySuspension,
 } from './MasterInventoryClient';
 
@@ -87,6 +89,7 @@ type InventorySuspensionRow = {
   id: number | string;
   inventory_item_id: number | string;
   effective_at: string | null;
+  depends_on_flow_id: number | string | null;
   notes: string | null;
   created_at: string;
   capture_details: unknown;
@@ -98,6 +101,7 @@ type InventoryProductRow = {
   name: string;
   type: string;
   inventory_policy: string | null;
+  extra_fields: unknown;
 };
 
 type CountHeaderRow = {
@@ -168,13 +172,13 @@ export default async function MasterInventoryPage({ searchParams }: { searchPara
     }),
     ctx.supabase
       .from('inventory_planned_flows')
-      .select('id,inventory_item_id,effective_at,notes,created_at,capture_details')
+      .select('id,inventory_item_id,effective_at,depends_on_flow_id,notes,created_at,capture_details')
       .eq('flow_type', 'declared_unavailability')
       .eq('status', 'active')
       .order('created_at', { ascending: false }),
     ctx.supabase
       .from('products')
-      .select('id,sku,name,type,inventory_policy')
+      .select('id,sku,name,type,inventory_policy,extra_fields')
       .eq('is_active', true)
       .eq('inventory_configuration_status', 'ready')
       .neq('inventory_policy', 'none')
@@ -299,8 +303,65 @@ export default async function MasterInventoryPage({ searchParams }: { searchPara
       inventoryPolicy: product.inventory_policy,
     }));
   const productById = new Map(products.map((product) => [product.id, product]));
+  const families: MasterInventoryFamilyOption[] = ((productResult.data ?? []) as InventoryProductRow[])
+    .flatMap((product) => {
+      const extraFields = inventoryObject(product.extra_fields);
+      const routes = Array.isArray(extraFields.inventory_routes_v1)
+        ? extraFields.inventory_routes_v1
+        : [];
+      const primary = routes
+        .map(inventoryObject)
+        .find((route) => route.mode === 'primary');
+      const fallback = routes
+        .map(inventoryObject)
+        .find((route) => route.mode === 'master_fallback');
+      const primaryLinks = primary && Array.isArray(primary.links) ? primary.links : [];
+      const fallbackLinks = fallback && Array.isArray(fallback.links) ? fallback.links : [];
+      const primaryLink = primaryLinks.length === 1 ? inventoryObject(primaryLinks[0]) : null;
+      const fallbackLink = fallbackLinks.length === 1 ? inventoryObject(fallbackLinks[0]) : null;
+      const primaryItemId = Number(primaryLink?.inventory_item_id ?? 0);
+      const fallbackItemId = Number(fallbackLink?.inventory_item_id ?? 0);
+      const primaryQuantity = Number(primaryLink?.quantity_units ?? 0);
+      const fallbackQuantity = Number(fallbackLink?.quantity_units ?? 0);
+      const primaryItem = itemById.get(primaryItemId);
+      const fallbackItem = itemById.get(fallbackItemId);
+      if (!primaryItem || !fallbackItem || primaryQuantity <= 0 || fallbackQuantity <= 0) return [];
+      return [{
+        productId: Number(product.id),
+        productName: inventoryDisplayText(product.name),
+        primaryInventoryItemId: primaryItemId,
+        primaryItemName: primaryItem.name,
+        primaryUnitName: primaryItem.unitName,
+        fallbackInventoryItemId: fallbackItemId,
+        fallbackItemName: fallbackItem.name,
+        rawUnitsPerPrefriedUnit: primaryQuantity / fallbackQuantity,
+      }];
+    })
+    .sort((left, right) => left.productName.localeCompare(right.productName, 'es'));
   const generatedAtMs = new Date(workspace.generated_at).getTime();
-  const suspensions: MasterInventorySuspension[] = ((suspensionResult.data ?? []) as InventorySuspensionRow[])
+  const rawSuspensions = (suspensionResult.data ?? []) as InventorySuspensionRow[];
+  const protections: MasterInventoryProtection[] = rawSuspensions
+    .filter((flow) => inventoryObject(flow.capture_details).unavailability_mode === 'protected_balance')
+    .map((flow) => {
+      const details = inventoryObject(flow.capture_details);
+      const item = itemById.get(Number(flow.inventory_item_id));
+      const fallbackItem = itemById.get(Number(details.fallback_inventory_item_id ?? 0));
+      return {
+        id: Number(flow.id),
+        primaryInventoryItemId: Number(flow.inventory_item_id),
+        primaryItemName: item?.name ?? inventoryDisplayText(String(details.primary_inventory_item_name ?? `Ítem #${flow.inventory_item_id}`)),
+        primaryUnitName: item?.unitName ?? 'UND',
+        fallbackInventoryItemId: Number(details.fallback_inventory_item_id ?? 0),
+        fallbackItemName: fallbackItem?.name ?? inventoryDisplayText(String(details.fallback_inventory_item_name ?? 'Prefrito')),
+        safetyReserveUnits: Number(details.safety_reserve_units ?? 0),
+        expectedFlowId: flow.depends_on_flow_id == null ? null : Number(flow.depends_on_flow_id),
+        availableFrom: flow.effective_at,
+        notes: flow.notes ? inventoryDisplayText(flow.notes) : null,
+        createdAt: flow.created_at,
+      };
+    });
+  const suspensions: MasterInventorySuspension[] = rawSuspensions
+    .filter((flow) => inventoryObject(flow.capture_details).unavailability_mode !== 'protected_balance')
     .filter((flow) => {
       if (flow.effective_at == null) return true;
       const resumeAtMs = new Date(flow.effective_at).getTime();
@@ -419,6 +480,8 @@ export default async function MasterInventoryPage({ searchParams }: { searchPara
           counts={countSummaries}
           supplies={supplies}
           alerts={alerts}
+          families={families}
+          protections={protections}
           suspensions={suspensions}
         />
       </div>

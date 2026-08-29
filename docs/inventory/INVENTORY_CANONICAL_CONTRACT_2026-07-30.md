@@ -2233,3 +2233,41 @@ El contrato estará listo para implementación cuando:
 - alerta de diferencia grande agrupada con su investigación;
 - procura reconocida y en gestión sin aumentar existencia;
 - reverso idempotente.
+
+## 26. Venta protegida hasta agotar el saldo
+
+La lectura normal de inventario continúa siendo informativa y no impide crear,
+aprobar, preparar, despachar ni entregar órdenes. La única restricción por
+cantidad es una decisión explícita de Máster denominada **Vender solo hasta
+agotar el saldo**.
+
+Esta decisión se aplica a una familia física, no solamente a una presentación
+comercial. Para Minis, Empanadas, Cachitas, Mandocas y Bombys, la capacidad
+vendible de producto frito suma:
+
+1. las unidades crudas libres;
+2. el equivalente de los servicios prefritos disponibles;
+3. menos la reserva de seguridad indicada por Máster.
+
+El sistema asigna primero el crudo y utiliza prefrito únicamente para cubrir el
+faltante. La asignación queda guardada en el snapshot de la orden para que el
+compromiso y la salida física descuenten la misma fuente. Los combos fijos se
+evalúan por sus componentes y los productos configurables por la selección real
+hecha por el usuario.
+
+Máster puede vincular una entrada esperada de cantidad conocida. Antes de esa
+fecha solo se vende el saldo protegido; desde la fecha prevista vuelve a
+considerarse la reposición. Si la entrada se cancela o falla, la familia no se
+reabre automáticamente. Si no hay una fecha confirmada, la protección permanece
+indefinida hasta que Máster la libere o se registre la recepción correspondiente.
+
+Un conteo físico siempre prevalece. Si reduce el saldo por avería, merma u otra
+diferencia y deja compromisos en riesgo, el sistema conserva la orden y genera
+la alerta para Máster; no reescribe la realidad ni bloquea el flujo operativo.
+
+La regla reutiliza `inventory_planned_flows`, `products.extra_fields` y
+`orders.extra_fields`; no introduce tablas ni columnas nuevas. Las migraciones
+vigentes son:
+
+- `20260829170122_inventory_protected_family_sales_v1.sql`;
+- `20260829203000_inventory_protected_family_reserve_fix_v1.sql`.
