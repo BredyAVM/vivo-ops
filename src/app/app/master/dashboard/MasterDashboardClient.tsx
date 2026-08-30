@@ -131,6 +131,7 @@ import {
   updateMoneyAccountAction,
   updateMoneyAccountPaymentRulesAction,
   createOrderAction,
+  updateDeliveredOrderPaymentIntentAction,
   updateOrderAction,
   voidFinancialMovementAction,
   logoutAction,
@@ -11448,6 +11449,45 @@ const handleUpdateOrder = async () => {
       return;
     }
 
+    const isAdvancedOrderEdit =
+      !!selectedOrder &&
+      !['created', 'queued'].includes(selectedOrder.status);
+
+    if (isAdvancedOrderEdit && !adminEditReason.trim()) {
+      showToast('error', 'Debes indicar el motivo de la modificación.');
+      return;
+    }
+
+    if (selectedOrder?.status === 'delivered') {
+      const result = await updateDeliveredOrderPaymentIntentAction({
+        orderId: editingOrderId,
+        expectedLastModifiedAt: selectedOrder.lastModifiedAtISO ?? null,
+        paymentMethod: createOrderPaymentMethod,
+        paymentCurrency: createOrderPaymentCurrency,
+        paymentRequiresChange: createOrderPaymentRequiresChange,
+        paymentChangeFor: createOrderPaymentChangeFor,
+        paymentChangeCurrency: createOrderPaymentChangeCurrency,
+        paymentNote: createOrderPaymentNote,
+        reason: adminEditReason.trim(),
+      });
+
+      if (!result.ok) {
+        showToast('error', result.message);
+        return;
+      }
+
+      showToast(
+        'success',
+        'Forma de pago esperada corregida. Los pagos y movimientos financieros no cambiaron.'
+      );
+      setCreateOrderOpen(false);
+      setEditingOrderId(null);
+      setOrderEditorMode('create');
+      setAdminEditReason('');
+      router.refresh();
+      return;
+    }
+
     if (!createOrderCanSave) {
       showToast('error', 'Faltan datos obligatorios.');
       return;
@@ -11455,15 +11495,6 @@ const handleUpdateOrder = async () => {
 
     if (createOrderUseClientFund && createOrderAppliedFundUsd <= 0.005) {
       showToast('error', 'El monto a aplicar del fondo no es válido.');
-      return;
-    }
-
-    const isAdvancedOrderEdit =
-      !!selectedOrder &&
-      !['created', 'queued'].includes(selectedOrder.status);
-
-    if (isAdvancedOrderEdit && !adminEditReason.trim()) {
-      showToast('error', 'Debes indicar el motivo de la modificación.');
       return;
     }
 
@@ -28406,7 +28437,9 @@ deliveryAssignMode === 'external' ? (
   <div className="rounded-xl border border-sky-500/30 bg-[#0B0B0D] p-3 text-sm text-sky-200">
     <div className="font-semibold text-sky-300">Modificación operativa</div>
     <div className="mt-1">
-      Estás editando una orden que ya avanzó en operación. El cambio quedará auditado y requiere motivo obligatorio.
+      {selectedOrder.status === 'delivered'
+        ? 'La orden ya está entregada. Para proteger inventario y totales, aquí solo se guardará la corrección de la forma de pago esperada. Los pagos reales no cambiarán.'
+        : 'Estás editando una orden que ya avanzó en operación. El cambio quedará auditado y requiere motivo obligatorio.'}
     </div>
     <div className="mt-3">
       <label className="mb-1 block text-xs text-[#8A8A96]">Motivo de la modificación</label>
@@ -28432,15 +28465,23 @@ deliveryAssignMode === 'external' ? (
 <button
   className={[
     'rounded-xl px-4 py-2 text-sm font-semibold',
-    createOrderCanSave
+    createOrderCanSave || (orderEditorMode === 'edit' && selectedOrder?.status === 'delivered')
       ? 'bg-[#FEEF00] text-[#0B0B0D]'
       : 'bg-[#191926] text-[#8A8A96]',
   ].join(' ')}
   type="button"
-  disabled={!createOrderCanSave}
+  disabled={
+    orderEditorMode === 'edit' && selectedOrder?.status === 'delivered'
+      ? false
+      : !createOrderCanSave
+  }
   onClick={orderEditorMode === 'edit' ? handleUpdateOrder : handleCreateOrder}
 >
-  {orderEditorMode === 'edit' ? 'Guardar cambios de la orden' : 'Crear orden'}
+  {orderEditorMode === 'edit'
+    ? selectedOrder?.status === 'delivered'
+      ? 'Guardar corrección de pago'
+      : 'Guardar cambios de la orden'
+    : 'Crear orden'}
 </button>
     </div>
   </div>

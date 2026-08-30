@@ -11,7 +11,7 @@ import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicate
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
-import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
+import { formatOrderDisplayLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { isOrderPriceProtected } from '@/lib/domain/order-domain';
 import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
 import {
@@ -11219,6 +11219,191 @@ export async function createOrderAction(input: {
   revalidatePath('/app/master/ops');
 
   return { id: orderId, orderNumber };
+}
+
+export async function updateDeliveredOrderPaymentIntentAction(input: {
+  orderId: number;
+  expectedLastModifiedAt?: string | null;
+  paymentMethod: string;
+  paymentCurrency: 'USD' | 'VES';
+  paymentRequiresChange: boolean;
+  paymentChangeFor: string;
+  paymentChangeCurrency: 'USD' | 'VES';
+  paymentNote: string;
+  reason: string;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const orderId = Number(input.orderId);
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    return { ok: false as const, message: 'Orden inválida.' };
+  }
+
+  const paymentMethod = normalizePaymentMethodCode(input.paymentMethod);
+  if (!paymentMethod) {
+    return { ok: false as const, message: 'La forma de pago no es válida.' };
+  }
+
+  const reason = String(input.reason || '').trim();
+  if (!reason) {
+    return { ok: false as const, message: 'Debes indicar el motivo de la modificación.' };
+  }
+
+  const { data: currentOrder, error: currentOrderError } = await supabase
+    .from('orders')
+    .select('id, status, attributed_advisor_id, extra_fields, last_modified_at')
+    .eq('id', orderId)
+    .single();
+
+  if (currentOrderError || !currentOrder) {
+    return {
+      ok: false as const,
+      message: currentOrderError?.message || 'No se pudo cargar la orden.',
+    };
+  }
+
+  if (currentOrder.status !== 'delivered') {
+    return {
+      ok: false as const,
+      message: 'Esta corrección especial solo aplica a órdenes entregadas.',
+    };
+  }
+
+  const expectedLastModifiedAt =
+    typeof input.expectedLastModifiedAt === 'string' && input.expectedLastModifiedAt.trim()
+      ? input.expectedLastModifiedAt.trim()
+      : null;
+  const currentLastModifiedAt =
+    typeof currentOrder.last_modified_at === 'string' && currentOrder.last_modified_at.trim()
+      ? currentOrder.last_modified_at.trim()
+      : null;
+
+  if (expectedLastModifiedAt !== currentLastModifiedAt) {
+    return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
+  }
+
+  const currentExtraFields =
+    currentOrder.extra_fields &&
+    typeof currentOrder.extra_fields === 'object' &&
+    !Array.isArray(currentOrder.extra_fields)
+      ? (currentOrder.extra_fields as Record<string, unknown>)
+      : {};
+  const currentPayment =
+    currentExtraFields.payment &&
+    typeof currentExtraFields.payment === 'object' &&
+    !Array.isArray(currentExtraFields.payment)
+      ? (currentExtraFields.payment as Record<string, unknown>)
+      : {};
+
+  const paymentCurrency = input.paymentCurrency === 'USD' ? 'USD' : 'VES';
+  const paymentRequiresChange = Boolean(input.paymentRequiresChange);
+  const paymentChangeFor = paymentRequiresChange
+    ? String(input.paymentChangeFor || '').trim() || null
+    : null;
+  const paymentChangeCurrency = paymentRequiresChange
+    ? input.paymentChangeCurrency === 'VES'
+      ? 'VES'
+      : 'USD'
+    : null;
+  const paymentNote = String(input.paymentNote || '').trim() || null;
+
+  const nextPayment = {
+    ...currentPayment,
+    method: paymentMethod,
+    currency: paymentCurrency,
+    requires_change: paymentRequiresChange,
+    change_for: paymentChangeFor,
+    change_currency: paymentChangeCurrency,
+    notes: paymentNote,
+  };
+
+  if (stableStringify(currentPayment) === stableStringify(nextPayment)) {
+    return { ok: false as const, message: 'La forma de pago no tiene cambios para guardar.' };
+  }
+
+  const nextExtraFields = {
+    ...currentExtraFields,
+    payment: nextPayment,
+  };
+  const nowIso = new Date().toISOString();
+
+  let updateQuery = supabase
+    .from('orders')
+    .update({
+      extra_fields: nextExtraFields,
+      last_modified_at: nowIso,
+      last_modified_by: user.id,
+    })
+    .eq('id', orderId)
+    .eq('status', 'delivered');
+  updateQuery =
+    expectedLastModifiedAt === null
+      ? updateQuery.is('last_modified_at', null)
+      : updateQuery.eq('last_modified_at', expectedLastModifiedAt);
+
+  const { data: updatedRows, error: updateError } = await updateQuery.select('id');
+
+  if (updateError) {
+    return { ok: false as const, message: updateError.message };
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
+  }
+
+  const previousMethod = normalizePaymentMethodCode(currentPayment.method) ?? String(currentPayment.method || '');
+  const previousMethodLabel = getPaymentMethodLabel(previousMethod, { fallback: 'Sin definir' });
+  const nextMethodLabel = getPaymentMethodLabel(paymentMethod);
+
+  const { error: adjustmentError } = await supabase
+    .from('order_admin_adjustments')
+    .insert({
+      order_id: orderId,
+      order_item_id: null,
+      adjustment_type: 'other',
+      reason,
+      notes: null,
+      payload: {
+        kind: 'delivered_order_payment_intent_correction',
+        affects_ledger: false,
+        previous_payment: currentPayment,
+        next_payment: nextPayment,
+      },
+      created_by_user_id: user.id,
+    });
+
+  if (adjustmentError) {
+    console.warn('delivered payment intent adjustment skipped', adjustmentError.message);
+  }
+
+  await appendOrderEvent(supabase, {
+    orderId,
+    eventType: 'order_payment_intent_corrected',
+    eventGroup: 'payment',
+    title: 'Forma de pago esperada corregida',
+    message: `${previousMethodLabel} → ${nextMethodLabel}. Esta corrección no modificó pagos ni movimientos financieros.`,
+    severity: 'info',
+    actorUserId: user.id,
+    payload: {
+      previous_method: previousMethod || null,
+      next_method: paymentMethod,
+      previous_currency: currentPayment.currency ?? null,
+      next_currency: paymentCurrency,
+      reason,
+      affects_ledger: false,
+    },
+    recipients: [
+      { targetRole: 'master', requiresAction: false },
+      ...(currentOrder.attributed_advisor_id
+        ? [{ targetUserId: String(currentOrder.attributed_advisor_id), requiresAction: false }]
+        : []),
+    ],
+  });
+
+  revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
+
+  return { ok: true as const, id: orderId };
 }
 
 export async function updateOrderAction(input: {
