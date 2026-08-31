@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireCounterOperatorContext } from '@/lib/auth';
+import { sendPushToAdvisorDevices } from '@/lib/push';
 import type {
   CounterGiveChangeIntent,
   CounterGiveChangeResult,
@@ -722,6 +723,21 @@ export async function dispatchCounterDeliveryAction(
     return { ...line, payment_method_code: method };
   });
 
+  const { data: pushContextData, error: pushContextError } = await ctx.supabase
+    .from('orders')
+    .select(
+      'status, attributed_advisor_id, order_number, client:clients!orders_client_id_fkey(full_name)'
+    )
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (pushContextError) {
+    console.warn('[counter-delivery-advisor-push] context unavailable', {
+      orderId,
+      error: pushContextError.message,
+    });
+  }
+
   const { data, error } = await ctx.supabase.rpc('counter_dispatch_delivery', {
     p_idempotency_key: idempotencyKey,
     p_order_id: orderId,
@@ -739,6 +755,46 @@ export async function dispatchCounterDeliveryAction(
     throw new Error(error.message);
   }
   const result = asRecord(data);
+
+  const pushContext = asRecord(pushContextData);
+  const advisorUserId = String(pushContext.attributed_advisor_id || '').trim();
+  const previousStatus = String(pushContext.status || '').trim();
+  const rawClient = Array.isArray(pushContext.client) ? pushContext.client[0] : pushContext.client;
+  const clientName = String(asRecord(rawClient).full_name || '').trim() || null;
+
+  if (previousStatus === 'ready' && advisorUserId) {
+    const pushStartedAt = Date.now();
+
+    try {
+      const pushResult = await sendPushToAdvisorDevices({
+        advisorUserId,
+        orderId,
+        eventType: 'out_for_delivery',
+        title: 'Orden en camino',
+        body: `La orden salio en camino con ETA de ${etaMinutes} min.`,
+        orderNumber: String(pushContext.order_number || '').trim() || null,
+        clientName,
+        payload: {
+          delivery_eta_minutes: etaMinutes,
+        },
+        tag: `advisor-order-${orderId}-status`,
+      });
+
+      console.info('[counter-delivery-advisor-push] completed', {
+        orderId,
+        advisorUserId,
+        elapsedMs: Date.now() - pushStartedAt,
+        result: pushResult,
+      });
+    } catch (pushError) {
+      console.warn('[counter-delivery-advisor-push] failed', {
+        orderId,
+        advisorUserId,
+        elapsedMs: Date.now() - pushStartedAt,
+        error: pushError instanceof Error ? pushError.message : String(pushError),
+      });
+    }
+  }
 
   revalidatePath('/app/counter');
   revalidatePath('/app/kitchen');

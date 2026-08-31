@@ -123,7 +123,10 @@ function buildAdvisorPushCopy(input: {
   const clientName = safeText(input.clientName, 'Cliente');
   const payload = input.payload && typeof input.payload === 'object' ? input.payload : {};
   const reason = safeText(payload.reason ?? payload.review_notes ?? payload.notes ?? payload.note, '');
-  const eta = safeText(payload.eta_minutes ?? payload.etaMinutes ?? payload.prep_eta_minutes, '');
+  const eta = safeText(
+    payload.delivery_eta_minutes ?? payload.eta_minutes ?? payload.etaMinutes ?? payload.prep_eta_minutes,
+    '',
+  );
   const driver = safeText(payload.driver_name ?? payload.driverName ?? payload.partner_name ?? payload.partnerName, '');
 
   const defaultLine = safeText(input.body, 'Tienes una actualizacion en una orden.');
@@ -521,9 +524,9 @@ export async function sendPushToAdvisorDevices(input: {
         },
         payload,
         {
-          TTL: copy.requireInteraction ? 300 : 120,
+          TTL: copy.requireInteraction || input.eventType === 'out_for_delivery' ? 300 : 120,
           urgency:
-            copy.tone === 'critical'
+            copy.tone === 'critical' || input.eventType === 'out_for_delivery'
               ? 'high'
               : copy.tone === 'warning'
                 ? 'normal'
