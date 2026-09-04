@@ -7,7 +7,11 @@ import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { parseDecimalInput } from '@/lib/number-input';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
-import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
+import {
+  getPaymentReportRequirements,
+  isAdvisorPaymentReportMethod,
+  validatePaymentReportDetails,
+} from '@/lib/payments/payment-report-rules';
 import {
   cancelAdvisorOrderAction,
   createAdvisorPaymentReportAction,
@@ -17,8 +21,6 @@ import {
 } from './actions';
 
 const ADVISOR_DISPLAY_NAME_KEY = 'advisor_display_name_v1';
-const ADVISOR_REPORT_PAYMENT_METHODS = ['payment_mobile', 'transfer', 'zelle', 'wallet_usd'];
-
 type MoneyAccountOption = {
   id: number;
   name: string;
@@ -204,7 +206,7 @@ export default function OrderDetailActions({
   const [paymentOptionsError, setPaymentOptionsError] = useState<string | null>(null);
   const [moneyAccountId, setMoneyAccountId] = useState('');
   const [reportPaymentMethod, setReportPaymentMethod] = useState(
-    paymentMethod && ADVISOR_REPORT_PAYMENT_METHODS.includes(paymentMethod) ? paymentMethod : '',
+    isAdvisorPaymentReportMethod(paymentMethod) ? paymentMethod : '',
   );
   const [operationDate, setOperationDate] = useState(getCaracasDateInputValue());
   const [amount, setAmount] = useState(getSuggestedAccountAmount(balanceUsd, balanceBs, 'USD', activeBsRate));
@@ -226,7 +228,6 @@ export default function OrderDetailActions({
     () => activeAccounts.find((account) => account.id === Number(moneyAccountId)) ?? null,
     [activeAccounts, moneyAccountId],
   );
-  const orderLocksPaymentMethod = Boolean(paymentMethod && ADVISOR_REPORT_PAYMENT_METHODS.includes(paymentMethod));
   const availablePaymentMethods = selectedAccount?.paymentMethodCodes?.length ? selectedAccount.paymentMethodCodes : [];
   const paymentRequirements = getPaymentReportRequirements(reportPaymentMethod);
   const collectionMode = getPaymentCollectionMode(operationDate, deliveryReferenceDate);
@@ -745,9 +746,7 @@ export default function OrderDetailActions({
                   const accountMethods = account?.paymentMethodCodes ?? [];
                   setAmount(getSuggestedPaymentAmount(account?.currencyCode));
                   setExchangeRate(getSuggestedPaymentExchangeRate(account?.currencyCode));
-                  if (orderLocksPaymentMethod) {
-                    setReportPaymentMethod(paymentMethod || '');
-                  } else if (!accountMethods.includes(reportPaymentMethod)) {
+                  if (!accountMethods.includes(reportPaymentMethod)) {
                     setReportPaymentMethod(accountMethods[0] ?? '');
                   }
                 }}
@@ -771,7 +770,6 @@ export default function OrderDetailActions({
                   value={reportPaymentMethod}
                   onChange={(e) => setReportPaymentMethod(e.target.value)}
                   className={inputClass()}
-                  disabled={orderLocksPaymentMethod}
                 >
                   <option value="">Selecciona metodo</option>
                   {availablePaymentMethods.map((method) => (
@@ -781,6 +779,12 @@ export default function OrderDetailActions({
                   ))}
                 </select>
               </Field>
+            ) : null}
+
+            {selectedAccount && reportPaymentMethod && paymentMethod && reportPaymentMethod !== paymentMethod ? (
+              <div className="rounded-[14px] border border-[#29455A] bg-[#0B151D] px-3 py-2 text-xs text-[#AFCBE0]">
+                La orden indicaba {getPaymentMethodLabel(paymentMethod)}. Registra aquí el medio realmente recibido.
+              </div>
             ) : null}
 
             {paymentRequirements.requiresOperationDate ? (

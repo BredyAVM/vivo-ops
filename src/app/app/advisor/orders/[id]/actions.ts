@@ -6,12 +6,15 @@ import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/au
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicates';
-import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
+import {
+  ADVISOR_PAYMENT_REPORT_METHOD_CODES,
+  getPaymentReportRequirements,
+  isAdvisorPaymentReportMethod,
+  validatePaymentReportDetails,
+} from '@/lib/payments/payment-report-rules';
 import { sendPushToRoleDevices } from '@/lib/push';
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
-
-const ADVISOR_REPORT_PAYMENT_METHODS = new Set(['payment_mobile', 'transfer', 'zelle', 'wallet_usd']);
 
 function createSupabaseServiceRoleServer() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -430,31 +433,13 @@ async function createAdvisorPaymentReport(input: AdvisorPaymentReportInput) {
     throw new Error('La moneda reportada no coincide con la cuenta seleccionada.');
   }
 
-  const extraFields =
-    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
-      ? (order.extra_fields as { payment?: { method?: unknown } })
-      : {};
-  const orderPaymentMethod = String(extraFields.payment?.method || '').trim();
-  const shouldMatchOrderPaymentMethod = ADVISOR_REPORT_PAYMENT_METHODS.has(orderPaymentMethod);
   const requestedPaymentMethod = String(input.paymentMethod || '').trim();
-  const effectivePaymentMethod = shouldMatchOrderPaymentMethod
-    ? orderPaymentMethod
-    : ADVISOR_REPORT_PAYMENT_METHODS.has(requestedPaymentMethod)
-      ? requestedPaymentMethod
-      : '';
+  const effectivePaymentMethod = isAdvisorPaymentReportMethod(requestedPaymentMethod)
+    ? requestedPaymentMethod
+    : '';
 
   if (!effectivePaymentMethod) {
     throw new Error('Selecciona el método del pago reportado.');
-  }
-
-  if (
-    !isMasterOrAdmin &&
-    orderPaymentMethod &&
-    orderPaymentMethod !== 'pending' &&
-    orderPaymentMethod !== 'mixed' &&
-    !shouldMatchOrderPaymentMethod
-  ) {
-    throw new Error('Este metodo de pago no puede ser reportado por asesor.');
   }
 
   let rulesQuery = ctx.supabase
@@ -633,23 +618,13 @@ export async function loadAdvisorPaymentOptionsAction(input: {
     return { moneyAccounts: [] };
   }
 
-  const extraFields =
-    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
-      ? (order.extra_fields as { payment?: { method?: unknown } })
-      : {};
-  const orderPaymentMethod = String(extraFields.payment?.method || '').trim();
-  const shouldMatchOrderPaymentMethod = ADVISOR_REPORT_PAYMENT_METHODS.has(orderPaymentMethod);
-
   const { data: rulesData, error: rulesError } = await ctx.supabase
     .from('money_account_payment_rules')
     .select('money_account_id, payment_method_code, can_report_payment, is_active')
     .eq('role', 'advisor')
     .eq('is_active', true)
     .eq('can_report_payment', true)
-    .in(
-      'payment_method_code',
-      shouldMatchOrderPaymentMethod ? [orderPaymentMethod] : Array.from(ADVISOR_REPORT_PAYMENT_METHODS)
-    );
+    .in('payment_method_code', [...ADVISOR_PAYMENT_REPORT_METHOD_CODES]);
 
   if (rulesError) {
     throw new Error(rulesError.message);
@@ -659,7 +634,7 @@ export async function loadAdvisorPaymentOptionsAction(input: {
   for (const rule of rulesData ?? []) {
     const accountId = Number(rule.money_account_id || 0);
     const method = String(rule.payment_method_code || '');
-    if (!Number.isFinite(accountId) || accountId <= 0 || !ADVISOR_REPORT_PAYMENT_METHODS.has(method)) continue;
+    if (!Number.isFinite(accountId) || accountId <= 0 || !isAdvisorPaymentReportMethod(method)) continue;
 
     const methods = reportMethodsByAccountId.get(accountId) ?? [];
     if (!methods.includes(method)) methods.push(method);

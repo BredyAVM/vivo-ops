@@ -20,6 +20,21 @@ export type PaymentReportRequirements = {
 
 export type PaymentReportCurrency = 'USD' | 'VES';
 
+export const ADVISOR_PAYMENT_REPORT_METHOD_CODES = [
+  'payment_mobile',
+  'transfer',
+  'zelle',
+  'wallet_usd',
+] as const;
+
+export type AdvisorPaymentReportMethod = (typeof ADVISOR_PAYMENT_REPORT_METHOD_CODES)[number];
+
+export function isAdvisorPaymentReportMethod(
+  method: string | null | undefined,
+): method is AdvisorPaymentReportMethod {
+  return ADVISOR_PAYMENT_REPORT_METHOD_CODES.some((code) => code === method);
+}
+
 export type PaymentReportDetailsInput = {
   method?: string | null;
   operationDate?: string | null;
