@@ -1096,16 +1096,17 @@ export default async function CommissionAdministrationPage({
                         </details>
                       ) : null}
 
-                      {row.closure.status === 'preliminary' &&
-                      (!settlementIsCurrent ||
-                        row.settlement.carrySource === 'legacy-inferred' ||
-                        row.settlement.carrySource === 'manual-bootstrap') ? (
+                      {row.closure.status === 'preliminary' ? (
                         <details className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
                           <summary className="cursor-pointer text-xs font-semibold text-amber-100">
-                            Definir saldo inicial histórico auditado
+                            {row.carryOverride
+                              ? 'Rectificar saldo arrastrado'
+                              : row.settlement.carrySource === 'settlement'
+                                ? 'Corregir saldo arrastrado'
+                                : 'Definir saldo inicial histórico auditado'}
                           </summary>
                           <p className="mt-3 border-t border-amber-400/15 pt-3 text-xs leading-5 text-[#B9B19C]">
-                            Úsalo solo para el arranque con periodos anteriores. Los periodos nuevos arrastran este saldo automáticamente.
+                            El sistema lo arrastra automáticamente. Utiliza esta corrección solo cuando administración haya validado un saldo anterior diferente; la referencia queda guardada para auditoría.
                           </p>
                           <form action={saveCommissionBootstrapAction} className="mt-3 grid gap-3 sm:grid-cols-2">
                             <input name="closureId" type="hidden" value={row.closure.id} />
@@ -1146,7 +1147,7 @@ export default async function CommissionAdministrationPage({
                               />
                             </label>
                             <button className="h-9 rounded-xl border border-amber-400/35 px-4 text-xs font-semibold text-amber-100 sm:col-span-2" type="submit">
-                              Guardar saldo inicial y recalcular
+                              Guardar corrección y recalcular
                             </button>
                           </form>
                         </details>

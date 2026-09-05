@@ -929,7 +929,7 @@ async function loadEditableClosure(
     throw new Error(error?.message || 'No se pudo cargar la liquidación.');
   }
   if (data.status !== 'preliminary') {
-    throw new Error('Solo una liquidación preliminar admite cambios en deducibles.');
+    throw new Error('Solo una liquidación preliminar admite cambios administrativos.');
   }
   if (!(await advisorReceivesCommissions(supabase, data.advisor_user_id))) {
     throw new Error('Este usuario no está habilitado para recibir comisiones.');
@@ -1094,7 +1094,7 @@ export async function saveCommissionBootstrapAction(formData: FormData) {
   revalidatePath('/app/commissions');
   redirect(
     `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&notice=${encodeURIComponent(
-      'Saldo inicial histórico guardado y liquidación actualizada.'
+      'Saldo arrastrado guardado y liquidación actualizada.'
     )}`
   );
 }

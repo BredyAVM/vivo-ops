@@ -52,6 +52,7 @@ import {
   parseEditableDetailLines,
 } from '@/lib/orders/order-composer';
 import { getOrderCommercialNetUsd } from '@/lib/orders/order-money';
+import { summarizeAdvisorNewClients } from '@/lib/commissions/commercial-criteria';
 import { groupOrderItemsByPriority, sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import {
   approveOrderAction,
@@ -15804,6 +15805,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             const newClientRows = Array.isArray(closure.snapshot?.new_clients)
                               ? closure.snapshot.new_clients
                               : [];
+                            const newClientSummary = summarizeAdvisorNewClients(newClientRows);
                             const productRows = Array.isArray(closure.snapshot?.products)
                               ? closure.snapshot.products
                               : [];
@@ -16154,7 +16156,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                           <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
                                             <div className="text-xs font-semibold text-[#F5F5F7]">Clientes nuevos</div>
                                             <div className="text-right">
-                                              <div className="text-[11px] text-[#B7B7C2]">{newClientRows.length} cliente(s)</div>
+                                              <div className="text-[11px] text-[#B7B7C2]">
+                                                {newClientSummary.countedTotal} que suman
+                                                {newClientSummary.other.length > 0
+                                                  ? ` · ${newClientSummary.other.length} no suma${newClientSummary.other.length === 1 ? '' : 'n'}`
+                                                  : ''}
+                                              </div>
                                             </div>
                                           </div>
                                           <div className="max-h-[180px] overflow-auto">
@@ -16181,7 +16188,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                         ? 'Propio'
                                                         : clientType === 'assigned'
                                                           ? 'Asignado'
-                                                          : clientType || 'Otro';
+                                                          : clientType === 'legacy'
+                                                            ? 'Antiguo · no suma'
+                                                            : `${clientType || 'Otro'} · no suma`;
                                                     const orderId = Number(
                                                       client.orderId ||
                                                         (Array.isArray(client.orderIds) ? client.orderIds[0] : 0) ||

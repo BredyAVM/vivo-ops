@@ -18,6 +18,10 @@ import {
   advisorReceivesCommissions,
   loadEligibleCommissionAdvisors,
 } from '@/lib/commissions/advisor-eligibility';
+import {
+  countedAdvisorNewClientType,
+  isAdvisorCommercialOrder,
+} from '@/lib/commissions/commercial-criteria';
 import { preserveAdvisorGoalPublicationSnapshot } from '@/lib/commissions/goal-snapshot';
 import {
   getOrderCommercialNetUsd,
@@ -12324,6 +12328,8 @@ type AdvisorCommissionFirstOrderRow = {
   attributed_advisor_id: string | null;
   source: string | null;
   status: string | null;
+  total_usd: number | string | null;
+  total_bs_snapshot: number | string | null;
   created_at: string | null;
   extra_fields: any;
 };
@@ -12414,7 +12420,9 @@ function getAdvisorGiftCostUsd(product: ReturnType<typeof getAdvisorCommissionPr
   );
 }
 
-function getAdvisorCommissionDeliveryDate(order: AdvisorCommissionOrderRow) {
+function getAdvisorCommissionDeliveryDate(
+  order: Pick<AdvisorCommissionOrderRow, 'extra_fields' | 'created_at'>
+) {
   const stateDate = getOrderDeliveryReferenceDate(order);
   if (stateDate) return stateDate;
 
@@ -12581,6 +12589,7 @@ function buildAdvisorCommissionSnapshots(params: {
     const financialState = financialStates.get(orderId);
     const moneySnapshot = getOrderMoneySnapshot(order);
     const totalUsd = roundMoney(financialState?.total_usd ?? moneySnapshot.totalUsd);
+    const isCommercialOrder = isAdvisorCommercialOrder(totalUsd);
     const pendingUsd = getEffectiveOrderPendingUsd({
       order,
       financialState,
@@ -12588,7 +12597,9 @@ function buildAdvisorCommissionSnapshots(params: {
     });
     const confirmedPaidUsd = roundMoney(financialState?.confirmed_paid_usd ?? 0);
     const deliveryDate = financialState?.delivery_reference_date || getAdvisorCommissionDeliveryDate(order);
-    const discountFactor = getAdvisorCommissionDiscountFactor(order, items);
+    const discountFactor = isCommercialOrder
+      ? getAdvisorCommissionDiscountFactor(order, items)
+      : 0;
     const commissionableSubtotalUsd = getOrderCommercialNetUsd(order);
 
     let regularBaseUsd = 0;
@@ -12678,45 +12689,37 @@ function buildAdvisorCommissionSnapshots(params: {
         ? 'late'
         : 'punctual';
 
-    closure.totals.deliveredOrdersCount += 1;
-    closure.totals.billedUsd += commissionableSubtotalUsd;
-    closure.totals.regularBaseUsd += regularBaseUsd;
-    closure.totals.specialItemBaseUsd += specialItemBaseUsd;
-    closure.totals.specialOrderBaseUsd += fixedOrderBaseUsd;
-    closure.totals.grossCommissionUsd += orderCommissionUsd;
-    closure.totals.pendingCollectionUsd += isPending ? pendingUsd : 0;
-    closure.totals.pendingPaymentCount += isPending ? 1 : 0;
-    closure.totals.punctualPaidCount += paymentTiming === 'punctual' ? 1 : 0;
-    closure.totals.latePaidCount += paymentTiming === 'late' ? 1 : 0;
-
     const client = getAdvisorCommissionClient(order);
-    const clientCreatedDate = dateOnlyFromIso(client?.created_at);
-    const clientType = String(client?.client_type || '').toLowerCase();
-    const isLegacyImport = Boolean(clientCreatedDate && clientCreatedDate < ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF);
-    const clientIdNumber = Number(client?.id ?? 0);
-    const firstPurchaseOrder = Number.isFinite(clientIdNumber) && clientIdNumber > 0
-      ? firstPurchaseOrdersByClientId.get(clientIdNumber) ?? null
-      : null;
-    const firstOrderId = Number(firstPurchaseOrder?.id ?? 0);
-    const isFirstPurchaseForThisAdvisor =
-      !isLegacyImport &&
-      firstOrderId === orderId &&
-      String(firstPurchaseOrder?.source || '') === 'advisor' &&
-      String(firstPurchaseOrder?.attributed_advisor_id || '') === advisorId;
+    if (isCommercialOrder) {
+      const clientCreatedDate = dateOnlyFromIso(client?.created_at);
+      const clientType = String(client?.client_type || '').toLowerCase();
+      const countedClientType = countedAdvisorNewClientType(clientType);
+      const isLegacyImport = Boolean(clientCreatedDate && clientCreatedDate < ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF);
+      const clientIdNumber = Number(client?.id ?? 0);
+      const firstPurchaseOrder = Number.isFinite(clientIdNumber) && clientIdNumber > 0
+        ? firstPurchaseOrdersByClientId.get(clientIdNumber) ?? null
+        : null;
+      const firstOrderId = Number(firstPurchaseOrder?.id ?? 0);
+      const isFirstPurchaseForThisAdvisor =
+        !isLegacyImport &&
+        firstOrderId === orderId &&
+        String(firstPurchaseOrder?.source || '') === 'advisor' &&
+        String(firstPurchaseOrder?.attributed_advisor_id || '') === advisorId;
 
-    if (isFirstPurchaseForThisAdvisor) {
-      const alreadyAdded = closure.newClients.some((row) => String(row.clientId ?? '') === String(client?.id ?? ''));
-      if (!alreadyAdded) {
-        if (clientType === 'own') closure.totals.newOwnClientsCount += 1;
-        if (clientType === 'assigned') closure.totals.newAssignedClientsCount += 1;
-        closure.newClients.push({
-          clientId: client?.id,
-          clientName: client?.full_name || 'Cliente',
-          clientType,
-          orderId,
-          orderNumber: order.order_number,
-          createdAt: client?.created_at,
-        });
+      if (isFirstPurchaseForThisAdvisor) {
+        const alreadyAdded = closure.newClients.some((row) => String(row.clientId ?? '') === String(client?.id ?? ''));
+        if (!alreadyAdded) {
+          if (countedClientType === 'own') closure.totals.newOwnClientsCount += 1;
+          if (countedClientType === 'assigned') closure.totals.newAssignedClientsCount += 1;
+          closure.newClients.push({
+            clientId: client?.id,
+            clientName: client?.full_name || 'Cliente',
+            clientType,
+            orderId,
+            orderNumber: order.order_number,
+            createdAt: client?.created_at,
+          });
+        }
       }
     }
 
@@ -12742,11 +12745,23 @@ function buildAdvisorCommissionSnapshots(params: {
       paymentTiming,
     };
 
-    closure.orders.push(orderSnapshot);
-    if (isPending) {
-      closure.pendingOrders.push(orderSnapshot);
-    } else {
-      closure.paidOrders.push(orderSnapshot);
+    if (isCommercialOrder) {
+      closure.totals.deliveredOrdersCount += 1;
+      closure.totals.billedUsd += commissionableSubtotalUsd;
+      closure.totals.regularBaseUsd += regularBaseUsd;
+      closure.totals.specialItemBaseUsd += specialItemBaseUsd;
+      closure.totals.specialOrderBaseUsd += fixedOrderBaseUsd;
+      closure.totals.grossCommissionUsd += orderCommissionUsd;
+      closure.totals.pendingCollectionUsd += isPending ? pendingUsd : 0;
+      closure.totals.pendingPaymentCount += isPending ? 1 : 0;
+      closure.totals.punctualPaidCount += paymentTiming === 'punctual' ? 1 : 0;
+      closure.totals.latePaidCount += paymentTiming === 'late' ? 1 : 0;
+      closure.orders.push(orderSnapshot);
+      if (isPending) {
+        closure.pendingOrders.push(orderSnapshot);
+      } else {
+        closure.paidOrders.push(orderSnapshot);
+      }
     }
   }
 
@@ -13211,8 +13226,8 @@ export async function generateAdvisorCommissionClosuresAction(input: {
   if (clientIds.length > 0) {
     const { data: firstOrderCandidates, error: firstOrderCandidatesError } = await supabase
       .from('orders')
-      .select('id, order_number, client_id, attributed_advisor_id, source, status, created_at, extra_fields')
-      .neq('status', 'cancelled')
+      .select('id, order_number, client_id, attributed_advisor_id, source, status, total_usd, total_bs_snapshot, created_at, extra_fields')
+      .eq('status', 'delivered')
       .in('client_id', clientIds)
       .order('created_at', { ascending: true })
       .limit(10000);
@@ -13223,7 +13238,13 @@ export async function generateAdvisorCommissionClosuresAction(input: {
 
     for (const candidate of (firstOrderCandidates ?? []) as AdvisorCommissionFirstOrderRow[]) {
       const clientId = Number(candidate.client_id ?? 0);
-      if (!Number.isFinite(clientId) || clientId <= 0) continue;
+      if (
+        !Number.isFinite(clientId) ||
+        clientId <= 0 ||
+        !isAdvisorCommercialOrder(getOrderMoneySnapshot(candidate).totalUsd)
+      ) {
+        continue;
+      }
 
       const current = firstPurchaseOrdersByClientId.get(clientId);
       if (!current) {

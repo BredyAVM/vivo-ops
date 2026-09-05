@@ -4,6 +4,8 @@ import { getAuthContext } from '@/lib/auth';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { calculateAdvisorGoalScore, type AdvisorGoalMetricKey } from '@/lib/commissions/goal-engine';
+import { summarizeAdvisorNewClients } from '@/lib/commissions/commercial-criteria';
+import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
 import {
   readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
@@ -157,6 +159,14 @@ function roundMoney(value: number) {
 
 function concisePercent(value: number) {
   return `${new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 }).format(value)}%`;
+}
+
+function advisorClientClassificationLabel(value: unknown) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'legacy') return 'Antiguo';
+  if (normalized === 'own') return 'Propio';
+  if (normalized === 'assigned') return 'Asignado';
+  return String(value || 'Sin clasificación');
 }
 
 function caracasDayKey() {
@@ -513,8 +523,10 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const products = Array.isArray(snapshot.products) ? snapshot.products : [];
   const gifts = Array.isArray(snapshot.gifts) ? snapshot.gifts : [];
   const deductions = Array.isArray(closure?.deductions) ? closure.deductions : [];
-  const ownClients = newClients.filter((client) => String(client.clientType || '').toLowerCase() === 'own');
-  const assignedClients = newClients.filter((client) => String(client.clientType || '').toLowerCase() === 'assigned');
+  const newClientSummary = summarizeAdvisorNewClients(newClients);
+  const ownClients = newClientSummary.own;
+  const assignedClients = newClientSummary.assigned;
+  const otherClients = newClientSummary.other;
   const status = closure ? closureStatus(closure.status) : null;
   const storedGoal = readAdvisorGoalPublicationSnapshot(closure?.snapshot);
   const visibleGoal = storedGoal && storedGoal.status !== 'draft' ? storedGoal : null;
@@ -709,6 +721,8 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const totalDeductionsUsd = roundMoney(
     numberValue(closure?.gift_deductions_usd) + numberValue(closure?.manual_deductions_usd)
   );
+  const settlement = readAdvisorCommissionSettlementSnapshot(closure?.snapshot);
+  const settlementIsCurrent = settlement.formulaVersion !== 'legacy';
   const punctualTotalUsd = punctualOrders.reduce((sum, order) => sum + numberValue(order.totalUsd), 0);
   const lateTotalUsd = lateOrders.reduce((sum, order) => sum + numberValue(order.totalUsd), 0);
   const orderById = new Map(orders.map((order) => [numberValue(order.orderId), order]));
@@ -979,7 +993,13 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
             <CommissionSummaryLink
               label="A pagar"
               value={money(closure.payable_usd)}
-              detail={closure.status === 'paid' ? 'Pago registrado' : 'Comisión menos deducibles'}
+              detail={
+                closure.status === 'paid'
+                  ? 'Pago registrado'
+                  : settlementIsCurrent
+                    ? 'Incluye saldos, deducciones y retenciones'
+                    : 'Comisión menos deducibles'
+              }
               href={commissionHref(selectedPeriod.id, 'payable')}
               active={activeDetail === 'payable'}
             />
@@ -1024,8 +1044,11 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                     className="rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Clientes nuevos</div>
-                    <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{newClients.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{ownClients.length} propios · {assignedClients.length} asignados</div>
+                    <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{newClientSummary.countedTotal}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">
+                      {ownClients.length} propios · {assignedClients.length} asignados
+                      {otherClients.length > 0 ? ` · ${otherClients.length} antiguo${otherClients.length === 1 ? '' : 's'} no suma${otherClients.length === 1 ? '' : 'n'}` : ''}
+                    </div>
                     <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver clientes</span><span>→</span></div>
                   </Link>
                   <Link
@@ -1118,10 +1141,28 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
 
               {activeDetail === 'payable' ? (
                 <div className="space-y-2.5">
+                  {settlementIsCurrent ? (
+                    <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-sm">
+                      <span className="text-[#AAB2C5]">Saldo a favor de períodos anteriores</span>
+                      <span className="font-semibold text-emerald-300">+{money(settlement.carriedCommissionUsd)}</span>
+                    </div>
+                  ) : null}
                   <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-sm">
-                    <span className="text-[#AAB2C5]">Comisión bruta</span>
-                    <span className="font-semibold text-emerald-300">{money(closure.gross_commission_usd)}</span>
+                    <span className="text-[#AAB2C5]">Comisión bruta del período</span>
+                    <span className="font-semibold text-emerald-300">+{money(closure.gross_commission_usd)}</span>
                   </div>
+                  {settlementIsCurrent && settlement.positiveAdjustmentsUsd > 0 ? (
+                    <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-sm">
+                      <span className="text-[#AAB2C5]">Ajustes a favor</span>
+                      <span className="font-semibold text-emerald-300">+{money(settlement.positiveAdjustmentsUsd)}</span>
+                    </div>
+                  ) : null}
+                  {settlementIsCurrent && settlement.priorAdvisorDebtUsd > 0 ? (
+                    <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#17110D] px-3 py-2.5 text-sm">
+                      <span className="text-[#AAB2C5]">Menos deuda propia anterior</span>
+                      <span className="font-semibold text-orange-300">-{money(settlement.priorAdvisorDebtUsd)}</span>
+                    </div>
+                  ) : null}
                   <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#17110D] px-3 py-2.5 text-sm">
                     <span className="text-[#AAB2C5]">Menos obsequios</span>
                     <span className="font-semibold text-orange-300">-{money(closure.gift_deductions_usd)}</span>
@@ -1130,10 +1171,28 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                     <span className="text-[#AAB2C5]">Menos deducibles directos</span>
                     <span className="font-semibold text-orange-300">-{money(closure.manual_deductions_usd)}</span>
                   </div>
+                  {settlementIsCurrent && settlement.negativeAdjustmentsUsd > 0 ? (
+                    <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#17110D] px-3 py-2.5 text-sm">
+                      <span className="text-[#AAB2C5]">Menos ajustes en contra</span>
+                      <span className="font-semibold text-orange-300">-{money(settlement.negativeAdjustmentsUsd)}</span>
+                    </div>
+                  ) : null}
+                  {settlementIsCurrent ? (
+                    <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#17110D] px-3 py-2.5 text-sm">
+                      <span className="text-[#AAB2C5]">Comisión retenida por deudas de clientes</span>
+                      <span className="font-semibold text-orange-300">-{money(settlement.retainedCommissionUsd)}</span>
+                    </div>
+                  ) : null}
                   <div className="flex items-center justify-between gap-3 rounded-[16px] border border-[#F0D000] bg-[#201B08] px-3 py-3">
                     <span className="text-sm font-semibold text-[#F5F7FB]">Monto a pagar</span>
                     <span className="text-xl font-semibold text-[#F7DA66]">{money(closure.payable_usd)}</span>
                   </div>
+                  {settlementIsCurrent && (settlement.advisorDebtOutUsd > 0 || settlement.uncoveredCustomerDebtUsd > 0) ? (
+                    <div className="space-y-1 rounded-[14px] border border-orange-500/30 bg-[#21150D] px-3 py-2.5 text-xs text-orange-100">
+                      {settlement.advisorDebtOutUsd > 0 ? <p>Deuda propia pendiente para el próximo período: {money(settlement.advisorDebtOutUsd)}.</p> : null}
+                      {settlement.uncoveredCustomerDebtUsd > 0 ? <p>Deuda de clientes que excede la comisión disponible: {money(settlement.uncoveredCustomerDebtUsd)}.</p> : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -1170,25 +1229,40 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
               ) : null}
 
               {activeDetail === 'clients' ? (
-                <div className="grid grid-cols-2 gap-2.5">
-                  <Link
-                    href={commissionHref(selectedPeriod.id, 'clients-own')}
-                    className="rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
-                  >
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Propios</div>
-                    <div className="mt-1.5 text-2xl font-semibold text-[#F5F7FB]">{ownClients.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(ownClientsTotalUsd)}</div>
-                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver clientes</span><span>→</span></div>
-                  </Link>
-                  <Link
-                    href={commissionHref(selectedPeriod.id, 'clients-assigned')}
-                    className="rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
-                  >
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Asignados</div>
-                    <div className="mt-1.5 text-2xl font-semibold text-[#F5F7FB]">{assignedClients.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(assignedClientsTotalUsd)}</div>
-                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver clientes</span><span>→</span></div>
-                  </Link>
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <Link
+                      href={commissionHref(selectedPeriod.id, 'clients-own')}
+                      className="rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
+                    >
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Propios</div>
+                      <div className="mt-1.5 text-2xl font-semibold text-[#F5F7FB]">{ownClients.length}</div>
+                      <div className="mt-1 text-xs text-[#AAB2C5]">{money(ownClientsTotalUsd)}</div>
+                      <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver clientes</span><span>→</span></div>
+                    </Link>
+                    <Link
+                      href={commissionHref(selectedPeriod.id, 'clients-assigned')}
+                      className="rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
+                    >
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Asignados</div>
+                      <div className="mt-1.5 text-2xl font-semibold text-[#F5F7FB]">{assignedClients.length}</div>
+                      <div className="mt-1 text-xs text-[#AAB2C5]">{money(assignedClientsTotalUsd)}</div>
+                      <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver clientes</span><span>→</span></div>
+                    </Link>
+                  </div>
+                  {otherClients.length > 0 ? (
+                    <div className="rounded-[16px] border border-[#343746] bg-[#11141C] px-3 py-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Antiguos u otra clasificación · no suman</div>
+                      <div className="mt-2 space-y-1 text-xs text-[#C6CBD6]">
+                        {otherClients.map((client, index) => (
+                          <div className="flex items-center justify-between gap-3" key={`${client.clientId || client.clientName || 'client'}-${index}`}>
+                            <span className="truncate">{client.clientName || 'Cliente'}</span>
+                            <span className="shrink-0 text-[#8B93A7]">{advisorClientClassificationLabel(client.clientType)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
