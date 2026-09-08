@@ -15,7 +15,13 @@ import {
   searchEventClientsAction,
 } from './actions';
 
-type ProductOption = { id: number; sku: string | null; name: string; type: string };
+type ProductOption = {
+  id: number;
+  sku: string | null;
+  name: string;
+  type: string;
+  isDelivery: boolean;
+};
 type AdvisorOption = { id: string; name: string };
 type EventDraft = {
   id: number;
@@ -123,6 +129,11 @@ export default function EventBudgetsClient({
     if (!query) return products;
     return products.filter((product) => normalizeSearch(`${product.name} ${product.sku || ''}`).includes(query));
   }, [productSearch, products]);
+  const deliveryProductIds = useMemo(
+    () => new Set(products.filter((product) => product.isDelivery).map((product) => product.id)),
+    [products]
+  );
+  const hasDeliveryComponent = components.some((component) => deliveryProductIds.has(component.productId));
 
   const openDrafts = drafts.filter((draft) => draft.status !== 'archived');
 
@@ -268,6 +279,15 @@ export default function EventBudgetsClient({
   function convert(draftId: number) {
     setError(null);
     setMessage(null);
+    const draft = drafts.find((candidate) => candidate.id === draftId);
+    const draftHasDeliveryComponent = draft?.budget.components.some((component) =>
+      deliveryProductIds.has(component.productId)
+    );
+    if (draft?.budget.fulfillment === 'delivery' && !draftHasDeliveryComponent) {
+      editDraft(draft);
+      setError('Este evento es delivery. Agrega el producto de delivery correspondiente antes de convertirlo en orden.');
+      return;
+    }
     startTransition(async () => {
       try {
         const result = await convertEventBudgetToOrderAction(draftId);
@@ -349,6 +369,7 @@ export default function EventBudgetsClient({
             <div className="grid gap-3 md:grid-cols-2">
               <label className="text-xs text-[#B9B9C3]">Logística<select value={fulfillment} onChange={(event) => setFulfillment(event.target.value as 'pickup' | 'delivery')} className={`${fieldClass()} mt-1`}><option value="pickup">Retiro / logística por definir</option><option value="delivery">Entrega en el evento</option></select></label>
               <label className="text-xs text-[#B9B9C3]">Dirección<input value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} disabled={fulfillment !== 'delivery'} className={`${fieldClass()} mt-1 disabled:opacity-50`} /></label>
+              {fulfillment === 'delivery' && !hasDeliveryComponent ? <div className="md:col-span-2 rounded-xl border border-amber-400/35 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">Falta agregar el producto de delivery correspondiente antes de convertir este presupuesto en orden.</div> : null}
               <label className="text-xs text-[#B9B9C3]">Moneda y precio negociado<div className="mt-1 grid grid-cols-[100px_1fr] gap-2"><select value={negotiatedCurrency} onChange={(event) => setNegotiatedCurrency(event.target.value as 'USD' | 'VES')} className={fieldClass()}><option value="USD">USD</option><option value="VES">VES</option></select><input value={negotiatedAmount} onChange={(event) => setNegotiatedAmount(event.target.value)} inputMode="decimal" className={fieldClass()} /></div></label>
               <label className="text-xs text-[#B9B9C3]">Comisión<select value={commissionMode} onChange={(event) => setCommissionMode(event.target.value as EventCommissionMode)} className={`${fieldClass()} mt-1`}><option value="default">Comisión general</option><option value="fixed_item">Porcentaje específico</option><option value="none">Sin comisión</option></select>{commissionMode === 'fixed_item' ? <input value={commissionValue} onChange={(event) => setCommissionValue(event.target.value)} inputMode="decimal" className={`${fieldClass()} mt-2`} placeholder="Porcentaje" /> : null}</label>
             </div>

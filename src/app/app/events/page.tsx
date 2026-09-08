@@ -39,7 +39,7 @@ export default async function EventBudgetsPage() {
   const [productsResult, advisorsResult, rateResult, draftsResult] = await Promise.all([
     ctx.supabase
       .from('products')
-      .select('id, sku, name, type, is_active, extra_fields')
+      .select('id, sku, name, type, is_active, internal_rider_pay_usd, extra_fields')
       .eq('is_active', true)
       .order('name', { ascending: true })
       .limit(800),
@@ -79,6 +79,7 @@ export default async function EventBudgetsPage() {
     sku: string | null;
     name: string | null;
     type: string | null;
+    internal_rider_pay_usd: number | string | null;
     extra_fields: Record<string, unknown> | null;
   }>)
     .filter((product) => {
@@ -90,6 +91,8 @@ export default async function EventBudgetsPage() {
       sku: product.sku,
       name: text(product.name, `Producto #${product.id}`),
       type: text(product.type, 'product'),
+      isDelivery: number(product.internal_rider_pay_usd) > 0
+        || text(product.name).toLowerCase().includes('delivery'),
     }))
     .filter((product) => product.id > 0);
 
