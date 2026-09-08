@@ -293,6 +293,14 @@ export function CounterPaymentEngine({
         changeAccount.currencyCode === 'VES' ? changeRate : null
       )
     : 0;
+  const changeAdvanceUsd = Math.max(
+    0,
+    roundMoney(changeAmountUsd - changeAvailableUsd)
+  );
+  const currentPendingUsd = paymentReceipt?.pendingUsd ?? paymentQuote.pendingUsd;
+  const projectedPendingAfterChange = roundMoney(
+    currentPendingUsd + changeAdvanceUsd
+  );
 
   function invalidatePayment() {
     paymentKeyRef.current = null;
@@ -475,10 +483,6 @@ export function CounterPaymentEngine({
       setError('No hay una tasa activa para calcular este cambio en bolivares.');
       return;
     }
-    if (changeAmountUsd > changeAvailableUsd + 0.005) {
-      setError(`Solo quedan ${moneyUsd(changeAvailableUsd)} disponibles para cambio.`);
-      return;
-    }
     setError(null);
     setChangeStage('review');
   }
@@ -567,6 +571,11 @@ export function CounterPaymentEngine({
     setChangeStage('choice');
     setError(null);
     setView('change');
+  }
+
+  async function continueWithPendingPayment() {
+    setView('payment');
+    await startAnotherPayment();
   }
 
   if (reportAccounts.length === 0 && changeAvailableUsd <= 0.005) {
@@ -921,8 +930,19 @@ export function CounterPaymentEngine({
                       />
                     </Field>
                   </div>
-                  <div className="mt-3 rounded-[8px] border border-sky-300/20 bg-sky-300/5 px-3 py-2 text-sm text-sky-100">
-                    Esta entrega equivale a {moneyUsd(changeAmountUsd)}. Al confirmarla quedara cerrada por separado.
+                  <div className={[
+                    'mt-3 rounded-[8px] border px-3 py-2 text-sm',
+                    changeAdvanceUsd > 0.005
+                      ? 'border-orange-300/35 bg-orange-300/10 text-orange-100'
+                      : 'border-sky-300/20 bg-sky-300/5 text-sky-100',
+                  ].join(' ')}>
+                    {changeAdvanceUsd > 0.005 ? (
+                      <>
+                        Hay {moneyUsd(changeAvailableUsd)} disponibles para cambio. Puedes entregar {moneyUsd(changeAmountUsd)} y los {moneyUsd(changeAdvanceUsd)} adicionales quedaran pendientes por cobrar en esta orden.
+                      </>
+                    ) : (
+                      <>Esta entrega equivale a {moneyUsd(changeAmountUsd)}. Al confirmarla quedara cerrada por separado.</>
+                    )}
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                     <button type="button" onClick={() => setChangeStage('choice')} className="min-h-11 rounded-[8px] border border-[#303044] px-4 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
@@ -945,7 +965,14 @@ export function CounterPaymentEngine({
                   <ReceiptMetric label="Sale de" value={changeAccount.accountName} />
                   <ReceiptMetric label="Entregas" value={changeAccount.currencyCode === 'VES' ? moneyBs(changeAmountNumber) : moneyUsd(changeAmountNumber)} />
                   <ReceiptMetric label="Equivale a" value={moneyUsd(changeAmountUsd)} />
-                  <ReceiptMetric label="Quedara en fondo" value={moneyUsd(Math.max(0, changeAvailableUsd - changeAmountUsd))} />
+                  {changeAdvanceUsd > 0.005 ? (
+                    <>
+                      <ReceiptMetric label="Cubierto por saldo a favor" value={moneyUsd(changeAvailableUsd)} />
+                      <ReceiptMetric label="Quedara por cobrar" value={moneyUsd(projectedPendingAfterChange)} />
+                    </>
+                  ) : (
+                    <ReceiptMetric label="Quedara en fondo" value={moneyUsd(Math.max(0, changeAvailableUsd - changeAmountUsd))} />
+                  )}
                 </div>
               </div>
               <div className="mt-4 flex items-center justify-between gap-2">
@@ -972,7 +999,14 @@ export function CounterPaymentEngine({
                 <ReceiptMetric label="Caja" value={changeReceipt.accountName} />
                 <ReceiptMetric label="Entregado" value={changeReceipt.currencyCode === 'VES' ? moneyBs(changeReceipt.amount) : moneyUsd(changeReceipt.amount)} />
                 <ReceiptMetric label="Equivalente" value={moneyUsd(changeReceipt.amountUsdEquivalent)} />
-                <ReceiptMetric label="Permanece en fondo" value={moneyUsd(changeReceipt.remainingChangeUsd)} />
+                {changeReceipt.advanceChangeUsd > 0.005 ? (
+                  <>
+                    <ReceiptMetric label="Cubierto por saldo a favor" value={moneyUsd(changeReceipt.fundBackedChangeUsd)} />
+                    <ReceiptMetric label="Queda por cobrar" value={moneyUsd(changeReceipt.pendingUsd)} />
+                  </>
+                ) : (
+                  <ReceiptMetric label="Permanece en fondo" value={moneyUsd(changeReceipt.remainingChangeUsd)} />
+                )}
               </div>
               <div className="mt-4 flex flex-wrap justify-end gap-2">
                 {changeReceipt.remainingChangeUsd > 0.005 ? (
@@ -981,8 +1015,20 @@ export function CounterPaymentEngine({
                 {changeReceipt.remainingChangeUsd > 0.005 && changeReceipt.remainingChangeUsd <= 1.005 ? (
                   <button type="button" onClick={reviewWaiver} className="min-h-11 rounded-[8px] border border-[#FEEF00]/60 px-4 py-2 text-sm font-semibold text-[#FEEF00]">Cliente deja la diferencia</button>
                 ) : null}
+                {changeReceipt.pendingUsd > 0.005 ? (
+                  <button
+                    type="button"
+                    onClick={() => void continueWithPendingPayment()}
+                    disabled={quoteLoading}
+                    className="min-h-11 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black disabled:opacity-60"
+                  >
+                    Cobrar {moneyUsd(changeReceipt.pendingUsd)} ahora
+                  </button>
+                ) : null}
                 <button type="button" onClick={onFinish} className="min-h-11 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black">
-                  {changeReceipt.remainingChangeUsd > 0.005
+                  {changeReceipt.pendingUsd > 0.005
+                    ? 'Dejar saldo pendiente'
+                    : changeReceipt.remainingChangeUsd > 0.005
                     ? `Dejar ${moneyUsd(changeReceipt.remainingChangeUsd)} en fondo`
                     : 'Terminar'}
                 </button>

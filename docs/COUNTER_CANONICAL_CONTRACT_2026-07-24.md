@@ -495,6 +495,18 @@ financieros no se agrupan en un único movimiento:
    caja, no cambia el precio de la orden y deja auditoría idempotente;
 7. una diferencia cedida superior a `1.00 USD` requiere revisión administrativa.
 
+Cuando la denominación disponible obliga a entregar un cambio mayor que el
+excedente de la orden, Counter puede entregarlo. La parte respaldada por el
+excedente se debita del fondo del cliente y la parte adicional vuelve a quedar
+como saldo por cobrar en la orden. No es un redondeo, una pérdida ni una
+diferencia cedida.
+
+Por ejemplo: si la orden totaliza `45.17 USD`, el cliente entrega `50.00 USD` y
+Counter devuelve `5.00 USD`, se consumen `4.83 USD` del excedente y la orden
+queda con `0.17 USD` pendientes. Ese saldo puede cobrarse de inmediato por otro
+medio o quedar bajo seguimiento del asesor. El cambio acumulado nunca
+puede superar el dinero confirmado que la orden todavía conserva.
+
 Los pagos mixtos siguen la misma regla: Counter registra y cierra un medio de
 pago antes de continuar con el siguiente. Todas las operaciones permanecen
 vinculadas a la misma orden, pero una corrección o anulación administrativa debe
@@ -508,6 +520,8 @@ explícitamente terminar. Después de cada paso debe mostrar el saldo todavía a
 favor y permitir entregar desde otra caja, usar otra moneda, dejar el remanente
 en el fondo o registrar que el cliente deja una diferencia permitida. Counter no
 debe obligar a entregar cambio cuando el cliente manifiesta que no lo desea.
+Si una entrega de cambio vuelve a dejar un monto por cobrar, Counter conserva
+abierta la misma orden y ofrece registrar el siguiente pago.
 
 ### 11.2 Cambio digital
 

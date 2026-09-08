@@ -68,7 +68,10 @@ export type CounterGiveChangeResult = {
   amount: number;
   exchangeRateVesPerUsd: number | null;
   amountUsdEquivalent: number;
+  fundBackedChangeUsd: number;
+  advanceChangeUsd: number;
   remainingChangeUsd: number;
+  pendingUsd: number;
 };
 
 export type CounterWaiveChangeIntent = {

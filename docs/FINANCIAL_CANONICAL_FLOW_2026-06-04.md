@@ -282,6 +282,21 @@ Resultado:
 - debe quedar un movimiento de fondo ligado a la orden, el operador y la operación idempotente;
 - no se crea un movimiento de efectivo adicional porque el ingreso real ya fue registrado.
 
+### 9.1 Cambio superior al excedente disponible
+
+Cuando la denominación disponible obliga a entregar más cambio que el excedente
+de la orden, la diferencia no se perdona ni se redondea:
+
+- se registra la salida completa como `change_given`;
+- el fondo del cliente se debita solo por la parte respaldada por el excedente;
+- el resto vuelve a quedar como saldo cobrable de la orden;
+- la misma atención puede continuar con otro medio de pago;
+- el cambio acumulado no puede superar el dinero confirmado que la orden aún
+  conserva.
+
+Ejemplo canónico: orden por `45.17 USD`, ingreso de `50.00 USD` y cambio de
+`5.00 USD`. El fondo cubre `4.83 USD` y la orden queda debiendo `0.17 USD`.
+
 ## Inconsistencias actuales detectadas
 
 1. Master y asesor calculan saldos en varios lugares con reglas parecidas pero no identicas.

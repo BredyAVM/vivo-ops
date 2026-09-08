@@ -460,7 +460,10 @@ export async function giveCounterOrderChangeAction(
         ? null
         : Number(result.exchange_rate_ves_per_usd),
     amountUsdEquivalent: roundCounterMoney(result.amount_usd_equivalent),
+    fundBackedChangeUsd: roundCounterMoney(result.fund_backed_change_usd),
+    advanceChangeUsd: roundCounterMoney(result.advance_change_usd),
     remainingChangeUsd: roundCounterMoney(result.remaining_change_usd),
+    pendingUsd: roundCounterMoney(result.pending_usd),
   };
 }
 
