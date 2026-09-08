@@ -826,6 +826,10 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
 export async function redeemAdvisorCrmPlayBenefitsAction(input: {
   playMemberId: number;
   orderId: number;
+  fulfillments: Array<{
+    playBenefitId: number;
+    playBenefitUpgradeId: number | null;
+  }>;
 }) {
   try {
     const ctx = await requireAuthContext();
@@ -835,9 +839,25 @@ export async function redeemAdvisorCrmPlayBenefitsAction(input: {
       return { ok: false as const, message: 'La jugada o la orden no son válidas.' };
     }
 
-    const { data, error } = await ctx.supabase.rpc('crm_redeem_play_benefits_v2', {
+    const fulfillments = Array.isArray(input.fulfillments)
+      ? input.fulfillments.map((fulfillment) => ({
+          play_benefit_id: Math.trunc(Number(fulfillment.playBenefitId)),
+          play_benefit_upgrade_id: fulfillment.playBenefitUpgradeId == null
+            ? null
+            : Math.trunc(Number(fulfillment.playBenefitUpgradeId)),
+        }))
+      : [];
+    if (fulfillments.length === 0 || fulfillments.some((fulfillment) =>
+      fulfillment.play_benefit_id <= 0
+      || (fulfillment.play_benefit_upgrade_id != null && fulfillment.play_benefit_upgrade_id <= 0)
+    )) {
+      return { ok: false as const, message: 'La selección del beneficio no es válida.' };
+    }
+
+    const { data, error } = await ctx.supabase.rpc('crm_redeem_play_benefits_v3', {
       p_play_member_id: playMemberId,
       p_order_id: orderId,
+      p_fulfillments: fulfillments,
     });
     if (error) return { ok: false as const, message: error.message };
 

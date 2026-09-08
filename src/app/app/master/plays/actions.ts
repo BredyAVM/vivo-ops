@@ -26,6 +26,7 @@ export type PlayBenefitInput = {
   unitBenefitValueUsd: number;
   unitAdvisorCostUsd: number;
   unitCompanyCostUsd: number;
+  upgradeProductIds: number[];
 };
 
 export type SavePlayDraftInput = {
@@ -256,6 +257,32 @@ function actionError(error: unknown): PlayActionResult {
   };
 }
 
+async function insertPlayBenefitUpgrades(
+  supabase: Awaited<ReturnType<typeof requireMasterOrAdminContext>>['supabase'],
+  playId: number,
+  benefitOptions: Array<PlayBenefitInput>,
+  insertedBenefits: Array<{ id: number | string; product_id: number | string }>,
+) {
+  const benefitIdByProduct = new Map(
+    insertedBenefits.map((row) => [Number(row.product_id), Number(row.id)]),
+  );
+  const upgrades = benefitOptions.flatMap((option) => option.upgradeProductIds.map((targetProductId, index) => ({
+    play_id: playId,
+    play_benefit_id: benefitIdByProduct.get(option.productId),
+    target_product_id: targetProductId,
+    target_quantity: Number(option.quantity.toFixed(3)),
+    sort_order: index + 1,
+  })));
+
+  if (upgrades.some((upgrade) => !upgrade.play_benefit_id)) {
+    throw new Error('No se pudo relacionar una ampliación con su beneficio base.');
+  }
+  if (upgrades.length === 0) return;
+
+  const { error } = await supabase.from('crm_play_benefit_upgrades').insert(upgrades);
+  if (error) throw new Error(error.message);
+}
+
 export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<PlayActionResult> {
   try {
     const ctx = await requireMasterOrAdminContext();
@@ -286,6 +313,12 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
           unitBenefitValueUsd: finiteNumber(option.unitBenefitValueUsd, Number.NaN),
           unitAdvisorCostUsd: finiteNumber(option.unitAdvisorCostUsd, Number.NaN),
           unitCompanyCostUsd: finiteNumber(option.unitCompanyCostUsd, Number.NaN),
+          upgradeProductIds: Array.from(new Set(
+            (Array.isArray(option.upgradeProductIds) ? option.upgradeProductIds : [])
+              .slice(0, 8)
+              .map((value) => Math.trunc(finiteNumber(value, 0)))
+              .filter((value) => value > 0),
+          )),
         }))
       : [];
 
@@ -329,15 +362,23 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       throw new Error('Un mismo beneficio no puede aparecer dos veces.');
     }
 
+    if (benefitOptions.some((option) => option.upgradeProductIds.includes(option.productId))) {
+      throw new Error('El producto base no puede repetirse como ampliación del mismo beneficio.');
+    }
+
+    const allProductIds = Array.from(new Set(benefitOptions.flatMap((option) => [
+      option.productId,
+      ...option.upgradeProductIds,
+    ])));
     const { data: products, error: productError } = await ctx.supabase
       .from('products')
       .select('id, is_active, type')
-      .in('id', benefitProductIds)
+      .in('id', allProductIds)
       .eq('is_active', true)
       .in('type', [...BENEFIT_PRODUCT_TYPES]);
     if (productError) throw new Error(productError.message);
-    if ((products ?? []).length !== benefitProductIds.length) {
-      throw new Error('Uno de los beneficios seleccionados no está disponible para una jugada.');
+    if ((products ?? []).length !== allProductIds.length) {
+      throw new Error('Uno de los beneficios o ampliaciones no está disponible para una jugada.');
     }
 
     const primaryBenefit = benefitOptions[0];
@@ -401,7 +442,7 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
         .eq('status', 'draft');
       if (updateError) throw new Error(updateError.message);
 
-      const { error: benefitsError } = await ctx.supabase
+      const { data: insertedBenefits, error: benefitsError } = await ctx.supabase
         .from('crm_play_benefits')
         .insert(benefitOptions.map((option, index) => ({
           play_id: playId,
@@ -412,8 +453,10 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
           unit_company_cost_usd: Number(option.unitCompanyCostUsd.toFixed(2)),
           unit_budget_cost_usd: Number(option.unitCompanyCostUsd.toFixed(2)),
           sort_order: index + 1,
-        })));
+        })))
+        .select('id, product_id');
       if (benefitsError) throw new Error(benefitsError.message);
+      await insertPlayBenefitUpgrades(ctx.supabase, playId, benefitOptions, insertedBenefits ?? []);
 
       await syncPlayCompatibilities(ctx.supabase, playId, overlapPolicy, compatiblePlayIds, ctx.user.id);
 
@@ -445,7 +488,7 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     if (createError) throw new Error(createError.message);
 
     const createdId = Number(created.id);
-    const { error: benefitsError } = await ctx.supabase
+    const { data: insertedBenefits, error: benefitsError } = await ctx.supabase
       .from('crm_play_benefits')
       .insert(benefitOptions.map((option, index) => ({
         play_id: createdId,
@@ -456,8 +499,10 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
         unit_company_cost_usd: Number(option.unitCompanyCostUsd.toFixed(2)),
         unit_budget_cost_usd: Number(option.unitCompanyCostUsd.toFixed(2)),
         sort_order: index + 1,
-      })));
+      })))
+      .select('id, product_id');
     if (benefitsError) throw new Error(benefitsError.message);
+    await insertPlayBenefitUpgrades(ctx.supabase, createdId, benefitOptions, insertedBenefits ?? []);
 
     await syncPlayCompatibilities(ctx.supabase, createdId, overlapPolicy, compatiblePlayIds, ctx.user.id);
 
@@ -567,7 +612,7 @@ export async function clonePlayAction(playIdInput: number): Promise<PlayActionRe
     const playId = Math.trunc(finiteNumber(playIdInput, 0));
     if (playId <= 0) throw new Error('La jugada no es válida.');
 
-    const { data, error } = await ctx.supabase.rpc('crm_clone_play_v1', {
+    const { data, error } = await ctx.supabase.rpc('crm_clone_play_v2', {
       p_source_play_id: playId,
       p_name: null,
     });

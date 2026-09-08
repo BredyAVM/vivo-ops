@@ -60,7 +60,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
   if (productsResult.error) throw new Error(productsResult.error.message);
 
   const playIds = (playsResult.data ?? []).map((row) => Number(row.id));
-  const [benefitOptionsResult, compatibilityResult] = await Promise.all([
+  const [benefitOptionsResult, benefitUpgradesResult, compatibilityResult] = await Promise.all([
     ctx.supabase
       .from('crm_play_benefits')
       .select(`
@@ -72,12 +72,43 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .order('sort_order', { ascending: true })
       .order('id', { ascending: true }),
     ctx.supabase
+      .from('crm_play_benefit_upgrades')
+      .select(`
+        id, play_id, play_benefit_id, target_product_id, target_quantity, sort_order,
+        customer_difference_usd_snapshot,
+        product:products!crm_play_benefit_upgrades_target_product_id_fkey(id, name, sku)
+      `)
+      .in('play_id', playIds.length > 0 ? playIds : [-1])
+      .order('sort_order', { ascending: true })
+      .order('id', { ascending: true }),
+    ctx.supabase
       .from('crm_play_compatibilities')
       .select('play_id_low, play_id_high')
       .limit(1000),
   ]);
   if (benefitOptionsResult.error) throw new Error(benefitOptionsResult.error.message);
+  if (benefitUpgradesResult.error) throw new Error(benefitUpgradesResult.error.message);
   if (compatibilityResult.error) throw new Error(compatibilityResult.error.message);
+
+  const upgradesByBenefit = new Map<number, MasterPlay['benefits'][number]['upgrades']>();
+  for (const row of benefitUpgradesResult.data ?? []) {
+    const product = one(row.product);
+    if (!product) continue;
+    const benefitId = Number(row.play_benefit_id);
+    const upgrades = upgradesByBenefit.get(benefitId) ?? [];
+    upgrades.push({
+      id: Number(row.id),
+      productId: Number(row.target_product_id),
+      quantity: Number(row.target_quantity),
+      sortOrder: Number(row.sort_order),
+      customerDifferenceUsd: row.customer_difference_usd_snapshot == null
+        ? null
+        : Number(row.customer_difference_usd_snapshot),
+      name: String(product.name),
+      sku: product.sku == null ? null : String(product.sku),
+    });
+    upgradesByBenefit.set(benefitId, upgrades);
+  }
 
   const compatiblePlayIdsByPlay = new Map<number, number[]>();
   for (const row of compatibilityResult.data ?? []) {
@@ -103,6 +134,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       sortOrder: Number(row.sort_order),
       name: String(product.name),
       sku: product.sku == null ? null : String(product.sku),
+      upgrades: upgradesByBenefit.get(Number(row.id)) ?? [],
     });
     benefitOptionsByPlay.set(playId, options);
   }

@@ -143,6 +143,13 @@ type DraftItem = {
   unit_price_usd_snapshot: number;
   line_total_usd: number;
   editable_detail_lines: string[];
+  crm_benefit?: {
+    playBenefitId: number;
+    playBenefitUpgradeId: number | null;
+    eligibleUnitPriceUsd: number;
+    catalogSourceCurrency: CurrencyCode;
+    catalogSourceAmount: number;
+  };
 };
 
 type ClientAddress = {
@@ -402,8 +409,17 @@ export type AdvisorCrmOrderContext = {
     playBenefitId: number;
     productId: number;
     quantity: number;
+    creditUsd: number;
     name: string;
     sku: string | null;
+    upgrades: Array<{
+      id: number;
+      productId: number;
+      quantity: number;
+      customerDifferenceUsd: number;
+      name: string;
+      sku: string | null;
+    }>;
   }>;
 };
 
@@ -1576,18 +1592,54 @@ export default function AdvisorOrderComposer({
     });
   }, [selectedClient, selectedClientAddresses]);
   const fxRateNumber = Math.max(0, parseDecimalInput(fxRate, 0));
+  const discountPctNumber = Math.max(0, Math.min(100, parseDecimalInput(discountPct, 0)));
+  const commercialSubtotalAfterDiscountUsd = useMemo(() => {
+    const subtotal = draftItems.reduce((sum, item) => {
+      if (item.crm_benefit) return sum;
+      const snapshot = calculateOrderLineSnapshot({
+        sourceCurrency: item.source_price_currency,
+        sourceAmount: Number(item.source_price_amount || 0),
+        quantity: Number(item.qty || 0),
+        fxRate: fxRateNumber,
+        fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
+      });
+      return sum + snapshot.lineUsd;
+    }, 0);
+    return Number((subtotal * (1 - (discountEnabled ? discountPctNumber : 0) / 100)).toFixed(2));
+  }, [discountEnabled, discountPctNumber, draftItems, fxRateNumber]);
+  const crmPurchaseEligible = !initialCrmContext
+    || initialCrmContext.purchaseRequirementMode === 'none'
+    || commercialSubtotalAfterDiscountUsd + 0.005 >= Number(initialCrmContext.minimumOrderAmountUsd ?? 0);
+  const effectiveDraftPricing = useMemo(() => draftItems.map((item) => {
+    if (!item.crm_benefit) {
+      return {
+        sourceCurrency: item.source_price_currency,
+        sourceAmount: Number(item.source_price_amount || 0),
+      };
+    }
+    if (crmPurchaseEligible) {
+      return {
+        sourceCurrency: 'USD' as const,
+        sourceAmount: Number(item.crm_benefit.eligibleUnitPriceUsd || 0),
+      };
+    }
+    return {
+      sourceCurrency: item.crm_benefit.catalogSourceCurrency,
+      sourceAmount: Number(item.crm_benefit.catalogSourceAmount || 0),
+    };
+  }), [crmPurchaseEligible, draftItems]);
   const draftItemSnapshots = useMemo(
     () =>
-      draftItems.map((item) =>
+      draftItems.map((item, index) =>
         calculateOrderLineSnapshot({
-          sourceCurrency: item.source_price_currency,
-          sourceAmount: Number(item.source_price_amount || 0),
+          sourceCurrency: effectiveDraftPricing[index]?.sourceCurrency ?? item.source_price_currency,
+          sourceAmount: effectiveDraftPricing[index]?.sourceAmount ?? Number(item.source_price_amount || 0),
           quantity: Number(item.qty || 0),
           fxRate: fxRateNumber,
           fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
         })
       ),
-    [draftItems, fxRateNumber]
+    [draftItems, effectiveDraftPricing, fxRateNumber]
   );
   const catalogPriceDriftItems = useMemo(() => {
     if (!isEditingOrder || fxRateNumber <= 0) return [];
@@ -1605,7 +1657,6 @@ export default function AdvisorOrderComposer({
     () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0),
     [draftItemSnapshots]
   );
-  const discountPctNumber = Math.max(0, Math.min(100, parseDecimalInput(discountPct, 0)));
   const invoiceTaxPctNumber = hasInvoice
     ? Math.max(0, parseDecimalInput(invoiceTaxPct, 0))
     : 0;
@@ -1627,6 +1678,12 @@ export default function AdvisorOrderComposer({
   const invoiceTaxAmountBs = totalsSnapshot.invoiceTaxAmountBs;
   const finalTotalUsd = totalsSnapshot.totalUsd;
   const finalTotalBs = totalsSnapshot.totalBs;
+  const crmFulfillments = useMemo(() => draftItems.flatMap((item) => item.crm_benefit
+    ? [{
+        playBenefitId: item.crm_benefit.playBenefitId,
+        playBenefitUpgradeId: item.crm_benefit.playBenefitUpgradeId,
+      }]
+    : []), [draftItems]);
 
   const configProduct = useMemo(
     () => (configProductId ? productById.get(configProductId) ?? null : null),
@@ -2246,6 +2303,7 @@ export default function AdvisorOrderComposer({
         const crmItems = initialCrmContext.benefits.flatMap((benefit) => {
           const product = productById.get(benefit.productId);
           if (!product) return [];
+          const catalogPricing = getProductSourcePricing(product);
           return [{
             localId: `crm-${initialCrmContext.playMemberId}-${benefit.playBenefitId}`,
             product_id: product.id,
@@ -2259,6 +2317,13 @@ export default function AdvisorOrderComposer({
             unit_price_usd_snapshot: 0,
             line_total_usd: 0,
             editable_detail_lines: [`Jugada CRM: ${initialCrmContext.playName}`],
+            crm_benefit: {
+              playBenefitId: benefit.playBenefitId,
+              playBenefitUpgradeId: null,
+              eligibleUnitPriceUsd: 0,
+              catalogSourceCurrency: catalogPricing.sourceCurrency,
+              catalogSourceAmount: catalogPricing.sourceAmount,
+            },
           } satisfies DraftItem];
         });
 
@@ -2270,7 +2335,7 @@ export default function AdvisorOrderComposer({
         setDraftItems(crmItems);
         setInfo(
           initialCrmContext.purchaseRequirementMode === 'minimum_order'
-            ? `Beneficio de ${initialCrmContext.playName} cargado. Agrega una compra mínima de $${Number(initialCrmContext.minimumOrderAmountUsd ?? 0).toFixed(2)}.`
+            ? `La jugada ${initialCrmContext.playName} está disponible. El beneficio se activa al completar $${Number(initialCrmContext.minimumOrderAmountUsd ?? 0).toFixed(2)} en otros productos.`
             : `Beneficio de ${initialCrmContext.playName} cargado sin costo para el cliente.`
         );
       }
@@ -2894,6 +2959,61 @@ export default function AdvisorOrderComposer({
       line_total_usd: snapshot.lineUsd,
       editable_detail_lines: lines,
     } satisfies DraftItem;
+  }
+
+  function selectCrmBenefitProduct(playBenefitId: number, playBenefitUpgradeId: number | null) {
+    if (!initialCrmContext) return;
+    const benefit = initialCrmContext.benefits.find((option) => option.playBenefitId === playBenefitId);
+    if (!benefit) return;
+    const upgrade = playBenefitUpgradeId == null
+      ? null
+      : benefit.upgrades.find((option) => option.id === playBenefitUpgradeId) ?? null;
+    const productId = upgrade?.productId ?? benefit.productId;
+    const product = productById.get(productId);
+    if (!product) {
+      setError('Ese producto ya no está disponible en el catálogo.');
+      return;
+    }
+
+    const quantity = upgrade?.quantity ?? benefit.quantity;
+    const customerDifferenceUsd = Math.max(0, upgrade?.customerDifferenceUsd ?? 0);
+    const catalogPricing = getProductSourcePricing(product);
+    const nextItem: DraftItem = {
+      localId: `crm-${initialCrmContext.playMemberId}-${benefit.playBenefitId}`,
+      product_id: product.id,
+      product_type: product.type,
+      sku_snapshot: upgrade?.sku ?? benefit.sku ?? product.sku,
+      product_name_snapshot: upgrade?.name ?? benefit.name ?? product.name,
+      units_per_service: Number(product.units_per_service ?? 0) || 0,
+      qty: quantity,
+      source_price_currency: 'USD',
+      source_price_amount: quantity > 0 ? customerDifferenceUsd / quantity : 0,
+      unit_price_usd_snapshot: quantity > 0 ? customerDifferenceUsd / quantity : 0,
+      line_total_usd: customerDifferenceUsd,
+      editable_detail_lines: [
+        `Jugada CRM: ${initialCrmContext.playName}`,
+        upgrade ? `Crédito aplicado: ${formatUsd(benefit.creditUsd)}` : 'Beneficio incluido',
+      ],
+      crm_benefit: {
+        playBenefitId: benefit.playBenefitId,
+        playBenefitUpgradeId: upgrade?.id ?? null,
+        eligibleUnitPriceUsd: quantity > 0 ? customerDifferenceUsd / quantity : 0,
+        catalogSourceCurrency: catalogPricing.sourceCurrency,
+        catalogSourceAmount: catalogPricing.sourceAmount,
+      },
+    };
+
+    setDraftItems((current) => {
+      const existingIndex = current.findIndex((item) => item.crm_benefit?.playBenefitId === playBenefitId);
+      if (existingIndex < 0) return [...current, nextItem];
+      return current.map((item, index) => index === existingIndex
+        ? { ...nextItem, localId: item.localId }
+        : item);
+    });
+    clearMessages();
+    setInfo(upgrade
+      ? `${upgrade.name}: el cliente paga ${formatUsd(customerDifferenceUsd)} de diferencia si cumple la condición.`
+      : `${benefit.name}: incluido al cumplir la condición de la jugada.`);
   }
 
   function handleRecalculateDraftPricesFromCatalog() {
@@ -3542,7 +3662,10 @@ export default function AdvisorOrderComposer({
         ? {
             play_member_id: initialCrmContext.playMemberId,
             play_name: initialCrmContext.playName,
-            benefit_ids: initialCrmContext.benefits.map((benefit) => benefit.playBenefitId),
+            benefit_ids: crmFulfillments.map((fulfillment) => fulfillment.playBenefitId),
+            fulfillments: crmFulfillments,
+            purchase_requirement_met: crmPurchaseEligible,
+            commercial_subtotal_after_discount_usd: commercialSubtotalAfterDiscountUsd,
           }
         : null,
     };
@@ -3688,20 +3811,10 @@ export default function AdvisorOrderComposer({
     }
 
     if (initialCrmContext && !isEditingOrder) {
-      const missingBenefit = initialCrmContext.benefits.find((benefit) => !draftItems.some((item) =>
-        item.product_id === benefit.productId
-        && Math.abs(Number(item.qty) - benefit.quantity) <= 0.001
-        && Math.abs(Number(item.line_total_usd)) <= 0.01
-      ));
-      if (missingBenefit) {
-        setError(`Falta el beneficio ${missingBenefit.name} de la jugada o dejó de tener precio cero.`);
-        return;
-      }
-      if (
-        initialCrmContext.purchaseRequirementMode === 'minimum_order'
-        && subtotalAfterDiscountUsd + 0.005 < Number(initialCrmContext.minimumOrderAmountUsd ?? 0)
-      ) {
-        setError(`Esta jugada requiere una compra mínima de $${Number(initialCrmContext.minimumOrderAmountUsd ?? 0).toFixed(2)}.`);
+      if (crmPurchaseEligible
+        && crmFulfillments.length > 0
+        && crmFulfillments.length !== initialCrmContext.benefits.length) {
+        setError('Para aplicar la combinación debes mantener todos los beneficios elegidos; también puedes quitarlos todos y guardar la compra normal.');
         return;
       }
     }
@@ -3787,20 +3900,23 @@ export default function AdvisorOrderComposer({
 
       const itemsPayload = draftItems.map((item, idx) => {
         const snapshot = draftItemSnapshots[idx];
+        const effectivePricing = effectiveDraftPricing[idx];
 
         return {
         order_id: targetOrderId,
         product_id: item.product_id,
         qty: item.qty,
-        pricing_origin_currency: item.source_price_currency,
-        pricing_origin_amount: item.source_price_amount,
+        pricing_origin_currency: effectivePricing?.sourceCurrency ?? item.source_price_currency,
+        pricing_origin_amount: effectivePricing?.sourceAmount ?? item.source_price_amount,
         unit_price_usd_snapshot: snapshot.unitUsd,
         line_total_usd: snapshot.lineUsd,
         unit_price_bs_snapshot: snapshot.unitBs,
         line_total_bs_snapshot: snapshot.lineBs,
         sku_snapshot: item.sku_snapshot,
         product_name_snapshot: item.product_name_snapshot,
-        notes: item.editable_detail_lines.length > 0 ? item.editable_detail_lines.join('\n') : null,
+        notes: item.crm_benefit && !crmPurchaseEligible
+          ? null
+          : item.editable_detail_lines.length > 0 ? item.editable_detail_lines.join('\n') : null,
         };
       });
 
@@ -3809,19 +3925,20 @@ export default function AdvisorOrderComposer({
           orderId: targetOrderId,
           items: draftItems.map((item, idx) => {
             const snapshot = draftItemSnapshots[idx];
+            const effectivePricing = effectiveDraftPricing[idx];
 
             return {
               productId: Number(item.product_id),
               qty: Number(item.qty || 0),
-              sourcePriceCurrency: item.source_price_currency,
-              sourcePriceAmount: Number(item.source_price_amount || 0),
+              sourcePriceCurrency: effectivePricing?.sourceCurrency ?? item.source_price_currency,
+              sourcePriceAmount: effectivePricing?.sourceAmount ?? Number(item.source_price_amount || 0),
               unitPriceUsdSnapshot: snapshot.unitUsd,
               lineTotalUsd: snapshot.lineUsd,
               unitPriceBsSnapshot: snapshot.unitBs,
               lineTotalBsSnapshot: snapshot.lineBs,
               skuSnapshot: item.sku_snapshot,
               productNameSnapshot: item.product_name_snapshot,
-              editableDetailLines: item.editable_detail_lines,
+              editableDetailLines: item.crm_benefit && !crmPurchaseEligible ? [] : item.editable_detail_lines,
             };
           }),
         });
@@ -3842,10 +3959,11 @@ export default function AdvisorOrderComposer({
           );
         }
 
-        if (initialCrmContext) {
+        if (initialCrmContext && crmPurchaseEligible && crmFulfillments.length > 0) {
           const redemption = await redeemAdvisorCrmPlayBenefitsAction({
             playMemberId: initialCrmContext.playMemberId,
             orderId: targetOrderId,
+            fulfillments: crmFulfillments,
           });
           if (!redemption.ok) {
             throw new Error(`La orden fue creada, pero no se pudo vincular el beneficio: ${redemption.message}`);
@@ -3926,6 +4044,63 @@ export default function AdvisorOrderComposer({
         ) : null}
         {error ? <div className="rounded-[18px] border border-[#5E2229] bg-[#261114] px-4 py-3 text-sm text-[#F0A6AE]">{error}</div> : null}
         {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
+
+        {initialCrmContext && !isEditingOrder ? (
+          <section className="rounded-[20px] border border-[#5A4F12] bg-[#171506] p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B7AA53]">Cliente en jugada</div>
+                <div className="mt-1 text-sm font-semibold text-[#FFF18B]">{initialCrmContext.playName}</div>
+                <p className={`mt-1 text-xs ${crmPurchaseEligible ? 'text-[#7CE0A9]' : 'text-[#F7DA66]'}`}>
+                  {crmPurchaseEligible
+                    ? 'Beneficio activo: el producto base queda incluido y una ampliación cobra solo la diferencia.'
+                    : `Faltan ${formatUsd(Math.max(0, Number(initialCrmContext.minimumOrderAmountUsd ?? 0) - commercialSubtotalAfterDiscountUsd))} en otros productos. Mientras tanto, el producto conserva su precio normal.`}
+                </p>
+              </div>
+              {crmFulfillments.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setDraftItems((current) => current.filter((item) => !item.crm_benefit))}
+                  className="shrink-0 rounded-xl border border-[#4A421B] px-2.5 py-1.5 text-[10px] font-semibold text-[#C7BC7A]"
+                >
+                  No aplicar
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {initialCrmContext.benefits.map((benefit) => {
+                const currentItem = draftItems.find((item) => item.crm_benefit?.playBenefitId === benefit.playBenefitId);
+                return (
+                  <div key={benefit.playBenefitId} className="rounded-[14px] border border-[#302B10] bg-[#0D0D0A] p-2.5">
+                    <div className="text-xs font-medium text-[#F5F7FB]">Crédito {formatUsd(benefit.creditUsd)} · elige el tamaño</div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        aria-pressed={currentItem?.crm_benefit?.playBenefitUpgradeId == null && !!currentItem}
+                        onClick={() => selectCrmBenefitProduct(benefit.playBenefitId, null)}
+                        className={`rounded-full border px-2.5 py-1.5 text-[10px] font-semibold ${currentItem?.crm_benefit?.playBenefitUpgradeId == null && currentItem ? 'border-[#F0D000] bg-[#F0D000] text-[#17191E]' : 'border-[#4A421B] text-[#E6DB93]'}`}
+                      >
+                        {benefit.name} · {crmPurchaseEligible ? 'incluido' : 'precio normal'}
+                      </button>
+                      {benefit.upgrades.map((upgrade) => (
+                        <button
+                          key={upgrade.id}
+                          type="button"
+                          aria-pressed={currentItem?.crm_benefit?.playBenefitUpgradeId === upgrade.id}
+                          onClick={() => selectCrmBenefitProduct(benefit.playBenefitId, upgrade.id)}
+                          className={`rounded-full border px-2.5 py-1.5 text-[10px] font-semibold ${currentItem?.crm_benefit?.playBenefitUpgradeId === upgrade.id ? 'border-cyan-300 bg-cyan-300 text-[#071317]' : 'border-[#27454A] text-cyan-100'}`}
+                        >
+                          {upgrade.name} · {crmPurchaseEligible ? `+${formatUsd(upgrade.customerDifferenceUsd)}` : 'precio normal'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <Section title="1. Cliente" subtitle="Busca primero y crea solo si no existe.">
           <Field label="Buscar cliente">

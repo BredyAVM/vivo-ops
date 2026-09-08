@@ -79,12 +79,48 @@ export default async function AdvisorNewOrderPage({
           .select(`
             play_benefit_id,
             benefit:crm_play_benefits!crm_member_benefit_selection_benefit_fkey(
-              id, product_id, quantity,
+              id, product_id, quantity, unit_benefit_value_usd,
               product:products!crm_play_benefits_product_id_fkey(name, sku)
             )
           `)
           .eq('play_member_id', requestedPlayMemberId)
           .order('selected_at', { ascending: true });
+
+        const selectedBenefitIds = (selections ?? []).map((selection) => Number(selection.play_benefit_id));
+        const { data: upgradeRows } = selectedBenefitIds.length > 0
+          ? await ctx.supabase
+              .from('crm_play_benefit_upgrades')
+              .select(`
+                id, play_benefit_id, target_product_id, target_quantity,
+                customer_difference_usd_snapshot, sort_order,
+                product:products!crm_play_benefit_upgrades_target_product_id_fkey(name, sku)
+              `)
+              .in('play_benefit_id', selectedBenefitIds)
+              .order('sort_order', { ascending: true })
+          : { data: [] };
+
+        const upgradesByBenefit = new Map<number, Array<{
+          id: number;
+          productId: number;
+          quantity: number;
+          customerDifferenceUsd: number;
+          name: string;
+          sku: string | null;
+        }>>();
+        for (const row of upgradeRows ?? []) {
+          const product = Array.isArray(row.product) ? row.product[0] ?? null : row.product ?? null;
+          const benefitId = Number(row.play_benefit_id);
+          const upgrades = upgradesByBenefit.get(benefitId) ?? [];
+          upgrades.push({
+            id: Number(row.id),
+            productId: Number(row.target_product_id),
+            quantity: Number(row.target_quantity),
+            customerDifferenceUsd: Number(row.customer_difference_usd_snapshot ?? 0),
+            name: product?.name ? String(product.name) : 'Ampliación',
+            sku: product?.sku == null ? null : String(product.sku),
+          });
+          upgradesByBenefit.set(benefitId, upgrades);
+        }
 
         const benefits = (selections ?? []).flatMap((selection) => {
           const benefit = Array.isArray(selection.benefit) ? selection.benefit[0] ?? null : selection.benefit ?? null;
@@ -94,8 +130,10 @@ export default async function AdvisorNewOrderPage({
             playBenefitId: Number(benefit.id),
             productId: Number(benefit.product_id),
             quantity: Number(benefit.quantity),
+            creditUsd: Number(benefit.unit_benefit_value_usd) * Number(benefit.quantity),
             name: product?.name ? String(product.name) : 'Beneficio',
             sku: product?.sku == null ? null : String(product.sku),
+            upgrades: upgradesByBenefit.get(Number(benefit.id)) ?? [],
           }];
         });
 

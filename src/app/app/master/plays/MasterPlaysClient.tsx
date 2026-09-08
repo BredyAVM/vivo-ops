@@ -74,6 +74,15 @@ export type MasterPlay = {
     sortOrder: number;
     name: string;
     sku: string | null;
+    upgrades: Array<{
+      id: number;
+      productId: number;
+      quantity: number;
+      sortOrder: number;
+      customerDifferenceUsd: number | null;
+      name: string;
+      sku: string | null;
+    }>;
   }>;
 };
 
@@ -316,6 +325,7 @@ function PlayDefinitionForm({
         unitBenefitValueUsd: String(option.unitBenefitValueUsd),
         unitAdvisorCostUsd: String(option.unitAdvisorCostUsd),
         unitCompanyCostUsd: String(option.unitCompanyCostUsd),
+        upgradeProductIds: option.upgrades.map((upgrade) => String(upgrade.productId)),
       }))
     : [{
         productId: benefits[0] ? String(benefits[0].id) : '',
@@ -323,6 +333,7 @@ function PlayDefinitionForm({
         unitBenefitValueUsd: benefits[0] ? String(benefits[0].referenceValueUsd) : '0',
         unitAdvisorCostUsd: benefits[0] ? String(benefits[0].referenceAdvisorCostUsd) : '0',
         unitCompanyCostUsd: benefits[0] ? String(benefits[0].referenceCompanyCostUsd) : '0',
+        upgradeProductIds: [] as string[],
       }]);
   const [benefitSelectionMode, setBenefitSelectionMode] = useState<PlayBenefitSelectionMode>(play?.benefitSelectionMode ?? 'single');
   const [purchaseRequirementMode, setPurchaseRequirementMode] = useState<PlayPurchaseRequirementMode>(play?.purchaseRequirementMode ?? 'none');
@@ -446,6 +457,7 @@ function PlayDefinitionForm({
           unitBenefitValueUsd: selectedBenefit ? String(selectedBenefit.referenceValueUsd) : '0',
           unitAdvisorCostUsd: selectedBenefit ? String(selectedBenefit.referenceAdvisorCostUsd) : '0',
           unitCompanyCostUsd: selectedBenefit ? String(selectedBenefit.referenceCompanyCostUsd) : '0',
+          upgradeProductIds: candidate.upgradeProductIds.filter((id) => id !== productId),
         }
       : candidate));
   }
@@ -488,6 +500,7 @@ function PlayDefinitionForm({
         unitBenefitValueUsd: Number(option.unitBenefitValueUsd),
         unitAdvisorCostUsd: Number(option.unitAdvisorCostUsd),
         unitCompanyCostUsd: Number(option.unitCompanyCostUsd),
+        upgradeProductIds: option.upgradeProductIds.map(Number),
       })),
       benefitSelectionMode,
       purchaseRequirementMode,
@@ -609,6 +622,7 @@ function PlayDefinitionForm({
                 unitBenefitValueUsd: '0',
                 unitAdvisorCostUsd: '0',
                 unitCompanyCostUsd: '0',
+                upgradeProductIds: [] as string[],
               }])}
               className={buttonSecondary}
             >
@@ -710,6 +724,48 @@ function PlayDefinitionForm({
                   >
                     ×
                   </button>
+                  <div className="sm:col-span-2 xl:col-span-6">
+                    <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-[#8E875C]">
+                      Ampliaciones permitidas · el cliente paga solo la diferencia
+                    </div>
+                    <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto rounded-lg border border-[#26230F] bg-[#090907] p-1.5">
+                      {benefits
+                        .filter((benefit) => {
+                          if (String(benefit.id) === option.productId) return false;
+                          const quantity = Math.max(0, Number(option.quantity) || 0);
+                          const credit = Math.max(0, Number(option.unitBenefitValueUsd) || 0) * quantity;
+                          return benefit.referenceValueUsd * quantity > credit + 0.005;
+                        })
+                        .map((benefit) => {
+                          const selected = option.upgradeProductIds.includes(String(benefit.id));
+                          const quantity = Math.max(0, Number(option.quantity) || 0);
+                          const credit = Math.max(0, Number(option.unitBenefitValueUsd) || 0) * quantity;
+                          const difference = Math.max(0, benefit.referenceValueUsd * quantity - credit);
+                          return (
+                            <button
+                              key={benefit.id}
+                              type="button"
+                              aria-pressed={selected}
+                              onClick={() => setBenefitOptions((current) => current.map((candidate, candidateIndex) => {
+                                if (candidateIndex !== index) return candidate;
+                                return {
+                                  ...candidate,
+                                  upgradeProductIds: selected
+                                    ? candidate.upgradeProductIds.filter((id) => id !== String(benefit.id))
+                                    : [...candidate.upgradeProductIds, String(benefit.id)].slice(0, 8),
+                                };
+                              }))}
+                              className={`rounded-full border px-2 py-1 text-[9px] font-semibold transition ${selected ? 'border-cyan-300/60 bg-cyan-300/10 text-cyan-100' : 'border-[#343018] text-[#A89F68] hover:border-[#6A5B18]'}`}
+                            >
+                              {benefit.name} · diferencia ref. {moneyFormatter.format(difference)}
+                            </button>
+                          );
+                        })}
+                      {benefits.length <= 1 ? (
+                        <span className="px-1 py-1 text-[9px] text-[#6F6845]">No hay otros productos disponibles.</span>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -1228,6 +1284,7 @@ export default function MasterPlaysClient({
                       {selectedPlay.benefits.map((option) => (
                         <span key={option.id} className="rounded-full border border-[#554912] bg-[#151304] px-2 py-0.5 text-[9px] font-semibold text-[#FFF18B]">
                           {option.quantity} × {option.name} · asesor {moneyFormatter.format(option.unitAdvisorCostUsd * option.quantity)}
+                          {option.upgrades.length > 0 ? ` · ${option.upgrades.length} ampliación${option.upgrades.length === 1 ? '' : 'es'}` : ''}
                         </span>
                       ))}
                     </div>
