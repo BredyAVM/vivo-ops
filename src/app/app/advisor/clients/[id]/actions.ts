@@ -38,7 +38,7 @@ const allowedActions = new Set<PlayFollowUpAction>([
 
 function successMessage(action: PlayFollowUpAction) {
   const messages: Record<PlayFollowUpAction, string> = {
-    contact: 'Contacto registrado.',
+    contact: 'Jugada marcada como lanzada.',
     follow_up: 'Próximo seguimiento programado.',
     responded: 'Respuesta registrada.',
     accepted: 'Interés del cliente registrado.',

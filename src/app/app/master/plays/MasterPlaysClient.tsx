@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from
 import { ModulePreference } from '../../ModulePreference';
 import {
   activatePlayAction,
+  clonePlayAction,
   confirmPlayListAction,
   deleteDraftPlayAction,
   excludePlayClientAction,
@@ -14,8 +15,10 @@ import {
   type PlayActionResult,
   type PlayAnniversaryMode,
   type PlayBenefitSelectionMode,
+  type PlayBenefitStackPolicy,
   type PlayFulfillmentFilter,
   type PlayKind,
+  type PlayOverlapPolicy,
   type PlayPurchaseRequirementMode,
   type SavePlayDraftInput,
 } from './actions';
@@ -36,6 +39,8 @@ export type MasterPlay = {
   version: number;
   name: string;
   description: string | null;
+  advisorGuidance: string | null;
+  messageTemplate: string | null;
   status: 'draft' | 'frozen' | 'active' | 'paused' | 'closed' | 'cancelled';
   rules: Record<string, unknown>;
   summary: Record<string, unknown>;
@@ -46,6 +51,13 @@ export type MasterPlay = {
   benefitSelectionMode: PlayBenefitSelectionMode;
   purchaseRequirementMode: PlayPurchaseRequirementMode;
   minimumOrderAmountUsd: number | null;
+  overlapPolicy: PlayOverlapPolicy;
+  compatiblePlayIds: number[];
+  benefitStackPolicy: PlayBenefitStackPolicy;
+  evaluationWindowDays: number;
+  copiedFromPlayId: number | null;
+  pricingExchangeRateVesPerUsd: number | null;
+  pricingSnapshotAt: string | null;
   startsAt: string | null;
   endsAt: string | null;
   snapshotAt: string | null;
@@ -277,11 +289,13 @@ function PlayProgress({ status, hasPreview }: { status: MasterPlay['status']; ha
 
 function PlayDefinitionForm({
   play,
+  plays,
   benefits,
   busy,
   onSubmit,
 }: {
   play: MasterPlay | null;
+  plays: MasterPlay[];
   benefits: PlayBenefit[];
   busy: boolean;
   onSubmit: (input: SavePlayDraftInput) => void;
@@ -290,6 +304,8 @@ function PlayDefinitionForm({
   const rules = play?.rules ?? {};
   const [name, setName] = useState(play?.name ?? '');
   const [description, setDescription] = useState(play?.description ?? '');
+  const [advisorGuidance, setAdvisorGuidance] = useState(play?.advisorGuidance ?? '');
+  const [messageTemplate, setMessageTemplate] = useState(play?.messageTemplate ?? '');
   const [kind, setKind] = useState<PlayKind>(() => (play ? (stringValue(rules.play_type) || play.seriesKey) as PlayKind : 'custom'));
   const [startsOn, setStartsOn] = useState(play ? dateInput(play.startsAt) : today);
   const [endsOn, setEndsOn] = useState(play ? dateInput(play.endsAt) : endOfMonth(today));
@@ -311,6 +327,10 @@ function PlayDefinitionForm({
   const [benefitSelectionMode, setBenefitSelectionMode] = useState<PlayBenefitSelectionMode>(play?.benefitSelectionMode ?? 'single');
   const [purchaseRequirementMode, setPurchaseRequirementMode] = useState<PlayPurchaseRequirementMode>(play?.purchaseRequirementMode ?? 'none');
   const [minimumOrderAmount, setMinimumOrderAmount] = useState(play?.minimumOrderAmountUsd == null ? '' : String(play.minimumOrderAmountUsd));
+  const [overlapPolicy, setOverlapPolicy] = useState<PlayOverlapPolicy>(play?.overlapPolicy ?? 'exclusive');
+  const [compatiblePlayIds, setCompatiblePlayIds] = useState<number[]>(play?.compatiblePlayIds ?? []);
+  const [benefitStackPolicy, setBenefitStackPolicy] = useState<PlayBenefitStackPolicy>(play?.benefitStackPolicy ?? 'one_per_order');
+  const [evaluationWindowDays, setEvaluationWindowDays] = useState(String(play?.evaluationWindowDays ?? 90));
   const [plannedBudget, setPlannedBudget] = useState(play?.plannedBudgetUsd == null ? '' : String(play.plannedBudgetUsd));
   const [minPurchases, setMinPurchases] = useState(play ? optionalNumberString(rules.min_purchase_count) || '1' : '1');
   const [maxPurchases, setMaxPurchases] = useState(play ? optionalNumberString(rules.max_purchase_count) : '');
@@ -385,6 +405,8 @@ function PlayDefinitionForm({
       setMinRevenue('0');
       setAnniversaryMode('include');
       setAnniversaryMonth(String(month));
+      setAdvisorGuidance('Saluda con cercanía, presenta el detalle como un reconocimiento personal y propone coordinarlo dentro de la vigencia.');
+      setMessageTemplate('Epa {nombre} 😏💛\n¡Este mes tú también estás de aniversario con VIVO! 🎉 Se cumple otro año desde tu primer pedido, y nos alegra que formes parte de nuestra historia.\n\nTenemos un detallito para ti:\n🎁 *{beneficio}*, por cuenta nuestra.\n\nGracias por seguir haciéndonos un puesto en tu mesa 💛\n¿Te provoca coordinarlo {vigencia}?');
     } else if (nextKind === 'loyalty') {
       setName(`Fidelidad · ${monthYear}`);
       setMinPurchases('8');
@@ -455,6 +477,8 @@ function PlayDefinitionForm({
       playId: play?.id ?? null,
       name,
       description,
+      advisorGuidance,
+      messageTemplate,
       kind,
       startsOn,
       endsOn,
@@ -470,6 +494,10 @@ function PlayDefinitionForm({
       minimumOrderAmountUsd: purchaseRequirementMode === 'minimum_order' && minimumOrderAmount !== ''
         ? Number(minimumOrderAmount)
         : null,
+      overlapPolicy,
+      compatiblePlayIds: overlapPolicy === 'selected_compatible' ? compatiblePlayIds : [],
+      benefitStackPolicy,
+      evaluationWindowDays: Number(evaluationWindowDays),
       plannedBudgetUsd: plannedBudget === '' ? null : Number(plannedBudget),
       metricWindow: play?.metricWindow ?? 6,
       minPurchaseCount: Number(minPurchases),
@@ -534,6 +562,37 @@ function PlayDefinitionForm({
         <Field label="Objetivo interno" hint="No lo verá el cliente">
           <textarea className={`${inputClass} min-h-16 resize-y py-2`} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Qué queremos lograr y cómo debe abordarse esta lista." />
         </Field>
+
+        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.04] p-3">
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold text-cyan-100">Guion para ejecutar la jugada</h3>
+            <p className="mt-0.5 text-[10px] text-cyan-100/55">El asesor verá la orientación y podrá copiar el mensaje ya personalizado antes de abrir WhatsApp.</p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Field label="Orientación interna" hint="Solo para el asesor">
+              <textarea
+                className={`${inputClass} min-h-28 resize-y py-2`}
+                value={advisorGuidance}
+                onChange={(event) => setAdvisorGuidance(event.target.value.slice(0, 4000))}
+                placeholder="Tono, momento recomendado y cómo presentar el detalle."
+              />
+            </Field>
+            <Field label="Mensaje listo para copiar" hint="Usa las variables disponibles">
+              <textarea
+                className={`${inputClass} min-h-28 resize-y py-2`}
+                value={messageTemplate}
+                onChange={(event) => setMessageTemplate(event.target.value.slice(0, 6000))}
+                placeholder="Epa {nombre}…"
+              />
+              <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] text-cyan-100/60">
+                <span className="rounded-full border border-cyan-400/20 px-2 py-0.5">{'{nombre}'}</span>
+                <span className="rounded-full border border-cyan-400/20 px-2 py-0.5">{'{asesor}'}</span>
+                <span className="rounded-full border border-cyan-400/20 px-2 py-0.5">{'{beneficio}'}</span>
+                <span className="rounded-full border border-cyan-400/20 px-2 py-0.5">{'{vigencia}'}</span>
+              </div>
+            </Field>
+          </div>
+        </div>
 
         <div className="rounded-2xl border border-[#3C3410] bg-[#171506] p-3">
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -723,6 +782,85 @@ function PlayDefinitionForm({
                 placeholder={purchaseRequirementMode === 'none' ? 'No aplica' : 'Ej. 20'}
               />
             </Field>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-orange-400/20 bg-orange-400/[0.04] p-3">
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold text-orange-100">Convivencia y control del estímulo</h3>
+            <p className="mt-0.5 text-[10px] text-orange-100/55">La protección predeterminada evita duplicar contactos y gastos sobre el mismo cliente.</p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setOverlapPolicy('exclusive');
+                  setCompatiblePlayIds([]);
+                }}
+                className={`w-full rounded-xl border px-3 py-2 text-left ${overlapPolicy === 'exclusive' ? 'border-orange-300/60 bg-orange-300/10 text-orange-100' : 'border-[#2A2A35] bg-[#0B0B0D] text-[#8F8F9D]'}`}
+              >
+                <span className="block text-[11px] font-semibold">Exclusiva durante su período</span>
+                <span className="mt-0.5 block text-[9px] opacity-65">Un cliente no puede aparecer en otra jugada solapada.</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOverlapPolicy('selected_compatible')}
+                className={`w-full rounded-xl border px-3 py-2 text-left ${overlapPolicy === 'selected_compatible' ? 'border-orange-300/60 bg-orange-300/10 text-orange-100' : 'border-[#2A2A35] bg-[#0B0B0D] text-[#8F8F9D]'}`}
+              >
+                <span className="block text-[11px] font-semibold">Permitir excepciones concretas</span>
+                <span className="mt-0.5 block text-[9px] opacity-65">Solo convivirá con las jugadas seleccionadas abajo.</span>
+              </button>
+              {overlapPolicy === 'selected_compatible' ? (
+                <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-[#2A2A35] bg-[#0B0B0D] p-2">
+                  {plays.filter((candidate) => candidate.id !== play?.id && candidate.overlapPolicy === 'selected_compatible').length === 0 ? (
+                    <p className="px-1 py-2 text-[10px] text-[#777785]">No hay otra jugada preparada para convivencia seleccionada.</p>
+                  ) : plays
+                    .filter((candidate) => candidate.id !== play?.id && candidate.overlapPolicy === 'selected_compatible')
+                    .map((candidate) => (
+                      <label key={candidate.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[10px] text-[#D8D8E0] hover:bg-[#18181F]">
+                        <input
+                          type="checkbox"
+                          checked={compatiblePlayIds.includes(candidate.id)}
+                          onChange={(event) => setCompatiblePlayIds((current) => event.target.checked
+                            ? [...current, candidate.id]
+                            : current.filter((id) => id !== candidate.id))}
+                          className="accent-[#FEEF00]"
+                        />
+                        <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
+                        <span className="text-[#666675]">{STATUS_PRESENTATION[candidate.status].label}</span>
+                      </label>
+                    ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-3">
+              <Field label="Beneficios económicos por pedido">
+                <select
+                  className={inputClass}
+                  value={benefitStackPolicy}
+                  onChange={(event) => setBenefitStackPolicy(event.target.value as PlayBenefitStackPolicy)}
+                >
+                  <option value="one_per_order">Solo uno por pedido</option>
+                  <option value="allow_multiple">Permitir varios explícitamente</option>
+                </select>
+              </Field>
+              <Field label="Ventana inicial de evaluación" hint="Se podrá comparar a 30, 60 y 90 días">
+                <div className="flex items-center gap-2">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min="7"
+                    max="365"
+                    value={evaluationWindowDays}
+                    onChange={(event) => setEvaluationWindowDays(event.target.value)}
+                    required
+                  />
+                  <span className="text-[10px] text-[#777785]">días</span>
+                </div>
+              </Field>
+            </div>
           </div>
         </div>
 
@@ -956,6 +1094,7 @@ export default function MasterPlaysClient({
   const selectedSummaryTotal = summaryNumber(selectedPlay, 'total');
   const selectedAdvisorCount = summaryNumber(selectedPlay, 'advisor_count');
   const selectedExcludedCount = summaryNumber(selectedPlay, 'excluded_count');
+  const selectedOverlapConflictCount = summaryNumber(selectedPlay, 'overlap_conflict_count');
   const selectedTotalClosures = summaryNumber(selectedPlay, 'total_purchase_count');
   const selectedRevenue = summaryAmount(selectedPlay, 'total_net_revenue_usd') ?? 0;
   const selectedProjectedCostMin = summaryAmount(selectedPlay, 'projected_cost_min_usd');
@@ -998,6 +1137,11 @@ export default function MasterPlaysClient({
       router.push('/app/master/plays?create=1');
       router.refresh();
     });
+  }
+
+  function clonePlay(playId: number) {
+    setNotice(null);
+    startTransition(async () => handleResult(await clonePlayAction(playId), true));
   }
 
   return (
@@ -1087,6 +1231,14 @@ export default function MasterPlaysClient({
                         </span>
                       ))}
                     </div>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => clonePlay(selectedPlay.id)}
+                      className="mt-2 inline-flex h-7 items-center justify-center rounded-lg border border-[#6A5B18] px-2 text-[9px] font-semibold text-[#FFF18B] hover:bg-[#312B0B] disabled:opacity-45"
+                    >
+                      Copiar como nueva
+                    </button>
                   </div>
                 </div>
                 <PlayProgress status={selectedPlay.status} hasPreview={selectedHasPreview} />
@@ -1118,7 +1270,9 @@ export default function MasterPlaysClient({
                         <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Capacidad máxima</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedBudgetCapacity == null ? '—' : `${Math.trunc(selectedBudgetCapacity).toLocaleString('es-VE')} clientes`}</div></div>
                       </div>
                     </div>
-                    <div className="mt-2 text-[9px] text-blue-100/40">{selectedExcludedCount.toLocaleString('es-VE')} retirados manualmente · {selectedPlay.benefits.length} alternativas disponibles.</div>
+                    <div className="mt-2 text-[9px] text-blue-100/40">
+                      {selectedExcludedCount.toLocaleString('es-VE')} retirados manualmente · {selectedOverlapConflictCount.toLocaleString('es-VE')} apartados por convivencia · {selectedPlay.benefits.length} alternativas disponibles.
+                    </div>
                   </div>
                 ) : null}
               </section>
@@ -1127,6 +1281,7 @@ export default function MasterPlaysClient({
                 <PlayDefinitionForm
                   key={selectedPlay.id}
                   play={selectedPlay}
+                  plays={plays}
                   benefits={benefits}
                   busy={pending}
                   onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
@@ -1187,6 +1342,7 @@ export default function MasterPlaysClient({
               <PlayDefinitionForm
                 key="new-play"
                 play={null}
+                plays={plays}
                 benefits={benefits}
                 busy={pending}
                 onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}

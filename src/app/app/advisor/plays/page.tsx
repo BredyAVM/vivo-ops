@@ -97,7 +97,7 @@ function workflowPresentation(status: string, due: boolean) {
       row: 'border-l-[#5F6879]',
     },
     contacted: {
-      label: 'Contactado',
+      label: 'Jugada lanzada',
       dot: 'bg-[#69B7FF]',
       chip: 'border-[#214C73] bg-[#102338] text-[#8CC9FF]',
       row: 'border-l-[#3C8FD9]',
@@ -318,7 +318,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     { value: 'all', label: 'Todos', count: members.length },
     { value: 'pending', label: 'Sin tocar', count: pendingCount },
     { value: 'follow_up', label: 'Seguimientos', count: members.filter((member) => member.workflow_status === 'follow_up_scheduled' || isDue(member, now)).length },
-    { value: 'contacted', label: 'Trabajados', count: touchedCount },
+    { value: 'contacted', label: 'Lanzadas', count: touchedCount },
     { value: 'converted', label: 'Recompras', count: convertedCount },
   ];
 

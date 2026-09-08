@@ -12,66 +12,32 @@ type ClientFollowUpPanelProps = {
   isActive: boolean;
   workflowStatus: string;
   contactAttemptCount: number;
-  nextFollowUpAt: string | null;
 };
 
 const actionOptions: Array<{ value: PlayFollowUpAction; label: string }> = [
-  { value: 'contact', label: 'Registrar contacto' },
-  { value: 'follow_up', label: 'Programar seguimiento' },
+  { value: 'contact', label: 'Jugada lanzada' },
   { value: 'responded', label: 'Respondió' },
-  { value: 'accepted', label: 'Aceptó / mostró interés' },
-  { value: 'converted', label: 'Se logró la recompra' },
   { value: 'unreachable', label: 'No respondió' },
-  { value: 'not_interested', label: 'No está interesado' },
-  { value: 'not_applicable', label: 'No aplica para esta jugada' },
-  { value: 'closed', label: 'Cerrar seguimiento' },
   { value: 'note', label: 'Agregar solo una nota' },
 ];
-
-function localDateTimeValue(value: string | null) {
-  if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-
-  const offset = parsed.getTimezoneOffset();
-  return new Date(parsed.getTime() - offset * 60_000).toISOString().slice(0, 16);
-}
 
 export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
   const router = useRouter();
   const [action, setAction] = useState<PlayFollowUpAction>('contact');
-  const [channel, setChannel] = useState<'whatsapp' | 'call' | 'in_person' | 'other'>('whatsapp');
   const [note, setNote] = useState('');
-  const [followUpAt, setFollowUpAt] = useState(localDateTimeValue(props.nextFollowUpAt));
   const [message, setMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
-  const canSchedule = action === 'contact' || action === 'follow_up';
 
   function submitFollowUp() {
     setMessage(null);
-
-    let followUpIso: string | null = null;
-    if (canSchedule && followUpAt) {
-      const parsed = new Date(followUpAt);
-      if (Number.isNaN(parsed.getTime())) {
-        setMessage({ tone: 'danger', text: 'Revisa la fecha del próximo seguimiento.' });
-        return;
-      }
-      followUpIso = parsed.toISOString();
-    }
-
-    if (action === 'follow_up' && !followUpIso) {
-      setMessage({ tone: 'danger', text: 'Indica cuándo debe hacerse el próximo seguimiento.' });
-      return;
-    }
 
     startTransition(async () => {
       const result = await recordClientPlayFollowUpAction({
         playMemberId: props.playMemberId,
         action,
         note,
-        followUpAt: followUpIso,
-        channel: action === 'contact' || action === 'unreachable' ? channel : null,
+        followUpAt: null,
+        channel: action === 'contact' || action === 'unreachable' ? 'whatsapp' : null,
       });
 
       if (!result.ok) {
@@ -81,7 +47,6 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
 
       setMessage({ tone: 'success', text: result.message });
       setNote('');
-      if (action !== 'follow_up' && action !== 'contact') setFollowUpAt('');
       router.refresh();
     });
   }
@@ -118,34 +83,6 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
             </select>
           </label>
 
-          {(action === 'contact' || action === 'unreachable') ? (
-            <label className="block text-xs text-[#AAB2C5]">
-              Canal
-              <select
-                value={channel}
-                onChange={(event) => setChannel(event.target.value as typeof channel)}
-                className="mt-1.5 h-11 w-full rounded-[13px] border border-[#2A3040] bg-[#0D1017] px-3 text-sm text-[#F5F7FB]"
-              >
-                <option value="whatsapp">WhatsApp</option>
-                <option value="call">Llamada</option>
-                <option value="in_person">En persona</option>
-                <option value="other">Otro</option>
-              </select>
-            </label>
-          ) : null}
-
-          {canSchedule ? (
-            <label className="block text-xs text-[#AAB2C5]">
-              Próximo seguimiento {action === 'follow_up' ? '(obligatorio)' : '(opcional)'}
-              <input
-                type="datetime-local"
-                value={followUpAt}
-                onChange={(event) => setFollowUpAt(event.target.value)}
-                className="mt-1.5 h-11 w-full rounded-[13px] border border-[#2A3040] bg-[#0D1017] px-3 text-sm text-[#F5F7FB]"
-              />
-            </label>
-          ) : null}
-
           <label className="block text-xs text-[#AAB2C5]">
             Nota {action === 'note' ? '(requerida)' : '(opcional)'}
             <textarea
@@ -177,7 +114,7 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
             disabled={pending || (action === 'note' && !note.trim())}
             className="inline-flex h-11 w-full items-center justify-center rounded-[13px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pending ? 'Guardando…' : 'Guardar seguimiento'}
+            {pending ? 'Guardando…' : 'Guardar resultado'}
           </button>
         </>
       )}

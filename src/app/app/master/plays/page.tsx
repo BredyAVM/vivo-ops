@@ -39,8 +39,10 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         id, series_key, version, name, description, status, rules_snapshot,
         selection_summary, metric_window, gift_product_id, gift_quantity,
         planned_budget_usd, benefit_selection_mode, purchase_requirement_mode,
-        minimum_order_amount_usd, starts_at, ends_at, snapshot_at, activated_at,
-        closed_at, created_at
+        minimum_order_amount_usd, advisor_guidance, message_template,
+        overlap_policy, benefit_stack_policy, evaluation_window_days,
+        copied_from_play_id, pricing_exchange_rate_ves_per_usd, pricing_snapshot_at,
+        starts_at, ends_at, snapshot_at, activated_at, closed_at, created_at
       `)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
@@ -49,7 +51,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .from('products')
       .select('id, name, sku, type, base_price_usd, advisor_gift_cost_usd:extra_fields->>advisor_gift_cost_usd')
       .eq('is_active', true)
-      .in('type', ['product', 'combo', 'promo', 'gambit'])
+      .in('type', ['product', 'combo', 'promo', 'gambit', 'service'])
       .order('name', { ascending: true })
       .limit(300),
   ]);
@@ -58,17 +60,32 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
   if (productsResult.error) throw new Error(productsResult.error.message);
 
   const playIds = (playsResult.data ?? []).map((row) => Number(row.id));
-  const benefitOptionsResult = await ctx.supabase
-    .from('crm_play_benefits')
-    .select(`
-      id, play_id, product_id, quantity, unit_budget_cost_usd,
-      unit_benefit_value_usd, unit_advisor_cost_usd, unit_company_cost_usd, sort_order,
-      product:products!crm_play_benefits_product_id_fkey(id, name, sku)
-    `)
-    .in('play_id', playIds.length > 0 ? playIds : [-1])
-    .order('sort_order', { ascending: true })
-    .order('id', { ascending: true });
+  const [benefitOptionsResult, compatibilityResult] = await Promise.all([
+    ctx.supabase
+      .from('crm_play_benefits')
+      .select(`
+        id, play_id, product_id, quantity, unit_budget_cost_usd,
+        unit_benefit_value_usd, unit_advisor_cost_usd, unit_company_cost_usd, sort_order,
+        product:products!crm_play_benefits_product_id_fkey(id, name, sku)
+      `)
+      .in('play_id', playIds.length > 0 ? playIds : [-1])
+      .order('sort_order', { ascending: true })
+      .order('id', { ascending: true }),
+    ctx.supabase
+      .from('crm_play_compatibilities')
+      .select('play_id_low, play_id_high')
+      .limit(1000),
+  ]);
   if (benefitOptionsResult.error) throw new Error(benefitOptionsResult.error.message);
+  if (compatibilityResult.error) throw new Error(compatibilityResult.error.message);
+
+  const compatiblePlayIdsByPlay = new Map<number, number[]>();
+  for (const row of compatibilityResult.data ?? []) {
+    const low = Number(row.play_id_low);
+    const high = Number(row.play_id_high);
+    compatiblePlayIdsByPlay.set(low, [...(compatiblePlayIdsByPlay.get(low) ?? []), high]);
+    compatiblePlayIdsByPlay.set(high, [...(compatiblePlayIdsByPlay.get(high) ?? []), low]);
+  }
 
   const benefitOptionsByPlay = new Map<number, MasterPlay['benefits']>();
   for (const row of benefitOptionsResult.data ?? []) {
@@ -96,6 +113,8 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     version: Number(row.version),
     name: String(row.name),
     description: row.description == null ? null : String(row.description),
+    advisorGuidance: row.advisor_guidance == null ? null : String(row.advisor_guidance),
+    messageTemplate: row.message_template == null ? null : String(row.message_template),
     status: String(row.status) as MasterPlay['status'],
     rules: row.rules_snapshot && typeof row.rules_snapshot === 'object' && !Array.isArray(row.rules_snapshot)
       ? row.rules_snapshot as Record<string, unknown>
@@ -110,6 +129,13 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     benefitSelectionMode: String(row.benefit_selection_mode) as MasterPlay['benefitSelectionMode'],
     purchaseRequirementMode: String(row.purchase_requirement_mode) as MasterPlay['purchaseRequirementMode'],
     minimumOrderAmountUsd: row.minimum_order_amount_usd == null ? null : Number(row.minimum_order_amount_usd),
+    overlapPolicy: String(row.overlap_policy) as MasterPlay['overlapPolicy'],
+    compatiblePlayIds: compatiblePlayIdsByPlay.get(Number(row.id)) ?? [],
+    benefitStackPolicy: String(row.benefit_stack_policy) as MasterPlay['benefitStackPolicy'],
+    evaluationWindowDays: Number(row.evaluation_window_days),
+    copiedFromPlayId: row.copied_from_play_id == null ? null : Number(row.copied_from_play_id),
+    pricingExchangeRateVesPerUsd: row.pricing_exchange_rate_ves_per_usd == null ? null : Number(row.pricing_exchange_rate_ves_per_usd),
+    pricingSnapshotAt: row.pricing_snapshot_at == null ? null : String(row.pricing_snapshot_at),
     startsAt: row.starts_at == null ? null : String(row.starts_at),
     endsAt: row.ends_at == null ? null : String(row.ends_at),
     snapshotAt: row.snapshot_at == null ? null : String(row.snapshot_at),

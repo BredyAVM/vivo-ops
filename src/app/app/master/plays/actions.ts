@@ -6,15 +6,19 @@ import { requireMasterOrAdminContext } from '@/lib/auth';
 const PLAY_KINDS = ['anniversary', 'loyalty', 'new_client', 'reconnect', 'seasonal', 'custom'] as const;
 const FULFILLMENT_FILTERS = ['any', 'pickup', 'delivery'] as const;
 const ANNIVERSARY_MODES = ['any', 'include', 'exclude'] as const;
-const BENEFIT_PRODUCT_TYPES = ['product', 'combo', 'promo', 'gambit'] as const;
+const BENEFIT_PRODUCT_TYPES = ['product', 'combo', 'promo', 'gambit', 'service'] as const;
 const BENEFIT_SELECTION_MODES = ['single', 'multiple'] as const;
 const PURCHASE_REQUIREMENT_MODES = ['none', 'minimum_order'] as const;
+const OVERLAP_POLICIES = ['exclusive', 'selected_compatible'] as const;
+const BENEFIT_STACK_POLICIES = ['one_per_order', 'allow_multiple'] as const;
 
 export type PlayKind = (typeof PLAY_KINDS)[number];
 export type PlayFulfillmentFilter = (typeof FULFILLMENT_FILTERS)[number];
 export type PlayAnniversaryMode = (typeof ANNIVERSARY_MODES)[number];
 export type PlayBenefitSelectionMode = (typeof BENEFIT_SELECTION_MODES)[number];
 export type PlayPurchaseRequirementMode = (typeof PURCHASE_REQUIREMENT_MODES)[number];
+export type PlayOverlapPolicy = (typeof OVERLAP_POLICIES)[number];
+export type PlayBenefitStackPolicy = (typeof BENEFIT_STACK_POLICIES)[number];
 
 export type PlayBenefitInput = {
   productId: number;
@@ -28,6 +32,8 @@ export type SavePlayDraftInput = {
   playId?: number | null;
   name: string;
   description?: string;
+  advisorGuidance?: string;
+  messageTemplate?: string;
   kind: PlayKind;
   startsOn: string;
   endsOn: string;
@@ -36,6 +42,10 @@ export type SavePlayDraftInput = {
   benefitSelectionMode: PlayBenefitSelectionMode;
   purchaseRequirementMode: PlayPurchaseRequirementMode;
   minimumOrderAmountUsd?: number | null;
+  overlapPolicy: PlayOverlapPolicy;
+  compatiblePlayIds?: number[];
+  benefitStackPolicy: PlayBenefitStackPolicy;
+  evaluationWindowDays: number;
   metricWindow: number;
   minPurchaseCount: number;
   maxPurchaseCount?: number | null;
@@ -122,6 +132,71 @@ function normalizePurchaseRequirementMode(value: unknown): PlayPurchaseRequireme
     : 'none';
 }
 
+function normalizeOverlapPolicy(value: unknown): PlayOverlapPolicy {
+  return OVERLAP_POLICIES.includes(value as PlayOverlapPolicy)
+    ? (value as PlayOverlapPolicy)
+    : 'exclusive';
+}
+
+function normalizeBenefitStackPolicy(value: unknown): PlayBenefitStackPolicy {
+  return BENEFIT_STACK_POLICIES.includes(value as PlayBenefitStackPolicy)
+    ? (value as PlayBenefitStackPolicy)
+    : 'one_per_order';
+}
+
+function normalizeCompatiblePlayIds(value: unknown, currentPlayId: number) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(
+    value
+      .map((candidate) => Math.trunc(finiteNumber(candidate, 0)))
+      .filter((candidate) => candidate > 0 && candidate !== currentPlayId),
+  )).slice(0, 50);
+}
+
+async function syncPlayCompatibilities(
+  supabase: Awaited<ReturnType<typeof requireMasterOrAdminContext>>['supabase'],
+  playId: number,
+  overlapPolicy: PlayOverlapPolicy,
+  compatiblePlayIds: number[],
+  actorUserId: string,
+) {
+  const { error: clearLowError } = await supabase
+    .from('crm_play_compatibilities')
+    .delete()
+    .eq('play_id_low', playId);
+  if (clearLowError) throw new Error(clearLowError.message);
+
+  const { error: clearHighError } = await supabase
+    .from('crm_play_compatibilities')
+    .delete()
+    .eq('play_id_high', playId);
+  if (clearHighError) throw new Error(clearHighError.message);
+
+  if (overlapPolicy !== 'selected_compatible' || compatiblePlayIds.length === 0) return;
+
+  const { data: availablePlays, error: availableError } = await supabase
+    .from('crm_plays')
+    .select('id, overlap_policy')
+    .in('id', compatiblePlayIds);
+  if (availableError) throw new Error(availableError.message);
+
+  const compatibleIds = (availablePlays ?? [])
+    .filter((play) => play.overlap_policy === 'selected_compatible')
+    .map((play) => Number(play.id));
+  if (compatibleIds.length !== compatiblePlayIds.length) {
+    throw new Error('Cada jugada compatible también debe permitir convivencia seleccionada.');
+  }
+
+  const { error: insertError } = await supabase
+    .from('crm_play_compatibilities')
+    .insert(compatibleIds.map((compatiblePlayId) => ({
+      play_id_low: Math.min(playId, compatiblePlayId),
+      play_id_high: Math.max(playId, compatiblePlayId),
+      created_by_user_id: actorUserId,
+    })));
+  if (insertError) throw new Error(insertError.message);
+}
+
 function rulesFromInput(input: SavePlayDraftInput, excludedClientIds: number[]) {
   const minPurchaseCount = Math.max(0, Math.trunc(finiteNumber(input.minPurchaseCount, 1)));
   const maxPurchaseCount = optionalNonNegativeInteger(input.maxPurchaseCount);
@@ -187,6 +262,8 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const playId = Math.trunc(finiteNumber(input.playId, 0));
     const name = cleanText(input.name, 120);
     const description = cleanText(input.description, 1000) || null;
+    const advisorGuidance = cleanText(input.advisorGuidance, 4000) || null;
+    const messageTemplate = cleanText(input.messageTemplate, 6000) || null;
     const startsOn = dateKey(input.startsOn, 'La fecha inicial', true);
     const endsOn = dateKey(input.endsOn, 'La fecha final', true);
     const plannedBudgetUsd = input.plannedBudgetUsd == null
@@ -197,6 +274,10 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const minimumOrderAmountUsd = purchaseRequirementMode === 'minimum_order'
       ? finiteNumber(input.minimumOrderAmountUsd, Number.NaN)
       : null;
+    const overlapPolicy = normalizeOverlapPolicy(input.overlapPolicy);
+    const compatiblePlayIds = normalizeCompatiblePlayIds(input.compatiblePlayIds, playId);
+    const benefitStackPolicy = normalizeBenefitStackPolicy(input.benefitStackPolicy);
+    const evaluationWindowDays = Math.trunc(finiteNumber(input.evaluationWindowDays, 90));
     const metricWindow = Math.max(2, Math.min(50, Math.trunc(finiteNumber(input.metricWindow, 6))));
     const benefitOptions = Array.isArray(input.benefits)
       ? input.benefits.slice(0, 8).map((option) => ({
@@ -237,6 +318,12 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       && (!Number.isFinite(minimumOrderAmountUsd) || Number(minimumOrderAmountUsd) <= 0)) {
       throw new Error('Indica una compra mínima mayor que cero o marca la jugada sin condición de compra.');
     }
+    if (evaluationWindowDays < 7 || evaluationWindowDays > 365) {
+      throw new Error('La ventana de evaluación debe estar entre 7 y 365 días.');
+    }
+    if (overlapPolicy === 'exclusive' && compatiblePlayIds.length > 0) {
+      throw new Error('Una jugada exclusiva no puede seleccionar convivencias.');
+    }
     const benefitProductIds = benefitOptions.map((option) => option.productId);
     if (new Set(benefitProductIds).size !== benefitProductIds.length) {
       throw new Error('Un mismo beneficio no puede aparecer dos veces.');
@@ -272,6 +359,8 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const payload = {
       name,
       description,
+      advisor_guidance: advisorGuidance,
+      message_template: messageTemplate,
       rules_snapshot: rulesSnapshot,
       selection_summary: {},
       metric_window: metricWindow,
@@ -283,6 +372,9 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       minimum_order_amount_usd: minimumOrderAmountUsd == null
         ? null
         : Number(Number(minimumOrderAmountUsd).toFixed(2)),
+      overlap_policy: overlapPolicy,
+      benefit_stack_policy: benefitStackPolicy,
+      evaluation_window_days: evaluationWindowDays,
       starts_at: startBoundary(startsOn),
       ends_at: endBoundary(endsOn),
     };
@@ -322,6 +414,8 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
           sort_order: index + 1,
         })));
       if (benefitsError) throw new Error(benefitsError.message);
+
+      await syncPlayCompatibilities(ctx.supabase, playId, overlapPolicy, compatiblePlayIds, ctx.user.id);
 
       revalidatePath('/app/master/plays');
       return { ok: true, playId, message: 'Definición actualizada. Genera nuevamente la lista.' };
@@ -365,6 +459,8 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       })));
     if (benefitsError) throw new Error(benefitsError.message);
 
+    await syncPlayCompatibilities(ctx.supabase, createdId, overlapPolicy, compatiblePlayIds, ctx.user.id);
+
     revalidatePath('/app/master/plays');
     return { ok: true, playId: createdId, message: 'Jugada guardada en diseño. Todavía no es visible para los asesores.' };
   } catch (error) {
@@ -389,12 +485,18 @@ export async function generatePlayListAction(playIdInput: number): Promise<PlayA
     const playId = Math.trunc(finiteNumber(playIdInput, 0));
     if (playId <= 0) throw new Error('La jugada no es válida.');
 
-    const { error } = await ctx.supabase.rpc('crm_rebuild_play_members_v1', {
+    const { error } = await ctx.supabase.rpc('crm_prepare_play_preview_v2', {
       p_play_id: playId,
     });
     if (error) throw new Error(error.message);
 
-    const data = await refreshPlayPreviewSummary(ctx.supabase, playId);
+    const { data: playSummary, error: summaryError } = await ctx.supabase
+      .from('crm_plays')
+      .select('selection_summary')
+      .eq('id', playId)
+      .single();
+    if (summaryError) throw new Error(summaryError.message);
+    const data = playSummary.selection_summary;
 
     const total = data && typeof data === 'object' && !Array.isArray(data)
       ? Math.max(0, Math.trunc(finiteNumber((data as Record<string, unknown>).total, 0)))
@@ -446,34 +548,43 @@ export async function confirmPlayListAction(playIdInput: number): Promise<PlayAc
     const playId = Math.trunc(finiteNumber(playIdInput, 0));
     if (playId <= 0) throw new Error('La jugada no es válida.');
 
-    const [membersResult, benefitsResult] = await Promise.all([
-      ctx.supabase
-        .from('crm_play_members')
-        .select('id', { count: 'exact', head: true })
-        .eq('play_id', playId),
-      ctx.supabase
-        .from('crm_play_benefits')
-        .select('id', { count: 'exact', head: true })
-        .eq('play_id', playId),
-    ]);
-    if (membersResult.error) throw new Error(membersResult.error.message);
-    if (benefitsResult.error) throw new Error(benefitsResult.error.message);
-    if (!membersResult.count) throw new Error('Genera y revisa una lista antes de confirmarla.');
-    if (!benefitsResult.count) throw new Error('Selecciona al menos un beneficio antes de confirmar.');
-
-    const snapshotAt = new Date().toISOString();
-    const { data, error } = await ctx.supabase
-      .from('crm_plays')
-      .update({ status: 'frozen', snapshot_at: snapshotAt })
-      .eq('id', playId)
-      .eq('status', 'draft')
-      .select('id')
-      .maybeSingle();
+    const { data, error } = await ctx.supabase.rpc('crm_confirm_play_v1', {
+      p_play_id: playId,
+    });
     if (error) throw new Error(error.message);
     if (!data) throw new Error('La jugada ya no está disponible para confirmar.');
 
     revalidatePath('/app/master/plays');
     return { ok: true, playId, message: 'Lista confirmada. Aún no ha sido compartida con los asesores.' };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+export async function clonePlayAction(playIdInput: number): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireMasterOrAdminContext();
+    const playId = Math.trunc(finiteNumber(playIdInput, 0));
+    if (playId <= 0) throw new Error('La jugada no es válida.');
+
+    const { data, error } = await ctx.supabase.rpc('crm_clone_play_v1', {
+      p_source_play_id: playId,
+      p_name: null,
+    });
+    if (error) throw new Error(error.message);
+
+    const result = data && typeof data === 'object' && !Array.isArray(data)
+      ? data as Record<string, unknown>
+      : {};
+    const clonedPlayId = Math.trunc(finiteNumber(result.play_id, 0));
+    if (clonedPlayId <= 0) throw new Error('No se pudo identificar la copia creada.');
+
+    revalidatePath('/app/master/plays');
+    return {
+      ok: true,
+      playId: clonedPlayId,
+      message: 'Copia creada en diseño. Ajusta fechas, reglas y mensaje antes de probarla.',
+    };
   } catch (error) {
     return actionError(error);
   }

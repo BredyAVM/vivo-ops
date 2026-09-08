@@ -5,6 +5,7 @@ import { normalizePhoneDetailed } from '@/lib/phone/normalize-phone';
 import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
 import ClientBenefitSelector from './ClientBenefitSelector';
 import ClientFollowUpPanel from './ClientFollowUpPanel';
+import PlayMessageCard from './PlayMessageCard';
 
 type ClientProfile = {
   client_id: number | string;
@@ -73,6 +74,8 @@ type PlayRecord = {
   id: number | string;
   name: string;
   description: string | null;
+  advisor_guidance: string | null;
+  message_template: string | null;
   status: string;
   starts_at: string | null;
   ends_at: string | null;
@@ -182,7 +185,7 @@ function dateTimeLabel(value: string | null | undefined) {
 function workflowLabel(status: string) {
   const labels: Record<string, string> = {
     pending: 'Pendiente',
-    contacted: 'Contactado',
+    contacted: 'Jugada lanzada',
     follow_up_scheduled: 'Seguimiento programado',
     responded: 'Respondió',
     accepted: 'Aceptó',
@@ -205,7 +208,7 @@ function workflowTone(status: string): 'neutral' | 'warning' | 'success' | 'dang
 
 function eventLabel(eventType: string) {
   const labels: Record<string, string> = {
-    contact: 'Contacto registrado',
+    contact: 'Jugada lanzada',
     follow_up: 'Seguimiento programado',
     responded: 'El cliente respondió',
     accepted: 'El cliente mostró interés',
@@ -275,6 +278,7 @@ export default async function AdvisorClientProfilePage({
         last_contact_at, next_follow_up_at, last_note, last_event_at,
         play:crm_plays(
           id, name, description, status, starts_at, ends_at,
+          advisor_guidance, message_template,
           gift_product_id, gift_quantity, benefit_selection_mode,
           purchase_requirement_mode, minimum_order_amount_usd
         )
@@ -358,6 +362,11 @@ export default async function AdvisorClientProfilePage({
     .filter((benefitId) => benefitId > 0);
   const phone = normalizePhoneDetailed(profile.client.phone);
   const whatsappHref = phone.e164 ? `https://wa.me/${phone.e164.slice(1)}` : null;
+  const advisorName = String(
+    ctx.user.user_metadata?.full_name
+      ?? ctx.user.user_metadata?.name
+      ?? 'tu asesor de VIVO',
+  ).trim() || 'tu asesor de VIVO';
   const cadence = optionalNumber(profile.metrics.cadence_days);
   const daysSince = optionalNumber(profile.metrics.days_since_last_purchase);
   const returnPath = query.returnTo || `/app/advisor/clients/${clientId}`;
@@ -437,6 +446,22 @@ export default async function AdvisorClientProfilePage({
             subtitle="Seguimiento de esta jugada"
             action={<StatusBadge label={workflowLabel(selectedMember.workflow_status)} tone={workflowTone(selectedMember.workflow_status)} />}
           >
+            {selectedPlay.message_template ? (
+              <div className="mb-3">
+                <PlayMessageCard
+                  guidance={selectedPlay.advisor_guidance}
+                  template={selectedPlay.message_template}
+                  clientName={profile.client.full_name?.trim() || 'amigo'}
+                  advisorName={advisorName}
+                  benefitLabel={(selectedBenefitIds.length > 0
+                    ? benefitOptions.filter((option) => selectedBenefitIds.includes(option.id))
+                    : benefitOptions
+                  ).map((option) => `${option.quantity} × ${option.name}`).join(' o ') || 'tu beneficio'}
+                  validityLabel={selectedPlay.ends_at ? `antes del ${dateLabel(selectedPlay.ends_at)}` : 'durante esta jugada'}
+                  whatsappBaseHref={whatsappHref}
+                />
+              </div>
+            ) : null}
             <div className="rounded-[16px] border border-[#2A3040] bg-[#0D1017] px-3.5 py-3 text-xs leading-5 text-[#AAB2C5]">
               <div className="mb-2 font-medium text-[#F5F7FB]">Beneficio para este cliente</div>
               <ClientBenefitSelector
@@ -459,7 +484,6 @@ export default async function AdvisorClientProfilePage({
                 isActive={isPlayActive}
                 workflowStatus={workflowLabel(selectedMember.workflow_status)}
                 contactAttemptCount={numberValue(selectedMember.contact_attempt_count)}
-                nextFollowUpAt={selectedMember.next_follow_up_at}
               />
             </div>
           </SectionCard>
