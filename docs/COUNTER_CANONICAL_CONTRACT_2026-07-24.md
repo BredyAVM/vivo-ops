@@ -239,6 +239,10 @@ comercial aparente del historial compartido de ese registro.
 - La venta para consumo inmediato entra a cocina sin aprobación previa de Master.
 - Debe usar la misma semántica de productos, componentes, combos, precios y
   snapshots que el resto del sistema.
+- Las cantidades visibles de componentes se escriben como cantidades humanas,
+  sin conservar ceros decimales propios del almacenamiento. Una cantidad
+  entera se muestra y persiste como `10`, nunca como `10.000`; una cantidad
+  fraccionaria conserva solo sus decimales significativos.
 
 ### 6.3 Venta agendada
 
