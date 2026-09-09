@@ -1464,7 +1464,7 @@ function PlayMonitor({ summary }: { summary: MasterPlayMonitorSummary }) {
         </div>
       ) : null}
       <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2"><div className="text-[9px] text-emerald-100/50">Ventas directas</div><div className="mt-0.5 text-sm font-semibold text-emerald-100">{moneyFormatter.format(summary.directOrderRevenueUsd)}</div></div>
+        <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2"><div className="text-[9px] text-emerald-100/50">Ventas directas · sin IVA</div><div className="mt-0.5 text-sm font-semibold text-emerald-100">{moneyFormatter.format(summary.directOrderRevenueUsd)}</div></div>
         <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] px-3 py-2"><div className="text-[9px] text-cyan-100/50">Crédito entregado</div><div className="mt-0.5 text-sm font-semibold text-cyan-100">{moneyFormatter.format(summary.benefitCreditUsd)}</div></div>
         <div className="rounded-xl border border-blue-400/15 bg-blue-400/[0.04] px-3 py-2"><div className="text-[9px] text-blue-100/50">Inversión empresa</div><div className="mt-0.5 text-sm font-semibold text-blue-100">{moneyFormatter.format(summary.companyCostUsd)}</div></div>
         <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.04] px-3 py-2"><div className="text-[9px] text-amber-100/50">Cargo asesores · comisión</div><div className="mt-0.5 text-sm font-semibold text-amber-100">{moneyFormatter.format(summary.advisorChargeUsd)}</div></div>

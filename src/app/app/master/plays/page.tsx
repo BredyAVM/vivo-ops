@@ -283,7 +283,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
 
     if (['active', 'paused', 'closed'].includes(selectedPlay.status)) {
       const [monitorResult, advisorMonitorResult] = await Promise.all([
-        ctx.supabase.rpc('crm_get_play_monitor_summary_v2', {
+        ctx.supabase.rpc('crm_get_play_monitor_summary_v3', {
           p_play_id: selectedPlay.id,
         }),
         ctx.supabase.rpc('crm_get_play_advisor_monitor_v1', {
