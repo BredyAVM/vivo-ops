@@ -1,9 +1,12 @@
 import { redirect } from 'next/navigation';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import MasterPlaysClient, {
+  type ManualPlayClientSuggestion,
   type MasterPlay,
   type MasterPlayMember,
   type MasterPlayMonitorSummary,
+  type PlayAdvisorOption,
+  type PlayAmendment,
   type PlayBenefit,
 } from './MasterPlaysClient';
 
@@ -14,8 +17,19 @@ type SearchParams = Promise<{
   play?: string;
   page?: string;
   q?: string;
+  addq?: string;
   create?: string;
 }>;
+
+type RawUserRoleRow = { user_id: string; role: string };
+type RawManualClientSuggestion = {
+  client_id: number | string;
+  full_name: string | null;
+  phone: string | null;
+  primary_advisor_id: string | null;
+  primary_advisor_name: string | null;
+  current_workflow_status: string | null;
+};
 
 const MEMBER_PAGE_SIZE = 50;
 
@@ -36,6 +50,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
   const requestedPlayId = Math.max(0, Math.trunc(numberValue(params.play, 0)));
   const requestedPage = Math.max(1, Math.trunc(numberValue(params.page, 1)));
   const search = String(params.q ?? '').trim().slice(0, 80);
+  const manualClientSearch = String(params.addq ?? '').trim().slice(0, 80);
 
   const [playsResult, productsResult] = await Promise.all([
     ctx.supabase
@@ -188,8 +203,84 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
   let members: MasterPlayMember[] = [];
   let memberCount = 0;
   let page = requestedPage;
+  let activeAdvisors: PlayAdvisorOption[] = [];
+  let manualClientSuggestions: ManualPlayClientSuggestion[] = [];
+  let amendments: PlayAmendment[] = [];
 
   if (selectedPlay && !createMode) {
+    if (['frozen', 'active', 'paused'].includes(selectedPlay.status)) {
+      const [profilesResult, rolesResult, amendmentsResult, suggestionsResult] = await Promise.all([
+        ctx.supabase
+          .from('profiles')
+          .select('id, full_name, is_active')
+          .eq('is_active', true)
+          .order('full_name', { ascending: true })
+          .limit(200),
+        ctx.supabase.rpc('admin_list_user_roles'),
+        ctx.supabase
+          .from('crm_play_amendments')
+          .select(`
+            id, amendment_type, client_id, advisor_id_snapshot, reason, created_at,
+            client:clients!crm_play_amendments_client_id_fkey(full_name),
+            advisor:profiles!crm_play_amendments_advisor_id_snapshot_fkey(full_name),
+            actor:profiles!crm_play_amendments_created_by_user_id_fkey(full_name)
+          `)
+          .eq('play_id', selectedPlay.id)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(20),
+        manualClientSearch.length >= 2
+          ? ctx.supabase.rpc('crm_search_manual_play_clients_v1', {
+              p_play_id: selectedPlay.id,
+              p_query: manualClientSearch,
+              p_limit: 12,
+            })
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (profilesResult.error) throw new Error(profilesResult.error.message);
+      if (rolesResult.error) throw new Error(rolesResult.error.message);
+      if (amendmentsResult.error) throw new Error(amendmentsResult.error.message);
+      if (suggestionsResult.error) throw new Error(suggestionsResult.error.message);
+
+      const advisorIds = new Set(
+        ((rolesResult.data ?? []) as RawUserRoleRow[])
+          .filter((row) => String(row.role) === 'advisor')
+          .map((row) => String(row.user_id)),
+      );
+      activeAdvisors = (profilesResult.data ?? [])
+        .filter((profile) => advisorIds.has(String(profile.id)))
+        .map((profile) => ({
+          id: String(profile.id),
+          name: profile.full_name?.trim() || 'Asesor sin nombre',
+        }));
+
+      manualClientSuggestions = ((suggestionsResult.data ?? []) as RawManualClientSuggestion[]).map((row) => ({
+        clientId: Number(row.client_id),
+        fullName: String(row.full_name || 'Cliente sin nombre'),
+        phone: row.phone == null ? null : String(row.phone),
+        primaryAdvisorId: row.primary_advisor_id == null ? null : String(row.primary_advisor_id),
+        primaryAdvisorName: row.primary_advisor_name == null ? null : String(row.primary_advisor_name),
+        currentWorkflowStatus: row.current_workflow_status == null ? null : String(row.current_workflow_status),
+      }));
+
+      amendments = (amendmentsResult.data ?? []).map((row) => {
+        const client = one(row.client);
+        const advisor = one(row.advisor);
+        const actor = one(row.actor);
+        return {
+          id: Number(row.id),
+          type: String(row.amendment_type) as PlayAmendment['type'],
+          clientId: row.client_id == null ? null : Number(row.client_id),
+          clientName: client?.full_name?.trim() || null,
+          advisorId: row.advisor_id_snapshot == null ? null : String(row.advisor_id_snapshot),
+          advisorName: advisor?.full_name?.trim() || null,
+          reason: String(row.reason),
+          actorName: actor?.full_name?.trim() || 'Administrador',
+          createdAt: String(row.created_at),
+        };
+      });
+    }
+
     if (['active', 'paused', 'closed'].includes(selectedPlay.status)) {
       const { data: monitorData, error: monitorError } = await ctx.supabase.rpc('crm_get_play_monitor_summary_v2', {
         p_play_id: selectedPlay.id,
@@ -232,11 +323,12 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         .select(`
           id, play_id, client_id, advisor_id_snapshot, first_purchase_on,
           last_purchase_on, purchase_count, net_revenue_usd, average_ticket_usd,
-          last_gift_on, days_since_last_purchase, workflow_status,
+          last_gift_on, days_since_last_purchase, workflow_status, benefit_status,
           client:clients!inner(id, full_name, phone),
           advisor:profiles!crm_play_members_advisor_id_snapshot_fkey(id, full_name)
         `, { count: 'exact' })
-        .eq('play_id', selectedPlay.id);
+        .eq('play_id', selectedPlay.id)
+        .neq('workflow_status', 'removed');
 
       if (search) query = query.ilike('clients.full_name', `%${search.replaceAll('%', '').replaceAll('_', '')}%`);
       return query;
@@ -275,6 +367,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         lastGiftOn: row.last_gift_on == null ? null : String(row.last_gift_on),
         daysSinceLastPurchase: row.days_since_last_purchase == null ? null : Number(row.days_since_last_purchase),
         workflowStatus: String(row.workflow_status),
+        benefitStatus: String(row.benefit_status),
       };
     });
   }
@@ -309,6 +402,10 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       memberPageSize={MEMBER_PAGE_SIZE}
       memberSearch={search}
       monitorSummary={monitorSummary}
+      activeAdvisors={activeAdvisors}
+      manualClientSearch={manualClientSearch}
+      manualClientSuggestions={manualClientSuggestions}
+      amendments={amendments}
     />
   );
 }

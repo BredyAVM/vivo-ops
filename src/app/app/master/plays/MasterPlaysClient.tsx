@@ -5,13 +5,17 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { ModulePreference } from '../../ModulePreference';
 import {
+  addManualPlayMemberAction,
+  amendPublishedPlayMessageAction,
   activatePlayAction,
   changePlayLifecycleAction,
   clonePlayAction,
   confirmPlayListAction,
   deleteDraftPlayAction,
+  excludePublishedPlayAdvisorAction,
   excludePlayClientAction,
   generatePlayListAction,
+  removePublishedPlayClientAction,
   testPlayDefinitionAction,
   type PlayActionResult,
   type PlayAnniversaryMode,
@@ -103,6 +107,33 @@ export type MasterPlayMember = {
   lastGiftOn: string | null;
   daysSinceLastPurchase: number | null;
   workflowStatus: string;
+  benefitStatus: string;
+};
+
+export type PlayAdvisorOption = {
+  id: string;
+  name: string;
+};
+
+export type ManualPlayClientSuggestion = {
+  clientId: number;
+  fullName: string;
+  phone: string | null;
+  primaryAdvisorId: string | null;
+  primaryAdvisorName: string | null;
+  currentWorkflowStatus: string | null;
+};
+
+export type PlayAmendment = {
+  id: number;
+  type: 'message_updated' | 'member_added' | 'member_removed' | 'advisor_excluded';
+  clientId: number | null;
+  clientName: string | null;
+  advisorId: string | null;
+  advisorName: string | null;
+  reason: string;
+  actorName: string;
+  createdAt: string;
 };
 
 export type MasterPlayMonitorSummary = {
@@ -143,6 +174,10 @@ type Props = {
   memberPageSize: number;
   memberSearch: string;
   monitorSummary: MasterPlayMonitorSummary | null;
+  activeAdvisors: PlayAdvisorOption[];
+  manualClientSearch: string;
+  manualClientSuggestions: ManualPlayClientSuggestion[];
+  amendments: PlayAmendment[];
 };
 
 type Notice = { tone: 'success' | 'error' | 'info'; text: string } | null;
@@ -176,6 +211,14 @@ const dateFormatter = new Intl.DateTimeFormat('es-VE', {
   day: '2-digit',
   month: 'short',
   year: 'numeric',
+  timeZone: 'America/Caracas',
+});
+
+const dateTimeFormatter = new Intl.DateTimeFormat('es-VE', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
   timeZone: 'America/Caracas',
 });
 
@@ -1068,6 +1111,184 @@ function PlayDefinitionForm({
   );
 }
 
+function PublishedPlayEditor({
+  play,
+  activeAdvisors,
+  playAdvisors,
+  manualClientSearch,
+  manualClientSuggestions,
+  amendments,
+  busy,
+  onAmendMessage,
+  onAddClient,
+  onExcludeAdvisor,
+}: {
+  play: MasterPlay;
+  activeAdvisors: PlayAdvisorOption[];
+  playAdvisors: Array<{ id: string; name: string; count: number }>;
+  manualClientSearch: string;
+  manualClientSuggestions: ManualPlayClientSuggestion[];
+  amendments: PlayAmendment[];
+  busy: boolean;
+  onAmendMessage: (input: { messageTemplate: string; advisorGuidance: string; reason: string }) => void;
+  onAddClient: (input: { clientId: number; advisorId: string; reason: string }) => void;
+  onExcludeAdvisor: (input: { advisorId: string; reason: string }) => void;
+}) {
+  const [messageTemplate, setMessageTemplate] = useState(play.messageTemplate ?? '');
+  const [advisorGuidance, setAdvisorGuidance] = useState(play.advisorGuidance ?? '');
+  const [messageReason, setMessageReason] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [selectedAdvisorId, setSelectedAdvisorId] = useState('');
+  const [clientReason, setClientReason] = useState('');
+  const [excludedAdvisorId, setExcludedAdvisorId] = useState('');
+  const [advisorReason, setAdvisorReason] = useState('');
+  const selectedClient = manualClientSuggestions.find((client) => client.clientId === selectedClientId) ?? null;
+  const amendmentLabels: Record<PlayAmendment['type'], string> = {
+    message_updated: 'Mensaje ajustado',
+    member_added: 'Cliente incluido',
+    member_removed: 'Cliente retirado',
+    advisor_excluded: 'Asesor retirado',
+  };
+
+  function chooseClient(client: ManualPlayClientSuggestion) {
+    setSelectedClientId(client.clientId);
+    const primaryIsActive = activeAdvisors.some((advisor) => advisor.id === client.primaryAdvisorId);
+    setSelectedAdvisorId(primaryIsActive ? client.primaryAdvisorId ?? '' : activeAdvisors[0]?.id ?? '');
+  }
+
+  return (
+    <details className="rounded-2xl border border-violet-400/20 bg-violet-400/[0.04]" open>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+        <div>
+          <div className="text-sm font-semibold text-violet-100">Editar publicación</div>
+          <div className="mt-0.5 text-[10px] text-violet-100/50">Cambios controlados, con motivo e historial. La definición y los costos originales no cambian.</div>
+        </div>
+        <span className="rounded-full border border-violet-300/20 px-2 py-1 text-[9px] text-violet-100/70">{amendments.length} movimientos recientes</span>
+      </summary>
+
+      <div className="grid gap-3 border-t border-violet-300/10 p-3 xl:grid-cols-2">
+        <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
+          <div className="text-xs font-semibold">Mensaje y pauta para el asesor</div>
+          <p className="mt-0.5 text-[9px] text-[#666675]">El texto nuevo se muestra de inmediato; la versión anterior queda en el historial.</p>
+          <div className="mt-2 space-y-2">
+            <Field label="Mensaje para copiar">
+              <textarea className={`${inputClass} min-h-28 resize-y py-2`} value={messageTemplate} onChange={(event) => setMessageTemplate(event.target.value)} maxLength={6000} />
+            </Field>
+            <Field label="Pauta interna">
+              <textarea className={`${inputClass} min-h-20 resize-y py-2`} value={advisorGuidance} onChange={(event) => setAdvisorGuidance(event.target.value)} maxLength={4000} />
+            </Field>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input className={inputClass} value={messageReason} onChange={(event) => setMessageReason(event.target.value)} maxLength={500} placeholder="Motivo del ajuste" />
+              <button
+                type="button"
+                className={buttonSecondary}
+                disabled={busy || messageReason.trim().length < 3}
+                onClick={() => onAmendMessage({ messageTemplate, advisorGuidance, reason: messageReason })}
+              >
+                Guardar texto
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
+          <div className="text-xs font-semibold">Incluir un cliente manualmente</div>
+          <p className="mt-0.5 text-[9px] text-[#666675]">Puede estar fuera de los filtros, pero no en otra jugada incompatible del mismo período.</p>
+          <form action="/app/master/plays" method="get" className="mt-2 flex gap-2">
+            <input type="hidden" name="play" value={play.id} />
+            <input name="addq" defaultValue={manualClientSearch} className={inputClass} placeholder="Nombre, teléfono o número" minLength={2} />
+            <button type="submit" className={buttonSecondary}>Buscar</button>
+          </form>
+          {manualClientSearch.length >= 2 ? (
+            <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+              {manualClientSuggestions.length === 0 ? (
+                <div className="rounded-lg border border-[#242433] px-2 py-3 text-center text-[10px] text-[#777785]">No encontramos clientes activos.</div>
+              ) : manualClientSuggestions.map((client) => {
+                const alreadyIncluded = client.currentWorkflowStatus != null && client.currentWorkflowStatus !== 'removed';
+                const selected = selectedClientId === client.clientId;
+                return (
+                  <button
+                    key={client.clientId}
+                    type="button"
+                    disabled={alreadyIncluded}
+                    onClick={() => chooseClient(client)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-2.5 py-2 text-left transition ${selected ? 'border-[#FEEF00]/60 bg-[#FEEF00]/[0.05]' : 'border-[#242433] hover:border-[#414150]'} disabled:cursor-not-allowed disabled:opacity-45`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[11px] font-semibold">{client.fullName}</span>
+                      <span className="block truncate text-[9px] text-[#666675]">#{client.clientId} · {client.phone || 'sin teléfono'} · {client.primaryAdvisorName || 'sin asesor actual'}</span>
+                    </span>
+                    <span className="shrink-0 text-[9px] text-[#8F8F9D]">{alreadyIncluded ? 'Ya está en la lista' : client.currentWorkflowStatus === 'removed' ? 'Reincorporar' : 'Seleccionar'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {selectedClient ? (
+            <div className="mt-2 grid gap-2 rounded-xl border border-[#343440] bg-[#121218] p-2 sm:grid-cols-[1fr_1fr_auto]">
+              <select className={inputClass} value={selectedAdvisorId} onChange={(event) => setSelectedAdvisorId(event.target.value)}>
+                <option value="">Selecciona asesor</option>
+                {activeAdvisors.map((advisor) => <option key={advisor.id} value={advisor.id}>{advisor.name}</option>)}
+              </select>
+              <input className={inputClass} value={clientReason} onChange={(event) => setClientReason(event.target.value)} maxLength={500} placeholder="Motivo de inclusión" />
+              <button
+                type="button"
+                className={buttonPrimary}
+                disabled={busy || !selectedAdvisorId || clientReason.trim().length < 3}
+                onClick={() => onAddClient({ clientId: selectedClient.clientId, advisorId: selectedAdvisorId, reason: clientReason })}
+              >
+                Incluir
+              </button>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
+          <div className="text-xs font-semibold">Retirar un asesor de esta publicación</div>
+          <p className="mt-0.5 text-[9px] text-[#666675]">Retira sus clientes pendientes en bloque. Los beneficios ya utilizados permanecen en el historial.</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <select className={inputClass} value={excludedAdvisorId} onChange={(event) => setExcludedAdvisorId(event.target.value)}>
+              <option value="">Selecciona asesor</option>
+              {playAdvisors.filter((advisor) => advisor.id).map((advisor) => <option key={advisor.id} value={advisor.id}>{advisor.name} · {advisor.count}</option>)}
+            </select>
+            <input className={inputClass} value={advisorReason} onChange={(event) => setAdvisorReason(event.target.value)} maxLength={500} placeholder="Motivo del retiro" />
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center rounded-xl border border-red-500/30 px-3 text-xs font-semibold text-red-200 hover:bg-red-500/10 disabled:opacity-45"
+              disabled={busy || !excludedAdvisorId || advisorReason.trim().length < 3}
+              onClick={() => {
+                if (!window.confirm('¿Retirar de esta jugada todos los clientes pendientes de este asesor?')) return;
+                onExcludeAdvisor({ advisorId: excludedAdvisorId, reason: advisorReason });
+              }}
+            >
+              Retirar
+            </button>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
+          <div className="text-xs font-semibold">Historial de cambios</div>
+          <div className="mt-2 max-h-40 divide-y divide-[#242433] overflow-y-auto">
+            {amendments.length === 0 ? (
+              <div className="py-5 text-center text-[10px] text-[#777785]">Esta publicación todavía no tiene ajustes.</div>
+            ) : amendments.map((amendment) => (
+              <div key={amendment.id} className="py-2 first:pt-0">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-[10px] font-semibold text-[#D5D5DD]">
+                    {amendmentLabels[amendment.type]}{amendment.clientName ? ` · ${amendment.clientName}` : amendment.advisorName ? ` · ${amendment.advisorName}` : ''}
+                  </span>
+                  <span className="shrink-0 text-[9px] text-[#666675]">{dateTimeFormatter.format(new Date(amendment.createdAt))}</span>
+                </div>
+                <div className="mt-0.5 truncate text-[9px] text-[#777785]">{amendment.reason} · {amendment.actorName}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </details>
+  );
+}
+
 function MemberList({
   play,
   members,
@@ -1076,7 +1297,7 @@ function MemberList({
   pageSize,
   search,
   busy,
-  onExclude,
+  onRemove,
 }: {
   play: MasterPlay;
   members: MasterPlayMember[];
@@ -1085,7 +1306,7 @@ function MemberList({
   pageSize: number;
   search: string;
   busy: boolean;
-  onExclude: (clientId: number) => void;
+  onRemove: (member: MasterPlayMember) => void;
 }) {
   const totalPages = Math.max(1, Math.ceil(memberCount / pageSize));
   return (
@@ -1123,18 +1344,22 @@ function MemberList({
               <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{moneyFormatter.format(member.netRevenueUsd)}</div>
               <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.daysSinceLastPurchase == null ? '—' : `${member.daysSinceLastPurchase} d`}</div>
               <div className="hidden text-right text-[10px] tabular-nums text-[#D5D5DD] lg:block">{dateLabel(member.lastGiftOn)}</div>
-              {play.status === 'draft' ? (
+              {play.status === 'draft' || (['frozen', 'active', 'paused'].includes(play.status) && member.benefitStatus !== 'redeemed') ? (
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => onExclude(member.clientId)}
-                  title="Retirar de esta jugada"
+                  onClick={() => onRemove(member)}
+                  title={play.status === 'draft' ? 'Retirar de esta prueba' : 'Retirar de la publicación'}
                   aria-label={`Retirar a ${member.clientName} de esta jugada`}
                   className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-500/20 text-sm text-red-300 transition hover:bg-red-500/10 disabled:opacity-40"
                 >
                   ×
                 </button>
-              ) : <span />}
+              ) : (
+                <span className="text-center text-[10px] text-emerald-300" title={member.benefitStatus === 'redeemed' ? 'Beneficio ya utilizado: se conserva el historial' : undefined}>
+                  {member.benefitStatus === 'redeemed' ? '✓' : ''}
+                </span>
+              )}
               <div className="col-span-2 flex flex-wrap gap-1 text-[9px] text-[#8F8F9D] lg:hidden">
                 <span>{member.advisorName}</span><span>·</span><span>{member.purchaseCount} cierres</span><span>·</span><span>{moneyFormatter.format(member.netRevenueUsd)}</span><span>·</span><span>{member.daysSinceLastPurchase ?? '—'} d</span><span>·</span><span>obsequio {dateLabel(member.lastGiftOn)}</span>
               </div>
@@ -1233,6 +1458,10 @@ export default function MasterPlaysClient({
   memberPageSize,
   memberSearch,
   monitorSummary,
+  activeAdvisors,
+  manualClientSearch,
+  manualClientSuggestions,
+  amendments,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -1299,6 +1528,21 @@ export default function MasterPlaysClient({
   function changeLifecycle(playId: number, command: 'pause' | 'resume' | 'close') {
     if (command === 'close' && !window.confirm('¿Cerrar esta jugada? Ya no aparecerá como trabajo activo para los asesores.')) return;
     run(() => changePlayLifecycleAction(playId, command));
+  }
+
+  function removeMember(play: MasterPlay, member: MasterPlayMember) {
+    if (play.status === 'draft') {
+      run(() => excludePlayClientAction(play.id, member.clientId));
+      return;
+    }
+
+    const reason = window.prompt(`¿Por qué deseas retirar a ${member.clientName} de esta publicación?`);
+    if (reason == null) return;
+    if (reason.trim().length < 3) {
+      setNotice({ tone: 'error', text: 'Escribe un motivo de al menos 3 caracteres.' });
+      return;
+    }
+    run(() => removePublishedPlayClientAction(play.id, member.clientId, reason));
   }
 
   return (
@@ -1484,6 +1728,22 @@ export default function MasterPlaysClient({
                 </section>
               ) : null}
 
+              {['frozen', 'active', 'paused'].includes(selectedPlay.status) ? (
+                <PublishedPlayEditor
+                  key={`published-editor-${selectedPlay.id}`}
+                  play={selectedPlay}
+                  activeAdvisors={activeAdvisors}
+                  playAdvisors={advisors}
+                  manualClientSearch={manualClientSearch}
+                  manualClientSuggestions={manualClientSuggestions}
+                  amendments={amendments}
+                  busy={pending}
+                  onAmendMessage={(input) => run(() => amendPublishedPlayMessageAction({ playId: selectedPlay.id, ...input }))}
+                  onAddClient={(input) => run(() => addManualPlayMemberAction({ playId: selectedPlay.id, ...input }))}
+                  onExcludeAdvisor={(input) => run(() => excludePublishedPlayAdvisorAction(selectedPlay.id, input.advisorId, input.reason))}
+                />
+              ) : null}
+
               {monitorSummary && ['active', 'paused', 'closed'].includes(selectedPlay.status) ? (
                 <PlayMonitor summary={monitorSummary} />
               ) : null}
@@ -1505,7 +1765,7 @@ export default function MasterPlaysClient({
                 pageSize={memberPageSize}
                 search={memberSearch}
                 busy={pending}
-                onExclude={(clientId) => run(() => excludePlayClientAction(selectedPlay.id, clientId))}
+                onRemove={(member) => removeMember(selectedPlay, member)}
               />
             </>
           ) : (

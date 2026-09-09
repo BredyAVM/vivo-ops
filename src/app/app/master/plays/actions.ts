@@ -74,6 +74,20 @@ export type PlayActionResult = {
 
 export type PlayLifecycleCommand = 'pause' | 'resume' | 'close';
 
+export type AmendPublishedPlayMessageInput = {
+  playId: number;
+  messageTemplate?: string;
+  advisorGuidance?: string;
+  reason: string;
+};
+
+export type AddManualPlayMemberInput = {
+  playId: number;
+  clientId: number;
+  advisorId: string;
+  reason: string;
+};
+
 function cleanText(value: unknown, maxLength: number) {
   return String(value ?? '').trim().slice(0, maxLength);
 }
@@ -584,6 +598,135 @@ export async function excludePlayClientAction(playIdInput: number, clientIdInput
 
     revalidatePath('/app/master/plays');
     return { ok: true, playId, message: 'Cliente retirado. No volverá al regenerar esta lista.' };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+export async function amendPublishedPlayMessageAction(
+  input: AmendPublishedPlayMessageInput,
+): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireMasterOrAdminContext();
+    const playId = Math.trunc(finiteNumber(input.playId, 0));
+    const reason = cleanText(input.reason, 500);
+    if (playId <= 0) throw new Error('La jugada no es válida.');
+    if (reason.length < 3) throw new Error('Explica brevemente el motivo del cambio.');
+
+    const { error } = await ctx.supabase.rpc('crm_amend_play_message_v1', {
+      p_play_id: playId,
+      p_message_template: cleanText(input.messageTemplate, 6000) || null,
+      p_advisor_guidance: cleanText(input.advisorGuidance, 4000) || null,
+      p_reason: reason,
+    });
+    if (error) throw new Error(error.message);
+
+    revalidatePath('/app/master/plays');
+    revalidatePath('/app/advisor/plays');
+    return { ok: true, playId, message: 'Mensaje actualizado. La versión anterior quedó registrada.' };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+export async function addManualPlayMemberAction(
+  input: AddManualPlayMemberInput,
+): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireMasterOrAdminContext();
+    const playId = Math.trunc(finiteNumber(input.playId, 0));
+    const clientId = Math.trunc(finiteNumber(input.clientId, 0));
+    const advisorId = cleanText(input.advisorId, 80);
+    const reason = cleanText(input.reason, 500);
+    if (playId <= 0 || clientId <= 0) throw new Error('La jugada o el cliente no son válidos.');
+    if (!advisorId) throw new Error('Selecciona el asesor que recibirá al cliente.');
+    if (reason.length < 3) throw new Error('Explica brevemente por qué deseas incluirlo.');
+
+    const { data, error } = await ctx.supabase.rpc('crm_add_manual_play_member_v1', {
+      p_play_id: playId,
+      p_client_id: clientId,
+      p_advisor_id: advisorId,
+      p_reason: reason,
+    });
+    if (error) throw new Error(error.message);
+    const result = data && typeof data === 'object' && !Array.isArray(data)
+      ? data as Record<string, unknown>
+      : {};
+
+    revalidatePath('/app/master/plays');
+    revalidatePath('/app/advisor/plays');
+    return {
+      ok: true,
+      playId,
+      message: result.restored
+        ? 'Cliente reincorporado y asignado. El cambio quedó registrado.'
+        : 'Cliente incluido manualmente. Ya forma parte de la lista y quedó registrado.',
+    };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+export async function removePublishedPlayClientAction(
+  playIdInput: number,
+  clientIdInput: number,
+  reasonInput: string,
+): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireMasterOrAdminContext();
+    const playId = Math.trunc(finiteNumber(playIdInput, 0));
+    const clientId = Math.trunc(finiteNumber(clientIdInput, 0));
+    const reason = cleanText(reasonInput, 500);
+    if (playId <= 0 || clientId <= 0) throw new Error('La jugada o el cliente no son válidos.');
+    if (reason.length < 3) throw new Error('Explica brevemente por qué deseas retirarlo.');
+
+    const { error } = await ctx.supabase.rpc('crm_remove_published_play_member_v1', {
+      p_play_id: playId,
+      p_client_id: clientId,
+      p_reason: reason,
+    });
+    if (error) throw new Error(error.message);
+
+    revalidatePath('/app/master/plays');
+    revalidatePath('/app/advisor/plays');
+    return { ok: true, playId, message: 'Cliente retirado. Conservamos sus contactos previos y la razón del cambio.' };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+export async function excludePublishedPlayAdvisorAction(
+  playIdInput: number,
+  advisorIdInput: string,
+  reasonInput: string,
+): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireMasterOrAdminContext();
+    const playId = Math.trunc(finiteNumber(playIdInput, 0));
+    const advisorId = cleanText(advisorIdInput, 80);
+    const reason = cleanText(reasonInput, 500);
+    if (playId <= 0 || !advisorId) throw new Error('La jugada o el asesor no son válidos.');
+    if (reason.length < 3) throw new Error('Explica brevemente por qué deseas retirar al asesor.');
+
+    const { data, error } = await ctx.supabase.rpc('crm_exclude_play_advisor_v1', {
+      p_play_id: playId,
+      p_advisor_id: advisorId,
+      p_reason: reason,
+    });
+    if (error) throw new Error(error.message);
+    const result = data && typeof data === 'object' && !Array.isArray(data)
+      ? data as Record<string, unknown>
+      : {};
+    const removedCount = Math.max(0, Math.trunc(finiteNumber(result.removed_client_count, 0)));
+    const preservedCount = Math.max(0, Math.trunc(finiteNumber(result.preserved_redeemed_client_count, 0)));
+
+    revalidatePath('/app/master/plays');
+    revalidatePath('/app/advisor/plays');
+    return {
+      ok: true,
+      playId,
+      message: `${removedCount.toLocaleString('es-VE')} clientes retirados del asesor.${preservedCount > 0 ? ` ${preservedCount.toLocaleString('es-VE')} se conservaron porque ya usaron el beneficio.` : ''}`,
+    };
   } catch (error) {
     return actionError(error);
   }
