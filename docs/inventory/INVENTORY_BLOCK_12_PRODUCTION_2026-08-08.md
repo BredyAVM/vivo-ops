@@ -12,8 +12,10 @@ recetas ni saldos existentes.
   transacción y crea su lote de producción.
 - Una receta con tiempo de preparación crea un `planned_production`; durante el
   enfriamiento la salida no forma parte del stock disponible.
-- Al llegar la hora disponible, Cocina o Administración declara el rendimiento
-  físico real. Solo entonces se crea el lote y se acredita la salida.
+- Cocina o Administración declara el rendimiento cuando confirma que el producto
+  está físicamente listo. Solo entonces se crea el lote y se acredita la salida.
+- El tiempo configurado es una estimación de preparación y enfriamiento. Puede
+  terminarse antes; la hora estimada y la terminación anticipada quedan auditadas.
 - Una diferencia entre el rendimiento esperado y el real queda trazada y
   visible. No se corrige silenciosamente.
 - Una producción fallida no inventa salida ni restaura automáticamente los
@@ -57,9 +59,14 @@ siendo no bloqueante y el Master conserva la decisión final.
 - pruebas completas dentro de una transacción seguida de `ROLLBACK`;
 - preparación inmediata con rendimiento físico variable;
 - preparación diferida sin stock durante enfriamiento;
-- rechazo de finalización anticipada;
+- finalización anticipada autorizada y auditada;
 - finalización con diferencia de rendimiento;
 - producción fallida sin salida ficticia;
 - idempotencia de inicio y finalización;
 - permisos de Administración, Cocina, Master y Asesor;
 - inventario y órdenes productivas sin mutaciones por la instalación.
+
+Actualización del 2026-09-09: la migración
+`20260909191418_inventory_allow_early_production_completion_v1.sql` convierte el
+tiempo configurado en estimación y permite la acreditación anticipada confirmada,
+con auditoría dentro del lote y del flujo ya existentes.

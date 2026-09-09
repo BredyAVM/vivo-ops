@@ -445,12 +445,14 @@ Ejemplo: salsa preparada desde bases disponibles.
 
 ### 6.3 Preparación programada
 
-Una receta con horas de anticipación solo aporta capacidad futura. Los insumos no
-equivalen a producto disponible ahora.
+Una receta con horas de anticipación aporta capacidad futura mientras Cocina no
+declare que el resultado está físicamente listo. Los insumos no equivalen por sí
+solos a producto disponible ahora.
 
-Ejemplo: prefritos que solo quedan disponibles después de completar la
-preparación, el enfriamiento y el empacado. El lapso operativo inicial es de
-aproximadamente cuatro horas.
+Ejemplo: prefritos que quedan disponibles cuando Cocina confirma que completaron
+la preparación, el enfriamiento y el empacado. El lapso operativo inicial de
+aproximadamente cuatro horas es una estimación para planificar, no un bloqueo de
+reloj.
 
 ### 6.4 Venta de productos crudos
 
@@ -552,8 +554,14 @@ Tiempo estándar inicial:
 
 El tiempo incluye preparación, enfriamiento y empacado, y aplica a cualquier
 prefrito, incluidos los tequeños regulares bajo demanda. Un pedido requerido antes
-de completar esas cuatro horas puede enviarse al Master, pero se muestra como
-dependiente de producción y no como existencia inmediata.
+de esas cuatro horas puede enviarse al Master y se muestra como dependiente de
+producción mientras Cocina no confirme la terminación. Si el producto está listo
+antes, Cocina puede terminar la preparación y acreditar inmediatamente el
+rendimiento real; el sistema conserva que fue una terminación anticipada.
+
+Esta precisión operativa se aplica mediante la migración
+`20260909191418_inventory_allow_early_production_completion_v1.sql` y no cambia
+la duración configurada de las recetas.
 
 Vida útil operativa inicial:
 

@@ -237,6 +237,13 @@ export default function InventoryProductionWorkspaceClient({
       actualOutputUnits: String(batch.expected_output_units),
       notes: '',
     };
+    const isBeforeEstimatedTime = new Date(batch.available_at).getTime() > Date.now();
+    if (
+      isBeforeEstimatedTime
+      && !window.confirm(
+        'El tiempo estimado todavía no se cumple. ¿Confirmas que la preparación ya está fría, empacada y físicamente lista para acreditar al stock?',
+      )
+    ) return;
     runAction(
       `complete-${batch.id}`,
       `${batch.output_name} se agregó al stock con el rendimiento declarado.`,
@@ -273,8 +280,8 @@ export default function InventoryProductionWorkspaceClient({
           <div>
             <h2 className="text-xl font-semibold">Producción y transformaciones</h2>
             <p className="mt-1 max-w-3xl text-sm text-[#9696A3]">
-              Las recetas inmediatas entran al stock al registrarse. Los prefritos permanecen en
-              preparación hasta completar su tiempo y declarar el rendimiento físico real.
+              Las recetas inmediatas entran al stock al registrarse. En prefritos, las cuatro horas
+              son una referencia: Cocina acredita el rendimiento cuando confirma que está físicamente listo.
             </p>
           </div>
           <div className="rounded-full border border-[#2B2B38] px-3 py-1 text-xs text-[#9D9DA9]">
@@ -348,11 +355,11 @@ export default function InventoryProductionWorkspaceClient({
                       </div>
                     </div>
                     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${batch.is_ready ? 'bg-[#3A2F0B] text-[#FBBF24]' : 'bg-[#102A36] text-[#7DD3FC]'}`}>
-                      {batch.is_ready ? 'Lista para cerrar' : 'En preparación'}
+                      {batch.is_ready ? 'Tiempo estimado cumplido' : 'Tiempo estimado pendiente'}
                     </span>
                   </div>
                   <div className="mt-3 text-sm text-[#C4C4CE]">
-                    Disponible desde {formatDate(batch.available_at)}
+                    Hora estimada: {formatDate(batch.available_at)}
                   </div>
                   {workspace.permissions.can_complete ? (
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -380,7 +387,7 @@ export default function InventoryProductionWorkspaceClient({
                       <div className="flex flex-wrap gap-2 sm:col-span-2">
                         <button
                           type="button"
-                          disabled={!batch.is_ready || isPending}
+                          disabled={isPending}
                           onClick={() => completeBatch(batch)}
                           className={`${PRIMARY_BUTTON_CLASS} disabled:cursor-not-allowed disabled:opacity-40`}
                         >
@@ -411,8 +418,8 @@ export default function InventoryProductionWorkspaceClient({
       </section>
 
       <RecipeSection
-        title="Prefritos y preparaciones con espera"
-        description="Consumen crudo al comenzar y entran al stock después del tiempo configurado."
+        title="Prefritos y preparaciones con tiempo estimado"
+        description="Consumen crudo al comenzar. Cocina los acredita cuando confirma que están listos; el tiempo configurado sirve como referencia."
         recipes={scheduledRecipes}
         recipeDrafts={recipeDrafts}
         permissions={workspace.permissions}
