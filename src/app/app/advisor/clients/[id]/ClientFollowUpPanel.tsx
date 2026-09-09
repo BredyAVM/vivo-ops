@@ -14,39 +14,49 @@ type ClientFollowUpPanelProps = {
   contactAttemptCount: number;
 };
 
-const actionOptions: Array<{ value: PlayFollowUpAction; label: string }> = [
-  { value: 'contact', label: 'Jugada lanzada' },
-  { value: 'responded', label: 'Respondió' },
-  { value: 'unreachable', label: 'No respondió' },
-  { value: 'note', label: 'Agregar solo una nota' },
+const quickActions: Array<{
+  value: Extract<PlayFollowUpAction, 'contact' | 'responded' | 'unreachable'>;
+  label: string;
+  activeClassName: string;
+}> = [
+  { value: 'contact', label: 'Jugada lanzada', activeClassName: 'border-[#3C8FD9] bg-[#102338] text-[#8CC9FF]' },
+  { value: 'responded', label: 'Respondió', activeClassName: 'border-[#4A3675] bg-[#241A3A] text-[#C9B1FF]' },
+  { value: 'unreachable', label: 'No respondió', activeClassName: 'border-[#68401B] bg-[#2F1E0D] text-[#F6B97D]' },
 ];
 
 export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
   const router = useRouter();
-  const [action, setAction] = useState<PlayFollowUpAction>('contact');
   const [note, setNote] = useState('');
+  const [followUpAt, setFollowUpAt] = useState('');
+  const [pendingAction, setPendingAction] = useState<PlayFollowUpAction | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
-  function submitFollowUp() {
+  function submitFollowUp(action: PlayFollowUpAction) {
     setMessage(null);
+    setPendingAction(action);
 
     startTransition(async () => {
       const result = await recordClientPlayFollowUpAction({
         playMemberId: props.playMemberId,
         action,
         note,
-        followUpAt: null,
+        followUpAt: action === 'follow_up' && followUpAt
+          ? new Date(followUpAt).toISOString()
+          : null,
         channel: action === 'contact' || action === 'unreachable' ? 'whatsapp' : null,
       });
 
       if (!result.ok) {
         setMessage({ tone: 'danger', text: result.message });
+        setPendingAction(null);
         return;
       }
 
       setMessage({ tone: 'success', text: result.message });
       setNote('');
+      if (action === 'follow_up') setFollowUpAt('');
+      setPendingAction(null);
       router.refresh();
     });
   }
@@ -70,21 +80,25 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
         </div>
       ) : (
         <>
-          <label className="block text-xs text-[#AAB2C5]">
-            ¿Qué ocurrió?
-            <select
-              value={action}
-              onChange={(event) => setAction(event.target.value as PlayFollowUpAction)}
-              className="mt-1.5 h-11 w-full rounded-[13px] border border-[#2A3040] bg-[#0D1017] px-3 text-sm text-[#F5F7FB]"
-            >
-              {actionOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
+          <fieldset>
+            <legend className="text-xs text-[#AAB2C5]">Registro rápido</legend>
+            <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+              {quickActions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => submitFollowUp(option.value)}
+                  disabled={pending}
+                  className={`inline-flex min-h-11 items-center justify-center rounded-[12px] border px-2 text-center text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${option.activeClassName}`}
+                >
+                  {pending && pendingAction === option.value ? 'Guardando…' : option.label}
+                </button>
               ))}
-            </select>
-          </label>
+            </div>
+          </fieldset>
 
           <label className="block text-xs text-[#AAB2C5]">
-            Nota {action === 'note' ? '(requerida)' : '(opcional)'}
+            Nota opcional
             <textarea
               value={note}
               onChange={(event) => setNote(event.target.value.slice(0, 2000))}
@@ -93,6 +107,40 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
               className="mt-1.5 w-full resize-y rounded-[13px] border border-[#2A3040] bg-[#0D1017] px-3 py-2.5 text-sm leading-5 text-[#F5F7FB] outline-none placeholder:text-[#646D80] focus:border-[#F0D000]"
             />
           </label>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => submitFollowUp('note')}
+              disabled={pending || !note.trim()}
+              className="inline-flex h-10 flex-1 items-center justify-center rounded-[12px] border border-[#2A3040] px-3 text-xs font-semibold text-[#D4D9E4] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {pending && pendingAction === 'note' ? 'Guardando…' : 'Guardar nota'}
+            </button>
+          </div>
+
+          <details className="rounded-[13px] border border-[#2A3040] bg-[#0D1017] px-3 py-2.5">
+            <summary className="cursor-pointer text-xs font-medium text-[#AAB2C5]">Programar próximo seguimiento</summary>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <label className="min-w-0 flex-1 text-[10px] text-[#8B93A7]">
+                Fecha y hora
+                <input
+                  type="datetime-local"
+                  value={followUpAt}
+                  onChange={(event) => setFollowUpAt(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-[11px] border border-[#2A3040] bg-[#12151D] px-2.5 text-xs text-[#F5F7FB]"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => submitFollowUp('follow_up')}
+                disabled={pending || !followUpAt}
+                className="mt-auto inline-flex h-10 items-center justify-center rounded-[11px] border border-[#564511] bg-[#2A2209] px-3 text-xs font-semibold text-[#F7DA66] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {pending && pendingAction === 'follow_up' ? 'Guardando…' : 'Programar'}
+              </button>
+            </div>
+          </details>
 
           {message ? (
             <div
@@ -108,14 +156,6 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={submitFollowUp}
-            disabled={pending || (action === 'note' && !note.trim())}
-            className="inline-flex h-11 w-full items-center justify-center rounded-[13px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {pending ? 'Guardando…' : 'Guardar resultado'}
-          </button>
         </>
       )}
     </div>

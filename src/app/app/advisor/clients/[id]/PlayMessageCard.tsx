@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { renderPlayMessage } from '@/lib/crm/play-message';
 
 type Props = {
   guidance: string | null;
@@ -12,17 +13,9 @@ type Props = {
   whatsappBaseHref: string | null;
 };
 
-function renderMessage(template: string, values: Omit<Props, 'guidance' | 'template' | 'whatsappBaseHref'>) {
-  return template
-    .replaceAll('{nombre}', values.clientName)
-    .replaceAll('{asesor}', values.advisorName)
-    .replaceAll('{beneficio}', values.benefitLabel)
-    .replaceAll('{vigencia}', values.validityLabel);
-}
-
 export default function PlayMessageCard(props: Props) {
   const [copied, setCopied] = useState(false);
-  const message = useMemo(() => renderMessage(props.template, {
+  const message = useMemo(() => renderPlayMessage(props.template, {
     clientName: props.clientName,
     advisorName: props.advisorName,
     benefitLabel: props.benefitLabel,
