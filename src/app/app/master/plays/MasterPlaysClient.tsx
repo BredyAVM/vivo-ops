@@ -121,6 +121,15 @@ export type MasterPlayMonitorSummary = {
   companyCostUsd: number;
   customerPaidDifferenceUsd: number;
   directOrderRevenueUsd: number;
+  respondedWithoutRedemptionMembers: number;
+  postContactPurchaseMembers: number;
+  cadenceImprovedMembers: number;
+  comparableCadenceMembers: number;
+  cadenceImprovementRatePct: number;
+  evaluationPendingMembers: number;
+  postContactRevenueUsd: number;
+  comparableBaselineCadenceDays: number;
+  comparablePostCadenceDays: number;
 };
 
 type Props = {
@@ -1173,8 +1182,40 @@ function PlayMonitor({ summary }: { summary: MasterPlayMonitorSummary }) {
         <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2"><div className="text-[9px] text-emerald-100/50">Ventas directas</div><div className="mt-0.5 text-sm font-semibold text-emerald-100">{moneyFormatter.format(summary.directOrderRevenueUsd)}</div></div>
         <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] px-3 py-2"><div className="text-[9px] text-cyan-100/50">Crédito entregado</div><div className="mt-0.5 text-sm font-semibold text-cyan-100">{moneyFormatter.format(summary.benefitCreditUsd)}</div></div>
         <div className="rounded-xl border border-blue-400/15 bg-blue-400/[0.04] px-3 py-2"><div className="text-[9px] text-blue-100/50">Inversión empresa</div><div className="mt-0.5 text-sm font-semibold text-blue-100">{moneyFormatter.format(summary.companyCostUsd)}</div></div>
-        <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.04] px-3 py-2"><div className="text-[9px] text-amber-100/50">Cargo asesores</div><div className="mt-0.5 text-sm font-semibold text-amber-100">{moneyFormatter.format(summary.advisorChargeUsd)}</div></div>
+        <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.04] px-3 py-2"><div className="text-[9px] text-amber-100/50">Cargo asesores · comisión</div><div className="mt-0.5 text-sm font-semibold text-amber-100">{moneyFormatter.format(summary.advisorChargeUsd)}</div></div>
         <div className="rounded-xl border border-violet-400/15 bg-violet-400/[0.04] px-3 py-2"><div className="text-[9px] text-violet-100/50">Diferencias pagadas</div><div className="mt-0.5 text-sm font-semibold text-violet-100">{moneyFormatter.format(summary.customerPaidDifferenceUsd)}</div></div>
+      </div>
+      <div className="mt-4 border-t border-[#242433] pt-3">
+        <div className="mb-2">
+          <h3 className="text-xs font-semibold text-[#D6D6DF]">Efecto posterior</h3>
+          <p className="mt-0.5 text-[9px] text-[#666675]">Solo observa clientes que respondieron y no usaron el beneficio. No se contabiliza como aplicación directa.</p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
+            <div className="text-[9px] text-[#777785]">Respondieron sin aplicarlo</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums">{summary.respondedWithoutRedemptionMembers.toLocaleString('es-VE')}</div>
+          </div>
+          <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2.5">
+            <div className="text-[9px] text-emerald-100/50">Compraron después</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums text-emerald-100">{summary.postContactPurchaseMembers.toLocaleString('es-VE')}</div>
+            <div className="text-[9px] text-emerald-100/40">{moneyFormatter.format(summary.postContactRevenueUsd)} posteriores</div>
+          </div>
+          <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] px-3 py-2.5">
+            <div className="text-[9px] text-cyan-100/50">Mejoraron su ritmo</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums text-cyan-100">{summary.cadenceImprovedMembers.toLocaleString('es-VE')}</div>
+            <div className="text-[9px] text-cyan-100/40">{summary.cadenceImprovementRatePct.toFixed(1)}% de {summary.comparableCadenceMembers.toLocaleString('es-VE')} comparables</div>
+          </div>
+          <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
+            <div className="text-[9px] text-[#777785]">Aún en observación</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums">{summary.evaluationPendingMembers.toLocaleString('es-VE')}</div>
+            <div className="text-[9px] text-[#666675]">Respondieron, sin compra posterior todavía</div>
+          </div>
+        </div>
+        {summary.comparableCadenceMembers > 0 ? (
+          <div className="mt-2 text-[9px] text-[#777785]">
+            Ritmo comparable: {summary.comparableBaselineCadenceDays.toFixed(1)} días antes · {summary.comparablePostCadenceDays.toFixed(1)} días después.
+          </div>
+        ) : null}
       </div>
       {summary.expiredMembers > 0 ? <div className="mt-2 text-[9px] text-[#777785]">{summary.expiredMembers.toLocaleString('es-VE')} beneficios vencieron sin utilizarse.</div> : null}
     </section>

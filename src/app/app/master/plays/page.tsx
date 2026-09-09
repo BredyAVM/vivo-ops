@@ -191,7 +191,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
 
   if (selectedPlay && !createMode) {
     if (['active', 'paused', 'closed'].includes(selectedPlay.status)) {
-      const { data: monitorData, error: monitorError } = await ctx.supabase.rpc('crm_get_play_monitor_summary_v1', {
+      const { data: monitorData, error: monitorError } = await ctx.supabase.rpc('crm_get_play_monitor_summary_v2', {
         p_play_id: selectedPlay.id,
       });
       if (monitorError) throw new Error(monitorError.message);
@@ -214,6 +214,15 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         companyCostUsd: numberValue(monitor.company_cost_usd),
         customerPaidDifferenceUsd: numberValue(monitor.customer_paid_difference_usd),
         directOrderRevenueUsd: numberValue(monitor.direct_order_revenue_usd),
+        respondedWithoutRedemptionMembers: numberValue(monitor.responded_without_redemption_members),
+        postContactPurchaseMembers: numberValue(monitor.post_contact_purchase_members),
+        cadenceImprovedMembers: numberValue(monitor.cadence_improved_members),
+        comparableCadenceMembers: numberValue(monitor.comparable_cadence_members),
+        cadenceImprovementRatePct: numberValue(monitor.cadence_improvement_rate_pct),
+        evaluationPendingMembers: numberValue(monitor.evaluation_pending_members),
+        postContactRevenueUsd: numberValue(monitor.post_contact_revenue_usd),
+        comparableBaselineCadenceDays: numberValue(monitor.comparable_baseline_cadence_days),
+        comparablePostCadenceDays: numberValue(monitor.comparable_post_cadence_days),
       };
     }
 
