@@ -70,7 +70,7 @@ export default function AdminNavigation({ variant }: AdminNavigationProps) {
             prefetch={item.prefetch}
             aria-current={active ? 'page' : undefined}
             className={[
-              'group flex min-h-14 items-center gap-3 rounded-2xl border px-3 py-2.5 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
+              'group flex min-h-11 items-center gap-2.5 rounded-xl border px-2.5 py-2 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
               active
                 ? 'border-[#FEEF00]/35 bg-[#FEEF00]/10 text-white'
                 : 'border-transparent text-[#C8C8D1] hover:border-[#2D2D3B] hover:bg-[#17171F] hover:text-white',
@@ -79,7 +79,7 @@ export default function AdminNavigation({ variant }: AdminNavigationProps) {
             <span
               aria-hidden="true"
               className={[
-                'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-[10px] font-black tracking-tight',
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-[9px] font-black tracking-tight',
                 active
                   ? 'border-[#FEEF00]/50 bg-[#FEEF00] text-[#0B0B0D]'
                   : 'border-[#333342] bg-[#181820] text-[#FEEF00] group-hover:border-[#4A4A5E]',
@@ -87,10 +87,8 @@ export default function AdminNavigation({ variant }: AdminNavigationProps) {
             >
               {item.marker}
             </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold">{item.label}</span>
-              <span className="mt-0.5 block truncate text-[11px] text-[#8A8A96]">{item.description}</span>
-            </span>
+            <span className="min-w-0 truncate text-sm font-semibold">{item.label}</span>
+            <span className="sr-only">{item.description}</span>
           </Link>
         );
       })}

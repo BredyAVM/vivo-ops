@@ -54,3 +54,20 @@ test('does not prefetch the heavy operational centers from the new shell', () =>
     assert.match(link, /prefetch: false/);
   }
 });
+
+test('keeps the Admin home KPI-first and leaves the detailed dashboard on its own route', () => {
+  const page = read('src/app/app/admin/page.tsx');
+  const executiveDashboard = read('src/app/app/admin/_components/ExecutiveDashboard.tsx');
+  const executiveData = read('src/lib/admin-finance/executive-data.ts');
+
+  assert.match(page, /<ExecutiveDashboard/);
+  assert.doesNotMatch(page, /<FinancialDashboard/);
+  assert.doesNotMatch(executiveDashboard, /Radiografía financiera del negocio/);
+  assert.match(executiveDashboard, /Facturado hoy/);
+  assert.match(executiveDashboard, /Cierres hoy/);
+  assert.match(executiveDashboard, /Cubierto hoy/);
+  assert.match(executiveDashboard, /Por cobrar hoy/);
+  assert.match(executiveData, /from\('order_events'\)/);
+  assert.match(executiveData, /\.eq\('event', 'delivered'\)/);
+  assert.match(executiveData, /get_orders_financial_state/);
+});

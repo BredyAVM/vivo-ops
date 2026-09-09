@@ -306,3 +306,25 @@ El diccionario queda listo para implementación cuando:
 6. los casos de `ADMIN_V2_FINANCIAL_REFERENCE_CASES_2026-09-08.md` forman parte
    de la certificación;
 7. los indicadores `Q4_blocked` no se sustituyen por estimaciones silenciosas.
+
+## 11. Contrato de la portada ejecutiva
+
+La portada compacta de Administración usa los siguientes significados aunque
+las etiquetas visibles se abrevien para facilitar la lectura:
+
+- `Facturado hoy/semana` corresponde a `C04`: total contractual de órdenes
+  entregadas, agrupado por el evento real `delivered`, no por la fecha de pago;
+- `Cierres hoy/semana` corresponde a `C01` y excluye órdenes sin valor;
+- `Cubierto hoy/semana` corresponde a la cobertura actual `C07` de esa misma
+  cohorte. Puede incluir anticipos o fondos aplicados anteriormente y no
+  significa caja ingresada hoy;
+- `Por cobrar hoy/semana` corresponde a `C08` para la misma cohorte y el mismo
+  corte, por lo que no se sustituye con reportes de pago pendientes;
+- `Deliveries` es un indicador operativo separado: usa la fecha programada y
+  distingue completados de pendientes sin incorporarlos a facturación hasta su
+  evento de entrega.
+
+La línea de referencia usa el promedio de las cuatro semanas completas
+anteriores. Para el día en curso compara hasta la misma hora de Caracas; los
+días ya terminados usan su cierre completo. No se etiqueta como `Plan` hasta
+que exista una meta global certificada para todo el negocio.
