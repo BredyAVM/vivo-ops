@@ -1161,7 +1161,7 @@ function PublishedPlayEditor({
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
         <div>
           <div className="text-sm font-semibold text-violet-100">Editar publicación</div>
-          <div className="mt-0.5 text-[10px] text-violet-100/50">Cambios controlados, con motivo e historial. La definición y los costos originales no cambian.</div>
+          <div className="mt-0.5 text-[10px] text-violet-100/50">Aquí corriges mensaje, clientes y asesores. Para cambiar fechas, condiciones o beneficios, usa “Copiar como nueva”.</div>
         </div>
         <span className="rounded-full border border-violet-300/20 px-2 py-1 text-[9px] text-violet-100/70">{amendments.length} movimientos recientes</span>
       </summary>
@@ -1178,11 +1178,11 @@ function PublishedPlayEditor({
               <textarea className={`${inputClass} min-h-20 resize-y py-2`} value={advisorGuidance} onChange={(event) => setAdvisorGuidance(event.target.value)} maxLength={4000} />
             </Field>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <input className={inputClass} value={messageReason} onChange={(event) => setMessageReason(event.target.value)} maxLength={500} placeholder="Motivo del ajuste" />
+              <input className={inputClass} value={messageReason} onChange={(event) => setMessageReason(event.target.value)} maxLength={500} placeholder="Motivo obligatorio · quedará en el historial" />
               <button
                 type="button"
                 className={buttonSecondary}
-                disabled={busy || messageReason.trim().length < 3}
+                disabled={busy}
                 onClick={() => onAmendMessage({ messageTemplate, advisorGuidance, reason: messageReason })}
               >
                 Guardar texto
@@ -1230,11 +1230,11 @@ function PublishedPlayEditor({
                 <option value="">Selecciona asesor</option>
                 {activeAdvisors.map((advisor) => <option key={advisor.id} value={advisor.id}>{advisor.name}</option>)}
               </select>
-              <input className={inputClass} value={clientReason} onChange={(event) => setClientReason(event.target.value)} maxLength={500} placeholder="Motivo de inclusión" />
+              <input className={inputClass} value={clientReason} onChange={(event) => setClientReason(event.target.value)} maxLength={500} placeholder="Motivo obligatorio" />
               <button
                 type="button"
                 className={buttonPrimary}
-                disabled={busy || !selectedAdvisorId || clientReason.trim().length < 3}
+                disabled={busy || !selectedAdvisorId}
                 onClick={() => onAddClient({ clientId: selectedClient.clientId, advisorId: selectedAdvisorId, reason: clientReason })}
               >
                 Incluir
@@ -1251,11 +1251,11 @@ function PublishedPlayEditor({
               <option value="">Selecciona asesor</option>
               {playAdvisors.filter((advisor) => advisor.id).map((advisor) => <option key={advisor.id} value={advisor.id}>{advisor.name} · {advisor.count}</option>)}
             </select>
-            <input className={inputClass} value={advisorReason} onChange={(event) => setAdvisorReason(event.target.value)} maxLength={500} placeholder="Motivo del retiro" />
+            <input className={inputClass} value={advisorReason} onChange={(event) => setAdvisorReason(event.target.value)} maxLength={500} placeholder="Motivo obligatorio" />
             <button
               type="button"
               className="inline-flex h-9 items-center justify-center rounded-xl border border-red-500/30 px-3 text-xs font-semibold text-red-200 hover:bg-red-500/10 disabled:opacity-45"
-              disabled={busy || !excludedAdvisorId || advisorReason.trim().length < 3}
+              disabled={busy || !excludedAdvisorId}
               onClick={() => {
                 if (!window.confirm('¿Retirar de esta jugada todos los clientes pendientes de este asesor?')) return;
                 onExcludeAdvisor({ advisorId: excludedAdvisorId, reason: advisorReason });
@@ -1679,16 +1679,51 @@ export default function MasterPlaysClient({
                 ) : null}
               </section>
 
-              <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                <PlayDefinitionForm
-                  key={selectedPlay.id}
+              {['frozen', 'active', 'paused'].includes(selectedPlay.status) ? (
+                <PublishedPlayEditor
+                  key={`published-editor-${selectedPlay.id}`}
                   play={selectedPlay}
-                  plays={plays}
-                  benefits={benefits}
+                  activeAdvisors={activeAdvisors}
+                  playAdvisors={advisors}
+                  manualClientSearch={manualClientSearch}
+                  manualClientSuggestions={manualClientSuggestions}
+                  amendments={amendments}
                   busy={pending}
-                  onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
+                  onAmendMessage={(input) => run(() => amendPublishedPlayMessageAction({ playId: selectedPlay.id, ...input }))}
+                  onAddClient={(input) => run(() => addManualPlayMemberAction({ playId: selectedPlay.id, ...input }))}
+                  onExcludeAdvisor={(input) => run(() => excludePublishedPlayAdvisorAction(selectedPlay.id, input.advisorId, input.reason))}
                 />
-              </section>
+              ) : null}
+
+              {selectedPlay.status === 'draft' ? (
+                <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                  <PlayDefinitionForm
+                    key={selectedPlay.id}
+                    play={selectedPlay}
+                    plays={plays}
+                    benefits={benefits}
+                    busy={pending}
+                    onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
+                  />
+                </section>
+              ) : (
+                <details className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+                  <summary className="cursor-pointer list-none px-4 py-3">
+                    <div className="text-xs font-semibold text-[#D5D5DD]">Consultar definición original</div>
+                    <div className="mt-0.5 text-[9px] text-[#666675]">Condiciones, período y costos congelados · solo lectura</div>
+                  </summary>
+                  <div className="border-t border-[#242433] p-4">
+                    <PlayDefinitionForm
+                      key={`readonly-${selectedPlay.id}`}
+                      play={selectedPlay}
+                      plays={plays}
+                      benefits={benefits}
+                      busy={pending}
+                      onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
+                    />
+                  </div>
+                </details>
+              )}
 
               {selectedPlay.status === 'draft' ? (
                 <section className="flex flex-col gap-3 rounded-2xl border border-[#3A3210] bg-[#1A180B] p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1726,22 +1761,6 @@ export default function MasterPlaysClient({
                     <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'close')} className="inline-flex h-9 items-center justify-center rounded-xl border border-red-400/30 px-3 text-xs font-semibold text-red-200 hover:bg-red-400/10 disabled:opacity-45">Cerrar</button>
                   </div>
                 </section>
-              ) : null}
-
-              {['frozen', 'active', 'paused'].includes(selectedPlay.status) ? (
-                <PublishedPlayEditor
-                  key={`published-editor-${selectedPlay.id}`}
-                  play={selectedPlay}
-                  activeAdvisors={activeAdvisors}
-                  playAdvisors={advisors}
-                  manualClientSearch={manualClientSearch}
-                  manualClientSuggestions={manualClientSuggestions}
-                  amendments={amendments}
-                  busy={pending}
-                  onAmendMessage={(input) => run(() => amendPublishedPlayMessageAction({ playId: selectedPlay.id, ...input }))}
-                  onAddClient={(input) => run(() => addManualPlayMemberAction({ playId: selectedPlay.id, ...input }))}
-                  onExcludeAdvisor={(input) => run(() => excludePublishedPlayAdvisorAction(selectedPlay.id, input.advisorId, input.reason))}
-                />
               ) : null}
 
               {monitorSummary && ['active', 'paused', 'closed'].includes(selectedPlay.status) ? (
