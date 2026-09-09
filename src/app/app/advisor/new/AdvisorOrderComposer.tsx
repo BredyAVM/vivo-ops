@@ -11,6 +11,7 @@ import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone
 import { normalizeRemoteSearchValue, normalizeSearchValue, splitSearchTokens } from '@/lib/search/normalize-search';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import { crmPlayDetailLine, isInternalOrderDetailLine } from '@/lib/crm/play-order';
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
@@ -600,11 +601,11 @@ function getPaymentMethodLabel(method: PaymentMethod) {
 function getVisibleDetailLines(lines: string[]) {
   return lines
     .map((line) => normalizeSnapshotText(line))
-    .filter((line) => line && !line.startsWith(HIDDEN_DETAIL_PREFIX));
+    .filter((line) => line && !isInternalOrderDetailLine(line));
 }
 
 function isHiddenDetailLine(line: string) {
-  return String(line || '').trim().startsWith(HIDDEN_DETAIL_PREFIX);
+  return isInternalOrderDetailLine(line);
 }
 
 function formatDraftItemWhatsAppLine(item: DraftItem, fxRateNumber: number) {
@@ -2316,7 +2317,10 @@ export default function AdvisorOrderComposer({
             source_price_amount: 0,
             unit_price_usd_snapshot: 0,
             line_total_usd: 0,
-            editable_detail_lines: [`Jugada CRM: ${initialCrmContext.playName}`],
+            editable_detail_lines: [
+              crmPlayDetailLine('play', initialCrmContext.playName),
+              crmPlayDetailLine('benefit', benefit.name),
+            ],
             crm_benefit: {
               playBenefitId: benefit.playBenefitId,
               playBenefitUpgradeId: null,
@@ -2991,8 +2995,8 @@ export default function AdvisorOrderComposer({
       unit_price_usd_snapshot: quantity > 0 ? customerDifferenceUsd / quantity : 0,
       line_total_usd: customerDifferenceUsd,
       editable_detail_lines: [
-        `Jugada CRM: ${initialCrmContext.playName}`,
-        upgrade ? `Crédito aplicado: ${formatUsd(benefit.creditUsd)}` : 'Beneficio incluido',
+        crmPlayDetailLine('play', initialCrmContext.playName),
+        crmPlayDetailLine('benefit', upgrade?.name ?? benefit.name),
       ],
       crm_benefit: {
         playBenefitId: benefit.playBenefitId,
@@ -3274,7 +3278,15 @@ export default function AdvisorOrderComposer({
       }),
     ].filter((line): line is string => !!line);
 
-    const item = buildDraftItem(configProduct, configQty, detailLines);
+    const editingItem = configEditingLocalId
+      ? draftItems.find((draft) => draft.localId === configEditingLocalId) ?? null
+      : null;
+    const internalCrmLines = editingItem?.editable_detail_lines.filter((line) =>
+      String(line || '').trim().toLowerCase().startsWith('@crm|')) ?? [];
+    const item = {
+      ...buildDraftItem(configProduct, configQty, [...detailLines, ...internalCrmLines]),
+      crm_benefit: editingItem?.crm_benefit,
+    } satisfies DraftItem;
 
     if (configEditingLocalId) {
       setDraftItems((current) =>
@@ -3704,6 +3716,14 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    if (
+      initialCrmContext
+      && Number(selectedClient?.id) !== Number(initialCrmContext.client.id)
+    ) {
+      setError('El pedido de una jugada debe conservar el cliente para quien fue publicado el beneficio.');
+      return;
+    }
+
     if (!isAsap && !deliveryDate.trim()) {
       setError('Falta colocar la fecha de entrega.');
       return;
@@ -4102,37 +4122,42 @@ export default function AdvisorOrderComposer({
           </section>
         ) : null}
 
-        <Section title="1. Cliente" subtitle="Busca primero y crea solo si no existe.">
-          <Field label="Buscar cliente">
-            <div className="flex gap-2">
-              <input
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    (e.currentTarget as HTMLInputElement).blur();
-                    void handleSearchClients();
-                  }
-                }}
-                className={inputClass()}
-                placeholder="Telefono o nombre"
-              />
-              <button
-                type="button"
-                onClick={() => void handleSearchClients()}
-                disabled={searchingClient}
-                className={[
-                  'h-11 rounded-[16px] border px-3.5 text-sm font-medium transition active:scale-[0.98] disabled:cursor-not-allowed',
-                  searchingClient
-                    ? 'border-[#232632] bg-[#232632] text-[#6F7890]'
-                    : 'border-[#232632] text-[#F5F7FB]',
-                ].join(' ')}
-              >
-                {searchingClient ? 'Buscando...' : 'Buscar'}
-              </button>
-            </div>
-          </Field>
+        <Section
+          title="1. Cliente"
+          subtitle={initialCrmContext ? 'Este pedido queda vinculado al cliente seleccionado en la jugada.' : 'Busca primero y crea solo si no existe.'}
+        >
+          {!initialCrmContext ? (
+            <Field label="Buscar cliente">
+              <div className="flex gap-2">
+                <input
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      (e.currentTarget as HTMLInputElement).blur();
+                      void handleSearchClients();
+                    }
+                  }}
+                  className={inputClass()}
+                  placeholder="Telefono o nombre"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSearchClients()}
+                  disabled={searchingClient}
+                  className={[
+                    'h-11 rounded-[16px] border px-3.5 text-sm font-medium transition active:scale-[0.98] disabled:cursor-not-allowed',
+                    searchingClient
+                      ? 'border-[#232632] bg-[#232632] text-[#6F7890]'
+                      : 'border-[#232632] text-[#F5F7FB]',
+                  ].join(' ')}
+                >
+                  {searchingClient ? 'Buscando...' : 'Buscar'}
+                </button>
+              </div>
+            </Field>
+          ) : null}
 
           {selectedClient ? (
             <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
@@ -4155,7 +4180,7 @@ export default function AdvisorOrderComposer({
             </div>
           ) : null}
 
-          {clientResults.length > 0 ? (
+          {!initialCrmContext && clientResults.length > 0 ? (
             <div className="space-y-2">
               {clientResults.map((client) => (
                 <button
@@ -4178,18 +4203,20 @@ export default function AdvisorOrderComposer({
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={() => {
-              setIsNewClientMode((current) => !current);
-              setSelectedClient(null);
-            }}
-            className="h-10 rounded-[14px] border border-[#232632] text-sm font-medium text-[#F5F7FB]"
-          >
-            {isNewClientMode ? 'Cancelar cliente nuevo' : 'Crear cliente nuevo'}
-          </button>
+          {!initialCrmContext ? (
+            <button
+              type="button"
+              onClick={() => {
+                setIsNewClientMode((current) => !current);
+                setSelectedClient(null);
+              }}
+              className="h-10 rounded-[14px] border border-[#232632] text-sm font-medium text-[#F5F7FB]"
+            >
+              {isNewClientMode ? 'Cancelar cliente nuevo' : 'Crear cliente nuevo'}
+            </button>
+          ) : null}
 
-          {isNewClientMode ? (
+          {!initialCrmContext && isNewClientMode ? (
             <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
               <Field label="Nombre">
                 <input value={newClientName} onChange={(e) => setNewClientName(e.target.value)} className={inputClass()} placeholder="Nombre completo" />
@@ -4510,6 +4537,12 @@ export default function AdvisorOrderComposer({
 
               {draftItems.map((item, idx) => {
                 const snapshot = draftItemSnapshots[idx];
+                const catalogProduct = productById.get(item.product_id);
+                const itemIsConfigurable = Boolean(catalogProduct?.is_detail_editable)
+                  || productComponents.some((row) =>
+                    row.parent_product_id === item.product_id
+                    && (row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required))
+                  );
                 const unitBs =
                   snapshot?.unitBs ??
                   (item.source_price_currency === 'VES'
@@ -4530,7 +4563,9 @@ export default function AdvisorOrderComposer({
                         {item.qty} x {formatBs(unitBs)}
                       </div>
                     </div>
-                    <div className="text-sm font-medium text-[#F0D000]">{formatBs(lineBs)}</div>
+                    <div className="text-sm font-medium text-[#F0D000]">
+                      {item.crm_benefit && crmPurchaseEligible && lineBs <= 0.01 ? 'Incluido' : formatBs(lineBs)}
+                    </div>
                   </div>
 
                   {getVisibleDetailLines(item.editable_detail_lines).length > 0 ? (
@@ -4549,7 +4584,7 @@ export default function AdvisorOrderComposer({
                   ) : null}
 
                   <div className="mt-3 flex gap-2">
-                    {item.editable_detail_lines.length > 0 ? (
+                    {itemIsConfigurable ? (
                       <button type="button" onClick={() => openEditConfig(item)} className="h-9 rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]">
                         Editar
                       </button>

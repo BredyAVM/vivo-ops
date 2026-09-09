@@ -2,6 +2,7 @@ import AdvisorOrderComposer from './AdvisorOrderComposer';
 import { getAuthContext } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { readEventBudgetPayload } from '@/lib/events/event-budget';
+import { isPlayOrderAvailableAt } from '@/lib/crm/play-order';
 
 type SearchParams = Promise<{
   fromOrder?: string;
@@ -73,7 +74,18 @@ export default async function AdvisorNewOrderPage({
 
       const play = Array.isArray(member?.play) ? member.play[0] ?? null : member?.play ?? null;
       const client = Array.isArray(member?.client) ? member.client[0] ?? null : member?.client ?? null;
-      if (member && play?.status === 'active' && client && ['available', 'reserved'].includes(String(member.benefit_status))) {
+      if (
+        member
+        && play
+        && client
+        && isPlayOrderAvailableAt({
+          status: String(play.status),
+          startsAt: play.starts_at == null ? null : String(play.starts_at),
+          endsAt: play.ends_at == null ? null : String(play.ends_at),
+          now: new Date(),
+        })
+        && ['available', 'reserved'].includes(String(member.benefit_status))
+      ) {
         const { data: selections } = await ctx.supabase
           .from('crm_play_member_benefit_selections')
           .select(`
