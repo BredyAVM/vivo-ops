@@ -129,6 +129,19 @@ type PlayBenefitRow = {
   product: { name: string; sku: string | null } | Array<{ name: string; sku: string | null }> | null;
 };
 
+type PlayRedemptionRow = {
+  id: number | string;
+  play_member_id: number | string;
+  order_id: number | string;
+  quantity: number | string;
+  status: 'redeemed' | 'voided' | string;
+  advisor_charge_usd: number | string;
+  customer_paid_difference_usd: number | string;
+  redeemed_at: string;
+  product: { name: string | null } | Array<{ name: string | null }> | null;
+  order: { order_number: string | null } | Array<{ order_number: string | null }> | null;
+};
+
 type PageParams = Promise<{ id: string }>;
 type SearchParams = Promise<{ playMember?: string; returnTo?: string }>;
 
@@ -233,6 +246,17 @@ function channelLabel(channel: string | null) {
   return channel ? labels[channel] ?? channel : null;
 }
 
+function benefitStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    available: 'Disponible',
+    selected: 'Seleccionado',
+    redeemed: 'Aplicado',
+    expired: 'Vencido',
+    waived: 'No utilizado',
+  };
+  return labels[status] ?? status;
+}
+
 function clientChannelLabel(profile: ClientProfile) {
   if (profile.metrics.used_pickup && profile.metrics.used_delivery) return 'Pickup y delivery';
   if (profile.metrics.used_pickup) return 'Pickup';
@@ -315,7 +339,10 @@ export default async function AdvisorClientProfilePage({
     ?? null;
   const selectedPlay = selectedMember ? one(selectedMember.play) : null;
 
-  const [eventsResult, benefitOptionsResult, benefitSelectionsResult] = await Promise.all([
+  const membershipIds = memberships
+    .map((member) => numberValue(member.id))
+    .filter((memberId) => memberId > 0);
+  const [eventsResult, benefitOptionsResult, benefitSelectionsResult, redemptionsResult] = await Promise.all([
     selectedMember
       ? ctx.supabase
           .from('crm_play_member_events')
@@ -339,11 +366,24 @@ export default async function AdvisorClientProfilePage({
           .select('play_benefit_id')
           .eq('play_member_id', Number(selectedMember.id))
       : Promise.resolve({ data: [], error: null }),
+    membershipIds.length > 0
+      ? ctx.supabase
+          .from('crm_play_redemptions')
+          .select(`
+            id, play_member_id, order_id, quantity, status,
+            advisor_charge_usd, customer_paid_difference_usd, redeemed_at,
+            product:products(name),
+            order:orders(order_number)
+          `)
+          .in('play_member_id', membershipIds)
+          .order('redeemed_at', { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (eventsResult.error) console.error('Unable to load CRM follow-up events', eventsResult.error.message);
   if (benefitOptionsResult.error) console.error('Unable to load CRM play benefits', benefitOptionsResult.error.message);
   if (benefitSelectionsResult.error) console.error('Unable to load CRM benefit selections', benefitSelectionsResult.error.message);
+  if (redemptionsResult.error) console.error('Unable to load CRM play redemptions', redemptionsResult.error.message);
 
   const events = (eventsResult.data ?? []) as unknown as PlayEventRow[];
   const benefitOptions = ((benefitOptionsResult.data ?? []) as unknown as PlayBenefitRow[]).map((option) => {
@@ -360,6 +400,14 @@ export default async function AdvisorClientProfilePage({
   const selectedBenefitIds = (benefitSelectionsResult.data ?? [])
     .map((selection) => numberValue(selection.play_benefit_id))
     .filter((benefitId) => benefitId > 0);
+  const redemptions = (redemptionsResult.data ?? []) as unknown as PlayRedemptionRow[];
+  const redemptionsByMemberId = new Map<number, PlayRedemptionRow[]>();
+  for (const redemption of redemptions) {
+    const memberId = numberValue(redemption.play_member_id);
+    const memberRedemptions = redemptionsByMemberId.get(memberId) ?? [];
+    memberRedemptions.push(redemption);
+    redemptionsByMemberId.set(memberId, memberRedemptions);
+  }
   const phone = normalizePhoneDetailed(profile.client.phone);
   const whatsappHref = phone.e164 ? `https://wa.me/${phone.e164.slice(1)}` : null;
   const advisorName = String(
@@ -534,6 +582,59 @@ export default async function AdvisorClientProfilePage({
           <EmptyBlock title="Sin jugada activa" detail="Cuando este cliente entre en una lista asignada a ti, aquí podrás registrar contactos y resultados." href="/app/advisor/plays" cta="Ver mis jugadas" />
         </SectionCard>
       )}
+
+      {memberships.length > 0 ? (
+        <SectionCard title="Memoria de jugadas" subtitle="Historial compacto de contactos y beneficios de este cliente.">
+          <div className="space-y-2">
+            {memberships.map((member) => {
+              const play = one(member.play);
+              if (!play) return null;
+              const memberId = numberValue(member.id);
+              const memberRedemptions = redemptionsByMemberId.get(memberId) ?? [];
+              const activeRedemptions = memberRedemptions.filter((redemption) => redemption.status === 'redeemed');
+              const primaryRedemption = activeRedemptions[0] ?? memberRedemptions[0] ?? null;
+              const redemptionProduct = primaryRedemption ? one(primaryRedemption.product) : null;
+              const redemptionOrder = primaryRedemption ? one(primaryRedemption.order) : null;
+              const isSelected = selectedMember && numberValue(selectedMember.id) === memberId;
+              const historyHref = `/app/advisor/clients/${clientId}?playMember=${memberId}&returnTo=${encodeURIComponent(returnPath)}`;
+
+              return (
+                <article key={memberId} className={`rounded-[15px] border px-3.5 py-3 ${isSelected ? 'border-[#F0D000]/45 bg-[#1A180B]' : 'border-[#232632] bg-[#0D1017]'}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <Link href={historyHref} className="block truncate text-sm font-medium text-[#F5F7FB] hover:text-[#F7DA66]">
+                        {play.name}
+                      </Link>
+                      <div className="mt-1 text-[10px] text-[#747E91]">{dateLabel(play.starts_at)} — {dateLabel(play.ends_at)}</div>
+                    </div>
+                    <StatusBadge label={workflowLabel(member.workflow_status)} tone={workflowTone(member.workflow_status)} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#8B93A7]">
+                    <span>{numberValue(member.contact_attempt_count) > 0 ? `${numberValue(member.contact_attempt_count)} contacto${numberValue(member.contact_attempt_count) === 1 ? '' : 's'}` : 'Sin contacto'}</span>
+                    <span>Beneficio: {benefitStatusLabel(member.benefit_status)}</span>
+                    <span>Último movimiento: {dateTimeLabel(member.last_event_at)}</span>
+                  </div>
+                  {primaryRedemption ? (
+                    <div className={`mt-2 rounded-xl border px-3 py-2 text-[10px] ${primaryRedemption.status === 'redeemed' ? 'border-emerald-400/20 bg-emerald-400/[0.05] text-emerald-100' : 'border-[#30303D] bg-[#15151C] text-[#8B93A7]'}`}>
+                      <div className="font-medium">
+                        {primaryRedemption.status === 'redeemed' ? 'Aplicado' : 'Aplicación anulada'} · {numberValue(primaryRedemption.quantity)} × {redemptionProduct?.name?.trim() || 'Beneficio'}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 opacity-75">
+                        <span>{redemptionOrder?.order_number || `Pedido #${primaryRedemption.order_id}`}</span>
+                        <span>{dateTimeLabel(primaryRedemption.redeemed_at)}</span>
+                        <span>Cargo comisión {moneyFormatter.format(numberValue(primaryRedemption.advisor_charge_usd))}</span>
+                        {numberValue(primaryRedemption.customer_paid_difference_usd) > 0 ? <span>Diferencia cliente {moneyFormatter.format(numberValue(primaryRedemption.customer_paid_difference_usd))}</span> : null}
+                      </div>
+                    </div>
+                  ) : member.last_note ? (
+                    <div className="mt-2 line-clamp-2 text-[10px] leading-4 text-[#AAB2C5]">{member.last_note}</div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        </SectionCard>
+      ) : null}
 
       {profile.pending_orders.length > 0 ? (
         <SectionCard title="Pedidos en curso" subtitle="Operación viva del cliente.">
