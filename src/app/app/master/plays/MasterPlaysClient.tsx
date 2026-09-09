@@ -138,6 +138,7 @@ export type PlayAmendment = {
 
 export type MasterPlayMonitorSummary = {
   totalMembers: number;
+  pendingMembers: number;
   launchedMembers: number;
   respondedMembers: number;
   noResponseMembers: number;
@@ -161,6 +162,24 @@ export type MasterPlayMonitorSummary = {
   postContactRevenueUsd: number;
   comparableBaselineCadenceDays: number;
   comparablePostCadenceDays: number;
+  overdueFollowUps: number;
+  advisors: MasterPlayAdvisorMonitor[];
+};
+
+export type MasterPlayAdvisorMonitor = {
+  advisorId: string | null;
+  advisorName: string;
+  totalMembers: number;
+  pendingMembers: number;
+  launchedMembers: number;
+  respondedMembers: number;
+  noResponseMembers: number;
+  redeemedMembers: number;
+  expiredMembers: number;
+  overdueFollowUps: number;
+  launchRatePct: number;
+  responseRatePct: number;
+  lastActivityAt: string | null;
 };
 
 type Props = {
@@ -1383,6 +1402,7 @@ function MemberList({
 
 function PlayMonitor({ summary }: { summary: MasterPlayMonitorSummary }) {
   const metrics = [
+    { label: 'Sin tocar', value: summary.pendingMembers, note: 'Pendientes de primer contacto' },
     { label: 'Jugada lanzada', value: summary.launchedMembers, note: `${summary.launchRatePct.toFixed(1)}% de la lista` },
     { label: 'Respondieron', value: summary.respondedMembers, note: `${summary.responseRatePct.toFixed(1)}% de lanzados` },
     { label: 'No respondieron', value: summary.noResponseMembers, note: 'Marcados por el asesor' },
@@ -1394,7 +1414,7 @@ function PlayMonitor({ summary }: { summary: MasterPlayMonitorSummary }) {
         <h2 className="text-sm font-semibold">3. Supervisar ejecución</h2>
         <p className="mt-0.5 text-[10px] text-[#777785]">Contacto manual y resultados financieros tomados directamente de pedidos con el beneficio aplicado.</p>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
         {metrics.map((metric) => (
           <div key={metric.label} className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
             <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#777785]">{metric.label}</div>
@@ -1403,6 +1423,46 @@ function PlayMonitor({ summary }: { summary: MasterPlayMonitorSummary }) {
           </div>
         ))}
       </div>
+      {summary.advisors.length > 0 ? (
+        <div className="mt-4 overflow-x-auto rounded-xl border border-[#242433]">
+          <table className="min-w-[880px] w-full border-collapse text-left text-[10px]">
+            <caption className="border-b border-[#242433] bg-[#0D0D11] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-[#777785]">
+              Avance vivo por asesor
+            </caption>
+            <thead className="bg-[#101014] text-[#777785]">
+              <tr>
+                <th scope="col" className="px-3 py-2 font-medium">Asesor</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Lista</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Sin tocar</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Lanzadas</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Respondieron</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Sin respuesta</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Vencidos</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">Aplicadas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.advisors.map((advisor) => (
+                <tr key={advisor.advisorId ?? 'orphan'} className="border-t border-[#20202B] bg-[#121218] text-[#D6D6DF]">
+                  <th scope="row" className="max-w-[190px] px-3 py-2.5 font-medium">
+                    <div className="truncate">{advisor.advisorName}</div>
+                    <div className="mt-0.5 text-[9px] font-normal text-[#666675]">
+                      {advisor.lastActivityAt ? `Último movimiento ${dateTimeFormatter.format(new Date(advisor.lastActivityAt))}` : 'Todavía sin movimientos'}
+                    </div>
+                  </th>
+                  <td className="px-2 py-2.5 text-right tabular-nums">{advisor.totalMembers}</td>
+                  <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.pendingMembers > 0 ? 'text-amber-200' : 'text-[#777785]'}`}>{advisor.pendingMembers}</td>
+                  <td className="px-2 py-2.5 text-right tabular-nums">{advisor.launchedMembers}<span className="ml-1 text-[9px] text-[#666675]">{advisor.launchRatePct.toFixed(0)}%</span></td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-violet-200">{advisor.respondedMembers}<span className="ml-1 text-[9px] text-[#666675]">{advisor.responseRatePct.toFixed(0)}%</span></td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-orange-200">{advisor.noResponseMembers}</td>
+                  <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.overdueFollowUps > 0 ? 'text-rose-200' : 'text-[#777785]'}`}>{advisor.overdueFollowUps}</td>
+                  <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-emerald-200">{advisor.redeemedMembers}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2"><div className="text-[9px] text-emerald-100/50">Ventas directas</div><div className="mt-0.5 text-sm font-semibold text-emerald-100">{moneyFormatter.format(summary.directOrderRevenueUsd)}</div></div>
         <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] px-3 py-2"><div className="text-[9px] text-cyan-100/50">Crédito entregado</div><div className="mt-0.5 text-sm font-semibold text-cyan-100">{moneyFormatter.format(summary.benefitCreditUsd)}</div></div>

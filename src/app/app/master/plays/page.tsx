@@ -282,24 +282,81 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     }
 
     if (['active', 'paused', 'closed'].includes(selectedPlay.status)) {
-      const { data: monitorData, error: monitorError } = await ctx.supabase.rpc('crm_get_play_monitor_summary_v2', {
-        p_play_id: selectedPlay.id,
-      });
+      const [monitorResult, advisorMonitorResult] = await Promise.all([
+        ctx.supabase.rpc('crm_get_play_monitor_summary_v2', {
+          p_play_id: selectedPlay.id,
+        }),
+        ctx.supabase.rpc('crm_get_play_advisor_monitor_v1', {
+          p_play_id: selectedPlay.id,
+        }),
+      ]);
+      const { data: monitorData, error: monitorError } = monitorResult;
       if (monitorError) throw new Error(monitorError.message);
+      if (advisorMonitorResult.error) throw new Error(advisorMonitorResult.error.message);
       const monitor = monitorData && typeof monitorData === 'object' && !Array.isArray(monitorData)
         ? monitorData as Record<string, unknown>
         : {};
+      const advisorRows = Array.isArray(advisorMonitorResult.data)
+        ? advisorMonitorResult.data.flatMap((value) => {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+            const row = value as Record<string, unknown>;
+            return [{
+              advisorId: row.advisor_id == null ? null : String(row.advisor_id),
+              advisorName: String(row.advisor_name || 'Sin asesor'),
+              totalMembers: numberValue(row.total_members),
+              pendingMembers: numberValue(row.pending_members),
+              launchedMembers: numberValue(row.launched_members),
+              respondedMembers: numberValue(row.responded_members),
+              noResponseMembers: numberValue(row.no_response_members),
+              redeemedMembers: numberValue(row.redeemed_members),
+              expiredMembers: numberValue(row.expired_members),
+              overdueFollowUps: numberValue(row.overdue_follow_ups),
+              launchRatePct: numberValue(row.launch_rate_pct),
+              responseRatePct: numberValue(row.response_rate_pct),
+              lastActivityAt: row.last_activity_at == null ? null : String(row.last_activity_at),
+            }];
+          })
+        : [];
+      const operationalTotals = advisorRows.reduce((totals, advisor) => ({
+        totalMembers: totals.totalMembers + advisor.totalMembers,
+        pendingMembers: totals.pendingMembers + advisor.pendingMembers,
+        launchedMembers: totals.launchedMembers + advisor.launchedMembers,
+        respondedMembers: totals.respondedMembers + advisor.respondedMembers,
+        noResponseMembers: totals.noResponseMembers + advisor.noResponseMembers,
+        redeemedMembers: totals.redeemedMembers + advisor.redeemedMembers,
+        expiredMembers: totals.expiredMembers + advisor.expiredMembers,
+        overdueFollowUps: totals.overdueFollowUps + advisor.overdueFollowUps,
+      }), {
+        totalMembers: 0,
+        pendingMembers: 0,
+        launchedMembers: 0,
+        respondedMembers: 0,
+        noResponseMembers: 0,
+        redeemedMembers: 0,
+        expiredMembers: 0,
+        overdueFollowUps: 0,
+      });
+      const launchRatePct = operationalTotals.totalMembers === 0
+        ? 0
+        : 100 * operationalTotals.launchedMembers / operationalTotals.totalMembers;
+      const responseRatePct = operationalTotals.launchedMembers === 0
+        ? 0
+        : 100 * operationalTotals.respondedMembers / operationalTotals.launchedMembers;
+      const redemptionRatePct = operationalTotals.totalMembers === 0
+        ? 0
+        : 100 * operationalTotals.redeemedMembers / operationalTotals.totalMembers;
       monitorSummary = {
-        totalMembers: numberValue(monitor.total_members),
-        launchedMembers: numberValue(monitor.launched_members),
-        respondedMembers: numberValue(monitor.responded_members),
-        noResponseMembers: numberValue(monitor.no_response_members),
-        redeemedMembers: numberValue(monitor.redeemed_members),
-        expiredMembers: numberValue(monitor.expired_members),
+        totalMembers: operationalTotals.totalMembers,
+        pendingMembers: operationalTotals.pendingMembers,
+        launchedMembers: operationalTotals.launchedMembers,
+        respondedMembers: operationalTotals.respondedMembers,
+        noResponseMembers: operationalTotals.noResponseMembers,
+        redeemedMembers: operationalTotals.redeemedMembers,
+        expiredMembers: operationalTotals.expiredMembers,
         redemptionOrders: numberValue(monitor.redemption_orders),
-        launchRatePct: numberValue(monitor.launch_rate_pct),
-        responseRatePct: numberValue(monitor.response_rate_pct),
-        redemptionRatePct: numberValue(monitor.redemption_rate_pct),
+        launchRatePct,
+        responseRatePct,
+        redemptionRatePct,
         benefitCreditUsd: numberValue(monitor.benefit_credit_usd),
         advisorChargeUsd: numberValue(monitor.advisor_charge_usd),
         companyCostUsd: numberValue(monitor.company_cost_usd),
@@ -314,6 +371,8 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         postContactRevenueUsd: numberValue(monitor.post_contact_revenue_usd),
         comparableBaselineCadenceDays: numberValue(monitor.comparable_baseline_cadence_days),
         comparablePostCadenceDays: numberValue(monitor.comparable_post_cadence_days),
+        overdueFollowUps: operationalTotals.overdueFollowUps,
+        advisors: advisorRows,
       };
     }
 
