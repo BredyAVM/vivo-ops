@@ -11,6 +11,7 @@ import {
   activatePlayAction,
   changePlayLifecycleAction,
   clonePlayAction,
+  clonePlayForNextPeriodAction,
   confirmPlayListAction,
   deleteDraftPlayAction,
   excludePublishedPlayAdvisorAction,
@@ -1609,6 +1610,11 @@ export default function MasterPlaysClient({
     startTransition(async () => handleResult(await clonePlayAction(playId), true));
   }
 
+  function clonePlayForNextPeriod(playId: number) {
+    setNotice(null);
+    startTransition(async () => handleResult(await clonePlayForNextPeriodAction(playId), true));
+  }
+
   function changeLifecycle(playId: number, command: 'pause' | 'resume' | 'close') {
     if (command === 'close' && !window.confirm('¿Cerrar esta jugada? Ya no aparecerá como trabajo activo para los asesores.')) return;
     run(() => changePlayLifecycleAction(playId, command));
@@ -1725,6 +1731,18 @@ export default function MasterPlaysClient({
                     >
                       Copiar como nueva
                     </button>
+                    <button
+                      type="button"
+                      disabled={pending || !selectedPlay.startsAt || !selectedPlay.endsAt}
+                      onClick={() => clonePlayForNextPeriod(selectedPlay.id)}
+                      className="mt-2 ml-1 inline-flex h-7 items-center justify-center rounded-lg border border-violet-400/35 px-2 text-[9px] font-semibold text-violet-200 hover:bg-violet-400/10 disabled:opacity-35"
+                      title={!selectedPlay.startsAt || !selectedPlay.endsAt ? 'Define primero un período completo.' : 'Copia todo y mueve la vigencia un mes.'}
+                    >
+                      Preparar siguiente mes
+                    </button>
+                    <div className="mt-1 text-[8px] text-[#777785]">
+                      Serie v{selectedPlay.version}{selectedPlay.copiedFromPlayId ? ` · deriva de #${selectedPlay.copiedFromPlayId}` : ' · original'}
+                    </div>
                   </div>
                 </div>
                 <PlayProgress status={selectedPlay.status} hasPreview={selectedHasPreview} />

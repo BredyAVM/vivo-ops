@@ -780,6 +780,36 @@ export async function clonePlayAction(playIdInput: number): Promise<PlayActionRe
   }
 }
 
+export async function clonePlayForNextPeriodAction(playIdInput: number): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireMasterOrAdminContext();
+    const playId = Math.trunc(finiteNumber(playIdInput, 0));
+    if (playId <= 0) throw new Error('La jugada no es válida.');
+
+    const { data, error } = await ctx.supabase.rpc('crm_clone_play_v3', {
+      p_source_play_id: playId,
+      p_name: null,
+      p_shift_months: 1,
+    });
+    if (error) throw new Error(error.message);
+
+    const result = data && typeof data === 'object' && !Array.isArray(data)
+      ? data as Record<string, unknown>
+      : {};
+    const clonedPlayId = Math.trunc(finiteNumber(result.play_id, 0));
+    if (clonedPlayId <= 0) throw new Error('No se pudo identificar el siguiente período creado.');
+
+    revalidatePath('/app/master/plays');
+    return {
+      ok: true,
+      playId: clonedPlayId,
+      message: 'Siguiente período preparado en diseño. Conserva la definición, pero generará una lista nueva.',
+    };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
 export async function activatePlayAction(playIdInput: number): Promise<PlayActionResult> {
   try {
     const ctx = await requireMasterOrAdminContext();
