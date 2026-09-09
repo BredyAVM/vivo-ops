@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from
 import { ModulePreference } from '../../ModulePreference';
 import {
   activatePlayAction,
+  changePlayLifecycleAction,
   clonePlayAction,
   confirmPlayListAction,
   deleteDraftPlayAction,
@@ -1200,6 +1201,11 @@ export default function MasterPlaysClient({
     startTransition(async () => handleResult(await clonePlayAction(playId), true));
   }
 
+  function changeLifecycle(playId: number, command: 'pause' | 'resume' | 'close') {
+    if (command === 'close' && !window.confirm('¿Cerrar esta jugada? Ya no aparecerá como trabajo activo para los asesores.')) return;
+    run(() => changePlayLifecycleAction(playId, command));
+  }
+
   return (
     <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <ModulePreference moduleKey={activeModuleKey} />
@@ -1366,8 +1372,20 @@ export default function MasterPlaysClient({
                   <button type="button" disabled={pending} onClick={() => run(() => activatePlayAction(selectedPlay.id))} className={buttonPrimary}>Compartir con asesores</button>
                 </section>
               ) : selectedPlay.status === 'active' ? (
-                <section className="rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.06] px-4 py-3 text-xs text-emerald-200">
-                  Esta jugada ya está compartida. Cada asesor ve únicamente los clientes que aparecen bajo su adjudicación en este snapshot.
+                <section className="flex flex-col gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.06] px-4 py-3 text-xs text-emerald-200 sm:flex-row sm:items-center sm:justify-between">
+                  <span>Esta jugada ya está compartida. Cada asesor ve únicamente los clientes de su snapshot.</span>
+                  <div className="flex shrink-0 gap-2">
+                    <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'pause')} className={buttonSecondary}>Pausar</button>
+                    <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'close')} className="inline-flex h-9 items-center justify-center rounded-xl border border-red-400/30 px-3 text-xs font-semibold text-red-200 hover:bg-red-400/10 disabled:opacity-45">Cerrar</button>
+                  </div>
+                </section>
+              ) : selectedPlay.status === 'paused' ? (
+                <section className="flex flex-col gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] px-4 py-3 text-xs text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+                  <span>La jugada está pausada. La lista sigue visible, pero ningún beneficio puede aplicarse hasta reactivarla.</span>
+                  <div className="flex shrink-0 gap-2">
+                    <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'resume')} className={buttonPrimary}>Reactivar</button>
+                    <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'close')} className="inline-flex h-9 items-center justify-center rounded-xl border border-red-400/30 px-3 text-xs font-semibold text-red-200 hover:bg-red-400/10 disabled:opacity-45">Cerrar</button>
+                  </div>
                 </section>
               ) : null}
 

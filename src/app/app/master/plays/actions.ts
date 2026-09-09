@@ -72,6 +72,8 @@ export type PlayActionResult = {
   error?: string;
 };
 
+export type PlayLifecycleCommand = 'pause' | 'resume' | 'close';
+
 function cleanText(value: unknown, maxLength: number) {
   return String(value ?? '').trim().slice(0, maxLength);
 }
@@ -659,6 +661,44 @@ export async function activatePlayAction(playIdInput: number): Promise<PlayActio
     revalidatePath('/app/master/plays');
     revalidatePath('/app/advisor/plays');
     return { ok: true, playId, message: 'Jugada compartida. Cada asesor ya puede ver únicamente sus clientes.' };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+export async function changePlayLifecycleAction(
+  playIdInput: number,
+  command: PlayLifecycleCommand,
+): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireMasterOrAdminContext();
+    const playId = Math.trunc(finiteNumber(playIdInput, 0));
+    if (playId <= 0) throw new Error('La jugada no es válida.');
+
+    const transitions: Record<PlayLifecycleCommand, { message: string }> = {
+      pause: {
+        message: 'Jugada pausada. Los asesores conservan la lista, pero no pueden aplicar beneficios.',
+      },
+      resume: {
+        message: 'Jugada reactivada para los asesores.',
+      },
+      close: {
+        message: 'Jugada cerrada. El snapshot queda disponible para evaluación histórica.',
+      },
+    };
+    const transition = transitions[command];
+    if (!transition) throw new Error('La acción solicitada no es válida.');
+
+    const { data, error } = await ctx.supabase.rpc('crm_change_play_lifecycle_v1', {
+      p_play_id: playId,
+      p_command: command,
+    });
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error('La jugada cambió de estado. Actualiza la pantalla e inténtalo nuevamente.');
+
+    revalidatePath('/app/master/plays');
+    revalidatePath('/app/advisor/plays');
+    return { ok: true, playId, message: transition.message };
   } catch (error) {
     return actionError(error);
   }
