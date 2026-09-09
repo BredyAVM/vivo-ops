@@ -1791,6 +1791,7 @@ export async function cancelMasterOpsOrderAction(input: {
 
 export async function updateMasterOpsExchangeRateAction(input: {
   rateBsPerUsd: number;
+  operationId: string;
 }) {
   await requireMasterOrAdminContext();
   const rateBsPerUsd = Number(input.rateBsPerUsd);
@@ -1798,7 +1799,10 @@ export async function updateMasterOpsExchangeRateAction(input: {
     throw new Error("La tasa debe ser mayor a 0.");
   }
 
-  return updateExchangeRateAction({ rateBsPerUsd });
+  return updateExchangeRateAction({
+    rateBsPerUsd,
+    operationId: input.operationId,
+  });
 }
 
 type RawRelatedProduct =

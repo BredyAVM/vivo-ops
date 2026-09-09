@@ -8277,6 +8277,7 @@ const handleSaveQuickCatalog = async () => {
     setExchangeRateSaving(true);
     await updateExchangeRateAction({
       rateBsPerUsd: rate,
+      operationId: crypto.randomUUID(),
     });
 
     showToast('success', 'Tasa actualizada.');

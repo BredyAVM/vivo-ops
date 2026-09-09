@@ -5018,68 +5018,27 @@ export async function updateCatalogItemAction(input: {
 
 export async function updateExchangeRateAction(input: {
   rateBsPerUsd: number;
+  operationId: string;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const rate = Number(input.rateBsPerUsd);
   if (!Number.isFinite(rate) || rate <= 0) {
     throw new Error('La tasa debe ser mayor a 0.');
   }
 
-  const { error: disableError } = await supabase
-    .from('exchange_rates')
-    .update({ is_active: false })
-    .eq('is_active', true);
-
-  if (disableError) {
-    throw new Error(disableError.message);
+  const operationId = String(input.operationId || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    throw new Error('No se pudo identificar de forma segura esta actualización. Intenta nuevamente.');
   }
 
-  const { error: insertError } = await supabase
-    .from('exchange_rates')
-    .insert({
-      rate_bs_per_usd: rate,
-      is_active: true,
-      effective_at: new Date().toISOString(),
-    });
+  const { error } = await supabase.rpc('set_active_exchange_rate', {
+    p_rate_bs_per_usd: rate,
+    p_operation_id: operationId,
+    p_reason: 'Actualización diaria de la tasa general.',
+  });
 
-  if (insertError) {
-    throw new Error(insertError.message);
-  }
-
-  const { data: products, error: productsError } = await supabase
-    .from('products')
-    .select('id, source_price_amount, source_price_currency');
-
-  if (productsError) {
-    throw new Error(productsError.message);
-  }
-
-  for (const product of products ?? []) {
-    const sourceAmount = Number(product.source_price_amount || 0);
-    const sourceCurrency = String(product.source_price_currency || '');
-
-    if (!Number.isFinite(sourceAmount) || sourceAmount < 0) {
-      continue;
-    }
-
-    const basePriceUsd =
-      sourceCurrency === 'VES' ? sourceAmount / rate : sourceAmount;
-    const basePriceBs =
-      sourceCurrency === 'VES' ? sourceAmount : sourceAmount * rate;
-
-    const { error: updateProductError } = await supabase
-      .from('products')
-      .update({
-        base_price_usd: Number(basePriceUsd.toFixed(2)),
-        base_price_bs: Number(basePriceBs.toFixed(2)),
-      })
-      .eq('id', product.id);
-
-    if (updateProductError) {
-      throw new Error(updateProductError.message);
-    }
-  }
+  if (error) throw new Error(error.message);
 
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');

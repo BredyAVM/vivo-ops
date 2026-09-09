@@ -4130,7 +4130,10 @@ export default function MasterOpsClient({
     setExchangeRateSaving(true);
     setExchangeRateError(null);
     try {
-      await updateMasterOpsExchangeRateAction({ rateBsPerUsd: rate });
+      await updateMasterOpsExchangeRateAction({
+        rateBsPerUsd: rate,
+        operationId: crypto.randomUUID(),
+      });
       setRateEditorOpen(false);
       requestOpsRefresh();
     } catch (error) {

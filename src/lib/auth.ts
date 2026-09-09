@@ -10,6 +10,10 @@ export type AuthContext = {
   roles: AppRole[];
 };
 
+export function isAdminRole(roles: readonly string[]) {
+  return roles.includes('admin');
+}
+
 export function isMasterOrAdminRole(roles: readonly string[]) {
   return roles.includes('admin') || roles.includes('master');
 }
@@ -54,6 +58,15 @@ export async function requireAuthContext() {
   const ctx = await getAuthContext();
   if (!ctx) {
     throw new Error('No autenticado.');
+  }
+
+  return ctx;
+}
+
+export async function requireAdminContext() {
+  const ctx = await requireAuthContext();
+  if (!isAdminRole(ctx.roles)) {
+    throw new Error('No autorizado.');
   }
 
   return ctx;
