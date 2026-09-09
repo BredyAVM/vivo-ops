@@ -288,11 +288,11 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                     Revisar pagos
                   </Link>
                   <Link
-                    href="/app/master/dashboard"
+                    href="/app/admin/finanzas/cuentas"
                     prefetch={false}
                     className="flex min-h-12 items-center justify-center rounded-xl border border-[#3A3A49] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
                   >
-                    Herramientas del panel anterior
+                    Ver cuentas
                   </Link>
                 </>
               ) : (
@@ -555,7 +555,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                 value={`${data.anchoredAccounts}/${data.activeAccounts}`}
                 context={data.latestClosureDate ? `Último cierre visible: ${formatDateKey(data.latestClosureDate)}` : 'Sin cierres visibles'}
                 quality={data.accountCoverageQuality}
-                href={`${financialDetailPath}#position-detail`}
+                href="/app/admin/finanzas/cuentas"
               />
               <MetricCard
                 kpi="P03"
@@ -592,14 +592,14 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                   <p className="mt-4 text-sm font-semibold text-orange-100">Revisar pagos →</p>
                 </Link>
                 <Link
-                  href="/app/master/dashboard"
+                  href="/app/admin/finanzas/cuentas?state=pending_movements"
                   prefetch={false}
                   className="rounded-2xl border border-blue-400/20 bg-blue-400/5 p-5 transition hover:border-blue-300/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-200 motion-reduce:transition-none"
                 >
                   <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-200">T07 · Movimientos</p>
                   <p className="mt-3 text-3xl font-semibold text-white">{data.pendingMovementOperations}</p>
                   <p className="mt-1 text-sm text-[#B9B9C3]">Operación(es) agrupadas pendientes de aprobación.</p>
-                  <p className="mt-4 text-sm font-semibold text-blue-100">Abrir herramienta actual →</p>
+                  <p className="mt-4 text-sm font-semibold text-blue-100">Ver cuentas afectadas →</p>
                 </Link>
               </>
             )}
@@ -607,7 +607,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
           <DomainValue domain={overview.position}>
             {(data) => (
               <Link
-                href="/app/master/dashboard"
+                href="/app/admin/finanzas/cuentas?state=open_reconciliation"
                 prefetch={false}
                 className="rounded-2xl border border-red-400/20 bg-red-400/5 p-5 transition hover:border-red-300/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-200 motion-reduce:transition-none"
               >

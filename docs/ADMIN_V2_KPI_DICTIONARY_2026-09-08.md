@@ -239,6 +239,17 @@ Reglas:
 proveedores, delivery ni otros pasivos. `P03` no debe publicarse hasta que cada
 cuenta especial tenga una inclusión o exclusión explícita.
 
+### Corte implementado — 2026-09-09
+
+`P01`, `P02`, `P12` y la cobertura de `P13` ya alimentan el centro Admin
+`/app/admin/finanzas/cuentas` mediante lecturas V2 exclusivas para Admin. El corte
+es siempre el instante actual fijado por el servidor y aplica la regla canónica de
+movimientos confirmados posteriores al `anchor_at`, incluso el mismo día. La vista
+mantiene por separado saldo confirmado, operaciones pendientes y partidas por
+conciliar. Publica totales nativos USD y VES sin mezclarlos y marca por moneda la
+cobertura incompleta; `P03` continúa bloqueado hasta clasificar explícitamente qué
+cuentas forman tesorería. Las escrituras siguen en las rutas operativas vigentes.
+
 ## 7. Indicadores no publicables todavía
 
 | ID y etiqueta solicitada | Estado | Dependencia faltante |

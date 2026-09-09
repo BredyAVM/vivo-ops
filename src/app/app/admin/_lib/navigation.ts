@@ -28,6 +28,15 @@ export const adminNavigation: AdminNavigationItem[] = [
     marker: 'FI',
   },
   {
+    key: 'accounts',
+    label: 'Cuentas',
+    shortLabel: 'Cuentas',
+    description: 'Saldos, movimientos y conciliación',
+    href: '/app/admin/finanzas/cuentas',
+    prefetch: false,
+    marker: 'CU',
+  },
+  {
     key: 'orders',
     label: 'Órdenes',
     shortLabel: 'Órdenes',

@@ -10,12 +10,16 @@ type AdminNavigationProps = {
 
 export default function AdminNavigation({ variant }: AdminNavigationProps) {
   const pathname = usePathname();
+  const items = variant === 'mobile' ? mobileAdminNavigation : adminNavigation;
+  const activePath = items
+    .map((item) => item.href.split('#')[0])
+    .filter((path) => path.startsWith('/app/admin'))
+    .filter((path) => pathname === path || (path !== '/app/admin' && pathname.startsWith(`${path}/`)))
+    .sort((left, right) => right.length - left.length)[0];
   const isActive = (href: string) => {
     if (href.includes('#')) return false;
     const path = href.split('#')[0];
-    if (!path.startsWith('/app/admin')) return false;
-    if (path === '/app/admin') return pathname === path;
-    return pathname === path || pathname.startsWith(`${path}/`);
+    return path === activePath;
   };
 
   if (variant === 'mobile') {
