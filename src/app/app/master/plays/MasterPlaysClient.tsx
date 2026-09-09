@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
+import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
 import { ModulePreference } from '../../ModulePreference';
 import {
   addManualPlayMemberAction,
@@ -1400,7 +1401,17 @@ function MemberList({
   );
 }
 
-function PlayMonitor({ summary }: { summary: MasterPlayMonitorSummary }) {
+function PlayMonitor({
+  summary,
+  plannedBudgetUsd,
+}: {
+  summary: MasterPlayMonitorSummary;
+  plannedBudgetUsd: number | null;
+}) {
+  const budget = getPlayBudgetProgress({
+    plannedBudgetUsd,
+    companyCostUsd: summary.companyCostUsd,
+  });
   const metrics = [
     { label: 'Sin tocar', value: summary.pendingMembers, note: 'Pendientes de primer contacto' },
     { label: 'Jugada lanzada', value: summary.launchedMembers, note: `${summary.launchRatePct.toFixed(1)}% de la lista` },
@@ -1468,7 +1479,20 @@ function PlayMonitor({ summary }: { summary: MasterPlayMonitorSummary }) {
         <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] px-3 py-2"><div className="text-[9px] text-cyan-100/50">Crédito entregado</div><div className="mt-0.5 text-sm font-semibold text-cyan-100">{moneyFormatter.format(summary.benefitCreditUsd)}</div></div>
         <div className="rounded-xl border border-blue-400/15 bg-blue-400/[0.04] px-3 py-2"><div className="text-[9px] text-blue-100/50">Inversión empresa</div><div className="mt-0.5 text-sm font-semibold text-blue-100">{moneyFormatter.format(summary.companyCostUsd)}</div></div>
         <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.04] px-3 py-2"><div className="text-[9px] text-amber-100/50">Cargo asesores · comisión</div><div className="mt-0.5 text-sm font-semibold text-amber-100">{moneyFormatter.format(summary.advisorChargeUsd)}</div></div>
-        <div className="rounded-xl border border-violet-400/15 bg-violet-400/[0.04] px-3 py-2"><div className="text-[9px] text-violet-100/50">Diferencias pagadas</div><div className="mt-0.5 text-sm font-semibold text-violet-100">{moneyFormatter.format(summary.customerPaidDifferenceUsd)}</div></div>
+        <div className="rounded-xl border border-violet-400/15 bg-violet-400/[0.04] px-3 py-2"><div className="text-[9px] text-violet-100/50">Diferencias pagadas · comisionables</div><div className="mt-0.5 text-sm font-semibold text-violet-100">{moneyFormatter.format(summary.customerPaidDifferenceUsd)}</div></div>
+      </div>
+      <div className={`mt-2 rounded-xl border px-3 py-2.5 ${budget.status === 'exceeded' ? 'border-red-400/25 bg-red-400/[0.06]' : 'border-blue-400/15 bg-blue-400/[0.04]'}`}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className={`text-[10px] font-semibold ${budget.status === 'exceeded' ? 'text-red-200' : 'text-blue-100'}`}>Presupuesto ejecutado de la jugada</div>
+            <div className="mt-0.5 text-[9px] text-[#777785]">Solo consume el aporte real de la empresa en beneficios aplicados; el cargo del asesor se liquida aparte en su comisión.</div>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-right text-[9px]">
+            <div><div className="text-[#777785]">Presupuesto</div><div className="mt-0.5 text-xs font-semibold">{budget.plannedBudgetUsd == null ? 'No definido' : moneyFormatter.format(budget.plannedBudgetUsd)}</div></div>
+            <div><div className="text-[#777785]">Consumido</div><div className="mt-0.5 text-xs font-semibold">{moneyFormatter.format(budget.companyCostUsd)}{budget.usagePct == null ? '' : ` · ${budget.usagePct.toFixed(1)}%`}</div></div>
+            <div><div className="text-[#777785]">Saldo</div><div className={`mt-0.5 text-xs font-semibold ${budget.status === 'exceeded' ? 'text-red-200' : ''}`}>{budget.remainingBudgetUsd == null ? '—' : moneyFormatter.format(budget.remainingBudgetUsd)}</div></div>
+          </div>
+        </div>
       </div>
       <div className="mt-4 border-t border-[#242433] pt-3">
         <div className="mb-2">
@@ -1824,7 +1848,10 @@ export default function MasterPlaysClient({
               ) : null}
 
               {monitorSummary && ['active', 'paused', 'closed'].includes(selectedPlay.status) ? (
-                <PlayMonitor summary={monitorSummary} />
+                <PlayMonitor
+                  summary={monitorSummary}
+                  plannedBudgetUsd={selectedPlay.plannedBudgetUsd}
+                />
               ) : null}
 
               {advisors.length > 0 ? (
