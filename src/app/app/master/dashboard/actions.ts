@@ -24,6 +24,16 @@ import {
 } from '@/lib/commissions/commercial-criteria';
 import { preserveAdvisorGoalPublicationSnapshot } from '@/lib/commissions/goal-snapshot';
 import {
+  EVENT_COMMISSION_TERMS_KIND,
+  ORDER_COMMISSION_TERMS_KIND,
+  commissionTermsEqual,
+  normalizeOrderCommissionTerms,
+  parseOrderCommissionAdjustmentPayload,
+  validateOrderCommissionTerms,
+  type OrderCommissionMode,
+  type OrderCommissionTerms,
+} from '@/lib/commissions/order-commission-terms';
+import {
   getOrderCommercialNetUsd,
   getOrderLineTotalUsd,
   getOrderMoneySnapshot,
@@ -10735,6 +10745,14 @@ export async function createOrderAction(input: {
     adminPriceOverrideUsd: number | null;
     adminPriceOverrideCurrency?: 'USD' | 'VES' | null;
     adminPriceOverrideReason: string | null;
+    orderItemId?: number | null;
+    commissionInheritedMode?: OrderCommissionMode;
+    commissionInheritedValue?: number | null;
+    commissionInheritedSource?: 'catalog' | 'event';
+    adminCommissionOverrideMode?: OrderCommissionMode | null;
+    adminCommissionOverrideValue?: number | null;
+    adminCommissionOverrideReason?: string | null;
+    adminCommissionOverrideChanged?: boolean;
     editableDetailLines: string[];
   }>;
 }) {
@@ -10755,12 +10773,14 @@ export async function createOrderAction(input: {
     throw new Error('Debes agregar al menos un ítem.');
   }
 
+  const isAdmin = getMasterDashboardPermissions(roles).isAdmin;
   if (
     input.items.some((item) => item.adminPriceOverrideUsd != null) &&
-    !getMasterDashboardPermissions(roles).isAdmin
+    !isAdmin
   ) {
     throw new Error('Solo admin puede ajustar precios manualmente.');
   }
+  validateOrderCommissionAdjustmentItems(input.items, isAdmin);
 
   if (source === 'advisor' && !input.attributedAdvisorUserId) {
     throw new Error('Debes seleccionar un asesor.');
@@ -11106,7 +11126,7 @@ export async function createOrderAction(input: {
     throw new Error(itemsError.message);
   }
 
-  const createAdjustmentRows = input.items
+  const createPriceAdjustmentRows = input.items
     .map((item, idx) => {
       if (item.adminPriceOverrideUsd == null) return null;
 
@@ -11123,6 +11143,27 @@ export async function createOrderAction(input: {
       };
     })
     .filter(Boolean);
+
+  const createCommissionAdjustmentRows = input.items
+    .map((item, idx) => {
+      if (item.adminCommissionOverrideMode == null) return null;
+
+      return {
+        order_id: orderId,
+        order_item_id: Number(insertedItems?.[idx]?.id || 0) || null,
+        adjustment_type: 'other',
+        reason: String(item.adminCommissionOverrideReason || '').trim(),
+        notes: null,
+        payload: buildOrderCommissionAdjustmentPayload(item, 'set'),
+        created_by_user_id: user.id,
+      };
+    })
+    .filter(Boolean);
+
+  const createAdjustmentRows = [
+    ...createPriceAdjustmentRows,
+    ...createCommissionAdjustmentRows,
+  ];
 
   if (createAdjustmentRows.length > 0) {
     const { error: createAdjustmentsError } = await supabase
@@ -11182,6 +11223,104 @@ export async function createOrderAction(input: {
   revalidatePath('/app/master/ops');
 
   return { id: orderId, orderNumber };
+}
+
+type OrderCommissionAdjustmentInput = {
+  orderItemId?: number | null;
+  productId: number;
+  productNameSnapshot: string;
+  commissionInheritedMode?: OrderCommissionMode;
+  commissionInheritedValue?: number | null;
+  commissionInheritedSource?: 'catalog' | 'event';
+  adminCommissionOverrideMode?: OrderCommissionMode | null;
+  adminCommissionOverrideValue?: number | null;
+  adminCommissionOverrideReason?: string | null;
+  adminCommissionOverrideChanged?: boolean;
+};
+
+function validateOrderCommissionAdjustmentItems(
+  items: OrderCommissionAdjustmentInput[],
+  isAdmin: boolean
+) {
+  const hasAdministrativeCommissionInput = items.some(
+    (item) => item.adminCommissionOverrideMode != null || item.adminCommissionOverrideChanged
+  );
+  if (hasAdministrativeCommissionInput && !isAdmin) {
+    throw new Error('Solo admin puede ajustar comisiones manualmente.');
+  }
+
+  for (const item of items) {
+    if (item.adminCommissionOverrideMode != null) {
+      validateOrderCommissionTerms(
+        item.adminCommissionOverrideMode,
+        item.adminCommissionOverrideValue
+      );
+    }
+
+    if (
+      (item.adminCommissionOverrideMode != null || item.adminCommissionOverrideChanged) &&
+      !String(item.adminCommissionOverrideReason || '').trim()
+    ) {
+      throw new Error('Debes indicar el motivo del ajuste de comisión.');
+    }
+  }
+
+  const fixedOrderValues = new Set(
+    items
+      .map((item) => {
+        const terms = item.adminCommissionOverrideMode != null
+          ? validateOrderCommissionTerms(
+              item.adminCommissionOverrideMode,
+              item.adminCommissionOverrideValue
+            )
+          : normalizeOrderCommissionTerms(
+              item.commissionInheritedMode,
+              item.commissionInheritedValue
+            );
+        return terms.mode === 'fixed_order' ? terms.value : null;
+      })
+      .filter((value): value is number => value != null)
+  );
+  if (fixedOrderValues.size > 1) {
+    throw new Error(
+      'La orden tiene más de un porcentaje fijo para toda la orden. Debes dejar un único porcentaje.'
+    );
+  }
+}
+
+function getOrderCommissionOverrideTerms(
+  item: OrderCommissionAdjustmentInput
+): OrderCommissionTerms | null {
+  if (item.adminCommissionOverrideMode == null) return null;
+  return validateOrderCommissionTerms(
+    item.adminCommissionOverrideMode,
+    item.adminCommissionOverrideValue
+  );
+}
+
+function buildOrderCommissionAdjustmentPayload(
+  item: OrderCommissionAdjustmentInput,
+  action: 'set' | 'clear'
+) {
+  const inheritedTerms = normalizeOrderCommissionTerms(
+    item.commissionInheritedMode,
+    item.commissionInheritedValue
+  );
+  const overrideTerms = action === 'set' ? getOrderCommissionOverrideTerms(item) : null;
+
+  return {
+    kind: ORDER_COMMISSION_TERMS_KIND,
+    schema_version: 1,
+    action,
+    source: 'admin_order_editor',
+    product_id: Number(item.productId),
+    product_name: String(item.productNameSnapshot || '').trim() || 'Producto',
+    inherited_source: item.commissionInheritedSource ?? 'catalog',
+    inherited_mode: inheritedTerms.mode,
+    inherited_value: inheritedTerms.value,
+    commission_mode: overrideTerms?.mode ?? null,
+    commission_value: overrideTerms?.value ?? null,
+  };
 }
 
 export async function updateDeliveredOrderPaymentIntentAction(input: {
@@ -11430,6 +11569,14 @@ export async function updateOrderAction(input: {
     adminPriceOverrideUsd: number | null;
     adminPriceOverrideCurrency?: 'USD' | 'VES' | null;
     adminPriceOverrideReason: string | null;
+    orderItemId?: number | null;
+    commissionInheritedMode?: OrderCommissionMode;
+    commissionInheritedValue?: number | null;
+    commissionInheritedSource?: 'catalog' | 'event';
+    adminCommissionOverrideMode?: OrderCommissionMode | null;
+    adminCommissionOverrideValue?: number | null;
+    adminCommissionOverrideReason?: string | null;
+    adminCommissionOverrideChanged?: boolean;
     editableDetailLines: string[];
   }>;
   adminEditReason?: string | null;
@@ -11456,12 +11603,14 @@ export async function updateOrderAction(input: {
     throw new Error('Debes agregar al menos un ítem.');
   }
 
+  const isAdmin = getMasterDashboardPermissions(roles).isAdmin;
   if (
     input.items.some((item) => item.adminPriceOverrideUsd != null) &&
-    !getMasterDashboardPermissions(roles).isAdmin
+    !isAdmin
   ) {
     throw new Error('Solo admin puede ajustar precios manualmente.');
   }
+  validateOrderCommissionAdjustmentItems(input.items, isAdmin);
 
   if (source === 'advisor' && !input.attributedAdvisorUserId) {
     throw new Error('Debes seleccionar un asesor.');
@@ -11894,6 +12043,25 @@ export async function updateOrderAction(input: {
     throw new Error(previousOrderItemsError.message);
   }
 
+  const previousOrderItemIds = (previousOrderItems ?? [])
+    .map((item) => Number(item.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  const { data: previousCommissionAdjustmentRows, error: previousCommissionAdjustmentsError } =
+    previousOrderItemIds.length > 0
+      ? await supabase
+          .from('order_admin_adjustments')
+          .select('id, order_item_id, payload, created_at')
+          .eq('order_id', orderId)
+          .eq('adjustment_type', 'other')
+          .in('order_item_id', previousOrderItemIds)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+      : { data: [], error: null };
+
+  if (previousCommissionAdjustmentsError) {
+    throw new Error(previousCommissionAdjustmentsError.message);
+  }
+
   const { error: deleteItemsError } = await supabase
     .from('order_items')
     .delete()
@@ -12010,6 +12178,111 @@ export async function updateOrderAction(input: {
 
     if (updateAdjustmentsError) {
       throw new Error(updateAdjustmentsError.message);
+    }
+  }
+
+  const latestAdminCommissionAdjustmentByOldItemId = new Map<
+    number,
+    { id: number; terms: OrderCommissionTerms | null; action: 'set' | 'clear' }
+  >();
+  const latestEventCommissionAdjustmentByOldItemId = new Map<number, { id: number }>();
+
+  for (const row of previousCommissionAdjustmentRows ?? []) {
+    const oldOrderItemId = Number(row.order_item_id || 0);
+    if (!Number.isFinite(oldOrderItemId) || oldOrderItemId <= 0) continue;
+    const parsed = parseOrderCommissionAdjustmentPayload(row.payload);
+    if (!parsed) continue;
+
+    if (
+      parsed.kind === ORDER_COMMISSION_TERMS_KIND &&
+      !latestAdminCommissionAdjustmentByOldItemId.has(oldOrderItemId)
+    ) {
+      latestAdminCommissionAdjustmentByOldItemId.set(oldOrderItemId, {
+        id: Number(row.id),
+        terms: parsed.terms,
+        action: parsed.action,
+      });
+    }
+    if (
+      parsed.kind === EVENT_COMMISSION_TERMS_KIND &&
+      !latestEventCommissionAdjustmentByOldItemId.has(oldOrderItemId)
+    ) {
+      latestEventCommissionAdjustmentByOldItemId.set(oldOrderItemId, {
+        id: Number(row.id),
+      });
+    }
+  }
+
+  const commissionAdjustmentRowsToInsert: Array<Record<string, unknown>> = [];
+  const commissionAdjustmentRebinds: Array<{ adjustmentId: number; orderItemId: number }> = [];
+  const knownPreviousOrderItemIds = new Set(previousOrderItemIds);
+
+  input.items.forEach((item, idx) => {
+    const newOrderItemId = Number(insertedItems?.[idx]?.id || 0);
+    if (!Number.isFinite(newOrderItemId) || newOrderItemId <= 0) return;
+
+    const oldOrderItemId = Number(item.orderItemId || 0);
+    const hasKnownOldItem = knownPreviousOrderItemIds.has(oldOrderItemId);
+    const currentOverrideTerms = getOrderCommissionOverrideTerms(item);
+    const previousAdminAdjustment = hasKnownOldItem
+      ? latestAdminCommissionAdjustmentByOldItemId.get(oldOrderItemId) ?? null
+      : null;
+
+    if (
+      !item.adminCommissionOverrideChanged &&
+      currentOverrideTerms &&
+      previousAdminAdjustment?.action === 'set' &&
+      commissionTermsEqual(previousAdminAdjustment.terms, currentOverrideTerms)
+    ) {
+      commissionAdjustmentRebinds.push({
+        adjustmentId: previousAdminAdjustment.id,
+        orderItemId: newOrderItemId,
+      });
+    } else if (item.adminCommissionOverrideChanged || currentOverrideTerms) {
+      commissionAdjustmentRowsToInsert.push({
+        order_id: orderId,
+        order_item_id: newOrderItemId,
+        adjustment_type: 'other',
+        reason: String(item.adminCommissionOverrideReason || '').trim(),
+        notes: null,
+        payload: buildOrderCommissionAdjustmentPayload(
+          item,
+          currentOverrideTerms ? 'set' : 'clear'
+        ),
+        created_by_user_id: user.id,
+      });
+    }
+
+    const previousEventAdjustment = hasKnownOldItem
+      ? latestEventCommissionAdjustmentByOldItemId.get(oldOrderItemId) ?? null
+      : null;
+    if (previousEventAdjustment) {
+      commissionAdjustmentRebinds.push({
+        adjustmentId: previousEventAdjustment.id,
+        orderItemId: newOrderItemId,
+      });
+    }
+  });
+
+  for (const rebind of commissionAdjustmentRebinds) {
+    const { error: rebindError } = await supabase
+      .from('order_admin_adjustments')
+      .update({ order_item_id: rebind.orderItemId })
+      .eq('id', rebind.adjustmentId)
+      .eq('order_id', orderId);
+
+    if (rebindError) {
+      throw new Error(rebindError.message);
+    }
+  }
+
+  if (commissionAdjustmentRowsToInsert.length > 0) {
+    const { error: commissionAdjustmentsError } = await supabase
+      .from('order_admin_adjustments')
+      .insert(commissionAdjustmentRowsToInsert);
+
+    if (commissionAdjustmentsError) {
+      throw new Error(commissionAdjustmentsError.message);
     }
   }
 
@@ -13032,33 +13305,45 @@ export async function generateAdvisorCommissionClosuresAction(input: {
       throw new Error(commercialTermsError.message);
     }
 
+    const adminCommissionTermsByOrderItemId = new Map<number, OrderCommissionTerms | null>();
+    const eventCommissionTermsByOrderItemId = new Map<number, OrderCommissionTerms>();
+
     for (const row of (commercialTermsRows ?? []) as Array<{
       order_item_id: number | string | null;
       payload: Record<string, unknown> | null;
     }>) {
       const orderItemId = Number(row.order_item_id || 0);
-      const payload = row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
-        ? row.payload
-        : {};
+      if (orderItemId <= 0) continue;
+      const parsed = parseOrderCommissionAdjustmentPayload(row.payload);
+      if (!parsed) continue;
+
       if (
-        orderItemId <= 0 ||
-        commissionTermsByOrderItemId.has(orderItemId) ||
-        payload.kind !== 'event_commercial_terms'
+        parsed.kind === ORDER_COMMISSION_TERMS_KIND &&
+        !adminCommissionTermsByOrderItemId.has(orderItemId)
       ) {
-        continue;
+        adminCommissionTermsByOrderItemId.set(orderItemId, parsed.terms);
       }
-      const rawMode = String(payload.commission_mode || 'default');
-      const mode: AdvisorCommissionItemTerms['mode'] =
-        rawMode === 'fixed_item' || rawMode === 'fixed_order' || rawMode === 'none'
-          ? rawMode
-          : 'default';
-      commissionTermsByOrderItemId.set(orderItemId, {
-        mode,
-        value:
-          mode === 'fixed_item' || mode === 'fixed_order'
-            ? Math.max(0, toSafeNumber(payload.commission_value, 0))
-            : null,
-      });
+      if (
+        parsed.kind === EVENT_COMMISSION_TERMS_KIND &&
+        parsed.terms &&
+        !eventCommissionTermsByOrderItemId.has(orderItemId)
+      ) {
+        eventCommissionTermsByOrderItemId.set(orderItemId, parsed.terms);
+      }
+    }
+
+    const adjustedOrderItemIds = new Set([
+      ...adminCommissionTermsByOrderItemId.keys(),
+      ...eventCommissionTermsByOrderItemId.keys(),
+    ]);
+    for (const orderItemId of adjustedOrderItemIds) {
+      const hasAdminDecision = adminCommissionTermsByOrderItemId.has(orderItemId);
+      const adminTerms = adminCommissionTermsByOrderItemId.get(orderItemId) ?? null;
+      const eventTerms = eventCommissionTermsByOrderItemId.get(orderItemId) ?? null;
+      const effectiveTerms = hasAdminDecision ? adminTerms ?? eventTerms : eventTerms;
+      if (effectiveTerms) {
+        commissionTermsByOrderItemId.set(orderItemId, effectiveTerms);
+      }
     }
 
     const { data: financialStateData, error: financialStateError } = await (supabase as any).rpc(

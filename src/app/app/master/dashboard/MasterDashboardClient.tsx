@@ -53,6 +53,13 @@ import {
 } from '@/lib/orders/order-composer';
 import { getOrderCommercialNetUsd } from '@/lib/orders/order-money';
 import { summarizeAdvisorNewClients } from '@/lib/commissions/commercial-criteria';
+import {
+  commissionTermsEqual,
+  formatOrderCommissionTerms,
+  normalizeOrderCommissionTerms,
+  type OrderCommissionMode,
+  type OrderCommissionTerms,
+} from '@/lib/commissions/order-commission-terms';
 import { groupOrderItemsByPriority, sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import {
   approveOrderAction,
@@ -177,6 +184,7 @@ type OrderLine = {
 
 type DraftItem = {
   localId: string;
+  orderItemId?: number | null;
   productId: number;
   skuSnapshot: string | null;
   productNameSnapshot: string;
@@ -192,7 +200,32 @@ type DraftItem = {
   adminPriceOverrideReason: string | null;
   adminPriceOverrideByUserId?: string | null;
   adminPriceOverrideAt?: string | null;
+  commissionInheritedMode: OrderCommissionMode;
+  commissionInheritedValue: number | null;
+  commissionInheritedSource: 'catalog' | 'event';
+  adminCommissionOverrideMode: OrderCommissionMode | null;
+  adminCommissionOverrideValue: number | null;
+  adminCommissionOverrideReason: string | null;
+  adminCommissionOverrideChanged: boolean;
 };
+
+function getDraftItemInheritedCommissionTerms(item: DraftItem): OrderCommissionTerms {
+  return normalizeOrderCommissionTerms(
+    item.commissionInheritedMode,
+    item.commissionInheritedValue
+  );
+}
+
+function getDraftItemEffectiveCommissionTerms(item: DraftItem): OrderCommissionTerms {
+  if (item.adminCommissionOverrideMode) {
+    return normalizeOrderCommissionTerms(
+      item.adminCommissionOverrideMode,
+      item.adminCommissionOverrideValue
+    );
+  }
+
+  return getDraftItemInheritedCommissionTerms(item);
+}
 
 type ClientFundPayoutLineDraft = {
   localId: string;
@@ -5238,6 +5271,11 @@ const [priceAdjustValue, setPriceAdjustValue] = useState('');
 const [priceAdjustBsValue, setPriceAdjustBsValue] = useState('');
 const [priceAdjustCurrency, setPriceAdjustCurrency] = useState<'USD' | 'VES'>('USD');
 const [priceAdjustReason, setPriceAdjustReason] = useState('');
+const [priceAdjustTouched, setPriceAdjustTouched] = useState(false);
+const [commissionAdjustEnabled, setCommissionAdjustEnabled] = useState(false);
+const [commissionAdjustMode, setCommissionAdjustMode] = useState<OrderCommissionMode>('fixed_item');
+const [commissionAdjustValue, setCommissionAdjustValue] = useState('');
+const [commissionAdjustReason, setCommissionAdjustReason] = useState('');
 const [adminEditReason, setAdminEditReason] = useState('');
 
 const [kitchenTakeBoxOpen, setKitchenTakeBoxOpen] = useState(false);
@@ -6993,6 +7031,11 @@ const resetPriceAdjustBox = () => {
   setPriceAdjustBsValue('');
   setPriceAdjustCurrency('USD');
   setPriceAdjustReason('');
+  setPriceAdjustTouched(false);
+  setCommissionAdjustEnabled(false);
+  setCommissionAdjustMode('fixed_item');
+  setCommissionAdjustValue('');
+  setCommissionAdjustReason('');
 };
 
 const resetPaymentReportBox = () => {
@@ -11207,6 +11250,19 @@ setCreateOrderDraftItems((prev) => [
     adminPriceOverrideReason: null,
     adminPriceOverrideByUserId: null,
     adminPriceOverrideAt: null,
+    commissionInheritedMode: normalizeOrderCommissionTerms(
+      product.commissionMode,
+      product.commissionValue
+    ).mode,
+    commissionInheritedValue: normalizeOrderCommissionTerms(
+      product.commissionMode,
+      product.commissionValue
+    ).value,
+    commissionInheritedSource: 'catalog',
+    adminCommissionOverrideMode: null,
+    adminCommissionOverrideValue: null,
+    adminCommissionOverrideReason: null,
+    adminCommissionOverrideChanged: false,
   },
 ]);
 
@@ -11301,6 +11357,19 @@ const nextItem: DraftItem = {
   adminPriceOverrideReason: null,
   adminPriceOverrideByUserId: null,
   adminPriceOverrideAt: null,
+  commissionInheritedMode: normalizeOrderCommissionTerms(
+    catalogItemById.get(createOrderConfigProductId)?.commissionMode,
+    catalogItemById.get(createOrderConfigProductId)?.commissionValue
+  ).mode,
+  commissionInheritedValue: normalizeOrderCommissionTerms(
+    catalogItemById.get(createOrderConfigProductId)?.commissionMode,
+    catalogItemById.get(createOrderConfigProductId)?.commissionValue
+  ).value,
+  commissionInheritedSource: 'catalog',
+  adminCommissionOverrideMode: null,
+  adminCommissionOverrideValue: null,
+  adminCommissionOverrideReason: null,
+  adminCommissionOverrideChanged: false,
 };
 
   const existingEditingItem = createOrderConfigEditingLocalId
@@ -11313,6 +11382,14 @@ const nextItem: DraftItem = {
     nextItem.adminPriceOverrideReason = existingEditingItem.adminPriceOverrideReason;
     nextItem.adminPriceOverrideByUserId = existingEditingItem.adminPriceOverrideByUserId ?? null;
     nextItem.adminPriceOverrideAt = existingEditingItem.adminPriceOverrideAt ?? null;
+    nextItem.orderItemId = existingEditingItem.orderItemId ?? null;
+    nextItem.commissionInheritedMode = existingEditingItem.commissionInheritedMode;
+    nextItem.commissionInheritedValue = existingEditingItem.commissionInheritedValue;
+    nextItem.commissionInheritedSource = existingEditingItem.commissionInheritedSource;
+    nextItem.adminCommissionOverrideMode = existingEditingItem.adminCommissionOverrideMode;
+    nextItem.adminCommissionOverrideValue = existingEditingItem.adminCommissionOverrideValue;
+    nextItem.adminCommissionOverrideReason = existingEditingItem.adminCommissionOverrideReason;
+    nextItem.adminCommissionOverrideChanged = existingEditingItem.adminCommissionOverrideChanged;
     if (existingEditingItem.adminPriceOverrideCurrency) {
       nextItem.sourcePriceCurrency = existingEditingItem.sourcePriceCurrency;
       nextItem.sourcePriceAmount = existingEditingItem.sourcePriceAmount;
@@ -11432,6 +11509,14 @@ items: createOrderDraftItemsByPriority.map((item) => ({
   adminPriceOverrideUsd: item.adminPriceOverrideUsd,
   adminPriceOverrideCurrency: item.adminPriceOverrideCurrency ?? null,
   adminPriceOverrideReason: item.adminPriceOverrideReason,
+  orderItemId: item.orderItemId ?? null,
+  commissionInheritedMode: item.commissionInheritedMode,
+  commissionInheritedValue: item.commissionInheritedValue,
+  commissionInheritedSource: item.commissionInheritedSource,
+  adminCommissionOverrideMode: item.adminCommissionOverrideMode,
+  adminCommissionOverrideValue: item.adminCommissionOverrideValue,
+  adminCommissionOverrideReason: item.adminCommissionOverrideReason,
+  adminCommissionOverrideChanged: item.adminCommissionOverrideChanged,
 })),
     });
 
@@ -11568,6 +11653,14 @@ items: createOrderDraftItemsByPriority.map((item) => ({
   adminPriceOverrideUsd: item.adminPriceOverrideUsd,
   adminPriceOverrideCurrency: item.adminPriceOverrideCurrency ?? null,
   adminPriceOverrideReason: item.adminPriceOverrideReason,
+  orderItemId: item.orderItemId ?? null,
+  commissionInheritedMode: item.commissionInheritedMode,
+  commissionInheritedValue: item.commissionInheritedValue,
+  commissionInheritedSource: item.commissionInheritedSource,
+  adminCommissionOverrideMode: item.adminCommissionOverrideMode,
+  adminCommissionOverrideValue: item.adminCommissionOverrideValue,
+  adminCommissionOverrideReason: item.adminCommissionOverrideReason,
+  adminCommissionOverrideChanged: item.adminCommissionOverrideChanged,
 })),
       adminEditReason: isAdvancedOrderEdit ? adminEditReason.trim() : null,
     });
@@ -11627,6 +11720,7 @@ const formatMoneyInput = (value: number, fractionDigits = 2) => {
 };
 
 const handleChangePriceAdjustUsd = (value: string) => {
+  setPriceAdjustTouched(true);
   setPriceAdjustCurrency('USD');
   setPriceAdjustValue(value);
 
@@ -11639,6 +11733,7 @@ const handleChangePriceAdjustUsd = (value: string) => {
 };
 
 const handleChangePriceAdjustBs = (value: string) => {
+  setPriceAdjustTouched(true);
   setPriceAdjustCurrency('VES');
   setPriceAdjustBsValue(value);
 
@@ -11669,11 +11764,29 @@ const openAdjustCreateOrderItemPrice = (item: DraftItem) => {
   setPriceAdjustBsValue(unitBs > 0 ? formatMoneyInput(unitBs, 0) : '');
   setPriceAdjustCurrency(item.adminPriceOverrideCurrency ?? item.sourcePriceCurrency);
   setPriceAdjustReason(item.adminPriceOverrideReason || '');
+  setPriceAdjustTouched(false);
+  const effectiveCommissionTerms = getDraftItemEffectiveCommissionTerms(item);
+  setCommissionAdjustEnabled(item.adminCommissionOverrideMode != null);
+  setCommissionAdjustMode(effectiveCommissionTerms.mode);
+  setCommissionAdjustValue(
+    effectiveCommissionTerms.value == null
+      ? ''
+      : formatMoneyInput(effectiveCommissionTerms.value, 4)
+  );
+  setCommissionAdjustReason(item.adminCommissionOverrideReason || '');
   setPriceAdjustOpen(true);
 };
 
 const handleSaveAdjustedCreateOrderItemPrice = () => {
   if (!isAdmin || !priceAdjustItemLocalId) return;
+
+  const selectedItem = createOrderDraftItems.find(
+    (item) => item.localId === priceAdjustItemLocalId
+  );
+  if (!selectedItem) {
+    showToast('error', 'No se encontró el producto que deseas ajustar.');
+    return;
+  }
 
   const nextUnitUsdInput = parseMoneyInput(priceAdjustValue);
   const nextUnitBsInput = parseMoneyInput(priceAdjustBsValue);
@@ -11691,8 +11804,60 @@ const handleSaveAdjustedCreateOrderItemPrice = () => {
     return;
   }
 
-  if (!priceAdjustReason.trim()) {
+  const nextUnitUsd =
+    nextSourceCurrency === 'VES' && createOrderFxRateNumber > 0
+      ? nextSourceAmount / createOrderFxRateNumber
+      : nextSourceAmount;
+  const priceValueChanged =
+    priceAdjustTouched &&
+    Math.abs(nextUnitUsd - Number(selectedItem.unitPriceUsdSnapshot || 0)) >= 0.000001;
+  const priceCurrencyChanged =
+    priceAdjustTouched &&
+    nextSourceCurrency !==
+      (selectedItem.adminPriceOverrideCurrency ?? selectedItem.sourcePriceCurrency);
+  const priceReasonChanged =
+    selectedItem.adminPriceOverrideUsd != null &&
+    priceAdjustReason.trim() !== String(selectedItem.adminPriceOverrideReason || '').trim();
+  const priceHasMaterialChange = priceValueChanged || priceCurrencyChanged;
+  const keepPriceOverride =
+    selectedItem.adminPriceOverrideUsd != null || priceHasMaterialChange;
+
+  if (keepPriceOverride && !priceAdjustReason.trim()) {
     showToast('error', 'Debes indicar el motivo del ajuste.');
+    return;
+  }
+
+  let nextCommissionTerms: OrderCommissionTerms | null = null;
+  if (commissionAdjustEnabled) {
+    const needsValue =
+      commissionAdjustMode === 'fixed_item' || commissionAdjustMode === 'fixed_order';
+    const parsedValue = needsValue ? parseMoneyInput(commissionAdjustValue) : null;
+    if (needsValue && (!Number.isFinite(parsedValue) || parsedValue == null || parsedValue < 0 || parsedValue > 100)) {
+      showToast('error', 'El porcentaje de comisión debe estar entre 0 y 100.');
+      return;
+    }
+    nextCommissionTerms = normalizeOrderCommissionTerms(commissionAdjustMode, parsedValue);
+  }
+
+  const currentCommissionTerms = selectedItem.adminCommissionOverrideMode
+    ? normalizeOrderCommissionTerms(
+        selectedItem.adminCommissionOverrideMode,
+        selectedItem.adminCommissionOverrideValue
+      )
+    : null;
+  const commissionChanged =
+    !commissionTermsEqual(currentCommissionTerms, nextCommissionTerms) ||
+    (nextCommissionTerms != null &&
+      commissionAdjustReason.trim() !==
+        String(selectedItem.adminCommissionOverrideReason || '').trim());
+
+  if (commissionChanged && !commissionAdjustReason.trim()) {
+    showToast('error', 'Debes indicar el motivo del ajuste de comisión.');
+    return;
+  }
+
+  if (!priceValueChanged && !priceCurrencyChanged && !priceReasonChanged && !commissionChanged) {
+    resetPriceAdjustBox();
     return;
   }
 
@@ -11700,29 +11865,43 @@ const handleSaveAdjustedCreateOrderItemPrice = () => {
     prev.map((item) =>
       item.localId === priceAdjustItemLocalId
         ? (() => {
-            const snapshot = calculateOrderLineSnapshot({
-              sourceCurrency: nextSourceCurrency,
-              sourceAmount: nextSourceAmount,
-              quantity: item.qty,
-              fxRate: createOrderFxRateNumber,
-              fallbackUnitUsd: item.unitPriceUsdSnapshot,
-            });
-            const nextUnitUsd =
-              nextSourceCurrency === 'VES' && createOrderFxRateNumber > 0
-                ? nextSourceAmount / createOrderFxRateNumber
-                : nextSourceAmount;
-
+            const snapshot = priceHasMaterialChange
+              ? calculateOrderLineSnapshot({
+                  sourceCurrency: nextSourceCurrency,
+                  sourceAmount: nextSourceAmount,
+                  quantity: item.qty,
+                  fxRate: createOrderFxRateNumber,
+                  fallbackUnitUsd: item.unitPriceUsdSnapshot,
+                })
+              : null;
             return {
             ...item,
-            sourcePriceCurrency: nextSourceCurrency,
-            sourcePriceAmount: nextSourceAmount,
-            unitPriceUsdSnapshot: snapshot.unitUsd,
-            adminPriceOverrideUsd: nextUnitUsd,
-            adminPriceOverrideCurrency: nextSourceCurrency,
-            adminPriceOverrideReason: priceAdjustReason.trim(),
-            adminPriceOverrideByUserId: currentUser.id,
-            adminPriceOverrideAt: new Date().toISOString(),
-            lineTotalUsd: snapshot.lineUsd,
+            sourcePriceCurrency: priceHasMaterialChange ? nextSourceCurrency : item.sourcePriceCurrency,
+            sourcePriceAmount: priceHasMaterialChange ? nextSourceAmount : item.sourcePriceAmount,
+            unitPriceUsdSnapshot: snapshot?.unitUsd ?? item.unitPriceUsdSnapshot,
+            adminPriceOverrideUsd: keepPriceOverride
+              ? priceHasMaterialChange
+                ? nextUnitUsd
+                : item.adminPriceOverrideUsd
+              : null,
+            adminPriceOverrideCurrency: keepPriceOverride
+              ? priceHasMaterialChange
+                ? nextSourceCurrency
+                : item.adminPriceOverrideCurrency
+              : null,
+            adminPriceOverrideReason: keepPriceOverride ? priceAdjustReason.trim() : null,
+            adminPriceOverrideByUserId: keepPriceOverride ? currentUser.id : null,
+            adminPriceOverrideAt: keepPriceOverride ? new Date().toISOString() : null,
+            adminCommissionOverrideMode: nextCommissionTerms?.mode ?? null,
+            adminCommissionOverrideValue: nextCommissionTerms?.value ?? null,
+            adminCommissionOverrideReason: commissionChanged
+              ? commissionAdjustReason.trim()
+              : nextCommissionTerms
+                ? commissionAdjustReason.trim()
+                : null,
+            adminCommissionOverrideChanged:
+              item.adminCommissionOverrideChanged || commissionChanged,
+            lineTotalUsd: snapshot?.lineUsd ?? item.lineTotalUsd,
           };
         })()
         : item
@@ -13878,15 +14057,13 @@ const selectedCreateOrderClientAddresses = useMemo(
       const fixedOrderItems = items
         .map((item) => ({
           item,
-          product: catalogItemById.get(item.productId),
+          terms: getDraftItemEffectiveCommissionTerms(item),
         }))
-        .filter((row) => row.product?.commissionMode === 'fixed_order' && row.product.commissionValue != null);
+        .filter((row) => row.terms.mode === 'fixed_order');
 
       if (fixedOrderItems.length > 0) {
-        const selectedRule = fixedOrderItems.reduce((best, current) =>
-          (Number(current.product?.commissionValue || 0) > Number(best.product?.commissionValue || 0) ? current : best)
-        );
-        const pct = Number(selectedRule.product?.commissionValue || 0);
+        const selectedRule = fixedOrderItems[0];
+        const pct = Number(selectedRule.terms.value || 0);
         return {
           orderId: order.id,
           commissionableSubtotalUsd,
@@ -13904,12 +14081,12 @@ const selectedCreateOrderClientAddresses = useMemo(
       let defaultBaseUsd = 0;
 
       for (const item of items) {
-        const product = catalogItemById.get(item.productId);
+        const terms = getDraftItemEffectiveCommissionTerms(item);
         const itemBaseUsd = Math.max(0, Number(item.lineTotalUsd || 0) * discountFactor);
-        if (product?.commissionMode === 'fixed_item' && product.commissionValue != null) {
+        if (terms.mode === 'fixed_item') {
           fixedItemBaseUsd += itemBaseUsd;
-          fixedItemCommissionUsd += itemBaseUsd * (Number(product.commissionValue) / 100);
-        } else {
+          fixedItemCommissionUsd += itemBaseUsd * (Number(terms.value || 0) / 100);
+        } else if (terms.mode !== 'none') {
           defaultBaseUsd += itemBaseUsd;
         }
       }
@@ -13957,7 +14134,6 @@ const selectedCreateOrderClientAddresses = useMemo(
     advisorCalcSource,
     advisorCalcAdvisorId,
     advisorCalcRange,
-    catalogItemById,
     clientById,
     deliveredOrderMovementsByOrderId,
     deliveredOrders,
@@ -13986,15 +14162,13 @@ const selectedCreateOrderClientAddresses = useMemo(
       const fixedOrderItems = items
         .map((item) => ({
           item,
-          product: catalogItemById.get(item.productId),
+          terms: getDraftItemEffectiveCommissionTerms(item),
         }))
-        .filter((row) => row.product?.commissionMode === 'fixed_order' && row.product.commissionValue != null);
+        .filter((row) => row.terms.mode === 'fixed_order');
 
       if (fixedOrderItems.length > 0) {
-        const selectedRule = fixedOrderItems.reduce((best, current) =>
-          (Number(current.product?.commissionValue || 0) > Number(best.product?.commissionValue || 0) ? current : best)
-        );
-        const pct = Number(selectedRule.product?.commissionValue || 0);
+        const selectedRule = fixedOrderItems[0];
+        const pct = Number(selectedRule.terms.value || 0);
 
         return {
           order,
@@ -14016,12 +14190,12 @@ const selectedCreateOrderClientAddresses = useMemo(
       let regularBaseUsd = 0;
 
       for (const item of items) {
-        const product = catalogItemById.get(item.productId);
+        const terms = getDraftItemEffectiveCommissionTerms(item);
         const itemBaseUsd = Math.max(0, Number(item.lineTotalUsd || 0) * discountFactor);
-        if (product?.commissionMode === 'fixed_item' && product.commissionValue != null) {
+        if (terms.mode === 'fixed_item') {
           fixedItemBaseUsd += itemBaseUsd;
-          fixedItemCommissionUsd += itemBaseUsd * (Number(product.commissionValue) / 100);
-        } else {
+          fixedItemCommissionUsd += itemBaseUsd * (Number(terms.value || 0) / 100);
+        } else if (terms.mode !== 'none') {
           regularBaseUsd += itemBaseUsd;
         }
       }
@@ -14072,7 +14246,6 @@ const selectedCreateOrderClientAddresses = useMemo(
     advisorCalcAdvisorId,
     advisorCalcBasePct,
     advisorCalcRange,
-    catalogItemById,
     deliveredOrders,
   ]);
 
@@ -27715,9 +27888,11 @@ deliveryAssignMode === 'external' ? (
         type="button"
         onClick={() => openAdjustCreateOrderItemPrice(item)}
         className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-[11px] text-[#F5F5F7]"
-        title={item.adminPriceOverrideUsd != null ? 'Ajuste admin' : 'Ajustar precio'}
+        title="Ajustar precio o comisión"
       >
-        {item.adminPriceOverrideUsd != null ? 'Ajuste' : 'Precio'}
+        {item.adminPriceOverrideUsd != null || item.adminCommissionOverrideMode != null
+          ? 'Ajuste'
+          : 'Precio / comisión'}
       </button>
     ) : null}
 
@@ -27744,7 +27919,15 @@ deliveryAssignMode === 'external' ? (
 </div>
 {item.adminPriceOverrideUsd != null && item.adminPriceOverrideReason ? (
   <div className="md:col-span-full rounded-xl border border-orange-500/30 bg-[#121218] px-3 py-2 text-xs text-orange-300">
-    Ajuste admin: {item.adminPriceOverrideReason}
+    Precio especial: {item.adminPriceOverrideReason}
+  </div>
+) : null}
+{item.adminCommissionOverrideMode != null && item.adminCommissionOverrideReason ? (
+  <div className="md:col-span-full flex flex-wrap items-center gap-2 rounded-xl border border-[#FEEF00]/20 bg-[#121218] px-3 py-2 text-xs text-[#E8DFA0]">
+    <span className="font-semibold text-[#FEEF00]">
+      {formatOrderCommissionTerms(getDraftItemEffectiveCommissionTerms(item))}
+    </span>
+    <span>solo en esta orden · {item.adminCommissionOverrideReason}</span>
   </div>
 ) : null}
               </div>
@@ -28502,11 +28685,17 @@ deliveryAssignMode === 'external' ? (
 
 <Drawer
   open={priceAdjustOpen}
-  title="Ajuste administrativo de precio"
+  title="Ajuste administrativo"
   onClose={resetPriceAdjustBox}
   widthClass="w-[440px]"
 >
   <div className="space-y-3">
+    <div>
+      <div className="text-sm font-semibold text-[#F5F5F7]">Precio de esta línea</div>
+      <div className="mt-1 text-xs text-[#8A8A96]">
+        Si no cambias el valor, el precio permanece como está.
+      </div>
+    </div>
     <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
       Tasa snapshot usada para convertir: {' '}
       <span className="font-semibold text-[#F5F5F7]">
@@ -28531,7 +28720,9 @@ deliveryAssignMode === 'external' ? (
       />
     </div>
     <div>
-      <label className="mb-1 block text-xs text-[#8A8A96]">Motivo</label>
+      <label className="mb-1 block text-xs text-[#8A8A96]">
+        Motivo del precio (solo si lo cambias)
+      </label>
       <textarea
         value={priceAdjustReason}
         onChange={(e) => setPriceAdjustReason(e.target.value)}
@@ -28539,6 +28730,103 @@ deliveryAssignMode === 'external' ? (
         className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
       />
     </div>
+
+    {priceAdjustItemLocalId ? (() => {
+      const selectedItem = createOrderDraftItems.find(
+        (item) => item.localId === priceAdjustItemLocalId
+      );
+      if (!selectedItem) return null;
+      const inheritedTerms = getDraftItemInheritedCommissionTerms(selectedItem);
+      const needsCommissionValue =
+        commissionAdjustMode === 'fixed_item' || commissionAdjustMode === 'fixed_order';
+
+      return (
+        <div className="space-y-3 rounded-2xl border border-[#2C2C3A] bg-[#0B0B0D] p-3">
+          <div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Comisión de esta orden</div>
+            <div className="mt-1 text-xs leading-relaxed text-[#8A8A96]">
+              Regla heredada: {formatOrderCommissionTerms(inheritedTerms)}
+              {selectedItem.commissionInheritedSource === 'event' ? ' (evento)' : ' (catálogo)'}.
+            </div>
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-[#242433] bg-[#121218] px-3 py-2">
+            <input
+              type="checkbox"
+              checked={commissionAdjustEnabled}
+              onChange={(event) => setCommissionAdjustEnabled(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block text-sm font-medium text-[#F5F5F7]">
+                Usar una comisión especial
+              </span>
+              <span className="mt-0.5 block text-xs text-[#8A8A96]">
+                Se aplicará únicamente a esta orden.
+              </span>
+            </span>
+          </label>
+
+          {commissionAdjustEnabled ? (
+            <>
+              <div className={needsCommissionValue ? 'grid grid-cols-[1fr_110px] gap-3' : ''}>
+                <div>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Forma de cálculo</label>
+                  <select
+                    value={commissionAdjustMode}
+                    onChange={(event) =>
+                      setCommissionAdjustMode(event.target.value as OrderCommissionMode)
+                    }
+                    className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-[13px] text-[#F5F5F7]"
+                  >
+                    <option value="default">Comisión general del asesor</option>
+                    <option value="fixed_item">% fijo sobre este producto</option>
+                    <option value="fixed_order">% fijo sobre toda la orden</option>
+                    <option value="none">Sin comisión</option>
+                  </select>
+                </div>
+                {needsCommissionValue ? (
+                  <FieldInput
+                    label="Porcentaje"
+                    value={commissionAdjustValue}
+                    onChange={setCommissionAdjustValue}
+                    type="text"
+                    hint="De 0 a 100"
+                  />
+                ) : null}
+              </div>
+              {commissionAdjustMode === 'fixed_order' ? (
+                <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
+                  Esta opción sustituye la comisión de todos los productos de la orden.
+                </div>
+              ) : null}
+              <div>
+                <label className="mb-1 block text-xs text-[#8A8A96]">
+                  Motivo de la comisión especial
+                </label>
+                <textarea
+                  value={commissionAdjustReason}
+                  onChange={(event) => setCommissionAdjustReason(event.target.value)}
+                  rows={2}
+                  className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-[13px] text-[#F5F5F7]"
+                />
+              </div>
+            </>
+          ) : selectedItem.adminCommissionOverrideMode != null ? (
+            <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
+              Al guardar, se quitará la comisión especial y volverá a aplicarse la regla heredada.
+              Indica el motivo para dejar trazabilidad.
+              <textarea
+                value={commissionAdjustReason}
+                onChange={(event) => setCommissionAdjustReason(event.target.value)}
+                rows={2}
+                className="mt-2 w-full rounded-xl border border-orange-500/30 bg-[#121218] px-3 py-2 text-[13px] text-[#F5F5F7]"
+              />
+            </div>
+          ) : null}
+        </div>
+      );
+    })() : null}
     <div className="flex gap-2">
       <button
         className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"

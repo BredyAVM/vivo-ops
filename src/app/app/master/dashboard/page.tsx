@@ -11,6 +11,12 @@ import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { getPublicVapidKey } from '@/lib/push';
 import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
+import {
+  ORDER_COMMISSION_TERMS_KIND,
+  EVENT_COMMISSION_TERMS_KIND,
+  normalizeOrderCommissionTerms,
+  parseOrderCommissionAdjustmentPayload,
+} from '@/lib/commissions/order-commission-terms';
 import MasterDashboardClient from './MasterDashboardClient';
 
 export const dynamic = 'force-dynamic';
@@ -2089,7 +2095,8 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
         'id, order_id, order_item_id, adjustment_type, reason, notes, payload, created_at, created_by_user_id'
       )
       .in('order_id', orderIdsForQuery)
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false }),
   ]);
 
   if (orderItemsError) {
@@ -3264,9 +3271,35 @@ const pricingOriginCurrency: 'VES' | 'USD' =
             Math.abs(pricingOriginAmount - unitPriceUsdSnapshot) < 0.000001
           ? 'USD'
           : null;
+  const linkedCommissionAdjustments = adminAdjustments.filter(
+    (adjustment) => adjustment.orderItemId === Number(item.id)
+  );
+  const latestAdminCommissionAdjustment = linkedCommissionAdjustments.find(
+    (adjustment) => adjustment.payload?.kind === ORDER_COMMISSION_TERMS_KIND
+  );
+  const latestEventCommissionAdjustment = linkedCommissionAdjustments.find(
+    (adjustment) => adjustment.payload?.kind === EVENT_COMMISSION_TERMS_KIND
+  );
+  const parsedAdminCommissionAdjustment = parseOrderCommissionAdjustmentPayload(
+    latestAdminCommissionAdjustment?.payload
+  );
+  const parsedEventCommissionAdjustment = parseOrderCommissionAdjustmentPayload(
+    latestEventCommissionAdjustment?.payload
+  );
+  const catalogCommissionTerms = normalizeOrderCommissionTerms(
+    catalogItem?.commissionMode,
+    catalogItem?.commissionValue
+  );
+  const inheritedCommissionTerms =
+    parsedEventCommissionAdjustment?.terms ?? catalogCommissionTerms;
+  const adminCommissionOverrideTerms =
+    parsedAdminCommissionAdjustment?.action === 'set'
+      ? parsedAdminCommissionAdjustment.terms
+      : null;
 
   return {
     localId: `existing-${item.id}`,
+    orderItemId: Number(item.id),
     productId,
     skuSnapshot: item.sku_snapshot ?? null,
     productNameSnapshot: item.product_name_snapshot?.trim() || 'Producto',
@@ -3287,6 +3320,18 @@ const pricingOriginCurrency: 'VES' | 'USD' =
     adminPriceOverrideReason: (item as any).admin_price_override_reason ?? null,
     adminPriceOverrideByUserId: (item as any).admin_price_override_by_user_id ?? null,
     adminPriceOverrideAt: (item as any).admin_price_override_at ?? null,
+    commissionInheritedMode: inheritedCommissionTerms.mode,
+    commissionInheritedValue: inheritedCommissionTerms.value,
+    commissionInheritedSource: parsedEventCommissionAdjustment?.terms
+      ? ('event' as const)
+      : ('catalog' as const),
+    adminCommissionOverrideMode: adminCommissionOverrideTerms?.mode ?? null,
+    adminCommissionOverrideValue: adminCommissionOverrideTerms?.value ?? null,
+    adminCommissionOverrideReason:
+      adminCommissionOverrideTerms == null
+        ? null
+        : latestAdminCommissionAdjustment?.reason ?? null,
+    adminCommissionOverrideChanged: false,
   };
 });
 
