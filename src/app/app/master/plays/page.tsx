@@ -1,6 +1,11 @@
 import { redirect } from 'next/navigation';
 import { requireMasterOrAdminContext } from '@/lib/auth';
-import MasterPlaysClient, { type MasterPlay, type MasterPlayMember, type PlayBenefit } from './MasterPlaysClient';
+import MasterPlaysClient, {
+  type MasterPlay,
+  type MasterPlayMember,
+  type MasterPlayMonitorSummary,
+  type PlayBenefit,
+} from './MasterPlaysClient';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -179,11 +184,39 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
 
   const selectedPlay = plays.find((play) => play.id === requestedPlayId) ?? plays[0] ?? null;
   const createMode = params.create === '1' || !selectedPlay;
+  let monitorSummary: MasterPlayMonitorSummary | null = null;
   let members: MasterPlayMember[] = [];
   let memberCount = 0;
   let page = requestedPage;
 
   if (selectedPlay && !createMode) {
+    if (['active', 'paused', 'closed'].includes(selectedPlay.status)) {
+      const { data: monitorData, error: monitorError } = await ctx.supabase.rpc('crm_get_play_monitor_summary_v1', {
+        p_play_id: selectedPlay.id,
+      });
+      if (monitorError) throw new Error(monitorError.message);
+      const monitor = monitorData && typeof monitorData === 'object' && !Array.isArray(monitorData)
+        ? monitorData as Record<string, unknown>
+        : {};
+      monitorSummary = {
+        totalMembers: numberValue(monitor.total_members),
+        launchedMembers: numberValue(monitor.launched_members),
+        respondedMembers: numberValue(monitor.responded_members),
+        noResponseMembers: numberValue(monitor.no_response_members),
+        redeemedMembers: numberValue(monitor.redeemed_members),
+        expiredMembers: numberValue(monitor.expired_members),
+        redemptionOrders: numberValue(monitor.redemption_orders),
+        launchRatePct: numberValue(monitor.launch_rate_pct),
+        responseRatePct: numberValue(monitor.response_rate_pct),
+        redemptionRatePct: numberValue(monitor.redemption_rate_pct),
+        benefitCreditUsd: numberValue(monitor.benefit_credit_usd),
+        advisorChargeUsd: numberValue(monitor.advisor_charge_usd),
+        companyCostUsd: numberValue(monitor.company_cost_usd),
+        customerPaidDifferenceUsd: numberValue(monitor.customer_paid_difference_usd),
+        directOrderRevenueUsd: numberValue(monitor.direct_order_revenue_usd),
+      };
+    }
+
     const buildQuery = () => {
       let query = ctx.supabase
         .from('crm_play_members')
@@ -266,6 +299,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       memberPage={page}
       memberPageSize={MEMBER_PAGE_SIZE}
       memberSearch={search}
+      monitorSummary={monitorSummary}
     />
   );
 }

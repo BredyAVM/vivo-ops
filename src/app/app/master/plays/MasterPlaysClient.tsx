@@ -105,6 +105,24 @@ export type MasterPlayMember = {
   workflowStatus: string;
 };
 
+export type MasterPlayMonitorSummary = {
+  totalMembers: number;
+  launchedMembers: number;
+  respondedMembers: number;
+  noResponseMembers: number;
+  redeemedMembers: number;
+  expiredMembers: number;
+  redemptionOrders: number;
+  launchRatePct: number;
+  responseRatePct: number;
+  redemptionRatePct: number;
+  benefitCreditUsd: number;
+  advisorChargeUsd: number;
+  companyCostUsd: number;
+  customerPaidDifferenceUsd: number;
+  directOrderRevenueUsd: number;
+};
+
 type Props = {
   roles: string[];
   plays: MasterPlay[];
@@ -115,6 +133,7 @@ type Props = {
   memberPage: number;
   memberPageSize: number;
   memberSearch: string;
+  monitorSummary: MasterPlayMonitorSummary | null;
 };
 
 type Notice = { tone: 'success' | 'error' | 'info'; text: string } | null;
@@ -1128,6 +1147,40 @@ function MemberList({
   );
 }
 
+function PlayMonitor({ summary }: { summary: MasterPlayMonitorSummary }) {
+  const metrics = [
+    { label: 'Jugada lanzada', value: summary.launchedMembers, note: `${summary.launchRatePct.toFixed(1)}% de la lista` },
+    { label: 'Respondieron', value: summary.respondedMembers, note: `${summary.responseRatePct.toFixed(1)}% de lanzados` },
+    { label: 'No respondieron', value: summary.noResponseMembers, note: 'Marcados por el asesor' },
+    { label: 'Beneficio aplicado', value: summary.redeemedMembers, note: `${summary.redemptionRatePct.toFixed(1)}% de la lista` },
+  ];
+  return (
+    <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold">3. Supervisar ejecución</h2>
+        <p className="mt-0.5 text-[10px] text-[#777785]">Contacto manual y resultados financieros tomados directamente de pedidos con el beneficio aplicado.</p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {metrics.map((metric) => (
+          <div key={metric.label} className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
+            <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#777785]">{metric.label}</div>
+            <div className="mt-1 text-xl font-semibold tabular-nums text-white">{metric.value.toLocaleString('es-VE')}</div>
+            <div className="mt-0.5 text-[9px] text-[#666675]">{metric.note}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2"><div className="text-[9px] text-emerald-100/50">Ventas directas</div><div className="mt-0.5 text-sm font-semibold text-emerald-100">{moneyFormatter.format(summary.directOrderRevenueUsd)}</div></div>
+        <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] px-3 py-2"><div className="text-[9px] text-cyan-100/50">Crédito entregado</div><div className="mt-0.5 text-sm font-semibold text-cyan-100">{moneyFormatter.format(summary.benefitCreditUsd)}</div></div>
+        <div className="rounded-xl border border-blue-400/15 bg-blue-400/[0.04] px-3 py-2"><div className="text-[9px] text-blue-100/50">Inversión empresa</div><div className="mt-0.5 text-sm font-semibold text-blue-100">{moneyFormatter.format(summary.companyCostUsd)}</div></div>
+        <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.04] px-3 py-2"><div className="text-[9px] text-amber-100/50">Cargo asesores</div><div className="mt-0.5 text-sm font-semibold text-amber-100">{moneyFormatter.format(summary.advisorChargeUsd)}</div></div>
+        <div className="rounded-xl border border-violet-400/15 bg-violet-400/[0.04] px-3 py-2"><div className="text-[9px] text-violet-100/50">Diferencias pagadas</div><div className="mt-0.5 text-sm font-semibold text-violet-100">{moneyFormatter.format(summary.customerPaidDifferenceUsd)}</div></div>
+      </div>
+      {summary.expiredMembers > 0 ? <div className="mt-2 text-[9px] text-[#777785]">{summary.expiredMembers.toLocaleString('es-VE')} beneficios vencieron sin utilizarse.</div> : null}
+    </section>
+  );
+}
+
 export default function MasterPlaysClient({
   roles,
   plays,
@@ -1138,6 +1191,7 @@ export default function MasterPlaysClient({
   memberPage,
   memberPageSize,
   memberSearch,
+  monitorSummary,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -1387,6 +1441,10 @@ export default function MasterPlaysClient({
                     <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'close')} className="inline-flex h-9 items-center justify-center rounded-xl border border-red-400/30 px-3 text-xs font-semibold text-red-200 hover:bg-red-400/10 disabled:opacity-45">Cerrar</button>
                   </div>
                 </section>
+              ) : null}
+
+              {monitorSummary && ['active', 'paused', 'closed'].includes(selectedPlay.status) ? (
+                <PlayMonitor summary={monitorSummary} />
               ) : null}
 
               {advisors.length > 0 ? (
