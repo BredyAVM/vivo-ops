@@ -37,11 +37,14 @@ type MemberRow = {
   purchase_count: number | string;
   days_since_last_purchase: number | string | null;
   contact_attempt_count: number | string;
+  contacted_at: string | null;
+  responded_at: string | null;
+  play_launched_at: string | null;
   next_follow_up_at: string | null;
   client: ClientRow | ClientRow[] | null;
 };
 
-type ViewFilter = 'all' | 'pending' | 'follow_up' | 'contacted' | 'converted';
+type ViewFilter = 'all' | 'pending' | 'follow_up' | 'contacted' | 'responded' | 'launched' | 'converted';
 type SearchParams = Promise<{ play?: string; view?: string }>;
 
 const dateFormatter = new Intl.DateTimeFormat('es-VE', {
@@ -80,7 +83,14 @@ function dateTimeLabel(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? value : dateTimeFormatter.format(parsed);
 }
 
-function workflowPresentation(status: string, due: boolean, benefitStatus: string) {
+function workflowPresentation(
+  status: string,
+  due: boolean,
+  benefitStatus: string,
+  contactedAt: string | null,
+  respondedAt: string | null,
+  playLaunchedAt: string | null,
+) {
   if (benefitStatus === 'redeemed') {
     return {
       label: 'Obsequio entregado',
@@ -107,7 +117,7 @@ function workflowPresentation(status: string, due: boolean, benefitStatus: strin
       row: 'border-l-[#5F6879]',
     },
     contacted: {
-      label: 'Jugada lanzada',
+      label: 'Contacto iniciado',
       dot: 'bg-[#69B7FF]',
       chip: 'border-[#214C73] bg-[#102338] text-[#8CC9FF]',
       row: 'border-l-[#3C8FD9]',
@@ -119,10 +129,16 @@ function workflowPresentation(status: string, due: boolean, benefitStatus: strin
       row: 'border-l-[#D6B900]',
     },
     responded: {
-      label: 'Respondió',
+      label: 'Respondió saludo',
       dot: 'bg-[#B694FF]',
       chip: 'border-[#4A3675] bg-[#241A3A] text-[#C9B1FF]',
       row: 'border-l-[#8D68E1]',
+    },
+    launched: {
+      label: 'Jugada lanzada',
+      dot: 'bg-[#69B7FF]',
+      chip: 'border-[#214C73] bg-[#102338] text-[#8CC9FF]',
+      row: 'border-l-[#3C8FD9]',
     },
     accepted: {
       label: 'Aceptó',
@@ -168,7 +184,13 @@ function workflowPresentation(status: string, due: boolean, benefitStatus: strin
     },
   };
 
-  return presentations[status] ?? presentations.pending;
+  if (['follow_up_scheduled', 'accepted', 'converted', 'not_interested', 'unreachable', 'not_applicable', 'closed', 'removed'].includes(status)) {
+    return presentations[status] ?? presentations.pending;
+  }
+  if (playLaunchedAt) return presentations.launched;
+  if (respondedAt) return presentations.responded;
+  if (contactedAt) return presentations.contacted;
+  return presentations.pending;
 }
 
 function CompactPageHeader({ status }: { status?: 'active' | 'paused' }) {
@@ -198,7 +220,7 @@ function CompactStat({ label, value }: { label: string; value: number }) {
 }
 
 function viewValue(value: string | undefined): ViewFilter {
-  return value === 'pending' || value === 'follow_up' || value === 'contacted' || value === 'converted'
+  return value === 'pending' || value === 'follow_up' || value === 'contacted' || value === 'responded' || value === 'launched' || value === 'converted'
     ? value
     : 'all';
 }
@@ -217,9 +239,11 @@ function isDue(member: MemberRow, now: number) {
 
 function memberMatchesView(member: MemberRow, view: ViewFilter, now: number) {
   const completed = member.benefit_status === 'redeemed';
-  if (view === 'pending') return !completed && member.workflow_status === 'pending';
+  if (view === 'pending') return !completed && !member.contacted_at;
   if (view === 'follow_up') return !completed && (isDue(member, now) || member.workflow_status === 'follow_up_scheduled');
-  if (view === 'contacted') return member.workflow_status !== 'pending';
+  if (view === 'contacted') return Boolean(member.contacted_at);
+  if (view === 'responded') return Boolean(member.responded_at);
+  if (view === 'launched') return Boolean(member.play_launched_at);
   if (view === 'converted') return completed || member.workflow_status === 'converted';
   return true;
 }
@@ -229,8 +253,8 @@ function sortMembers(left: MemberRow, right: MemberRow, now: number) {
   const rightDue = isDue(right, now) ? 0 : 1;
   if (leftDue !== rightDue) return leftDue - rightDue;
 
-  const leftPending = left.workflow_status === 'pending' ? 0 : 1;
-  const rightPending = right.workflow_status === 'pending' ? 0 : 1;
+  const leftPending = left.contacted_at ? 1 : 0;
+  const rightPending = right.contacted_at ? 1 : 0;
   if (leftPending !== rightPending) return leftPending - rightPending;
 
   const leftFollowUp = left.next_follow_up_at ? new Date(left.next_follow_up_at).getTime() : Number.MAX_SAFE_INTEGER;
@@ -288,7 +312,8 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
       .from('crm_play_members')
       .select(`
         id, play_id, client_id, workflow_status, benefit_status, purchase_count,
-        days_since_last_purchase, contact_attempt_count, next_follow_up_at,
+        days_since_last_purchase, contact_attempt_count,
+        contacted_at, responded_at, play_launched_at, next_follow_up_at,
         client:clients(id, full_name)
       `)
       .eq('play_id', Number(selectedPlay.id))
@@ -317,9 +342,10 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   // This is a server-only request snapshot used to classify due follow-ups consistently.
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
-  const dueCount = members.filter((member) => member.benefit_status !== 'redeemed' && isDue(member, now)).length;
-  const pendingCount = members.filter((member) => member.benefit_status !== 'redeemed' && member.workflow_status === 'pending').length;
-  const touchedCount = members.filter((member) => member.workflow_status !== 'pending').length;
+  const pendingCount = members.filter((member) => member.benefit_status !== 'redeemed' && !member.contacted_at).length;
+  const contactedCount = members.filter((member) => Boolean(member.contacted_at)).length;
+  const respondedCount = members.filter((member) => Boolean(member.responded_at)).length;
+  const launchedCount = members.filter((member) => Boolean(member.play_launched_at)).length;
   const convertedCount = members.filter((member) => member.benefit_status === 'redeemed' || member.workflow_status === 'converted').length;
   const visibleMembers = members
     .filter((member) => memberMatchesView(member, view, now))
@@ -329,7 +355,9 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     { value: 'all', label: 'Todos', count: members.length },
     { value: 'pending', label: 'Sin tocar', count: pendingCount },
     { value: 'follow_up', label: 'Seguimientos', count: members.filter((member) => member.benefit_status !== 'redeemed' && (member.workflow_status === 'follow_up_scheduled' || isDue(member, now))).length },
-    { value: 'contacted', label: 'Lanzadas', count: touchedCount },
+    { value: 'contacted', label: 'Contactados', count: contactedCount },
+    { value: 'responded', label: 'Respondieron', count: respondedCount },
+    { value: 'launched', label: 'Lanzadas', count: launchedCount },
     { value: 'converted', label: 'Aplicados', count: convertedCount },
   ];
 
@@ -395,7 +423,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
       <div className="grid grid-cols-4 gap-1.5">
         <CompactStat label="Total" value={members.length} />
         <CompactStat label="Pendientes" value={pendingCount} />
-        <CompactStat label="Vencidos" value={dueCount} />
+        <CompactStat label="Lanzadas" value={launchedCount} />
         <CompactStat label="Aplicados" value={convertedCount} />
       </div>
 
@@ -435,7 +463,14 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
           visibleMembers.map((member) => {
             const client = one(member.client);
             const due = isDue(member, now);
-            const presentation = workflowPresentation(member.workflow_status, due, member.benefit_status);
+            const presentation = workflowPresentation(
+              member.workflow_status,
+              due,
+              member.benefit_status,
+              member.contacted_at,
+              member.responded_at,
+              member.play_launched_at,
+            );
             const clientName = client?.full_name?.trim() || 'Cliente sin nombre';
             const purchaseCount = numberValue(member.purchase_count);
             const daysSincePurchase = member.days_since_last_purchase == null

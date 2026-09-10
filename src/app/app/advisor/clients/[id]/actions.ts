@@ -7,6 +7,7 @@ export type PlayFollowUpAction =
   | 'contact'
   | 'follow_up'
   | 'responded'
+  | 'launched'
   | 'accepted'
   | 'converted'
   | 'not_interested'
@@ -27,6 +28,7 @@ const allowedActions = new Set<PlayFollowUpAction>([
   'contact',
   'follow_up',
   'responded',
+  'launched',
   'accepted',
   'converted',
   'not_interested',
@@ -38,9 +40,10 @@ const allowedActions = new Set<PlayFollowUpAction>([
 
 function successMessage(action: PlayFollowUpAction) {
   const messages: Record<PlayFollowUpAction, string> = {
-    contact: 'Jugada marcada como lanzada.',
+    contact: 'Contacto inicial registrado.',
     follow_up: 'Próximo seguimiento programado.',
-    responded: 'Respuesta registrada.',
+    responded: 'Respuesta al saludo registrada.',
+    launched: 'Jugada marcada como lanzada.',
     accepted: 'Interés del cliente registrado.',
     converted: 'Resultado convertido registrado.',
     not_interested: 'Resultado guardado como no interesado.',
@@ -75,7 +78,7 @@ export async function recordClientPlayFollowUpAction(input: RecordPlayFollowUpIn
       return { ok: false as const, message: 'La fecha del próximo seguimiento no es válida.' };
     }
 
-    const { data, error } = await ctx.supabase.rpc('crm_record_play_member_action_v1', {
+    const { data, error } = await ctx.supabase.rpc('crm_record_play_member_action_v2', {
       p_play_member_id: playMemberId,
       p_action: input.action,
       p_note: note,

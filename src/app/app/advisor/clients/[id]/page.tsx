@@ -6,6 +6,7 @@ import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../
 import ClientBenefitSelector from './ClientBenefitSelector';
 import ClientFollowUpPanel from './ClientFollowUpPanel';
 import PlayMessageCard from './PlayMessageCard';
+import WhatsAppContactButton from './WhatsAppContactButton';
 
 type ClientProfile = {
   client_id: number | string;
@@ -102,6 +103,9 @@ type PlayMemberRow = {
   days_since_last_purchase: number | string | null;
   eligibility_reasons: string[] | null;
   contact_attempt_count: number | string;
+  contacted_at: string | null;
+  responded_at: string | null;
+  play_launched_at: string | null;
   last_contact_at: string | null;
   next_follow_up_at: string | null;
   last_note: string | null;
@@ -198,9 +202,9 @@ function dateTimeLabel(value: string | null | undefined) {
 function workflowLabel(status: string) {
   const labels: Record<string, string> = {
     pending: 'Pendiente',
-    contacted: 'Jugada lanzada',
+    contacted: 'Contacto iniciado',
     follow_up_scheduled: 'Seguimiento programado',
-    responded: 'Respondió',
+    responded: 'Respondió saludo',
     accepted: 'Aceptó',
     converted: 'Recompra lograda',
     not_interested: 'No interesado',
@@ -212,6 +216,18 @@ function workflowLabel(status: string) {
   return labels[status] ?? status;
 }
 
+function memberStageLabel(member: PlayMemberRow) {
+  if (member.benefit_status === 'redeemed') return 'Obsequio entregado';
+  if (['accepted', 'converted', 'not_interested', 'unreachable', 'not_applicable', 'closed', 'removed'].includes(member.workflow_status)) {
+    return workflowLabel(member.workflow_status);
+  }
+  if (member.play_launched_at) return 'Jugada lanzada';
+  if (member.responded_at) return 'Respondió saludo';
+  if (member.workflow_status === 'follow_up_scheduled') return 'Seguimiento programado';
+  if (member.contacted_at) return 'Contacto iniciado';
+  return 'Pendiente';
+}
+
 function workflowTone(status: string): 'neutral' | 'warning' | 'success' | 'danger' {
   if (status === 'converted' || status === 'accepted') return 'success';
   if (status === 'pending' || status === 'follow_up_scheduled') return 'warning';
@@ -221,9 +237,10 @@ function workflowTone(status: string): 'neutral' | 'warning' | 'success' | 'dang
 
 function eventLabel(eventType: string) {
   const labels: Record<string, string> = {
-    contact: 'Jugada lanzada',
+    contact: 'Contacto inicial por WhatsApp',
     follow_up: 'Seguimiento programado',
-    responded: 'El cliente respondió',
+    responded: 'El cliente respondió el saludo',
+    launched: 'Jugada lanzada',
     accepted: 'El cliente mostró interés',
     converted: 'Recompra lograda',
     not_interested: 'No está interesado',
@@ -232,6 +249,7 @@ function eventLabel(eventType: string) {
     closed: 'Seguimiento cerrado',
     note: 'Nota agregada',
     benefit_selected: 'Beneficio seleccionado',
+    benefit_redeemed: 'Obsequio entregado',
   };
   return labels[eventType] ?? eventType;
 }
@@ -299,6 +317,7 @@ export default async function AdvisorClientProfilePage({
         first_purchase_on, last_purchase_on, purchase_count, net_revenue_usd,
         average_ticket_usd, last_gift_on,
         days_since_last_purchase, eligibility_reasons, contact_attempt_count,
+        contacted_at, responded_at, play_launched_at,
         last_contact_at, next_follow_up_at, last_note, last_event_at,
         play:crm_plays(
           id, name, description, status, starts_at, ends_at,
@@ -434,14 +453,17 @@ export default async function AdvisorClientProfilePage({
 
       <div className="flex gap-2">
         {whatsappHref ? (
-          <a
-            href={whatsappHref}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-11 flex-1 items-center justify-center rounded-[13px] bg-[#1D6B42] px-4 text-sm font-semibold text-white"
-          >
-            Abrir WhatsApp
-          </a>
+          <WhatsAppContactButton
+            whatsappHref={whatsappHref}
+            playMemberId={selectedMember ? numberValue(selectedMember.id) : null}
+            shouldRecordContact={Boolean(
+              selectedMember
+              && isPlayActive
+              && selectedMember.benefit_status !== 'redeemed'
+              && !selectedMember.contacted_at
+            )}
+            hasContact={Boolean(selectedMember?.contacted_at)}
+          />
         ) : (
           <div className="flex h-11 flex-1 items-center justify-center rounded-[13px] border border-[#2A3040] text-xs text-[#747E91]">
             Sin WhatsApp disponible
@@ -494,7 +516,7 @@ export default async function AdvisorClientProfilePage({
             subtitle="Seguimiento de esta jugada"
             action={selectedMember.benefit_status === 'redeemed'
               ? <StatusBadge label="Obsequio entregado" tone="success" />
-              : <StatusBadge label={workflowLabel(selectedMember.workflow_status)} tone={workflowTone(selectedMember.workflow_status)} />}
+              : <StatusBadge label={memberStageLabel(selectedMember)} tone={workflowTone(selectedMember.workflow_status)} />}
           >
             {selectedPlay.message_template ? (
               <div className="mb-3">
@@ -509,6 +531,11 @@ export default async function AdvisorClientProfilePage({
                   ).map((option) => `${option.quantity} × ${option.name}`).join(' o ') || 'tu beneficio'}
                   validityLabel={selectedPlay.ends_at ? `antes del ${dateLabel(selectedPlay.ends_at)}` : 'durante esta jugada'}
                   whatsappBaseHref={whatsappHref}
+                  playMemberId={numberValue(selectedMember.id)}
+                  isActive={isPlayActive}
+                  isCompleted={selectedMember.benefit_status === 'redeemed'}
+                  hasGreetingResponse={Boolean(selectedMember.responded_at)}
+                  isLaunched={Boolean(selectedMember.play_launched_at)}
                 />
               </div>
             ) : null}
@@ -533,7 +560,10 @@ export default async function AdvisorClientProfilePage({
                 playMemberId={numberValue(selectedMember.id)}
                 isActive={isPlayActive}
                 isCompleted={selectedMember.benefit_status === 'redeemed'}
-                workflowStatus={workflowLabel(selectedMember.workflow_status)}
+                stageLabel={memberStageLabel(selectedMember)}
+                hasContact={Boolean(selectedMember.contacted_at)}
+                hasGreetingResponse={Boolean(selectedMember.responded_at)}
+                isLaunched={Boolean(selectedMember.play_launched_at)}
                 contactAttemptCount={numberValue(selectedMember.contact_attempt_count)}
               />
             </div>
@@ -610,7 +640,7 @@ export default async function AdvisorClientProfilePage({
                       </Link>
                       <div className="mt-1 text-[10px] text-[#747E91]">{dateLabel(play.starts_at)} — {dateLabel(play.ends_at)}</div>
                     </div>
-                    <StatusBadge label={workflowLabel(member.workflow_status)} tone={workflowTone(member.workflow_status)} />
+                    <StatusBadge label={memberStageLabel(member)} tone={workflowTone(member.workflow_status)} />
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#8B93A7]">
                     <span>{numberValue(member.contact_attempt_count) > 0 ? `${numberValue(member.contact_attempt_count)} contacto${numberValue(member.contact_attempt_count) === 1 ? '' : 's'}` : 'Sin contacto'}</span>

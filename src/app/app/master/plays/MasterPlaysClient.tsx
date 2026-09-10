@@ -141,12 +141,14 @@ export type PlayAmendment = {
 export type MasterPlayMonitorSummary = {
   totalMembers: number;
   pendingMembers: number;
+  contactedMembers: number;
   launchedMembers: number;
   respondedMembers: number;
   noResponseMembers: number;
   redeemedMembers: number;
   expiredMembers: number;
   redemptionOrders: number;
+  contactRatePct: number;
   launchRatePct: number;
   responseRatePct: number;
   redemptionRatePct: number;
@@ -173,12 +175,14 @@ export type MasterPlayAdvisorMonitor = {
   advisorName: string;
   totalMembers: number;
   pendingMembers: number;
+  contactedMembers: number;
   launchedMembers: number;
   respondedMembers: number;
   noResponseMembers: number;
   redeemedMembers: number;
   expiredMembers: number;
   overdueFollowUps: number;
+  contactRatePct: number;
   launchRatePct: number;
   responseRatePct: number;
   lastActivityAt: string | null;
@@ -1415,8 +1419,9 @@ function PlayMonitor({
   });
   const metrics = [
     { label: 'Sin tocar', value: summary.pendingMembers, note: 'Pendientes de primer contacto' },
+    { label: 'Contactos iniciados', value: summary.contactedMembers, note: `${summary.contactRatePct.toFixed(1)}% de la lista` },
+    { label: 'Respondieron saludo', value: summary.respondedMembers, note: `${summary.responseRatePct.toFixed(1)}% de contactados` },
     { label: 'Jugada lanzada', value: summary.launchedMembers, note: `${summary.launchRatePct.toFixed(1)}% de la lista` },
-    { label: 'Respondieron', value: summary.respondedMembers, note: `${summary.responseRatePct.toFixed(1)}% de lanzados` },
     { label: 'No respondieron', value: summary.noResponseMembers, note: 'Marcados por el asesor' },
     { label: 'Beneficio aplicado', value: summary.redeemedMembers, note: `${summary.redemptionRatePct.toFixed(1)}% de la lista` },
   ];
@@ -1424,9 +1429,9 @@ function PlayMonitor({
     <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="mb-3">
         <h2 className="text-sm font-semibold">3. Supervisar ejecución</h2>
-        <p className="mt-0.5 text-[10px] text-[#777785]">Contacto manual y resultados financieros tomados directamente de pedidos con el beneficio aplicado.</p>
+        <p className="mt-0.5 text-[10px] text-[#777785]">Embudo vivo desde el saludo inicial hasta el mensaje de la jugada y el beneficio aplicado.</p>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
         {metrics.map((metric) => (
           <div key={metric.label} className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
             <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#777785]">{metric.label}</div>
@@ -1437,7 +1442,7 @@ function PlayMonitor({
       </div>
       {summary.advisors.length > 0 ? (
         <div className="mt-4 overflow-x-auto rounded-xl border border-[#242433]">
-          <table className="min-w-[880px] w-full border-collapse text-left text-[10px]">
+          <table className="min-w-[1040px] w-full border-collapse text-left text-[10px]">
             <caption className="border-b border-[#242433] bg-[#0D0D11] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-[#777785]">
               Avance vivo por asesor
             </caption>
@@ -1446,8 +1451,9 @@ function PlayMonitor({
                 <th scope="col" className="px-3 py-2 font-medium">Asesor</th>
                 <th scope="col" className="px-2 py-2 text-right font-medium">Lista</th>
                 <th scope="col" className="px-2 py-2 text-right font-medium">Sin tocar</th>
-                <th scope="col" className="px-2 py-2 text-right font-medium">Lanzadas</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Contactos</th>
                 <th scope="col" className="px-2 py-2 text-right font-medium">Respondieron</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Lanzadas</th>
                 <th scope="col" className="px-2 py-2 text-right font-medium">Sin respuesta</th>
                 <th scope="col" className="px-2 py-2 text-right font-medium">Vencidos</th>
                 <th scope="col" className="px-3 py-2 text-right font-medium">Aplicadas</th>
@@ -1464,8 +1470,9 @@ function PlayMonitor({
                   </th>
                   <td className="px-2 py-2.5 text-right tabular-nums">{advisor.totalMembers}</td>
                   <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.pendingMembers > 0 ? 'text-amber-200' : 'text-[#777785]'}`}>{advisor.pendingMembers}</td>
-                  <td className="px-2 py-2.5 text-right tabular-nums">{advisor.launchedMembers}<span className="ml-1 text-[9px] text-[#666675]">{advisor.launchRatePct.toFixed(0)}%</span></td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-blue-200">{advisor.contactedMembers}<span className="ml-1 text-[9px] text-[#666675]">{advisor.contactRatePct.toFixed(0)}%</span></td>
                   <td className="px-2 py-2.5 text-right tabular-nums text-violet-200">{advisor.respondedMembers}<span className="ml-1 text-[9px] text-[#666675]">{advisor.responseRatePct.toFixed(0)}%</span></td>
+                  <td className="px-2 py-2.5 text-right tabular-nums">{advisor.launchedMembers}<span className="ml-1 text-[9px] text-[#666675]">{advisor.launchRatePct.toFixed(0)}%</span></td>
                   <td className="px-2 py-2.5 text-right tabular-nums text-orange-200">{advisor.noResponseMembers}</td>
                   <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.overdueFollowUps > 0 ? 'text-rose-200' : 'text-[#777785]'}`}>{advisor.overdueFollowUps}</td>
                   <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-emerald-200">{advisor.redeemedMembers}</td>

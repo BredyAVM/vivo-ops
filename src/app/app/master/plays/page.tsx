@@ -305,12 +305,14 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
               advisorName: String(row.advisor_name || 'Sin asesor'),
               totalMembers: numberValue(row.total_members),
               pendingMembers: numberValue(row.pending_members),
+              contactedMembers: numberValue(row.contacted_members),
               launchedMembers: numberValue(row.launched_members),
               respondedMembers: numberValue(row.responded_members),
               noResponseMembers: numberValue(row.no_response_members),
               redeemedMembers: numberValue(row.redeemed_members),
               expiredMembers: numberValue(row.expired_members),
               overdueFollowUps: numberValue(row.overdue_follow_ups),
+              contactRatePct: numberValue(row.contact_rate_pct),
               launchRatePct: numberValue(row.launch_rate_pct),
               responseRatePct: numberValue(row.response_rate_pct),
               lastActivityAt: row.last_activity_at == null ? null : String(row.last_activity_at),
@@ -320,6 +322,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       const operationalTotals = advisorRows.reduce((totals, advisor) => ({
         totalMembers: totals.totalMembers + advisor.totalMembers,
         pendingMembers: totals.pendingMembers + advisor.pendingMembers,
+        contactedMembers: totals.contactedMembers + advisor.contactedMembers,
         launchedMembers: totals.launchedMembers + advisor.launchedMembers,
         respondedMembers: totals.respondedMembers + advisor.respondedMembers,
         noResponseMembers: totals.noResponseMembers + advisor.noResponseMembers,
@@ -329,6 +332,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       }), {
         totalMembers: 0,
         pendingMembers: 0,
+        contactedMembers: 0,
         launchedMembers: 0,
         respondedMembers: 0,
         noResponseMembers: 0,
@@ -336,24 +340,29 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         expiredMembers: 0,
         overdueFollowUps: 0,
       });
+      const contactRatePct = operationalTotals.totalMembers === 0
+        ? 0
+        : 100 * operationalTotals.contactedMembers / operationalTotals.totalMembers;
       const launchRatePct = operationalTotals.totalMembers === 0
         ? 0
         : 100 * operationalTotals.launchedMembers / operationalTotals.totalMembers;
-      const responseRatePct = operationalTotals.launchedMembers === 0
+      const responseRatePct = operationalTotals.contactedMembers === 0
         ? 0
-        : 100 * operationalTotals.respondedMembers / operationalTotals.launchedMembers;
+        : 100 * operationalTotals.respondedMembers / operationalTotals.contactedMembers;
       const redemptionRatePct = operationalTotals.totalMembers === 0
         ? 0
         : 100 * operationalTotals.redeemedMembers / operationalTotals.totalMembers;
       monitorSummary = {
         totalMembers: operationalTotals.totalMembers,
         pendingMembers: operationalTotals.pendingMembers,
+        contactedMembers: operationalTotals.contactedMembers,
         launchedMembers: operationalTotals.launchedMembers,
         respondedMembers: operationalTotals.respondedMembers,
         noResponseMembers: operationalTotals.noResponseMembers,
         redeemedMembers: operationalTotals.redeemedMembers,
         expiredMembers: operationalTotals.expiredMembers,
         redemptionOrders: numberValue(monitor.redemption_orders),
+        contactRatePct,
         launchRatePct,
         responseRatePct,
         redemptionRatePct,

@@ -11,17 +11,19 @@ type ClientFollowUpPanelProps = {
   playMemberId: number;
   isActive: boolean;
   isCompleted: boolean;
-  workflowStatus: string;
+  stageLabel: string;
+  hasContact: boolean;
+  hasGreetingResponse: boolean;
+  isLaunched: boolean;
   contactAttemptCount: number;
 };
 
 const quickActions: Array<{
-  value: Extract<PlayFollowUpAction, 'contact' | 'responded' | 'unreachable'>;
+  value: Extract<PlayFollowUpAction, 'responded' | 'unreachable'>;
   label: string;
   activeClassName: string;
 }> = [
-  { value: 'contact', label: 'Jugada lanzada', activeClassName: 'border-[#3C8FD9] bg-[#102338] text-[#8CC9FF]' },
-  { value: 'responded', label: 'Respondió', activeClassName: 'border-[#4A3675] bg-[#241A3A] text-[#C9B1FF]' },
+  { value: 'responded', label: 'Respondió saludo', activeClassName: 'border-[#4A3675] bg-[#241A3A] text-[#C9B1FF]' },
   { value: 'unreachable', label: 'No respondió', activeClassName: 'border-[#68401B] bg-[#2F1E0D] text-[#F6B97D]' },
 ];
 
@@ -45,7 +47,7 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
         followUpAt: action === 'follow_up' && followUpAt
           ? new Date(followUpAt).toISOString()
           : null,
-        channel: action === 'contact' || action === 'unreachable' ? 'whatsapp' : null,
+        channel: action === 'unreachable' || action === 'launched' ? 'whatsapp' : null,
       });
 
       if (!result.ok) {
@@ -67,7 +69,7 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-[#AAB2C5]">
           <div className="text-[10px] uppercase tracking-[0.15em] text-[#747E91]">Estado</div>
-          <div className="mt-1 text-[#F5F7FB]">{props.isCompleted ? 'Obsequio entregado' : props.workflowStatus}</div>
+          <div className="mt-1 text-[#F5F7FB]">{props.isCompleted ? 'Obsequio entregado' : props.stageLabel}</div>
         </div>
         <div className="rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-[#AAB2C5]">
           <div className="text-[10px] uppercase tracking-[0.15em] text-[#747E91]">Intentos</div>
@@ -88,22 +90,59 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
         </div>
       ) : (
         <>
-          <fieldset>
-            <legend className="text-xs text-[#AAB2C5]">Registro rápido</legend>
-            <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-              {quickActions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => submitFollowUp(option.value)}
-                  disabled={pending}
-                  className={`inline-flex min-h-11 items-center justify-center rounded-[12px] border px-2 text-center text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${option.activeClassName}`}
-                >
-                  {pending && pendingAction === option.value ? 'Guardando…' : option.label}
-                </button>
-              ))}
+          <div className="grid grid-cols-3 gap-1.5" aria-label="Progreso de contacto">
+            {[
+              { label: 'Contacto', done: props.hasContact },
+              { label: 'Respondió', done: props.hasGreetingResponse },
+              { label: 'Jugada', done: props.isLaunched },
+            ].map((step) => (
+              <div
+                key={step.label}
+                className={`rounded-[11px] border px-2 py-2 text-center text-[9px] font-semibold ${step.done ? 'border-[#1C5036] bg-[#0F2119] text-[#7CE0A9]' : 'border-[#2A3040] bg-[#0D1017] text-[#646D80]'}`}
+              >
+                {step.done ? '✓ ' : ''}{step.label}
+              </div>
+            ))}
+          </div>
+
+          {!props.hasContact ? (
+            <div className="rounded-[14px] border border-[#214C73] bg-[#102338] px-3 py-2.5 text-xs leading-5 text-[#8CC9FF]">
+              Abre WhatsApp con el botón superior y envía primero un saludo natural. El contacto inicial se registrará automáticamente.
             </div>
-          </fieldset>
+          ) : !props.hasGreetingResponse ? (
+            <fieldset>
+              <legend className="text-xs text-[#AAB2C5]">¿Contestó el saludo?</legend>
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                {quickActions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => submitFollowUp(option.value)}
+                    disabled={pending}
+                    className={`inline-flex min-h-11 items-center justify-center rounded-[12px] border px-2 text-center text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${option.activeClassName}`}
+                  >
+                    {pending && pendingAction === option.value ? 'Guardando…' : option.label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          ) : !props.isLaunched ? (
+            <div className="rounded-[14px] border border-[#4A3675] bg-[#241A3A] px-3 py-2.5 text-xs leading-5 text-[#C9B1FF]">
+              <div>El cliente respondió. Ya puedes copiar o abrir el mensaje sugerido de la jugada arriba.</div>
+              <button
+                type="button"
+                onClick={() => submitFollowUp('launched')}
+                disabled={pending}
+                className="mt-2 inline-flex h-9 w-full items-center justify-center rounded-[11px] border border-[#6B50A0] px-3 text-[10px] font-semibold text-[#D8C8FF] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {pending && pendingAction === 'launched' ? 'Guardando…' : 'Ya envié la jugada'}
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-[14px] border border-[#214C73] bg-[#102338] px-3 py-2.5 text-xs leading-5 text-[#8CC9FF]">
+              Jugada lanzada ✓ · El mensaje de la campaña ya fue presentado al cliente.
+            </div>
+          )}
 
           <label className="block text-xs text-[#AAB2C5]">
             Nota opcional
