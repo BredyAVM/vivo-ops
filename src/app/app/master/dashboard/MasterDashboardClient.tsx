@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { resolveLegacyAdminSection } from '@/lib/admin-finance/legacy-navigation';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { parseDecimalInput } from '@/lib/number-input';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
@@ -4607,8 +4608,8 @@ export default function MasterDashboardClient({
     const base = new Date();
     return new Date(base.getFullYear(), base.getMonth(), 1);
   });
-  const [viewMode, setViewMode] = useState<ViewMode>('operations');
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('catalog');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => resolveLegacyAdminSection(searchParams.get('adminSection'), roles).view);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>(() => resolveLegacyAdminSection(searchParams.get('adminSection'), roles).settings);
   const [userSearch, setUserSearch] = useState('');
   const [selectedDashboardUserId, setSelectedDashboardUserId] = useState<string | null>(null);
   const [userEditOpen, setUserEditOpen] = useState(false);
@@ -4662,7 +4663,7 @@ export default function MasterDashboardClient({
   const [inventoryRecipeSaving, setInventoryRecipeSaving] = useState(false);
   const [inventoryProductionBatches, setInventoryProductionBatches] = useState('1');
   const [inventoryProductionNotes, setInventoryProductionNotes] = useState('');
-  const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>('general');
+  const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>(() => resolveLegacyAdminSection(searchParams.get('adminSection'), roles).calculations);
   const [deliveriesTab, setDeliveriesTab] = useState<DeliveriesTab>('overview');
   const [advisorCalcDateFrom, setAdvisorCalcDateFrom] = useState(calculationScope?.dateFrom ?? '');
   const [advisorCalcDateTo, setAdvisorCalcDateTo] = useState(calculationScope?.dateTo ?? '');

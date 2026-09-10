@@ -18,6 +18,7 @@ export const adminNavigation: AdminNavigationItem[] = [
     prefetch: true,
     marker: 'IN',
   },
+  { key: 'tasks', label: 'Pendientes', shortLabel: 'Pendientes', description: 'Revisiones por cuenta, pedido y comisión', href: '/app/admin/tareas', prefetch: false, marker: 'PD' },
   {
     key: 'finance',
     label: 'Finanzas',
@@ -108,6 +109,9 @@ export const adminNavigation: AdminNavigationItem[] = [
     prefetch: false,
     marker: 'PA',
   },
+  { key: 'delivery-finance', label: 'Delivery', shortLabel: 'Delivery', description: 'Costos guardados y retornos pendientes', href: '/app/admin/finanzas/delivery', prefetch: false, marker: 'DE' },
+  { key: 'reports', label: 'Reportes', shortLabel: 'Reportes', description: 'Descargas y evidencia por dominio', href: '/app/admin/reportes', prefetch: false, marker: 'RE' },
+  { key: 'tools', label: 'Herramientas', shortLabel: 'Herramientas', description: 'Clientes, equipo, configuración e inventario', href: '/app/admin/herramientas', prefetch: false, marker: 'HE' },
 ];
 
 function navigationItem(key: string) {
@@ -125,7 +129,7 @@ export const mobileAdminNavigation: AdminNavigationItem[] = [
     label: 'Ver todos los centros',
     shortLabel: 'Más',
     description: 'Todos los accesos',
-    href: '/app/admin#centros',
+    href: '/app/admin/herramientas',
     prefetch: false,
     marker: '•••',
   },
