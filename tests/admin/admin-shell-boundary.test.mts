@@ -49,7 +49,7 @@ test('does not prefetch the heavy operational centers from the new shell', () =>
   const navigation = read('src/app/app/admin/_lib/navigation.ts');
   const legacyLinks = navigation.match(/href: '\/app\/(?:master|inventory|commissions|events)[^']*'[\s\S]*?prefetch: (?:true|false)/g) ?? [];
 
-  assert.ok(legacyLinks.length >= 6);
+  assert.ok(legacyLinks.length >= 5);
   for (const link of legacyLinks) {
     assert.match(link, /prefetch: false/);
   }

@@ -22,7 +22,7 @@ const shortcuts: Shortcut[] = [
   { label: 'Pagos', marker: 'PA', href: '/app/master/ops/finance?status=pending' },
   { label: 'Inventario', marker: 'IV', href: '/app/inventory' },
   { label: 'Productos', marker: 'PR', href: '/app/inventory/configure?view=edit' },
-  { label: 'Comisiones', marker: 'CO', href: '/app/commissions' },
+  { label: 'Comisiones', marker: 'CO', href: '/app/admin/finanzas/comisiones' },
   { label: 'Metas', marker: 'ME', href: '/app/commissions/goals' },
   { label: 'Eventos', marker: 'EV', href: '/app/events' },
   { label: 'Jugadas', marker: 'JU', href: '/app/master/plays' },

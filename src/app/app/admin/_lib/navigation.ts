@@ -77,7 +77,7 @@ export const adminNavigation: AdminNavigationItem[] = [
     label: 'Comisiones',
     shortLabel: 'Comisiones',
     description: 'Metas, cierres y liquidaciones',
-    href: '/app/commissions',
+    href: '/app/admin/finanzas/comisiones',
     prefetch: false,
     marker: 'CO',
   },

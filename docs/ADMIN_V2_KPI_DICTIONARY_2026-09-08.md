@@ -275,6 +275,28 @@ todas las filas seleccionadas, no solo las 30 filas de la página.
 
 ## 7. Indicadores no publicables todavía
 
+### Centro de comisiones — corte 2026-09-10
+
+`/app/admin/finanzas/comisiones` presenta P08 (bruta guardada), P09 (retenida al
+corte de cálculo) y P10 (liquidación de cierres `closed` con conformidad
+verificable), por un solo período y con filtros por asesor/estado. Los importes
+no representan devengo actualizado automáticamente. Se reutilizan los lectores
+de snapshot, conformidad y arrastre; las retenciones V1 son inferencias visibles,
+no ceros por ausencia de una clave V2. No se suman arrastres entre períodos.
+
+La consulta usa sesión Admin y `SECURITY INVOKER`, conservando RLS. Los
+preliminares de asesores no habilitados siguen el mismo criterio de exclusión
+del módulo de liquidación; los cerrados/pagados se conservan aunque el asesor
+esté inactivo. Los cálculos anteriores al inicio del período quedan marcados
+como pendientes de actualizar y no publican falsos ceros de generación.
+
+P11 continúa **bloqueado para obligaciones con saldo contractual positivo**:
+el esquema vigente vincula abonos por descripción, no mediante una relación
+estructurada al cierre. Se muestran abonos identificados solo como diagnóstico,
+excluyendo reportes pendientes, movimientos anulados y fees bancarios. Ni un
+estado `paid` ni una descripción coincidente certifican pago o deuda cero. El
+centro no crea vínculos retroactivos ni modifica las liquidaciones existentes.
+
 | ID y etiqueta solicitada | Estado | Dependencia faltante |
 | --- | --- | --- |
 | `B01` Valor monetario de inventario | `Q4_blocked` | Costo por recepción/lote y método de valoración |
