@@ -36,7 +36,7 @@ test('loads one protected read with no recalculation, preserves snapshot amounts
   const summary = commissionPeriodView(result.data, filters).summary;
   assert.equal(summary.grossUsd, 100); assert.equal(summary.retainedUsd, 20); assert.equal(summary.conformedUsd, 70);
   assert.equal(summary.pendingUsd, null);
-  assert.deepEqual(calls, [{ name: 'admin_finance_commissions_read_v1', params: {} }]);
+  assert.deepEqual(calls, [{ name: 'admin_finance_commissions_read_v2', params: {} }]);
 });
 test('preliminary payable is not conformed debt and a paid label is not proof of payment', () => {
   const prelim = commissionPeriodView(parseCommissionsOverview(payload([closure({ status: 'preliminary', closed_at: null })]), now), filters);
@@ -51,6 +51,23 @@ test('even matching legacy payment references never certify a zero outstanding b
   assert.equal(result.rows[0].pendingUsd, null);
   assert.equal(commissionPeriodView(result, filters).summary.pendingUsd, null);
   assert.ok(result.rows[0].issues.some(issue => issue.includes('solo por descripción')));
+});
+
+test('structural payments certify their remaining amount without certifying legacy references', () => {
+  const linked = { ...payload([closure()], [payment({ amount_usd_equivalent: 30 })]),
+    definitionVersion: 'admin-finance-commissions-v2', paymentLinkBasis: 'structural_with_legacy_references',
+    linkedPayments: [{ movementId: 3, closureId: 1 }] };
+  const overview = parseCommissionsOverview(linked, now);
+  assert.equal(overview.rows[0].paymentBasis, 'structural');
+  assert.equal(overview.rows[0].pendingUsd, 40);
+  assert.equal(commissionPeriodView(overview, filters).summary.pendingUsd, 40);
+  assert.equal(overview.rows[0].issues.some(issue => issue.includes('descripción')), false);
+  const mixed = { ...linked, paymentCount: 2, payments: [...linked.payments, payment({ id: 4, amount_usd_equivalent: 1 })] };
+  assert.equal(parseCommissionsOverview(mixed, now).rows[0].pendingUsd, null);
+  for (const links of [undefined, [{ movementId: 999, closureId: 1 }], [{ movementId: 3, closureId: 999 }],
+    [{ movementId: 3, closureId: 1 }, { movementId: 3, closureId: 1 }]]) {
+    assert.throws(() => parseCommissionsOverview({ ...linked, linkedPayments: links }, now));
+  }
 });
 test('legacy retention uses existing carry rule, missing versioned retention is unavailable not zero', () => {
   const legacy = parseCommissionsOverview(payload([closure({ snapshot: { version: 1 } })]), now).rows[0];

@@ -19,12 +19,13 @@ import {
 } from '@/lib/commissions/payment-ledger';
 import { readAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
+import { reverseCommissionPaymentAction } from '../actions';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 type RouteParams = Promise<{ closureId: string }>;
-type SearchParams = Promise<{ section?: string }>;
+type SearchParams = Promise<{ section?: string; error?: string; notice?: string }>;
 
 type PeriodRow = {
   id: number | string;
@@ -287,7 +288,7 @@ export default async function CommissionAuditPage({
   const closure = closureResult.data as ClosureRow;
   const paymentDescriptionPattern = `${ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX}${closureId} · %`;
   const bankFeeDescriptionPattern = `${ADVISOR_COMMISSION_BANK_FEE_DESCRIPTION_PREFIX}${paymentDescriptionPattern}`;
-  const [periodResult, profileResult, paymentsResult, bankFeesResult] = await Promise.all([
+  const [periodResult, profileResult, paymentsResult, bankFeesResult, operationsResult] = await Promise.all([
     ctx.supabase
       .from('advisor_commission_periods')
       .select('id, name, date_from, date_to, status')
@@ -313,6 +314,8 @@ export default async function CommissionAuditPage({
       .eq('movement_type', 'fee_charge')
       .eq('status', 'confirmed')
       .like('description', bankFeeDescriptionPattern),
+    ctx.supabase.from('commission_payment_operations').select('request_id, payment_movement_id, reversals:commission_payment_reversals(created_at, reason)')
+      .eq('closure_id', closureId),
   ]);
 
   const period = (periodResult.data as PeriodRow | null) ?? null;
@@ -591,6 +594,8 @@ export default async function CommissionAuditPage({
 
           {activeSection === 'payments' ? (
             <div className="space-y-4">
+              {query.error ? <p role="alert" className="text-sm text-red-200">{query.error}</p> : null}
+              {query.notice ? <p role="status" className="text-sm text-emerald-200">{query.notice}</p> : null}
               <div className="grid gap-3 sm:grid-cols-3">
                 <AmountCard label="Liquidación acordada" value={money(closure.payable_usd)} />
                 <AmountCard label="Total abonado" value={money(audit.paidUsd)} note={`${payments.length} ${payments.length === 1 ? 'movimiento' : 'movimientos'}`} />
@@ -600,6 +605,30 @@ export default async function CommissionAuditPage({
                 <TableFrame><table className="min-w-[1040px] w-full text-left text-xs"><thead className="bg-[#0F0F13] text-[10px] uppercase tracking-[0.12em] text-[#858591]"><tr><th className="px-4 py-3">Abono</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Cuenta</th><th className="px-4 py-3">Moneda real</th><th className="px-4 py-3 text-right">Monto real</th><th className="px-4 py-3 text-right">Tasa</th><th className="px-4 py-3 text-right">Equivalente USD</th><th className="px-4 py-3 text-right">Comisión bancaria</th><th className="px-4 py-3">Referencia</th></tr></thead><tbody className="divide-y divide-[#292933]">{payments.map((payment, index) => <tr key={payment.id}><td className="px-4 py-3 font-semibold">Abono {index + 1}</td><td className="px-4 py-3">{dateLabel(payment.movement_date)}</td><td className="px-4 py-3">{accountNames.get(Number(payment.money_account_id)) || 'Cuenta sin nombre'}</td><td className="px-4 py-3">{payment.currency_code}</td><td className="px-4 py-3 text-right">{commissionAuditNumber(payment.amount).toFixed(2)}</td><td className="px-4 py-3 text-right">{payment.currency_code === 'VES' ? commissionAuditNumber(payment.exchange_rate_ves_per_usd).toFixed(2) : '—'}</td><td className="px-4 py-3 text-right font-semibold text-emerald-300">{money(payment.amount_usd_equivalent)}</td><td className="px-4 py-3 text-right">{payment.bankFee ? <><div>{payment.bankFee.currency_code === 'VES' ? `Bs. ${commissionAuditNumber(payment.bankFee.amount).toFixed(2)}` : money(payment.bankFee.amount)}</div><div className="mt-1 text-[10px] text-[#858591]">{money(payment.bankFee.amount_usd_equivalent)} equiv.</div></> : '—'}</td><td className="px-4 py-3">{payment.reference_code || '—'}</td></tr>)}</tbody></table></TableFrame>
               )}
             </div>
+          ) : null}
+          {activeSection === 'payments' && operationsResult.error ? <p className="mt-3 text-sm text-orange-200">No se pudo consultar el historial de vínculos y anulaciones. No se habilitaron correcciones.</p> : null}
+          {activeSection === 'payments' ? (operationsResult.data ?? []).flatMap(op => (op.reversals ?? []).map(reversal => (
+            <p key={`${op.request_id}:${reversal.created_at}`} className="mt-3 text-xs text-[#A9A9B4]">Registro #{op.payment_movement_id} anulado · {dateLabel(reversal.created_at)} · {reversal.reason}</p>
+          ))) : null}
+          {activeSection === 'payments' && !operationsResult.error && (operationsResult.data ?? []).some(op => payments.some(p => Number(p.id) === Number(op.payment_movement_id))) ? (
+            <details className="mt-4 rounded-xl border border-[#32323D] p-4 text-sm">
+              <summary className="cursor-pointer">Corregir un abono registrado por error</summary>
+              <p className="mt-3 text-xs text-[#A9A9B4]">Anula el registro completo, incluida su comisión bancaria, y devuelve el importe al saldo pendiente. No devuelve dinero ni realiza transferencias bancarias.</p>
+              <form action={reverseCommissionPaymentAction} className="mt-3 grid max-w-xl gap-3">
+                <input type="hidden" name="requestId" value={crypto.randomUUID()} />
+                <input type="hidden" name="closureId" value={closureId} />
+                <label>Abono<select name="paymentRequestId" required className="mt-1 block min-h-11 w-full rounded-lg border border-[#32323D] bg-[#111117] px-3">
+                  <option value="">Seleccionar</option>
+                  {(operationsResult.data ?? []).flatMap(op => {
+                    const payment = payments.find(p => Number(p.id) === Number(op.payment_movement_id));
+                    return payment ? [<option key={op.request_id} value={op.request_id}>#{payment.id} · {dateLabel(payment.movement_date)} · {money(payment.amount_usd_equivalent)}</option>] : [];
+                  })}
+                </select></label>
+                <label>Motivo<input name="reason" required minLength={3} maxLength={500} className="mt-1 block min-h-11 w-full rounded-lg border border-[#32323D] bg-[#111117] px-3" /></label>
+                <label className="flex items-center gap-2 text-xs"><input type="checkbox" name="confirmed" value="yes" required />Confirmo la anulación del registro completo.</label>
+                <button type="submit" className="min-h-11 rounded-lg border border-red-400/40 px-4 text-red-200">Anular abono y comisión bancaria</button>
+              </form>
+            </details>
           ) : null}
         </section>
       </div>

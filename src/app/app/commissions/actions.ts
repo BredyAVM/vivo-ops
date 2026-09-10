@@ -15,9 +15,7 @@ import {
 import { readAdvisorGoalPublicationSnapshot } from '@/lib/commissions/goal-snapshot';
 import {
   ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX,
-  buildAdvisorCommissionBankFeeDescription,
-  buildAdvisorCommissionPaymentDescription,
-  calculateAdvisorCommissionPaymentOperation,
+  readCommissionPaymentResult,
 } from '@/lib/commissions/payment-ledger';
 import {
   notifyAdvisorCommissionPayment,
@@ -34,7 +32,6 @@ import {
 import {
   confirmAdvisorCommissionWorkflowSnapshot,
   preserveAdvisorCommissionWorkflowSnapshot,
-  readAdvisorCommissionWorkflowSnapshot,
   reopenAdvisorCommissionWorkflowSnapshot,
 } from '@/lib/commissions/workflow-snapshot';
 import { generateAdvisorCommissionClosuresAction } from '@/app/app/master/dashboard/actions';
@@ -404,14 +401,6 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
   );
 }
 
-function getSnapshotAdvisorName(snapshot: unknown) {
-  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return 'Asesor';
-  const advisor = (snapshot as Record<string, unknown>).advisor;
-  if (!advisor || typeof advisor !== 'object' || Array.isArray(advisor)) return 'Asesor';
-  const name = (advisor as Record<string, unknown>).name;
-  return typeof name === 'string' && name.trim() ? name.trim() : 'Asesor';
-}
-
 function requiredText(value: unknown, label: string, maxLength: number) {
   const text = String(value ?? '').trim();
   if (!text) throw new Error(`${label} es obligatorio.`);
@@ -625,228 +614,79 @@ export async function reopenCommissionClosureAction(formData: FormData) {
 }
 
 export async function registerCommissionPaymentAction(formData: FormData) {
-  const closureId = Number(formData.get('closureId') ?? 0);
   const periodId = Number(formData.get('periodId') ?? 0);
   let bankFeeRegistered = false;
-
   try {
-    const { supabase, user } = await requireCommissionAdmin();
-    const moneyAccountId = Number(formData.get('moneyAccountId') ?? 0);
-    const amountUsd = roundMoney(parseDecimalInput(formData.get('amountUsd'), 0));
-    const bankFeeNativeAmount = roundMoney(
-      parseDecimalInput(formData.get('bankFeeNativeAmount'), 0)
-    );
-    const paidOn = movementDate(formData.get('movementDate'));
-    const exchangeRate = parseDecimalInput(formData.get('exchangeRateVesPerUsd'), 0);
-    const referenceCode = String(formData.get('referenceCode') ?? '').trim() || null;
-
-    if (!Number.isInteger(closureId) || closureId <= 0) {
-      throw new Error('Selecciona una liquidación válida.');
+    const { supabase } = await requireCommissionAdmin();
+    const closureId = Number(formData.get('closureId'));
+    const moneyAccountId = Number(formData.get('moneyAccountId'));
+    const requestId = String(formData.get('requestId') ?? '');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+      throw new Error('Actualiza la pantalla antes de registrar el abono.');
     }
-    if (!Number.isInteger(moneyAccountId) || moneyAccountId <= 0) {
-      throw new Error('Selecciona la cuenta desde la que se pagó.');
+    if (!Number.isSafeInteger(closureId) || closureId <= 0 || !Number.isSafeInteger(moneyAccountId) || moneyAccountId <= 0) {
+      throw new Error('Selecciona una liquidación y una cuenta válidas.');
     }
-    if (amountUsd <= 0) throw new Error('El abono debe ser mayor a cero.');
-    if (bankFeeNativeAmount < 0) {
-      throw new Error('La comisión bancaria no puede ser negativa.');
+    const amountUsd = parseDecimalInput(formData.get('amountUsd'), NaN);
+    const bankFeeNativeAmount = parseDecimalInput(formData.get('bankFeeNativeAmount') || '0', NaN);
+    const exchangeRate = parseDecimalInput(formData.get('exchangeRateVesPerUsd'), NaN);
+    if (!Number.isFinite(amountUsd) || !Number.isFinite(bankFeeNativeAmount)) {
+      throw new Error('Revisa el importe y la comisión bancaria.');
     }
-    if (referenceCode && referenceCode.length > 120) {
-      throw new Error('La referencia no puede superar 120 caracteres.');
+    const { data: account, error: accountError } = await supabase.from('money_accounts')
+      .select('currency_code').eq('id', moneyAccountId).single();
+    if (accountError || !account) throw new Error('No se pudo consultar la cuenta seleccionada.');
+    if (account.currency_code === 'VES' && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
+      throw new Error('Indica una tasa válida para bolívares.');
     }
-
-    const { data: closure, error: closureError } = await supabase
-      .from('advisor_commission_closures')
-      .select('id, period_id, advisor_user_id, status, payable_usd, snapshot')
-      .eq('id', closureId)
-      .single();
-
-    if (closureError || !closure) {
-      throw new Error(closureError?.message || 'No se pudo cargar la liquidación.');
-    }
-    if (closure.status !== 'closed') {
-      throw new Error('Solo una liquidación conformada puede recibir abonos.');
-    }
-    if (readAdvisorCommissionWorkflowSnapshot(closure.snapshot).conformity.status !== 'confirmed') {
-      throw new Error('Primero debe registrarse la conformidad de la liquidación.');
-    }
-
-    const [accountResult, periodResult, existingPayments] = await Promise.all([
-      supabase
-        .from('money_accounts')
-        .select('id, name, currency_code, is_active')
-        .eq('id', moneyAccountId)
-        .single(),
-      supabase
-        .from('advisor_commission_periods')
-        .select('id, name')
-        .eq('id', Number(closure.period_id))
-        .single(),
-      loadConfirmedCommissionPayments(supabase, closureId),
-    ]);
-
-    if (accountResult.error || !accountResult.data) {
-      throw new Error(accountResult.error?.message || 'No se pudo cargar la cuenta.');
-    }
-    if (!accountResult.data.is_active) throw new Error('La cuenta seleccionada está inactiva.');
-    if (periodResult.error || !periodResult.data) {
-      throw new Error(periodResult.error?.message || 'No se pudo cargar el periodo.');
-    }
-
-    const currencyCode = String(accountResult.data.currency_code || '').toUpperCase();
-    if (currencyCode !== 'USD' && currencyCode !== 'VES') {
-      throw new Error('La moneda de la cuenta no es válida.');
-    }
-    if (currencyCode === 'VES' && exchangeRate <= 0) {
-      throw new Error('Indica la tasa usada para el pago en bolívares.');
-    }
-
-    const operation = calculateAdvisorCommissionPaymentOperation({
-      amountUsd,
-      feeAmountNative: bankFeeNativeAmount,
-      currencyCode,
-      exchangeRateVesPerUsd: currencyCode === 'VES' ? exchangeRate : null,
+    const { data, error } = await supabase.rpc('record_commission_payment_v1', {
+      p_request_id: requestId, p_closure_id: closureId, p_account_id: moneyAccountId,
+      p_amount_usd: amountUsd, p_fee_native: bankFeeNativeAmount,
+      p_rate: account.currency_code === 'VES' ? exchangeRate : null,
+      p_date: movementDate(formData.get('movementDate')),
+      p_reference: String(formData.get('referenceCode') ?? '').trim() || null,
     });
-
-    const previouslyPaidUsd = roundMoney(
-      existingPayments.reduce(
-        (sum, payment) => sum + numberValue(payment.amount_usd_equivalent),
-        0
-      )
-    );
-    const payableUsd = roundMoney(closure.payable_usd);
-    const remainingUsd = roundMoney(Math.max(0, payableUsd - previouslyPaidUsd));
-    if (amountUsd - remainingUsd > 0.005) {
-      throw new Error(`El abono supera el saldo pendiente de $${remainingUsd.toFixed(2)}.`);
-    }
-
-    const advisorName = getSnapshotAdvisorName(closure.snapshot);
-    const description = buildAdvisorCommissionPaymentDescription({
-      closureId,
-      periodName: String(periodResult.data.name || 'Periodo'),
-      advisorName,
-    });
-    const now = new Date().toISOString();
-    const movementGroupId = operation.bankFeeNativeAmount > 0 ? crypto.randomUUID() : null;
-    const movementRows = [
-      {
-        movement_date: paidOn,
-        created_by_user_id: user.id,
-        confirmed_at: now,
-        confirmed_by_user_id: user.id,
-        status: 'confirmed',
-        approval_required: false,
-        approval_required_reason: null,
-        direction: 'outflow',
-        movement_type: 'expense_payment',
-        money_account_id: moneyAccountId,
-        currency_code: currencyCode,
-        amount: operation.paymentNativeAmount,
-        exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
-        amount_usd_equivalent: operation.paymentUsd,
-        reference_code: referenceCode,
-        counterparty_name: advisorName,
-        description,
-        notes: null as string | null,
-        order_id: null,
-        payment_report_id: null,
-        movement_group_id: movementGroupId,
-      },
-    ];
-
-    if (operation.bankFeeNativeAmount > 0) {
-      movementRows.push({
-        movement_date: paidOn,
-        created_by_user_id: user.id,
-        confirmed_at: now,
-        confirmed_by_user_id: user.id,
-        status: 'confirmed',
-        approval_required: false,
-        approval_required_reason: null,
-        direction: 'outflow',
-        movement_type: 'fee_charge',
-        money_account_id: moneyAccountId,
-        currency_code: currencyCode,
-        amount: operation.bankFeeNativeAmount,
-        exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
-        amount_usd_equivalent: operation.bankFeeUsdEquivalent,
-        reference_code: referenceCode,
-        counterparty_name: advisorName,
-        description: buildAdvisorCommissionBankFeeDescription(description),
-        notes: 'Comisión bancaria vinculada al pago de la liquidación del asesor.',
-        order_id: null,
-        payment_report_id: null,
-        movement_group_id: movementGroupId,
-      });
-    }
-
-    const { data: movements, error: paymentError } = await supabase
-      .from('money_movements')
-      .insert(movementRows)
-      .select('id, movement_type');
-
-    const payment = (movements ?? []).find(
-      (movement) => movement.movement_type === 'expense_payment'
-    );
-
-    if (paymentError || !payment) {
-      throw new Error(paymentError?.message || 'No se pudo registrar el abono.');
-    }
-    bankFeeRegistered = operation.bankFeeNativeAmount > 0;
-
-    const remainingAfterPaymentUsd = roundMoney(Math.max(0, remainingUsd - amountUsd));
-    const fullyPaid = remainingAfterPaymentUsd <= 0.005;
-    if (fullyPaid) {
-      const { error: paidStatusError } = await supabase
-        .from('advisor_commission_closures')
-        .update({
-          status: 'paid',
-          paid_at: now,
-          paid_by_user_id: user.id,
-          updated_at: now,
-        })
-        .eq('id', closureId)
-        .eq('status', 'closed');
-
-      if (paidStatusError) {
-        throw new Error(
-          `El abono fue registrado, pero no se pudo actualizar el estado: ${paidStatusError.message}`
-        );
-      }
-    }
-
+    if (error) throw new Error(error.message);
+    const result = readCommissionPaymentResult(data);
+    bankFeeRegistered = result.feeMovementId !== null;
     await bestEffortCommissionNotification('payment registered', () =>
       notifyAdvisorCommissionPayment({
-        supabase,
-        advisorUserId: closure.advisor_user_id,
-        closureId,
-        periodId: Number(periodResult.data.id),
-        periodName: String(periodResult.data.name || `Periodo ${periodResult.data.id}`),
-        movementId: Number(payment.id),
-        amountUsd: operation.paymentUsd,
-        remainingUsd: remainingAfterPaymentUsd,
-        fullyPaid,
+        supabase, advisorUserId: result.advisorUserId, closureId: result.closureId,
+        periodId: result.periodId, periodName: result.periodName,
+        movementId: result.movementId, amountUsd: result.amountUsd,
+        remainingUsd: result.remainingUsd, fullyPaid: result.fullyPaid,
       }),
     );
   } catch (error) {
-    redirect(
-      `/app/commissions?period=${periodId > 0 ? periodId : ''}&error=${encodeURIComponent(
-        actionMessage(error)
-      )}`
-    );
+    redirect(`/app/commissions?period=${Number.isSafeInteger(periodId) && periodId > 0 ? periodId : ''}&error=${encodeURIComponent(actionMessage(error))}`);
   }
-
-  revalidatePath('/app/commissions');
+  for (const path of ['/app/commissions', '/app/advisor/inbox', '/app/advisor/commissions',
+    '/app/master/dashboard', '/app/admin/finanzas/comisiones', '/app/admin/finanzas/cuentas', '/app/admin/tareas']) {
+    revalidatePath(path);
+  }
   revalidatePath('/app/advisor', 'layout');
-  revalidatePath('/app/advisor/inbox');
-  revalidatePath('/app/advisor/commissions');
-  revalidatePath('/app/master/dashboard');
-  redirect(
-    `/app/commissions?period=${periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(
-      bankFeeRegistered
-        ? 'Abono y comisión bancaria registrados en la cuenta seleccionada.'
-        : 'Abono registrado en la liquidación y en la cuenta seleccionada.'
-    )}`
-  );
+  redirect(`/app/commissions?period=${Number.isSafeInteger(periodId) && periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(
+    bankFeeRegistered ? 'Abono y comisión bancaria registrados juntos.' : 'Abono registrado y vinculado a la liquidación.'
+  )}`);
+}
+export async function reverseCommissionPaymentAction(formData: FormData) {
+  const closureId = Number(formData.get('closureId'));
+  const path = Number.isSafeInteger(closureId) && closureId > 0 ? `/app/commissions/${closureId}?section=payments` : '/app/commissions?section=payments';
+  let errorMessage = '';
+  try {
+    const { supabase } = await requireCommissionAdmin();
+    if (formData.get('confirmed') !== 'yes') throw new Error('Confirma que deseas anular el registro completo.');
+    const { error } = await supabase.rpc('reverse_commission_payment_v1', {
+      p_request_id: String(formData.get('requestId') ?? ''),
+      p_payment_request_id: String(formData.get('paymentRequestId') ?? ''),
+      p_reason: requiredText(formData.get('reason'), 'El motivo', 500),
+    });
+    if (error) throw new Error(error.message);
+  } catch (error) { errorMessage = actionMessage(error); }
+  if (errorMessage) redirect(`${path}&error=${encodeURIComponent(errorMessage)}`);
+  for (const route of ['/app/commissions', `/app/commissions/${closureId}`, '/app/master/dashboard',
+    '/app/admin/finanzas/comisiones', '/app/admin/finanzas/cuentas', '/app/admin/tareas', '/app/advisor/commissions']) revalidatePath(route);
+  redirect(`${path}&notice=${encodeURIComponent('Registro anulado: abono y comisión bancaria. No se realizó ninguna transferencia bancaria.')}`);
 }
 
 function dateOnly(value: unknown, label: string) {

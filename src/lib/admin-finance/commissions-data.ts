@@ -8,7 +8,7 @@ export async function loadCommissionsOverview(input: { supabase: CommissionsRpcC
 > {
   const requestedAt = input.asOf ?? new Date();
   try {
-    const result = await input.supabase.rpc('admin_finance_commissions_read_v1', {});
+    const result = await input.supabase.rpc('admin_finance_commissions_read_v2', {});
     if (result.error) throw new Error(result.error.message || 'Commission read failed');
     return { status: 'ready', data: parseCommissionsOverview(result.data, requestedAt) };
   } catch (error) {

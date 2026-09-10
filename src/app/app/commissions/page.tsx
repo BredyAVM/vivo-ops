@@ -1230,6 +1230,7 @@ export default async function CommissionAdministrationPage({
                             Saldo pendiente: {money(row.paymentBalanceUsd)}. Verás el equivalente en bolívares antes de confirmar.
                           </p>
                           <CommissionPaymentForm
+                            requestId={crypto.randomUUID()}
                             accounts={commissionPaymentAccounts}
                             activeRate={activeExchangeRate}
                             closureId={Number(row.closure.id)}

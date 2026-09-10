@@ -16,6 +16,7 @@ function href(filters: CommissionFilters, patch: Partial<CommissionFilters> = {}
 }
 function RowStatus({ row }: { row: CommissionRow }) {
   return <><span className="text-xs text-[#C8C8D0]">{statuses[row.status]}</span>
+    {row.paymentBasis === 'structural' ? <span className="ml-2 text-xs text-emerald-200">Abonos vinculados</span> : null}
     {row.issues.length > 0 ? <details className="mt-1 text-xs text-orange-200"><summary className="cursor-pointer py-1">{row.issues.length} aviso(s)</summary><ul className="mt-1 list-disc space-y-1 pl-4">{row.issues.map(issue => <li key={issue}>{issue}</li>)}</ul></details> : null}</>;
 }
 export default function CommissionsOverview({ data, filters }: { data: Overview; filters: CommissionFilters }) {
@@ -59,7 +60,7 @@ export default function CommissionsOverview({ data, filters }: { data: Overview;
         {filters.status !== 'all' || filters.q ? <Link href={href(selected, { status: 'all', q: '' })} prefetch={false} className="px-3 py-2 text-[#FEEF00]">Quitar filtros</Link> : null}
       </div>
       <p className="text-xs text-[#A3A3AE]">{view.period.name} · {view.count} cierres seleccionados. Son cálculos guardados, no una actualización automática de comisiones.</p>
-      {totals.pendingUsd === null && view.count > 0 ? <p className="rounded-xl border border-orange-300/20 bg-orange-300/5 p-3 text-sm text-orange-200">El saldo por pagar aún no está conciliado: los abonos se identifican por descripción. “Pagada” no confirma por sí sola el pago.</p> : null}
+      {totals.pendingUsd === null && view.count > 0 ? <p className="rounded-xl border border-orange-300/20 bg-orange-300/5 p-3 text-sm text-orange-200">Hay cierres cuyo vínculo de pagos falta por verificar. Los abonos nuevos muestran «Abonos vinculados»; los históricos no se concilian automáticamente.</p> : null}
       {view.missingCurrentAdvisors ? <p className="text-sm text-orange-200">{view.missingCurrentAdvisors} asesores activos todavía sin cálculo en este período.</p> : null}
       {view.excluded > 0 ? <p className="text-xs text-[#A3A3AE]">{view.excluded} preliminares de asesores actualmente no habilitados quedan fuera del total, igual que en el módulo de liquidación.</p> : null}
       {view.rows.length === 0 ? <p className="rounded-xl border border-[#292937] p-5 text-sm text-[#C8C8D0]">No hay cierres con estos filtros. Un período sin cálculo no equivale a comisión generada cero.</p> : <>
@@ -89,7 +90,7 @@ export default function CommissionsOverview({ data, filters }: { data: Overview;
     {data.unmatchedPayments > 0 ? <p className="text-sm text-orange-200">{data.unmatchedPayments} abonos con referencia a cierre no identificado en la consulta completa.</p> : null}
     <details className="text-xs leading-relaxed text-[#A3A3AE]"><summary className="cursor-pointer py-2">Cómo leer las cifras</summary>
       <p className="mt-2">Generada es la comisión bruta guardada; una preliminar todavía puede cambiar. Retenida es el saldo retenido al corte de cálculo: puede incluir arrastre anterior y no debe sumarse entre períodos. Las retenciones antiguas estimadas llevan aviso. Liquidación es el importe del cierre antes de descontar pagos; solo queda conformado con la conformidad registrada. Las tarjetas respetan todos los filtros y páginas.</p>
-      <p className="mt-2">* Abonos identificados: salidas confirmadas reconocidas por el formato de descripción del módulo actual, sin comisiones bancarias. No certifican el vínculo contable ni un saldo pendiente exacto. Ningún cero de esta columna demuestra ausencia de otros pagos. No se recalculan ni se modifican cierres desde esta vista.</p>
+      <p className="mt-2">* Abonos identificados: salidas confirmadas sin comisiones bancarias. «Abonos vinculados» indica relación directa con el cierre; las referencias históricas por descripción siguen pendientes de verificación. No se recalculan ni modifican cierres desde esta vista.</p>
     </details>
   </div>;
 }

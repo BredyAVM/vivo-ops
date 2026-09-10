@@ -5,6 +5,26 @@ export const ADVISOR_COMMISSION_BANK_FEE_DESCRIPTION_PREFIX =
 
 export type AdvisorCommissionPaymentCurrency = 'USD' | 'VES';
 
+export function readCommissionPaymentResult(value: unknown) {
+  const fail = () => { throw new Error('No se pudo confirmar la respuesta del abono. Consulta los movimientos antes de repetirlo.'); };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fail();
+  const data = value as Record<string, unknown>;
+  const id = (key: string) => {
+    const n = data[key];
+    return typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : fail();
+  };
+  const money = (key: string) => {
+    const n = data[key];
+    return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : fail();
+  };
+  const text = (key: string) => typeof data[key] === 'string' && data[key] ? data[key] as string : fail();
+  const amountUsd = money('amountUsd'), remainingUsd = money('remainingUsd');
+  if (amountUsd <= 0 || typeof data.replayed !== 'boolean' || data.fullyPaid !== (remainingUsd === 0)) return fail();
+  return { movementId: id('movementId'), feeMovementId: data.feeMovementId === null ? null : id('feeMovementId'),
+    closureId: id('closureId'), periodId: id('periodId'), advisorUserId: text('advisorUserId'), periodName: text('periodName'),
+    amountUsd, remainingUsd, fullyPaid: data.fullyPaid as boolean, replayed: data.replayed };
+}
+
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }

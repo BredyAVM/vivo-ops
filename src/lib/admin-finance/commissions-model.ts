@@ -12,6 +12,7 @@ export type CommissionRow = {
   retainedBasis: 'snapshot' | 'legacy' | 'unavailable';
   calculationAt: string; calculationBeforePeriod: boolean; conformed: boolean; referencedPaidUsd: number;
   pendingUsd: number | null; issues: string[];
+  paymentBasis?: 'structural' | 'legacy' | 'none';
 };
 export type CommissionsOverview = {
   asOf: string; periods: CommissionPeriod[]; rows: CommissionRow[]; eligibleAdvisorIds: string[];
@@ -58,7 +59,8 @@ function rounded(value: number) { return Math.round((value + Number.EPSILON) * 1
 
 export function parseCommissionsOverview(value: unknown, requestedAt: Date): CommissionsOverview {
   const data = object(value);
-  if (data.definitionVersion !== COMMISSIONS_VERSION || data.paymentLinkBasis !== 'legacy_description') throw new Error('Incompatible commission contract');
+  const structural = data.definitionVersion === 'admin-finance-commissions-v2' && data.paymentLinkBasis === 'structural_with_legacy_references';
+  if (!structural && (data.definitionVersion !== COMMISSIONS_VERSION || data.paymentLinkBasis !== 'legacy_description')) throw new Error('Incompatible commission contract');
   const asOf = timestamp(data.asOf);
   if (!Number.isFinite(requestedAt.getTime()) || Math.abs(Date.parse(asOf) - requestedAt.getTime()) > 300_000) throw new Error('Stale commission read');
   const periods = array(data.periods).map(value => {
@@ -121,6 +123,13 @@ export function parseCommissionsOverview(value: unknown, requestedAt: Date): Com
   unique(rows.map(r => r.id));
   unique(rows.map(r => `${r.periodId}:${r.advisorId}`));
   const byId = new Map(rows.map(row => [row.id, row]));
+  const linkedPayments = structural ? array(data.linkedPayments).map(value => {
+    const link = object(value);
+    return { movementId: id(link.movementId), closureId: id(link.closureId) };
+  }) : [];
+  unique(linkedPayments.map(link => link.movementId));
+  const links = new Map(linkedPayments.map(link => [link.movementId, link.closureId]));
+  const linkedClosures = new Set<number>(), legacyClosures = new Set<number>();
   const payments = array(data.payments);
   const paymentIds: number[] = [];
   let unmatchedPayments = 0;
@@ -129,16 +138,24 @@ export function parseCommissionsOverview(value: unknown, requestedAt: Date): Com
     paymentIds.push(id(payment.id));
     const amount = money(payment.amount_usd_equivalent);
     date(payment.movement_date);
-    const closureId = getAdvisorCommissionClosureIdFromPaymentDescription(payment.description);
+    const linkedClosure = links.get(id(payment.id));
+    const closureId = linkedClosure ?? getAdvisorCommissionClosureIdFromPaymentDescription(payment.description);
     const row = closureId === null ? undefined : byId.get(closureId);
+    if (linkedClosure !== undefined && !row) throw new Error('Missing structurally linked closure');
     if (!row) { unmatchedPayments++; continue; }
+    if (linkedClosure !== undefined) linkedClosures.add(row.id); else legacyClosures.add(row.id);
     row.referencedPaidUsd = rounded(row.referencedPaidUsd + amount);
   }
   unique(paymentIds);
+  if (linkedPayments.some(link => !paymentIds.includes(link.movementId))) throw new Error('Incomplete linked payments');
   for (const row of rows) {
+    row.paymentBasis = legacyClosures.has(row.id) ? 'legacy' : linkedClosures.has(row.id) ? 'structural' : 'none';
+    if (row.paymentBasis === 'structural' && row.conformed && row.status !== 'preliminary' && row.referencedPaidUsd <= row.payableUsd) {
+      row.pendingUsd = rounded(row.payableUsd - row.referencedPaidUsd);
+    }
     if (row.status === 'paid' && row.payableUsd - row.referencedPaidUsd > 0.005) row.issues.push('Marcada pagada sin abonos suficientes identificados');
     if (row.referencedPaidUsd - row.payableUsd > 0.005) row.issues.push('Abonos identificados superiores a liquidación');
-    if (row.referencedPaidUsd > 0) row.issues.push('Abonos vinculados solo por descripción');
+    if (legacyClosures.has(row.id)) row.issues.push('Abonos históricos vinculados solo por descripción');
     if (row.referencedPaidUsd > row.payableUsd) row.pendingUsd = null;
   }
   if (money(data.periodCount) !== periods.length || money(data.closureCount) !== rows.length || money(data.paymentCount) !== payments.length) throw new Error('Incomplete commission read');
@@ -178,7 +195,7 @@ export function commissionPeriodView(data: CommissionsOverview, filters: Commiss
       retainedUsd: rows.length && rows.every(r => r.retainedUsd !== null && !r.calculationBeforePeriod) ? sum('retainedUsd') : null,
       estimatedRetentions: rows.filter(r => r.retainedBasis === 'legacy').length,
       conformedUsd: !rows.length || finalized.some(r => r.status === 'closed' && !r.conformed) ? null : sum('payableUsd', finalized.filter(r => r.status === 'closed')),
-      pendingUsd: !rows.length || finalized.some(r => r.pendingUsd === null) ? null : 0,
+      pendingUsd: !rows.length || finalized.some(r => r.pendingUsd === null) ? null : rounded(finalized.reduce((sum, row) => sum + (row.pendingUsd ?? 0), 0)),
       preliminary: rows.filter(r => r.status === 'preliminary').length, closed: rows.filter(r => r.status === 'closed').length,
       paid: rows.filter(r => r.status === 'paid').length, issues: rows.filter(r => r.issues.length > 0).length,
     } };

@@ -12,6 +12,7 @@ export type CommissionPaymentAccountOption = {
 };
 
 type Props = {
+  requestId: string;
   closureId: number;
   periodId: number;
   paymentBalanceUsd: number;
@@ -52,6 +53,7 @@ function SubmitButton() {
 }
 
 export default function CommissionPaymentForm({
+  requestId,
   closureId,
   periodId,
   paymentBalanceUsd,
@@ -89,6 +91,7 @@ export default function CommissionPaymentForm({
 
   return (
     <form action={registerCommissionPaymentAction} className="mt-3 grid gap-3 sm:grid-cols-2">
+      <input name="requestId" type="hidden" value={requestId} />
       <input name="closureId" type="hidden" value={closureId} />
       <input name="periodId" type="hidden" value={periodId} />
 

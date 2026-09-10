@@ -5,6 +5,7 @@ import {
   buildAdvisorCommissionPaymentDescription,
   calculateAdvisorCommissionPaymentOperation,
   getAdvisorCommissionClosureIdFromPaymentDescription,
+  readCommissionPaymentResult,
 } from '../../src/lib/commissions/payment-ledger.ts';
 
 test('vincula un abono con su cierre usando una descripción legible', () => {
@@ -75,4 +76,15 @@ test('construye una descripción auditable para la comisión bancaria', () => {
     buildAdvisorCommissionBankFeeDescription(paymentDescription),
     'Comisión bancaria · Liquidación de comisión · Cierre 42 · Agosto 1 · Ana Pérez'
   );
+});
+
+test('acepta recibos atómicos y reintentos, nunca respuestas parciales', () => {
+  const receipt = { movementId: 1, feeMovementId: null, closureId: 2, periodId: 3,
+    advisorUserId: 'advisor', periodName: 'Septiembre', amountUsd: 40, remainingUsd: 60, fullyPaid: false, replayed: false };
+  assert.equal(readCommissionPaymentResult(receipt).remainingUsd, 60);
+  assert.equal(readCommissionPaymentResult({ ...receipt, replayed: true }).replayed, true);
+  for (const invalid of [null, {}, { ...receipt, fullyPaid: true }, { ...receipt, movementId: null },
+    { ...receipt, remainingUsd: NaN }, { ...receipt, amountUsd: -1 }, { ...receipt, replayed: undefined }]) {
+    assert.throws(() => readCommissionPaymentResult(invalid));
+  }
 });
