@@ -35,6 +35,7 @@ test('delivery rejects rows outside the requested scope and encodes navigation',
   assert.throws(() => parseDeliveryOverview({ ...p, rows: [{ ...p.rows[0], deliveredAt: '2026-08-01T12:00:00Z' }] }, filters, now));
   const data = parseDeliveryOverview(p, filters, now);
   assert.match(deliveryOrderHref(data.rows[0]), /openOrder=25/);
+  assert.match(deliveryOrderHref(data.rows[0]), /tab=entrega/);
   assert.match(deliveryHref({ ...filters, q: 'A&B' }), /q=A%26B/);
 });
 test('settlement preserves each native currency and unfinished collection', () => {

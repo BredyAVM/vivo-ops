@@ -30,7 +30,7 @@ export function deliveryHref(filters: DeliveryFilters, patch: Partial<DeliveryFi
   return `/app/admin/finanzas/delivery?${new URLSearchParams({ from: f.from, to: f.to, mode: f.mode, q: f.q, page: String(f.page), settlementBefore: f.settlementBefore, settlementId: f.settlementId })}`;
 }
 export function deliveryOrderHref(row: DeliveryRow) {
-  return `/app/master/ops?${new URLSearchParams({ openOrder: String(row.id), focusDate: getCaracasDateKey(new Date(row.deliveredAt)), tab: 'delivery' })}`;
+  return `/app/master/ops?${new URLSearchParams({ openOrder: String(row.id), focusDate: getCaracasDateKey(new Date(row.deliveredAt)), tab: 'entrega' })}`;
 }
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid delivery object');

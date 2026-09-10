@@ -16,7 +16,7 @@ export default async function DeliverySettlementPage({ params }: { params: Promi
   const result = await loadDeliverySettlement(ctx.supabase as unknown as DeliveryRpcClient, Number(settlementId));
   if (result.status === 'error') return <AdminReadError title="Liquidación no disponible" message={result.message} />;
   const data = result.data;
-  const orderHref = `/app/master/ops?${new URLSearchParams({ openOrder: String(data.orderId), focusDate: getCaracasDateKey(new Date(data.dispatchedAt)), tab: 'delivery' })}`;
+  const orderHref = `/app/master/ops?${new URLSearchParams({ openOrder: String(data.orderId), focusDate: getCaracasDateKey(new Date(data.dispatchedAt)), tab: 'entrega' })}`;
   return <div className="space-y-5">
     <header><Link href="/app/admin/finanzas/delivery#liquidaciones" prefetch={false} className="inline-flex min-h-11 items-center text-xs underline">← Delivery</Link><h1 className="text-xl font-semibold">Liquidación · Orden #{data.orderNumber}</h1><p className="mt-2 text-sm text-[#B9B9C4]">{data.client} · {data.responsible} · {states[data.status]}</p></header>
     <div className="flex flex-wrap gap-4 text-sm"><Link href={orderHref} prefetch={false} className="inline-flex min-h-11 items-center underline">Abrir orden</Link><Link href="/app/counter" prefetch={false} className="inline-flex min-h-11 items-center underline">Gestionar retorno en Mostrador →</Link></div>
