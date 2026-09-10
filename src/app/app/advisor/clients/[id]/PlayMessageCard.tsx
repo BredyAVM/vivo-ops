@@ -16,7 +16,6 @@ type Props = {
   playMemberId: number;
   isActive: boolean;
   isCompleted: boolean;
-  hasGreetingResponse: boolean;
   isLaunched: boolean;
 };
 
@@ -34,13 +33,18 @@ export default function PlayMessageCard(props: Props) {
   const whatsappHref = props.whatsappBaseHref
     ? `${props.whatsappBaseHref}?text=${encodeURIComponent(message)}`
     : null;
-  const canUseMessage = props.isActive && !props.isCompleted && props.hasGreetingResponse;
+  const canUseMessage = props.isActive && !props.isCompleted;
 
   async function copyMessage() {
     if (!canUseMessage) return;
-    await navigator.clipboard.writeText(message);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+      recordLaunch();
+    } catch {
+      setResultMessage({ tone: 'danger', text: 'No se pudo copiar el mensaje. Puedes registrar la jugada manualmente.' });
+    }
   }
 
   function recordLaunch() {
@@ -72,13 +76,13 @@ export default function PlayMessageCard(props: Props) {
         {message}
       </div>
 
-      {!props.isCompleted && props.isActive && !props.hasGreetingResponse ? (
-        <div className="rounded-[13px] border border-[#564511] bg-[#2A2209] px-3 py-2.5 text-[10px] leading-4 text-[#F7DA66]">
-          Primero abre WhatsApp y saluda al cliente. Cuando responda, marca “Respondió saludo” para habilitar este mensaje.
-        </div>
-      ) : props.isLaunched ? (
+      {props.isLaunched ? (
         <div className="rounded-[13px] border border-[#214C73] bg-[#102338] px-3 py-2 text-[10px] text-[#8CC9FF]">
           Jugada lanzada ✓
+        </div>
+      ) : canUseMessage ? (
+        <div className="rounded-[13px] border border-[#214C73] bg-[#102338] px-3 py-2.5 text-[10px] leading-4 text-[#8CC9FF]">
+          Puedes usar este texto o escribir uno propio. Al copiarlo o abrirlo en WhatsApp se registra la jugada y se completan los hitos anteriores que falten.
         </div>
       ) : null}
 
@@ -99,30 +103,20 @@ export default function PlayMessageCard(props: Props) {
             onClick={recordLaunch}
             className="inline-flex h-10 items-center justify-center rounded-[12px] bg-[#1D6B42] px-3 text-xs font-semibold text-white"
           >
-            {pending ? 'Registrando…' : props.isLaunched ? 'Abrir mensaje otra vez' : 'Abrir y lanzar'}
+            {pending ? 'Registrando…' : props.isLaunched ? 'Abrir mensaje otra vez' : 'Abrir y registrar'}
           </a>
         ) : (
           <div className="flex h-10 items-center justify-center rounded-[12px] border border-[#2A3040] text-[10px] text-[#747E91]">
-            {props.whatsappBaseHref ? 'Esperando respuesta' : 'Sin WhatsApp'}
+            {props.whatsappBaseHref ? 'Jugada cerrada' : 'Sin WhatsApp'}
           </div>
         )}
       </div>
-      {canUseMessage && copied && !props.isLaunched ? (
-        <button
-          type="button"
-          onClick={recordLaunch}
-          disabled={pending}
-          className="w-full text-center text-[10px] font-medium text-[#8CC9FF] underline decoration-[#214C73] underline-offset-2 disabled:opacity-50"
-        >
-          {pending ? 'Registrando…' : 'Ya lo pegué y envié · marcar como lanzada'}
-        </button>
-      ) : null}
       {resultMessage ? (
         <div className={`rounded-[13px] border px-3 py-2 text-[10px] ${resultMessage.tone === 'success' ? 'border-[#1C5036] bg-[#0F2119] text-[#7CE0A9]' : 'border-[#5E2229] bg-[#261114] text-[#F0A6AE]'}`}>
           {resultMessage.text}
         </div>
       ) : null}
-      <p className="text-[9px] leading-4 text-[#747E91]">El mensaje queda preparado, pero nunca se envía automáticamente.</p>
+      <p className="text-[9px] leading-4 text-[#747E91]">El sistema registra la acción, pero nunca envía el mensaje automáticamente.</p>
     </div>
   );
 }

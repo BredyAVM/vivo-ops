@@ -534,7 +534,6 @@ export default async function AdvisorClientProfilePage({
                   playMemberId={numberValue(selectedMember.id)}
                   isActive={isPlayActive}
                   isCompleted={selectedMember.benefit_status === 'redeemed'}
-                  hasGreetingResponse={Boolean(selectedMember.responded_at)}
                   isLaunched={Boolean(selectedMember.play_launched_at)}
                 />
               </div>

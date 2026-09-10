@@ -78,7 +78,7 @@ export async function recordClientPlayFollowUpAction(input: RecordPlayFollowUpIn
       return { ok: false as const, message: 'La fecha del próximo seguimiento no es válida.' };
     }
 
-    const { data, error } = await ctx.supabase.rpc('crm_record_play_member_action_v2', {
+    const { data, error } = await ctx.supabase.rpc('crm_record_play_member_action_v3', {
       p_play_member_id: playMemberId,
       p_action: input.action,
       p_note: note,

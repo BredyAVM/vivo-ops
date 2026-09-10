@@ -18,14 +18,11 @@ type ClientFollowUpPanelProps = {
   contactAttemptCount: number;
 };
 
-const quickActions: Array<{
-  value: Extract<PlayFollowUpAction, 'responded' | 'unreachable'>;
+type ManualAction = {
+  value: Extract<PlayFollowUpAction, 'contact' | 'responded' | 'launched' | 'unreachable'>;
   label: string;
   activeClassName: string;
-}> = [
-  { value: 'responded', label: 'Respondió saludo', activeClassName: 'border-[#4A3675] bg-[#241A3A] text-[#C9B1FF]' },
-  { value: 'unreachable', label: 'No respondió', activeClassName: 'border-[#68401B] bg-[#2F1E0D] text-[#F6B97D]' },
-];
+};
 
 export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
   const router = useRouter();
@@ -34,6 +31,20 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
   const [pendingAction, setPendingAction] = useState<PlayFollowUpAction | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
+  const manualActions: ManualAction[] = [
+    !props.hasContact
+      ? { value: 'contact', label: 'Marcar contacto', activeClassName: 'border-[#214C73] bg-[#102338] text-[#8CC9FF]' }
+      : null,
+    !props.hasGreetingResponse
+      ? { value: 'responded', label: 'Marcar respondió', activeClassName: 'border-[#4A3675] bg-[#241A3A] text-[#C9B1FF]' }
+      : null,
+    !props.isLaunched
+      ? { value: 'launched', label: 'Marcar jugada lanzada', activeClassName: 'border-[#1C5036] bg-[#0F2119] text-[#7CE0A9]' }
+      : null,
+    !props.hasGreetingResponse
+      ? { value: 'unreachable', label: 'No respondió', activeClassName: 'border-[#68401B] bg-[#2F1E0D] text-[#F6B97D]' }
+      : null,
+  ].filter((action): action is ManualAction => action !== null);
 
   function submitFollowUp(action: PlayFollowUpAction) {
     setMessage(null);
@@ -47,7 +58,7 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
         followUpAt: action === 'follow_up' && followUpAt
           ? new Date(followUpAt).toISOString()
           : null,
-        channel: action === 'unreachable' || action === 'launched' ? 'whatsapp' : null,
+        channel: ['contact', 'responded', 'launched', 'unreachable'].includes(action) ? 'other' : null,
       });
 
       if (!result.ok) {
@@ -105,15 +116,14 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
             ))}
           </div>
 
-          {!props.hasContact ? (
-            <div className="rounded-[14px] border border-[#214C73] bg-[#102338] px-3 py-2.5 text-xs leading-5 text-[#8CC9FF]">
-              Abre WhatsApp con el botón superior y envía primero un saludo natural. El contacto inicial se registrará automáticamente.
-            </div>
-          ) : !props.hasGreetingResponse ? (
+          {manualActions.length > 0 ? (
             <fieldset>
-              <legend className="text-xs text-[#AAB2C5]">¿Contestó el saludo?</legend>
+              <legend className="text-xs font-medium text-[#D4D9E4]">Registro manual</legend>
+              <p className="mt-1 text-[10px] leading-4 text-[#8B93A7]">
+                Marca el último punto que sabes que ocurrió. Si faltan pasos anteriores, se completarán automáticamente.
+              </p>
               <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                {quickActions.map((option) => (
+                {manualActions.map((option) => (
                   <button
                     key={option.value}
                     type="button"
@@ -126,18 +136,6 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
                 ))}
               </div>
             </fieldset>
-          ) : !props.isLaunched ? (
-            <div className="rounded-[14px] border border-[#4A3675] bg-[#241A3A] px-3 py-2.5 text-xs leading-5 text-[#C9B1FF]">
-              <div>El cliente respondió. Ya puedes copiar o abrir el mensaje sugerido de la jugada arriba.</div>
-              <button
-                type="button"
-                onClick={() => submitFollowUp('launched')}
-                disabled={pending}
-                className="mt-2 inline-flex h-9 w-full items-center justify-center rounded-[11px] border border-[#6B50A0] px-3 text-[10px] font-semibold text-[#D8C8FF] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {pending && pendingAction === 'launched' ? 'Guardando…' : 'Ya envié la jugada'}
-              </button>
-            </div>
           ) : (
             <div className="rounded-[14px] border border-[#214C73] bg-[#102338] px-3 py-2.5 text-xs leading-5 text-[#8CC9FF]">
               Jugada lanzada ✓ · El mensaje de la campaña ya fue presentado al cliente.
