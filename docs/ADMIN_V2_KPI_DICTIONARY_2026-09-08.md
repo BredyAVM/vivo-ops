@@ -248,7 +248,18 @@ movimientos confirmados posteriores al `anchor_at`, incluso el mismo día. La vi
 mantiene por separado saldo confirmado, operaciones pendientes y partidas por
 conciliar. Publica totales nativos USD y VES sin mezclarlos y marca por moneda la
 cobertura incompleta; `P03` continúa bloqueado hasta clasificar explícitamente qué
-cuentas forman tesorería. Las escrituras siguen en las rutas operativas vigentes.
+cuentas forman parte de tesorería. Las escrituras siguen en las rutas operativas
+vigentes.
+
+### Corte implementado — 2026-09-10
+
+`P06` ya alimenta `/app/admin/finanzas/cartera` con saldo actual canónico, orden,
+cliente, asesor, fecha real del evento `delivered`, antigüedad, total, abonado y
+pendiente. La vista separa crédito abierto hasta cinco días y vencido después de
+ese plazo. El comportamiento de pago del período usa la fecha de registro del
+pago completo; si esa fecha no se puede reconstruir, la orden se identifica como
+`sin fecha trazable` y no se clasifica silenciosamente como puntual. `P07` sigue
+pendiente para un bloque posterior.
 
 ## 7. Indicadores no publicables todavía
 

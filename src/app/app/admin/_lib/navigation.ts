@@ -37,6 +37,15 @@ export const adminNavigation: AdminNavigationItem[] = [
     marker: 'CU',
   },
   {
+    key: 'receivables',
+    label: 'Cartera',
+    shortLabel: 'Cartera',
+    description: 'Cobros, vencimientos y puntualidad',
+    href: '/app/admin/finanzas/cartera',
+    prefetch: false,
+    marker: 'CA',
+  },
+  {
     key: 'orders',
     label: 'Órdenes',
     shortLabel: 'Órdenes',

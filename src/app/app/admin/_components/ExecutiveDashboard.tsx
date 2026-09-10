@@ -16,6 +16,7 @@ type Shortcut = {
 
 const shortcuts: Shortcut[] = [
   { label: 'Cuentas', marker: 'CU', href: '/app/admin/finanzas/cuentas' },
+  { label: 'Cartera', marker: 'CA', href: '/app/admin/finanzas/cartera' },
   { label: 'Órdenes', marker: 'OR', href: '/app/master/ops' },
   { label: 'Pagos', marker: 'PA', href: '/app/master/ops/finance?status=pending' },
   { label: 'Inventario', marker: 'IV', href: '/app/inventory' },
@@ -139,7 +140,7 @@ function Shortcuts() {
           Panel anterior →
         </Link>
       </div>
-      <div className="grid auto-cols-[minmax(132px,1fr)] grid-flow-col gap-2 overflow-x-auto pb-1 sm:grid-flow-row sm:grid-cols-4 sm:overflow-visible sm:pb-0 xl:grid-cols-9">
+      <div className="grid auto-cols-[minmax(132px,1fr)] grid-flow-col gap-2 overflow-x-auto pb-1 sm:grid-flow-row sm:grid-cols-4 sm:overflow-visible sm:pb-0 xl:grid-cols-10">
         {shortcuts.map((shortcut) => (
           <Link
             key={shortcut.label}
