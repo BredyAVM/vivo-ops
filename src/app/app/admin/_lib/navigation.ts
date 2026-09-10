@@ -46,6 +46,15 @@ export const adminNavigation: AdminNavigationItem[] = [
     marker: 'CA',
   },
   {
+    key: 'active-orders',
+    label: 'Por entregar',
+    shortLabel: 'Pedidos',
+    description: 'Pedidos activos y saldo por cobrar',
+    href: '/app/admin/finanzas/pedidos',
+    prefetch: false,
+    marker: 'PE',
+  },
+  {
     key: 'orders',
     label: 'Órdenes',
     shortLabel: 'Órdenes',

@@ -294,6 +294,13 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                   >
                     Ver cuentas
                   </Link>
+                  <Link
+                    href="/app/admin/finanzas/pedidos"
+                    prefetch={false}
+                    className="flex min-h-12 items-center justify-center rounded-xl border border-[#3A3A49] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+                  >
+                    Pedidos por entregar
+                  </Link>
                 </>
               ) : (
                 <Link

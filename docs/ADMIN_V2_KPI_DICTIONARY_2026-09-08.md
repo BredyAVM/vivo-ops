@@ -258,8 +258,20 @@ cliente, asesor, fecha real del evento `delivered`, antigüedad, total, abonado 
 pendiente. La vista separa crédito abierto hasta cinco días y vencido después de
 ese plazo. El comportamiento de pago del período usa la fecha de registro del
 pago completo; si esa fecha no se puede reconstruir, la orden se identifica como
-`sin fecha trazable` y no se clasifica silenciosamente como puntual. `P07` sigue
-pendiente para un bloque posterior.
+`sin fecha trazable` y no se clasifica silenciosamente como puntual.
+
+`P07` alimenta `/app/admin/finanzas/pedidos` mediante una consulta exclusiva para
+Admin y un corte actual fijado por el servidor. Incluye `queued` (ya aprobado),
+`confirmed`, `in_kitchen`, `ready` y `out_for_delivery`, incluso cuando el saldo
+es cero. Excluye `created`, `delivered` y `cancelled`. No se suma a facturación.
+Publica total contractual con impuesto, cobertura actual y saldo canónico USD;
+la cobertura usa `clamp(total_usd - pending_usd, 0, total_usd)` e incluye fondos
+aplicados y ajustes, no solo efectivo. Los reportes pendientes quedan separados.
+La agenda muestra fecha pasada, hoy, los siete días siguientes (sin hoy), más
+adelante y sin fecha válida. Ninguna fecha programada se presenta como promesa
+de cobro o vencimiento de crédito. Cambios pendientes de reaprobación y fechas
+faltantes permanecen visibles y marcados; los filtros reconcilian sus KPI contra
+todas las filas seleccionadas, no solo las 30 filas de la página.
 
 ## 7. Indicadores no publicables todavía
 
