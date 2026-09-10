@@ -1,4 +1,4 @@
-import AdvisorOrderComposer from './AdvisorOrderComposer';
+import AdvisorOrderComposer, { type AdvisorCrmOrderContext, type ClientRow } from './AdvisorOrderComposer';
 import { getAuthContext } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { readEventBudgetPayload } from '@/lib/events/event-budget';
@@ -24,7 +24,8 @@ export default async function AdvisorNewOrderPage({
   const requestedClientId = Number(params.client || 0);
   const requestedPlayMemberId = Number(params.playMember || 0);
   let initialDraft = null;
-  let initialCrmContext = null;
+  let initialClient: ClientRow | null = null;
+  let initialCrmContext: AdvisorCrmOrderContext | null = null;
 
   if (Number.isFinite(draftId) && draftId > 0 && !fromOrder && !duplicateFrom) {
     const ctx = await getAuthContext();
@@ -74,6 +75,7 @@ export default async function AdvisorNewOrderPage({
 
       const play = Array.isArray(member?.play) ? member.play[0] ?? null : member?.play ?? null;
       const client = Array.isArray(member?.client) ? member.client[0] ?? null : member?.client ?? null;
+      if (member && client) initialClient = client as ClientRow;
       if (
         member
         && play
@@ -161,6 +163,23 @@ export default async function AdvisorNewOrderPage({
         }
       }
     }
+  } else if (
+    Number.isFinite(requestedClientId) && requestedClientId > 0
+    && !fromOrder && !duplicateFrom && !initialDraft
+  ) {
+    const ctx = await getAuthContext();
+    if (ctx) {
+      const { data: client } = await ctx.supabase
+        .from('clients')
+        .select(`
+          id, full_name, phone, client_type, fund_balance_usd, recent_addresses,
+          billing_company_name, billing_tax_id, billing_address, billing_phone,
+          delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone
+        `)
+        .eq('id', requestedClientId)
+        .maybeSingle();
+      if (client) initialClient = client as ClientRow;
+    }
   }
 
   return (
@@ -168,6 +187,7 @@ export default async function AdvisorNewOrderPage({
       existingOrderId={Number.isFinite(fromOrder) && fromOrder > 0 ? fromOrder : null}
       templateOrderId={Number.isFinite(duplicateFrom) && duplicateFrom > 0 ? duplicateFrom : null}
       initialDraft={initialDraft}
+      initialClient={initialClient}
       initialCrmContext={initialCrmContext}
     />
   );

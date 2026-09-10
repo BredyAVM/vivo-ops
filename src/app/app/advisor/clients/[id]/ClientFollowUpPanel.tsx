@@ -10,6 +10,7 @@ import {
 type ClientFollowUpPanelProps = {
   playMemberId: number;
   isActive: boolean;
+  isCompleted: boolean;
   workflowStatus: string;
   contactAttemptCount: number;
 };
@@ -66,7 +67,7 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-[#AAB2C5]">
           <div className="text-[10px] uppercase tracking-[0.15em] text-[#747E91]">Estado</div>
-          <div className="mt-1 text-[#F5F7FB]">{props.workflowStatus}</div>
+          <div className="mt-1 text-[#F5F7FB]">{props.isCompleted ? 'Obsequio entregado' : props.workflowStatus}</div>
         </div>
         <div className="rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-[#AAB2C5]">
           <div className="text-[10px] uppercase tracking-[0.15em] text-[#747E91]">Intentos</div>
@@ -74,7 +75,14 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
         </div>
       </div>
 
-      {!props.isActive ? (
+      {props.isCompleted ? (
+        <div className="rounded-[14px] border border-[#1C5036] bg-[#0F2119] px-3 py-3 text-xs leading-5 text-[#7CE0A9]">
+          <div className="font-semibold">Obsequio entregado ✓</div>
+          <div className="mt-0.5 text-[#7CE0A9]/75">
+            La aplicación quedó registrada por el pedido. No hace falta marcar lanzamiento, respuesta ni otro seguimiento manual.
+          </div>
+        </div>
+      ) : !props.isActive ? (
         <div className="rounded-[14px] border border-[#564511] bg-[#2A2209] px-3 py-3 text-xs leading-5 text-[#F7DA66]">
           Esta jugada no está activa. Su foto y su historial siguen visibles, pero no admite nuevos movimientos.
         </div>

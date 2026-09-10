@@ -448,9 +448,9 @@ export default async function AdvisorClientProfilePage({
           </div>
         )}
         <Link
-          href={selectedMember && selectedPlay && isPlayActive
+          href={selectedMember && selectedPlay && isPlayActive && ['available', 'reserved'].includes(selectedMember.benefit_status)
             ? `/app/advisor/new?client=${clientId}&playMember=${numberValue(selectedMember.id)}`
-            : '/app/advisor/new'}
+            : `/app/advisor/new?client=${clientId}`}
           className="inline-flex h-11 flex-1 items-center justify-center rounded-[13px] border border-[#F0D000] px-4 text-sm font-semibold text-[#F7DA66]"
         >
           Crear pedido
@@ -492,7 +492,9 @@ export default async function AdvisorClientProfilePage({
           <SectionCard
             title={selectedPlay.name}
             subtitle="Seguimiento de esta jugada"
-            action={<StatusBadge label={workflowLabel(selectedMember.workflow_status)} tone={workflowTone(selectedMember.workflow_status)} />}
+            action={selectedMember.benefit_status === 'redeemed'
+              ? <StatusBadge label="Obsequio entregado" tone="success" />
+              : <StatusBadge label={workflowLabel(selectedMember.workflow_status)} tone={workflowTone(selectedMember.workflow_status)} />}
           >
             {selectedPlay.message_template ? (
               <div className="mb-3">
@@ -520,9 +522,9 @@ export default async function AdvisorClientProfilePage({
                 selectionMode={selectedPlay.benefit_selection_mode || 'single'}
                 purchaseRequirementMode={selectedPlay.purchase_requirement_mode || 'none'}
                 minimumOrderAmountUsd={selectedPlay.minimum_order_amount_usd == null ? null : numberValue(selectedPlay.minimum_order_amount_usd)}
-                isActive={isPlayActive}
+                isActive={isPlayActive && selectedMember.benefit_status !== 'redeemed'}
               />
-              {selectedMember.next_follow_up_at ? (
+              {selectedMember.benefit_status !== 'redeemed' && selectedMember.next_follow_up_at ? (
                 <div className="mt-1 text-[#F7DA66]">Próximo seguimiento: {dateTimeLabel(selectedMember.next_follow_up_at)}</div>
               ) : null}
             </div>
@@ -530,6 +532,7 @@ export default async function AdvisorClientProfilePage({
               <ClientFollowUpPanel
                 playMemberId={numberValue(selectedMember.id)}
                 isActive={isPlayActive}
+                isCompleted={selectedMember.benefit_status === 'redeemed'}
                 workflowStatus={workflowLabel(selectedMember.workflow_status)}
                 contactAttemptCount={numberValue(selectedMember.contact_attempt_count)}
               />

@@ -33,6 +33,7 @@ type MemberRow = {
   play_id: number | string;
   client_id: number | string;
   workflow_status: string;
+  benefit_status: string;
   purchase_count: number | string;
   days_since_last_purchase: number | string | null;
   contact_attempt_count: number | string;
@@ -79,7 +80,16 @@ function dateTimeLabel(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? value : dateTimeFormatter.format(parsed);
 }
 
-function workflowPresentation(status: string, due: boolean) {
+function workflowPresentation(status: string, due: boolean, benefitStatus: string) {
+  if (benefitStatus === 'redeemed') {
+    return {
+      label: 'Obsequio entregado',
+      dot: 'bg-[#35E293]',
+      chip: 'border-[#176344] bg-[#0A2B1D] text-[#68F0B1]',
+      row: 'border-l-[#24C77A]',
+    };
+  }
+
   if (due) {
     return {
       label: 'Vencido',
@@ -206,10 +216,11 @@ function isDue(member: MemberRow, now: number) {
 }
 
 function memberMatchesView(member: MemberRow, view: ViewFilter, now: number) {
-  if (view === 'pending') return member.workflow_status === 'pending';
-  if (view === 'follow_up') return isDue(member, now) || member.workflow_status === 'follow_up_scheduled';
+  const completed = member.benefit_status === 'redeemed';
+  if (view === 'pending') return !completed && member.workflow_status === 'pending';
+  if (view === 'follow_up') return !completed && (isDue(member, now) || member.workflow_status === 'follow_up_scheduled');
   if (view === 'contacted') return member.workflow_status !== 'pending';
-  if (view === 'converted') return member.workflow_status === 'converted';
+  if (view === 'converted') return completed || member.workflow_status === 'converted';
   return true;
 }
 
@@ -276,7 +287,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     ctx.supabase
       .from('crm_play_members')
       .select(`
-        id, play_id, client_id, workflow_status, purchase_count,
+        id, play_id, client_id, workflow_status, benefit_status, purchase_count,
         days_since_last_purchase, contact_attempt_count, next_follow_up_at,
         client:clients(id, full_name)
       `)
@@ -306,10 +317,10 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   // This is a server-only request snapshot used to classify due follow-ups consistently.
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
-  const dueCount = members.filter((member) => isDue(member, now)).length;
-  const pendingCount = members.filter((member) => member.workflow_status === 'pending').length;
+  const dueCount = members.filter((member) => member.benefit_status !== 'redeemed' && isDue(member, now)).length;
+  const pendingCount = members.filter((member) => member.benefit_status !== 'redeemed' && member.workflow_status === 'pending').length;
   const touchedCount = members.filter((member) => member.workflow_status !== 'pending').length;
-  const convertedCount = members.filter((member) => member.workflow_status === 'converted').length;
+  const convertedCount = members.filter((member) => member.benefit_status === 'redeemed' || member.workflow_status === 'converted').length;
   const visibleMembers = members
     .filter((member) => memberMatchesView(member, view, now))
     .sort((left, right) => sortMembers(left, right, now));
@@ -317,9 +328,9 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const filters: Array<{ value: ViewFilter; label: string; count: number }> = [
     { value: 'all', label: 'Todos', count: members.length },
     { value: 'pending', label: 'Sin tocar', count: pendingCount },
-    { value: 'follow_up', label: 'Seguimientos', count: members.filter((member) => member.workflow_status === 'follow_up_scheduled' || isDue(member, now)).length },
+    { value: 'follow_up', label: 'Seguimientos', count: members.filter((member) => member.benefit_status !== 'redeemed' && (member.workflow_status === 'follow_up_scheduled' || isDue(member, now))).length },
     { value: 'contacted', label: 'Lanzadas', count: touchedCount },
-    { value: 'converted', label: 'Recompras', count: convertedCount },
+    { value: 'converted', label: 'Aplicados', count: convertedCount },
   ];
 
   return (
@@ -385,7 +396,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
         <CompactStat label="Total" value={members.length} />
         <CompactStat label="Pendientes" value={pendingCount} />
         <CompactStat label="Vencidos" value={dueCount} />
-        <CompactStat label="Recompras" value={convertedCount} />
+        <CompactStat label="Aplicados" value={convertedCount} />
       </div>
 
       <nav aria-label="Filtrar clientes de la jugada" className="flex gap-1.5 overflow-x-auto pb-0.5">
@@ -424,7 +435,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
           visibleMembers.map((member) => {
             const client = one(member.client);
             const due = isDue(member, now);
-            const presentation = workflowPresentation(member.workflow_status, due);
+            const presentation = workflowPresentation(member.workflow_status, due, member.benefit_status);
             const clientName = client?.full_name?.trim() || 'Cliente sin nombre';
             const purchaseCount = numberValue(member.purchase_count);
             const daysSincePurchase = member.days_since_last_purchase == null

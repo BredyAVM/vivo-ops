@@ -45,7 +45,7 @@ type PaymentMethod =
   | 'mixed';
 type CurrencyCode = 'USD' | 'VES';
 
-type ClientRow = {
+export type ClientRow = {
   id: number;
   full_name: string;
   phone: string | null;
@@ -1453,11 +1453,13 @@ export default function AdvisorOrderComposer({
   existingOrderId = null,
   templateOrderId = null,
   initialDraft = null,
+  initialClient = null,
   initialCrmContext = null,
 }: {
   existingOrderId?: number | null;
   templateOrderId?: number | null;
   initialDraft?: AdvisorOrderDraftInitial | null;
+  initialClient?: ClientRow | null;
   initialCrmContext?: AdvisorCrmOrderContext | null;
 }) {
   const router = useRouter();
@@ -2342,13 +2344,20 @@ export default function AdvisorOrderComposer({
             ? `La jugada ${initialCrmContext.playName} está disponible. El beneficio se activa al completar $${Number(initialCrmContext.minimumOrderAmountUsd ?? 0).toFixed(2)} en otros productos.`
             : `Beneficio de ${initialCrmContext.playName} cargado sin costo para el cliente.`
         );
+      } else if (initialClient) {
+        setSelectedClient(initialClient);
+        rememberClient(initialClient);
+        setSearchTerm(initialClient.phone || initialClient.full_name || '');
+        setClientResults([]);
+        setIsNewClientMode(false);
+        setInfo(`Pedido iniciado para ${initialClient.full_name}.`);
       }
 
       setLoading(false);
     }
 
     void boot();
-  }, [initialCrmContext, initialDraft, isEditingOrder, rounded, router, sourceOrderId, supabase]);
+  }, [initialClient, initialCrmContext, initialDraft, isEditingOrder, rounded, router, sourceOrderId, supabase]);
 
   useEffect(() => {
     if (
