@@ -6,6 +6,7 @@ import {
   calculateAdvisorCommissionPaymentOperation,
   getAdvisorCommissionClosureIdFromPaymentDescription,
   readCommissionPaymentResult,
+  readCommissionPaymentReversals,
 } from '../../src/lib/commissions/payment-ledger.ts';
 
 test('vincula un abono con su cierre usando una descripción legible', () => {
@@ -87,4 +88,12 @@ test('acepta recibos atómicos y reintentos, nunca respuestas parciales', () => 
     { ...receipt, remainingUsd: NaN }, { ...receipt, amountUsd: -1 }, { ...receipt, replayed: undefined }]) {
     assert.throws(() => readCommissionPaymentResult(invalid));
   }
+});
+
+test('el historial admite la relación única de PostgREST como objeto o colección', () => {
+  const reversal = { created_at: '2026-09-10T20:00:00Z', reason: 'Duplicado' };
+  assert.deepEqual(readCommissionPaymentReversals(reversal), [reversal]);
+  assert.deepEqual(readCommissionPaymentReversals([reversal]), [reversal]);
+  assert.deepEqual(readCommissionPaymentReversals(null), []);
+  assert.throws(() => readCommissionPaymentReversals({ created_at: 'bad', reason: 'bad' }));
 });

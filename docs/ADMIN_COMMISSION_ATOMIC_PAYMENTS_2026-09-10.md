@@ -64,7 +64,7 @@ filas a Admin/Master y el ensayo de asesor devuelve cero. No hay grant a anónim
 No se amplían permisos para eliminar el aviso. Referencia:
 https://supabase.com/docs/guides/database/database-linter?lint=0027_pg_graphql_authenticated_table_exposed
 
-- 82 pruebas Admin, 78 de comisiones y 6 de seguridad: 166 aprobadas.
+- 82 pruebas Admin, 79 de comisiones y 6 de seguridad: 167 aprobadas.
 - Prueba SQL transaccional con fixtures sintéticos y ROLLBACK:
   abono parcial/final, USD/VES, gasto separado, reenvío, colisión de clave,
   sobrepago, error forzado después de insertar dinero, integridad del estado,

@@ -16,6 +16,7 @@ import {
 import {
   ADVISOR_COMMISSION_BANK_FEE_DESCRIPTION_PREFIX,
   ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX,
+  readCommissionPaymentReversals,
 } from '@/lib/commissions/payment-ledger';
 import { readAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
@@ -607,7 +608,7 @@ export default async function CommissionAuditPage({
             </div>
           ) : null}
           {activeSection === 'payments' && operationsResult.error ? <p className="mt-3 text-sm text-orange-200">No se pudo consultar el historial de vínculos y anulaciones. No se habilitaron correcciones.</p> : null}
-          {activeSection === 'payments' ? (operationsResult.data ?? []).flatMap(op => (op.reversals ?? []).map(reversal => (
+          {activeSection === 'payments' ? (operationsResult.data ?? []).flatMap(op => readCommissionPaymentReversals(op.reversals).map(reversal => (
             <p key={`${op.request_id}:${reversal.created_at}`} className="mt-3 text-xs text-[#A9A9B4]">Registro #{op.payment_movement_id} anulado · {dateLabel(reversal.created_at)} · {reversal.reason}</p>
           ))) : null}
           {activeSection === 'payments' && !operationsResult.error && (operationsResult.data ?? []).some(op => payments.some(p => Number(p.id) === Number(op.payment_movement_id))) ? (

@@ -5,6 +5,19 @@ export const ADVISOR_COMMISSION_BANK_FEE_DESCRIPTION_PREFIX =
 
 export type AdvisorCommissionPaymentCurrency = 'USD' | 'VES';
 
+// PostgREST returns inverse unique-FK relations as an object; older generated
+// client types may still describe an array. Support both wire representations.
+export function readCommissionPaymentReversals(value: unknown): Array<{ created_at: string; reason: string }> {
+  if (value == null) return [];
+  return (Array.isArray(value) ? value : [value]).map(item => {
+    if (!item || typeof item !== 'object' || typeof item.created_at !== 'string'
+      || !Number.isFinite(Date.parse(item.created_at)) || typeof item.reason !== 'string') {
+      throw new Error('El historial de anulaciones recibido no es válido.');
+    }
+    return { created_at: item.created_at, reason: item.reason };
+  });
+}
+
 export function readCommissionPaymentResult(value: unknown) {
   const fail = () => { throw new Error('No se pudo confirmar la respuesta del abono. Consulta los movimientos antes de repetirlo.'); };
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fail();
