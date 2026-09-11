@@ -1556,6 +1556,9 @@ type RawOrderItemEditRow = {
   product_name_snapshot: string | null;
   sku_snapshot: string | null;
   notes: string | null;
+  crm_play_member_id: number | string | null;
+  crm_play_benefit_id: number | string | null;
+  crm_play_benefit_upgrade_id: number | string | null;
 };
 
 type RawOrderClientEditRow = {
@@ -1684,6 +1687,9 @@ export type MasterOpsEditOrderItem = {
   adminPriceOverrideReason: string | null;
   adminPriceOverrideByUserId: string | null;
   adminPriceOverrideAt: string | null;
+  crmPlayMemberId?: number | null;
+  crmPlayBenefitId?: number | null;
+  crmPlayBenefitUpgradeId?: number | null;
 };
 
 export type MasterOpsEditOrder = {
@@ -1746,6 +1752,9 @@ type DashboardUpdateOrderInput = Parameters<typeof updateOrderAction>[0];
 
 export type MasterOpsOrderSaveItem = DashboardCreateOrderInput["items"][number] & {
   orderItemId?: number | null;
+  crmPlayMemberId?: number | null;
+  crmPlayBenefitId?: number | null;
+  crmPlayBenefitUpgradeId?: number | null;
 };
 
 export type MasterOpsOrderCreateInput = Omit<DashboardCreateOrderInput, "items"> & {
@@ -1930,6 +1939,9 @@ type MasterOpsExistingSaveItemRow = {
   product_name_snapshot: string | null;
   sku_snapshot: string | null;
   notes: string | null;
+  crm_play_member_id: number | string | null;
+  crm_play_benefit_id: number | string | null;
+  crm_play_benefit_upgrade_id: number | string | null;
 };
 
 function closeNumber(left: unknown, right: unknown, tolerance = 0.000001) {
@@ -1984,8 +1996,9 @@ async function loadMasterOpsOrderFinancialStateForValidation(
   });
 }
 
-function stripMasterOpsOrderItem(item: MasterOpsOrderSaveItem): DashboardCreateOrderInput["items"][number] {
+function stripMasterOpsOrderItem(item: MasterOpsOrderSaveItem): MasterOpsOrderSaveItem {
   return {
+    orderItemId: item.orderItemId ?? null,
     productId: item.productId,
     skuSnapshot: item.skuSnapshot,
     productNameSnapshot: item.productNameSnapshot,
@@ -1998,6 +2011,9 @@ function stripMasterOpsOrderItem(item: MasterOpsOrderSaveItem): DashboardCreateO
     adminPriceOverrideCurrency: item.adminPriceOverrideCurrency ?? null,
     adminPriceOverrideReason: item.adminPriceOverrideReason,
     editableDetailLines: item.editableDetailLines,
+    crmPlayMemberId: item.crmPlayMemberId ?? null,
+    crmPlayBenefitId: item.crmPlayBenefitId ?? null,
+    crmPlayBenefitUpgradeId: item.crmPlayBenefitUpgradeId ?? null,
   };
 }
 
@@ -2093,7 +2109,7 @@ async function prepareMasterOpsOrderSave(
         ? ctx.supabase
             .from("order_items")
             .select(
-              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes"
+              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id"
             )
             .eq("order_id", Number(orderId))
         : Promise.resolve({ data: [], error: null }),
@@ -2275,6 +2291,14 @@ async function prepareMasterOpsOrderSave(
       validateConfiguration: isNewLine || productChanged || detailsChanged,
       allowInactiveCatalog: Boolean(existingItem) && !linePricingChanged,
       validateOverride: isNewLine || overrideChanged,
+      crmPlayMemberId:
+        existingItem?.crm_play_member_id == null ? null : Number(existingItem.crm_play_member_id),
+      crmPlayBenefitId:
+        existingItem?.crm_play_benefit_id == null ? null : Number(existingItem.crm_play_benefit_id),
+      crmPlayBenefitUpgradeId:
+        existingItem?.crm_play_benefit_upgrade_id == null
+          ? null
+          : Number(existingItem.crm_play_benefit_upgrade_id),
     };
   });
 
@@ -2792,7 +2816,10 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         admin_price_override_at,
         product_name_snapshot,
         sku_snapshot,
-        notes
+        notes,
+        crm_play_member_id,
+        crm_play_benefit_id,
+        crm_play_benefit_upgrade_id
       `
       )
       .eq("order_id", orderId)
@@ -3026,6 +3053,10 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       adminPriceOverrideReason: item.admin_price_override_reason ?? null,
       adminPriceOverrideByUserId: item.admin_price_override_by_user_id ?? null,
       adminPriceOverrideAt: item.admin_price_override_at ?? null,
+      crmPlayMemberId: item.crm_play_member_id == null ? null : Number(item.crm_play_member_id),
+      crmPlayBenefitId: item.crm_play_benefit_id == null ? null : Number(item.crm_play_benefit_id),
+      crmPlayBenefitUpgradeId:
+        item.crm_play_benefit_upgrade_id == null ? null : Number(item.crm_play_benefit_upgrade_id),
     };
   });
 

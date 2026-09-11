@@ -12,6 +12,13 @@ const components: DetailComponent[] = [
 const selected = ['6 Mini Tequeños Fritos', '@sel|5|6', '1 Salsa Tártara 1oz', '@sel|2|1'];
 const normalize = (lines: string[], qty = 1) => normalizeOrderDetailForSave(pack, qty, lines, components);
 
+function exportedFunctionBlock(source: string, name: string) {
+  const start = source.indexOf(`export async function ${name}`);
+  assert.notEqual(start, -1, `${name} must exist`);
+  const next = source.indexOf('\nexport async function ', start + 1);
+  return source.slice(start, next === -1 ? source.length : next);
+}
+
 test('creation retains inventory selections while removing CRM authority text', () => {
   assert.deepEqual(normalize([...selected, '@crm|benefit:fake']), selected);
   assert.deepEqual(persistableOrderDetailLines([' @sel|5|6 ', ' @CRM|play:fake ', 'Para: Ana']), ['@sel|5|6', 'Para: Ana']);
@@ -64,4 +71,36 @@ test('all advisor persistence paths preserve metadata; display filters are not s
   assert.match(replacement, /normalizeAdvisorItemDetails\(ctx.supabase, input.items\)/);
   assert.match(replacement, /notes: details\[index\].join/);
   assert.doesNotMatch(replacement, /!isInternalOrderDetailLine/);
+});
+
+test('CRM benefits stay optional and an existing redeemed line keeps its persisted identity', () => {
+  const composer = readFileSync(new URL('../../src/app/app/advisor/new/AdvisorOrderComposer.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(composer, /getInitialCrmBenefitIds/);
+  assert.match(composer, /el pedido puede continuar sin obsequio/i);
+  assert.match(composer, /persistedOrderItemId: Number\(item\.id\)/);
+  assert.match(composer, /Beneficio aplicado/);
+});
+
+test('advisor and master edits use the same atomic order command instead of partial item writes', () => {
+  const advisorActions = readFileSync(new URL('../../src/app/app/advisor/new/actions.ts', import.meta.url), 'utf8');
+  const advisorReplace = exportedFunctionBlock(advisorActions, 'replaceAdvisorOrderItemsAction');
+  assert.match(advisorReplace, /rpc\(\s*['"]update_order_core_atomic_v1['"]/);
+  assert.doesNotMatch(advisorReplace, /\.from\(['"]order_items['"]\)\s*\.insert/);
+  assert.doesNotMatch(advisorReplace, /\.from\(['"]order_items['"]\)\s*\.delete/);
+
+  const masterActions = readFileSync(new URL('../../src/app/app/master/dashboard/actions.ts', import.meta.url), 'utf8');
+  const masterUpdate = exportedFunctionBlock(masterActions, 'updateOrderAction');
+  assert.match(masterUpdate, /rpc\(\s*['"]update_order_core_atomic_v1['"] as never/);
+  assert.doesNotMatch(masterUpdate, /\.from\(['"]order_items['"]\)\s*\.delete\(\)/);
+});
+
+test('the atomic database command preserves redeemed CRM rows and exposes only its authorized wrapper', () => {
+  const core = readFileSync(new URL('../../supabase/migrations/20260911234222_order_edit_atomic_core_v1.sql', import.meta.url), 'utf8');
+  const wrapper = readFileSync(new URL('../../supabase/migrations/20260911234443_fix_order_edit_atomic_wrapper_execution.sql', import.meta.url), 'utf8');
+  assert.match(core, /delete from public\.order_items item[\s\S]*item\.crm_play_member_id is null/);
+  assert.match(core, /Un beneficio ya aplicado no puede quitarse/);
+  assert.match(core, /pg_advisory_xact_lock/);
+  assert.match(wrapper, /security definer/);
+  assert.match(wrapper, /grant execute[\s\S]*to authenticated/);
+  assert.match(wrapper, /revoke all[\s\S]*from public, anon, service_role/);
 });

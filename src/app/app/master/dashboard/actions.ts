@@ -8819,6 +8819,9 @@ export async function createOrderAction(input: {
     adminPriceOverrideCurrency?: 'USD' | 'VES' | null;
     adminPriceOverrideReason: string | null;
     orderItemId?: number | null;
+    crmPlayMemberId?: number | null;
+    crmPlayBenefitId?: number | null;
+    crmPlayBenefitUpgradeId?: number | null;
     commissionInheritedMode?: OrderCommissionMode;
     commissionInheritedValue?: number | null;
     commissionInheritedSource?: 'catalog' | 'event';
@@ -9643,6 +9646,9 @@ export async function updateOrderAction(input: {
     adminPriceOverrideCurrency?: 'USD' | 'VES' | null;
     adminPriceOverrideReason: string | null;
     orderItemId?: number | null;
+    crmPlayMemberId?: number | null;
+    crmPlayBenefitId?: number | null;
+    crmPlayBenefitUpgradeId?: number | null;
     commissionInheritedMode?: OrderCommissionMode;
     commissionInheritedValue?: number | null;
     commissionInheritedSource?: 'catalog' | 'event';
@@ -9921,10 +9927,6 @@ export async function updateOrderAction(input: {
   const clientFundUsedUsd = input.useClientFund
     ? Number(Math.max(0, Math.min(totalUsd, Number.isFinite(requestedClientFundUsd) ? requestedClientFundUsd : 0)).toFixed(2))
     : 0;
-  const previousClientFundUsedUsd = Number(
-    toSafeNumber((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd, 0).toFixed(2)
-  );
-
   const nowIso = new Date().toISOString();
   const previousPricing =
     currentOrder.extra_fields &&
@@ -10056,50 +10058,11 @@ export async function updateOrderAction(input: {
     orderUpdatePayload.queued_last_modified_by = null;
   }
 
-  const previousClientId = Number(currentOrder.client_id || 0);
-  if (previousClientFundUsedUsd > 0.005 && Number.isFinite(previousClientId) && previousClientId > 0) {
-    await restoreClientFundToOrder(supabase, {
-      clientId: previousClientId,
-      orderId,
-      amountUsd: previousClientFundUsedUsd,
-      userId: user.id,
-      notes: 'Restitución de fondo por edición de orden',
-    });
-  }
-
-  if (clientFundUsedUsd > 0.005) {
-    await applyClientFundToOrder(supabase, {
-      clientId,
-      orderId,
-      amountUsd: clientFundUsedUsd,
-      userId: user.id,
-      notes: 'Fondo aplicado por edición de orden',
-    });
-  }
-
-  let updateOrderQuery = supabase
-    .from('orders')
-    .update(orderUpdatePayload)
-    .eq('id', orderId);
-  updateOrderQuery =
-    expectedLastModifiedAt === null
-      ? updateOrderQuery.is('last_modified_at', null)
-      : updateOrderQuery.eq('last_modified_at', expectedLastModifiedAt);
-
-  const { data: updatedOrderRows, error: updateOrderError } = await updateOrderQuery.select('id');
-
-  if (updateOrderError) {
-    throw new Error(updateOrderError.message);
-  }
-
-  if (!updatedOrderRows || updatedOrderRows.length === 0) {
-    return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
-  }
-
   const { data: previousOrderItems, error: previousOrderItemsError } = await supabase
     .from('order_items')
     .select(`
       id,
+      product_id,
       product_name_snapshot,
       pricing_origin_currency,
       pricing_origin_amount,
@@ -10108,7 +10071,10 @@ export async function updateOrderAction(input: {
       admin_price_override_usd,
       admin_price_override_reason,
       qty,
-      line_total_usd
+      line_total_usd,
+      crm_play_member_id,
+      crm_play_benefit_id,
+      crm_play_benefit_upgrade_id
     `)
     .eq('order_id', orderId);
 
@@ -10135,56 +10101,69 @@ export async function updateOrderAction(input: {
     throw new Error(previousCommissionAdjustmentsError.message);
   }
 
-  const { error: deleteItemsError } = await supabase
-    .from('order_items')
-    .delete()
-    .eq('order_id', orderId);
-
-  if (deleteItemsError) {
-    throw new Error(deleteItemsError.message);
-  }
-
   const adminOverrideTimestamp = new Date().toISOString();
 
   const itemsPayload = input.items.map((item, idx) => {
     const snapshot = itemSnapshots[idx];
 
     return {
-    order_id: orderId,
-    product_id: item.productId,
-    qty: Number(item.qty || 0),
-    pricing_origin_currency: item.sourcePriceCurrency,
-    pricing_origin_amount: Number(item.sourcePriceAmount || 0),
-    unit_price_usd_snapshot: snapshot.unitUsd,
-    line_total_usd: snapshot.lineUsd,
-    unit_price_bs_snapshot: snapshot.unitBs,
-    line_total_bs_snapshot: snapshot.lineBs,
-    admin_price_override_usd:
-      item.adminPriceOverrideUsd != null
-        ? Number(item.adminPriceOverrideUsd || 0)
-        : null,
-    admin_price_override_reason: item.adminPriceOverrideReason || null,
-    admin_price_override_by_user_id:
-      item.adminPriceOverrideUsd != null ? user.id : null,
-    admin_price_override_at:
-      item.adminPriceOverrideUsd != null ? adminOverrideTimestamp : null,
-    sku_snapshot: item.skuSnapshot,
-    product_name_snapshot: item.productNameSnapshot,
-    notes:
-      item.editableDetailLines && item.editableDetailLines.length > 0
-        ? item.editableDetailLines.join('\n')
-        : null,
+      order_item_id: item.orderItemId == null ? null : Number(item.orderItemId),
+      order_id: orderId,
+      product_id: item.productId,
+      qty: Number(item.qty || 0),
+      pricing_origin_currency: item.sourcePriceCurrency,
+      pricing_origin_amount: Number(item.sourcePriceAmount || 0),
+      unit_price_usd_snapshot: snapshot.unitUsd,
+      line_total_usd: snapshot.lineUsd,
+      unit_price_bs_snapshot: snapshot.unitBs,
+      line_total_bs_snapshot: snapshot.lineBs,
+      admin_price_override_usd:
+        item.adminPriceOverrideUsd != null
+          ? Number(item.adminPriceOverrideUsd || 0)
+          : null,
+      admin_price_override_reason: item.adminPriceOverrideReason || null,
+      admin_price_override_by_user_id:
+        item.adminPriceOverrideUsd != null ? user.id : null,
+      admin_price_override_at:
+        item.adminPriceOverrideUsd != null ? adminOverrideTimestamp : null,
+      sku_snapshot: item.skuSnapshot,
+      product_name_snapshot: item.productNameSnapshot,
+      notes:
+        item.editableDetailLines && item.editableDetailLines.length > 0
+          ? item.editableDetailLines.join('\n')
+          : null,
+      crm_play_member_id: item.crmPlayMemberId == null ? null : Number(item.crmPlayMemberId),
+      crm_play_benefit_id: item.crmPlayBenefitId == null ? null : Number(item.crmPlayBenefitId),
+      crm_play_benefit_upgrade_id:
+        item.crmPlayBenefitUpgradeId == null ? null : Number(item.crmPlayBenefitUpgradeId),
     };
   });
 
-  const { data: insertedItems, error: insertItemsError } = await supabase
-    .from('order_items')
-    .insert(itemsPayload)
-    .select('id');
+  const { data: atomicSaveResultRaw, error: atomicSaveError } = await supabase.rpc(
+    'update_order_core_atomic_v1' as never,
+    {
+      p_order_id: orderId,
+      p_expected_last_modified_at: expectedLastModifiedAt,
+      p_order_patch: orderUpdatePayload,
+      p_items: itemsPayload,
+    } as never,
+  );
 
-  if (insertItemsError) {
-    throw new Error(insertItemsError.message);
+  if (atomicSaveError) {
+    if (String(atomicSaveError.message || '').includes('cambió mientras')) {
+      return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
+    }
+    throw new Error(atomicSaveError.message);
   }
+
+  const atomicSaveResult = atomicSaveResultRaw as unknown as { item_ids?: unknown } | null;
+  const insertedItemIds = Array.isArray(atomicSaveResult?.item_ids)
+    ? atomicSaveResult.item_ids.map((id: unknown) => Number(id))
+    : [];
+  if (insertedItemIds.length !== input.items.length || insertedItemIds.some((id: number) => !Number.isFinite(id) || id <= 0)) {
+    throw new Error('La base de datos no confirmó todas las líneas de la orden.');
+  }
+  const insertedItems = insertedItemIds.map((id: number) => ({ id }));
 
   const previousOverrideSignatureCounts = new Map<string, number>();
   for (const previousItem of previousOrderItems ?? []) {
@@ -10357,21 +10336,6 @@ export async function updateOrderAction(input: {
     if (commissionAdjustmentsError) {
       throw new Error(commissionAdjustmentsError.message);
     }
-  }
-
-  const { error: finalizeTotalsError } = await supabase
-    .from('orders')
-    .update({
-      total_usd: totalUsd,
-      total_bs_snapshot: totalBs,
-      extra_fields: extraFields,
-      last_modified_at: nowIso,
-      last_modified_by: user.id,
-    })
-    .eq('id', orderId);
-
-  if (finalizeTotalsError) {
-    throw new Error(finalizeTotalsError.message);
   }
 
   if (fxRateAdjustmentEntry) {

@@ -19,6 +19,7 @@ const STALE_ORDER_EDIT_MESSAGE =
   'No se guardaron los cambios porque otra persona actualizó esta orden después de que la abriste. Para evitar pisar su trabajo, actualiza la orden, revisa lo nuevo y vuelve a guardar si todavía aplica.';
 
 type ReplaceAdvisorOrderItemInput = {
+  orderItemId: number | null;
   productId: number;
   qty: number;
   sourcePriceCurrency: 'VES' | 'USD';
@@ -1047,8 +1048,11 @@ export async function validateAdvisorOrderDetailsAction(items: AdvisorDetailInpu
 
 export async function replaceAdvisorOrderItemsAction(input: {
   orderId: number;
+  expectedLastModifiedAt?: string | null;
+  payload: AdvisorOrderHeaderInput['payload'];
   items: ReplaceAdvisorOrderItemInput[];
 }) {
+  try {
   const ctx = await requireAuthContext();
   const orderId = Number(input.orderId);
 
@@ -1062,7 +1066,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
   const { data: order, error: orderError } = await ctx.supabase
     .from('orders')
-    .select('id, attributed_advisor_id, status, extra_fields')
+    .select('id, client_id, attributed_advisor_id, status, last_modified_at, fulfillment, delivery_address, receiver_name, receiver_phone, notes, total_usd, total_bs_snapshot, extra_fields')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -1076,9 +1080,19 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
   assertAdvisorCanEditOrderStatus(order.status);
 
+  const payload = input.payload;
+  if (!payload || Number(payload.client_id) <= 0) {
+    throw new Error('Falta el cliente de la orden.');
+  }
+  if (payload.attributed_advisor_id !== ctx.user.id) {
+    throw new Error('No puedes modificar esta orden.');
+  }
+
   const details = await normalizeAdvisorItemDetails(ctx.supabase, input.items);
   const itemsPayload = input.items.map((item, index) => ({
-    order_id: orderId,
+    order_item_id: toFiniteNumber(item.orderItemId, 0) > 0
+      ? Math.trunc(toFiniteNumber(item.orderItemId))
+      : null,
     product_id: Number(item.productId),
     qty: toFiniteNumber(item.qty),
     pricing_origin_currency: item.sourcePriceCurrency === 'VES' ? 'VES' : 'USD',
@@ -1112,60 +1126,6 @@ export async function replaceAdvisorOrderItemsAction(input: {
     throw new Error(existingItemsError.message);
   }
 
-  const { data: insertedItems, error: insertItemsError } = await adminSupabase
-    .from('order_items')
-    .insert(itemsPayload)
-    .select('id, product_id, qty, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id');
-
-  if (insertItemsError) {
-    throw new Error(insertItemsError.message);
-  }
-
-  for (const insertedItem of insertedItems ?? []) {
-    const crmPlayMemberId = Number(insertedItem.crm_play_member_id || 0);
-    const crmPlayBenefitId = Number(insertedItem.crm_play_benefit_id || 0);
-    if (crmPlayMemberId <= 0 || crmPlayBenefitId <= 0) continue;
-
-    const { data: reboundRedemptions, error: rebindError } = await adminSupabase
-      .from('crm_play_redemptions')
-      .update({
-        order_item_id: Number(insertedItem.id),
-        product_id: Number(insertedItem.product_id),
-        quantity: toFiniteNumber(insertedItem.qty),
-        play_benefit_upgrade_id: Number(insertedItem.crm_play_benefit_upgrade_id || 0) > 0
-          ? Number(insertedItem.crm_play_benefit_upgrade_id)
-          : null,
-      })
-      .eq('order_id', orderId)
-      .eq('play_member_id', crmPlayMemberId)
-      .eq('play_benefit_id', crmPlayBenefitId)
-      .eq('status', 'redeemed')
-      .select('id');
-
-    if (rebindError || !reboundRedemptions || reboundRedemptions.length !== 1) {
-      const insertedIds = (insertedItems ?? []).map((row) => Number(row.id)).filter((id) => id > 0);
-      if (insertedIds.length > 0) {
-        await adminSupabase.from('order_items').delete().in('id', insertedIds);
-      }
-      throw new Error(rebindError?.message || 'No se pudo conservar la vinculación del beneficio CRM.');
-    }
-  }
-
-  const oldItemIds = (existingItems ?? [])
-    .map((item) => Number(item.id))
-    .filter((id) => Number.isFinite(id) && id > 0);
-
-  if (oldItemIds.length > 0) {
-    const { error: deleteItemsError } = await adminSupabase
-      .from('order_items')
-      .delete()
-      .in('id', oldItemIds);
-
-    if (deleteItemsError) {
-      throw new Error(deleteItemsError.message);
-    }
-  }
-
   const previousComparableItems: AdvisorComparableOrderItem[] = (existingItems ?? []).map((item) => ({
     productId: Number(item.product_id || 0),
     productName: String(item.product_name_snapshot || '').trim() || 'Item',
@@ -1182,27 +1142,82 @@ export async function replaceAdvisorOrderItemsAction(input: {
   }));
   const itemChangeDetails = buildAdvisorItemChangeDetails(previousComparableItems, nextComparableItems);
   const extraFields = sanitizePlainObject(order.extra_fields);
-  const review = sanitizePlainObject(extraFields.review);
-  const headerChangeDetails = sanitizeOrderChangeDetails(review.advisor_pending_change_details);
-  const mergedChangeDetails = mergePendingOrderChangeDetails(headerChangeDetails, itemChangeDetails);
-  const { error: reviewUpdateError } = await adminSupabase
-    .from('orders')
-    .update({
-      extra_fields: {
-        ...extraFields,
-        review: {
-          ...review,
-          advisor_pending_change_details: mergedChangeDetails,
-        },
-      },
-    })
-    .eq('id', orderId)
-    .eq('attributed_advisor_id', ctx.user.id);
+  const existingReview = sanitizePlainObject(extraFields.review);
+  const nextExtraFields = sanitizePlainObject(payload.extra_fields);
+  const incomingReview = sanitizePlainObject(nextExtraFields.review);
+  const clientIds = Array.from(
+    new Set([Number(order.client_id || 0), Number(payload.client_id || 0)].filter((id) => id > 0))
+  );
+  const clientNameById = new Map<number, string>();
+  if (clientIds.length > 0) {
+    const { data: clients, error: clientsError } = await adminSupabase
+      .from('clients')
+      .select('id, full_name')
+      .in('id', clientIds);
+    if (clientsError) throw new Error(clientsError.message);
+    for (const client of clients ?? []) {
+      clientNameById.set(Number(client.id), String(client.full_name || '').trim() || `Cliente #${client.id}`);
+    }
+  }
+  const headerChangeDetails = buildAdvisorHeaderChangeDetails({
+    order,
+    payload,
+    clientNameById,
+  });
+  const mergedChangeDetails = mergePendingOrderChangeDetails(
+    existingReview.advisor_pending_change_details,
+    [...headerChangeDetails, ...itemChangeDetails],
+  );
+  const nowIso = new Date().toISOString();
+  nextExtraFields.review = {
+    ...existingReview,
+    ...incomingReview,
+    advisor_pending_change_details: mergedChangeDetails,
+    advisor_pending_change_started_at: nowIso,
+    advisor_pending_change_started_by: ctx.user.id,
+  };
 
-  if (reviewUpdateError) throw new Error(reviewUpdateError.message);
+  const { data: atomicResult, error: replaceItemsError } = await ctx.supabase.rpc(
+    'update_order_core_atomic_v1',
+    {
+      p_order_id: orderId,
+      p_expected_last_modified_at:
+        typeof input.expectedLastModifiedAt === 'string' && input.expectedLastModifiedAt.trim()
+          ? input.expectedLastModifiedAt.trim()
+          : null,
+      p_order_patch: {
+        ...payload,
+        status: 'created',
+        delivery_address: payload.fulfillment === 'delivery' ? payload.delivery_address : null,
+        extra_fields: nextExtraFields,
+        queued_needs_reapproval: false,
+        queued_last_modified_at: null,
+        queued_last_modified_by: null,
+      },
+      p_items: itemsPayload,
+    },
+  );
+
+  if (replaceItemsError) {
+    throw new Error(replaceItemsError.message);
+  }
 
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');
   revalidatePath('/app/master/ops');
   revalidatePath('/app/master/dashboard');
+
+  const resultRecord = sanitizePlainObject(atomicResult);
+  return {
+    ok: true as const,
+    lastModifiedAt: typeof resultRecord.last_modified_at === 'string'
+      ? resultRecord.last_modified_at
+      : nowIso,
+  };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'No se pudo guardar la modificación de la orden.',
+    };
+  }
 }

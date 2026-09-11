@@ -31,7 +31,6 @@ import {
   replaceAdvisorOrderItemsAction,
   saveAdvisorOrderDraftAction,
   submitAdvisorOrderCorrectionForReviewAction,
-  updateAdvisorOrderHeaderAction,
   validateAdvisorOrderDetailsAction,
 } from './actions';
 
@@ -137,6 +136,7 @@ type ConfigOption = ProductRow & {
 
 type DraftItem = {
   localId: string;
+  persistedOrderItemId?: number;
   product_id: number;
   product_type: ProductRow['type'];
   sku_snapshot: string | null;
@@ -633,14 +633,6 @@ function getProductSourcePricing(product: ProductRow) {
     ) || 0;
 
   return { sourceCurrency, sourceAmount };
-}
-
-function getInitialCrmBenefitIds(context: AdvisorCrmOrderContext) {
-  if (context.selectedPlayBenefitIds.length > 0) return context.selectedPlayBenefitIds;
-  if (context.benefitSelectionMode === 'single' && context.benefits.length === 1) {
-    return [context.benefits[0].playBenefitId];
-  }
-  return [];
 }
 
 function buildCrmBenefitDraftItem(
@@ -1654,7 +1646,7 @@ export default function AdvisorOrderComposer({
         sourceAmount: Number(item.source_price_amount || 0),
       };
     }
-    if (crmPurchaseEligible) {
+    if (crmPurchaseEligible || (isEditingOrder && item.persistedOrderItemId)) {
       return {
         sourceCurrency: 'USD' as const,
         sourceAmount: Number(item.crm_benefit.eligibleUnitPriceUsd || 0),
@@ -1664,7 +1656,7 @@ export default function AdvisorOrderComposer({
       sourceCurrency: item.crm_benefit.catalogSourceCurrency,
       sourceAmount: Number(item.crm_benefit.catalogSourceAmount || 0),
     };
-  }), [crmPurchaseEligible, draftItems]);
+  }), [crmPurchaseEligible, draftItems, isEditingOrder]);
   const draftItemSnapshots = useMemo(
     () =>
       draftItems.map((item, index) =>
@@ -2174,6 +2166,7 @@ export default function AdvisorOrderComposer({
 
             return {
               localId: `existing-${item.id}`,
+              persistedOrderItemId: Number(item.id),
               product_id: Number(item.product_id),
               product_type: relatedProduct?.type ?? null,
               sku_snapshot: item.sku_snapshot,
@@ -2357,27 +2350,15 @@ export default function AdvisorOrderComposer({
       } else if (initialDraft) {
         applyInitialDraft(initialDraft);
       } else if (initialCrmContext) {
-        const productById = new Map(nextProducts.map((product) => [product.id, product]));
-        const initialBenefitIds = new Set(getInitialCrmBenefitIds(initialCrmContext));
-        const crmItems = initialCrmContext.benefits.flatMap((benefit) => {
-          if (!initialBenefitIds.has(benefit.playBenefitId)) return [];
-          const item = buildCrmBenefitDraftItem(initialCrmContext, benefit, productById);
-          return item ? [item] : [];
-        });
-
         setCrmContext(initialCrmContext);
         setSelectedClient(initialCrmContext.client);
         rememberClient(initialCrmContext.client);
         setSearchTerm(initialCrmContext.client.phone || initialCrmContext.client.full_name || '');
         setClientResults([]);
         setIsNewClientMode(false);
-        setDraftItems(crmItems);
+        setDraftItems([]);
         setInfo(
-          crmItems.length === 0
-            ? `La jugada ${initialCrmContext.playName} está disponible. Elige el beneficio que desea usar el cliente.`
-            : initialCrmContext.purchaseRequirementMode === 'minimum_order'
-            ? `La jugada ${initialCrmContext.playName} está disponible. El beneficio se activa al completar $${Number(initialCrmContext.minimumOrderAmountUsd ?? 0).toFixed(2)} en otros productos.`
-            : `Beneficio de ${initialCrmContext.playName} cargado sin costo para el cliente.`
+          `La jugada ${initialCrmContext.playName} está disponible. Elige un beneficio solo si deseas aplicarlo; también puedes crear el pedido sin obsequio.`
         );
       } else if (initialClient) {
         setCrmContext(null);
@@ -2781,24 +2762,10 @@ export default function AdvisorOrderComposer({
         return;
       }
 
-      const initialBenefitIds = new Set(getInitialCrmBenefitIds(context));
-      const crmItems = context.benefits.flatMap((benefit) => {
-        if (!initialBenefitIds.has(benefit.playBenefitId)) return [];
-        const item = buildCrmBenefitDraftItem(context, benefit, productById);
-        return item ? [item] : [];
-      });
-
       setCrmContext(context);
-      setDraftItems((current) => [
-        ...current.filter((item) => !item.crm_benefit),
-        ...crmItems,
-      ]);
+      setDraftItems((current) => current.filter((item) => !item.crm_benefit));
       setInfo(
-        crmItems.length === 0
-          ? `${client.full_name} está en ${context.playName}. Elige el beneficio que desea usar.`
-          : context.purchaseRequirementMode === 'minimum_order'
-            ? `${client.full_name} está en ${context.playName}. El beneficio se activa con ${formatUsd(Number(context.minimumOrderAmountUsd ?? 0))} en otros productos.`
-            : `${client.full_name} está en ${context.playName}. Su beneficio ya está listo en el pedido.`,
+        `${client.full_name} está en ${context.playName}. Elige un beneficio solo si deseas aplicarlo; el pedido puede continuar sin obsequio.`,
       );
     } catch (lookupError) {
       if (crmLookupRequestRef.current !== requestId) return;
@@ -3278,6 +3245,16 @@ export default function AdvisorOrderComposer({
   }
 
   function removeDraftItem(localId: string) {
+    const protectedBenefit = draftItems.find((item) =>
+      item.localId === localId
+      && isEditingOrder
+      && item.persistedOrderItemId
+      && item.crm_benefit
+    );
+    if (protectedBenefit) {
+      setError('Este beneficio ya fue aplicado y no puede quitarse durante una corrección.');
+      return;
+    }
     setDraftItems((current) => current.filter((item) => item.localId !== localId));
   }
 
@@ -3996,17 +3973,7 @@ export default function AdvisorOrderComposer({
 
       let targetOrderId = Number(existingOrderId || 0);
 
-      if (isEditingOrder) {
-        const updateResult = await updateAdvisorOrderHeaderAction({
-          orderId: Number(existingOrderId),
-          expectedLastModifiedAt: existingOrderLastModifiedAt,
-          payload,
-        });
-        if (!updateResult.ok) {
-          throw new Error(updateResult.message);
-        }
-        setExistingOrderLastModifiedAt(updateResult.lastModifiedAt ?? existingOrderLastModifiedAt);
-      } else {
+      if (!isEditingOrder) {
         const orderNumber = await generateOrderNumber();
         const { data: order, error: orderError } = await supabase
           .from('orders')
@@ -4052,13 +4019,16 @@ export default function AdvisorOrderComposer({
       });
 
       if (isEditingOrder) {
-        await replaceAdvisorOrderItemsAction({
+        const updateResult = await replaceAdvisorOrderItemsAction({
           orderId: targetOrderId,
+          expectedLastModifiedAt: existingOrderLastModifiedAt,
+          payload,
           items: draftItems.map((item, idx) => {
             const snapshot = draftItemSnapshots[idx];
             const effectivePricing = effectiveDraftPricing[idx];
 
             return {
+              orderItemId: item.persistedOrderItemId ?? null,
               productId: Number(item.product_id),
               qty: Number(item.qty || 0),
               sourcePriceCurrency: effectivePricing?.sourceCurrency ?? item.source_price_currency,
@@ -4070,18 +4040,22 @@ export default function AdvisorOrderComposer({
               skuSnapshot: item.sku_snapshot,
               productNameSnapshot: item.product_name_snapshot,
               editableDetailLines: validatedDetails[idx],
-              crmPlayMemberId: item.crm_benefit && crmPurchaseEligible
+              crmPlayMemberId: item.crm_benefit
                 ? item.crm_benefit.playMemberId
                 : null,
-              crmPlayBenefitId: item.crm_benefit && crmPurchaseEligible
+              crmPlayBenefitId: item.crm_benefit
                 ? item.crm_benefit.playBenefitId
                 : null,
-              crmPlayBenefitUpgradeId: item.crm_benefit && crmPurchaseEligible
+              crmPlayBenefitUpgradeId: item.crm_benefit
                 ? item.crm_benefit.playBenefitUpgradeId
                 : null,
             };
           }),
         });
+        if (!updateResult.ok) {
+          throw new Error(updateResult.message);
+        }
+        setExistingOrderLastModifiedAt(updateResult.lastModifiedAt ?? existingOrderLastModifiedAt);
         await submitAdvisorOrderCorrectionForReviewAction({
           orderId: targetOrderId,
           changeSummary: advisorEditChangeMeta,
@@ -4699,6 +4673,9 @@ export default function AdvisorOrderComposer({
                   (item.source_price_currency === 'VES'
                     ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
                     : Number(item.line_total_usd || 0) * fxRateNumber);
+                const isProtectedCrmBenefit = Boolean(
+                  isEditingOrder && item.persistedOrderItemId && item.crm_benefit
+                );
 
                 return (
                 <div key={item.localId} className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
@@ -4735,9 +4712,15 @@ export default function AdvisorOrderComposer({
                         Editar
                       </button>
                     ) : null}
-                    <button type="button" onClick={() => removeDraftItem(item.localId)} className="h-9 rounded-[12px] border border-[#5E2229] px-3 text-xs font-medium text-[#F0A6AE]">
-                      Quitar
-                    </button>
+                    {isProtectedCrmBenefit ? (
+                      <span className="inline-flex h-9 items-center rounded-[12px] border border-[#275B46] bg-[#0D1E18] px-3 text-xs font-medium text-[#7CE0A9]">
+                        Beneficio aplicado
+                      </span>
+                    ) : (
+                      <button type="button" onClick={() => removeDraftItem(item.localId)} className="h-9 rounded-[12px] border border-[#5E2229] px-3 text-xs font-medium text-[#F0A6AE]">
+                        Quitar
+                      </button>
+                    )}
                   </div>
                 </div>
                 );

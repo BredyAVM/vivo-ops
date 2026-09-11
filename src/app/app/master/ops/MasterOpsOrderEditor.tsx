@@ -549,6 +549,10 @@ export default function MasterOpsOrderEditor({
   }
 
   function updateItemQuantity(item: MasterOpsEditOrderItem, rawValue: string) {
+    if (item.crmPlayMemberId) {
+      setError("El beneficio ya aplicado conserva su producto y cantidad para mantener la trazabilidad de la jugada.");
+      return;
+    }
     const qty = toNumber(rawValue, Number.NaN);
     const catalogItem = catalogById.get(item.productId) ?? null;
     const shouldRefreshCatalogPrice =
@@ -569,6 +573,11 @@ export default function MasterOpsOrderEditor({
   }
 
   function removeItem(localId: string) {
+    const item = form?.items.find((candidate) => candidate.localId === localId);
+    if (item?.crmPlayMemberId) {
+      setError("El beneficio ya aplicado no se elimina desde una modificación ordinaria. Cancela la orden si necesitas anular todo el pedido.");
+      return;
+    }
     setForm((current) =>
       current ? { ...current, items: current.items.filter((item) => item.localId !== localId) } : current
     );
@@ -1494,6 +1503,7 @@ export default function MasterOpsOrderEditor({
                     <div className="mt-4 space-y-2">
                       {orderedItems.map((item) => {
                         const product = catalogById.get(item.productId);
+                        const isCrmBenefit = Boolean(item.crmPlayMemberId && item.crmPlayBenefitId);
                         const visibleDetailLines = getVisibleEditableDetailLines(item.editableDetailLines);
                         const itemUnitBs = fxRate > 0 ? item.unitPriceUsdSnapshot * fxRate : 0;
                         return (
@@ -1519,7 +1529,7 @@ export default function MasterOpsOrderEditor({
                                 value={String(item.qty)}
                                 onChange={(event) => updateItemQuantity(item, event.target.value)}
                                 inputMode="decimal"
-                                readOnly={Boolean(product?.isDetailEditable)}
+                                readOnly={Boolean(product?.isDetailEditable) || isCrmBenefit}
                                 title={product?.isDetailEditable ? "Los productos configurables se cargan una unidad a la vez." : undefined}
                               />
                               <div className="text-sm font-semibold text-[#F5F5F7]">
@@ -1527,7 +1537,7 @@ export default function MasterOpsOrderEditor({
                                 <div className="mt-1 text-xs font-normal text-[#8A8A96]">{bs(item.lineTotalUsd * fxRate)}</div>
                               </div>
                               <div className="flex flex-wrap gap-2 md:justify-end">
-                                {product?.isDetailEditable ? (
+                                {product?.isDetailEditable && !isCrmBenefit ? (
                                   <button
                                     className="rounded-lg border border-[#242433] px-2 py-1 text-xs text-[#F5F5F7] hover:border-[#FEEF00]/50"
                                     type="button"
@@ -1536,17 +1546,23 @@ export default function MasterOpsOrderEditor({
                                     Config.
                                   </button>
                                 ) : null}
-                                <button
-                                  className="rounded-lg border border-red-500/40 px-2 py-1 text-xs text-red-200"
-                                  type="button"
-                                  onClick={() => removeItem(item.localId)}
-                                >
-                                  Quitar
-                                </button>
+                                {isCrmBenefit ? (
+                                  <span className="inline-flex items-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200">
+                                    Beneficio aplicado
+                                  </span>
+                                ) : (
+                                  <button
+                                    className="rounded-lg border border-red-500/40 px-2 py-1 text-xs text-red-200"
+                                    type="button"
+                                    onClick={() => removeItem(item.localId)}
+                                  >
+                                    Quitar
+                                  </button>
+                                )}
                               </div>
                             </div>
 
-                            {isAdmin ? (
+                            {isAdmin && !isCrmBenefit ? (
                               <details className="mt-3 rounded-lg border border-[#242433] bg-[#121218] p-2">
                                 <summary className="cursor-pointer text-xs font-semibold text-[#B7B7C2]">
                                   Ajuste admin de precio
