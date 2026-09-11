@@ -776,6 +776,13 @@ considera de disponibilidad inmediata. La confirmación comercial debe mostrar
 capacidad equivalente; el movimiento físico de transformación se registra
 cuando realmente se prepara o porciona.
 
+Al registrar el porcionamiento, la ruta canónica es siempre `bases -> Tártara a
+granel -> porción`. Si no alcanza el saldo a granel pero sí alcanzan la mayonesa
+y el menjurje, el sistema prepara automáticamente el múltiplo mínimo de granel,
+descuenta de allí las porciones declaradas y conserva el remanente como Tártara
+a granel. Los dos pasos pertenecen a una sola transacción: si falla cualquier
+insumo, no queda producción ni consumo parcial.
+
 `Salsa Tártara 5oz` y `Salsa Tártara 5oz Obsequio` son dos productos comerciales
 que consumen exactamente el mismo ítem físico de salsa de 5 oz. La diferencia de
 precio no crea un inventario separado.

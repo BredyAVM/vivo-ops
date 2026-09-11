@@ -56,6 +56,34 @@ function normalizeNotes(value: unknown) {
   return notes || null;
 }
 
+function inventoryProductionErrorMessage(error: unknown) {
+  const message = error instanceof Error
+    ? error.message.trim()
+    : typeof error === 'string'
+      ? error.trim()
+      : '';
+  const safePrefixes = [
+    'Stock insuficiente en ',
+    'Autenticación requerida.',
+    'No autenticado.',
+    'Solo cocina o administración ',
+    'La clave de idempotencia ',
+    'El conteo indicado ',
+    'El multiplicador ',
+    'La salida real ',
+    'La nota ',
+    'Receta no encontrada.',
+    'La receta ',
+    'Falta activación o apertura aceptada en:',
+    'operation_id y recipe_id ',
+  ];
+
+  if (safePrefixes.some((prefix) => message.startsWith(prefix))) {
+    return message;
+  }
+  return 'No se pudo registrar la producción. Intenta nuevamente o consulta a Administración.';
+}
+
 function normalizeOptionalText(value: unknown, label: string, maxLength: number) {
   const normalized = String(value ?? '').trim();
   if (normalized.length > maxLength) {
@@ -1608,41 +1636,55 @@ export async function startInventoryProductionAction(input: {
   declaredOutputUnits?: number | null;
   notes?: string | null;
 }) {
-  const ctx = await requireAuthContext();
-  if (!ctx.roles.includes('admin') && !ctx.roles.includes('kitchen')) {
-    throw new Error('Solo cocina o administración pueden iniciar preparaciones.');
+  try {
+    const ctx = await requireAuthContext();
+    if (!ctx.roles.includes('admin') && !ctx.roles.includes('kitchen')) {
+      throw new Error('Solo cocina o administración pueden iniciar preparaciones.');
+    }
+
+    const operationId = normalizeOperationId(input.operationId);
+    const recipeId = normalizeCountId(input.recipeId);
+    const batchMultiplier = normalizePositiveQuantity(
+      input.batchMultiplier,
+      'El multiplicador de producción',
+    );
+    const declaredOutputUnits = input.declaredOutputUnits == null
+      ? null
+      : normalizePositiveQuantity(input.declaredOutputUnits, 'La salida real');
+    const notes = normalizeNotes(input.notes);
+
+    const { data, error } = await ctx.supabase.rpc('inventory_start_recipe_v3', {
+      p_operation_id: operationId,
+      p_recipe_id: recipeId,
+      p_batch_multiplier: batchMultiplier,
+      p_declared_output_units: declaredOutputUnits,
+      p_notes: notes,
+    });
+
+    if (error) {
+      return { ok: false as const, message: inventoryProductionErrorMessage(error.message) };
+    }
+
+    const result = data as {
+      status?: string;
+      availability_mode?: 'immediate' | 'scheduled';
+      production_flow_id?: number;
+      inventory_lot_id?: number;
+      auto_preparation_applied?: boolean;
+      auto_preparation_output_units?: number | null;
+    } | null;
+
+    revalidateInventoryProductionRoutes();
+    return {
+      ok: true as const,
+      message: result?.auto_preparation_applied
+        ? 'Las porciones quedaron disponibles. El sistema preparó automáticamente el granel faltante y conservó el remanente.'
+        : null,
+      data: result,
+    };
+  } catch (error) {
+    return { ok: false as const, message: inventoryProductionErrorMessage(error) };
   }
-
-  const operationId = normalizeOperationId(input.operationId);
-  const recipeId = normalizeCountId(input.recipeId);
-  const batchMultiplier = normalizePositiveQuantity(
-    input.batchMultiplier,
-    'El multiplicador de producción',
-  );
-  const declaredOutputUnits = input.declaredOutputUnits == null
-    ? null
-    : normalizePositiveQuantity(input.declaredOutputUnits, 'La salida real');
-  const notes = normalizeNotes(input.notes);
-
-  const { data, error } = await ctx.supabase.rpc('inventory_start_recipe_v2', {
-    p_operation_id: operationId,
-    p_recipe_id: recipeId,
-    p_batch_multiplier: batchMultiplier,
-    p_declared_output_units: declaredOutputUnits,
-    p_notes: notes,
-  });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  revalidateInventoryProductionRoutes();
-  return data as {
-    status?: string;
-    availability_mode?: 'immediate' | 'scheduled';
-    production_flow_id?: number;
-    inventory_lot_id?: number;
-  } | null;
 }
 
 export async function completeInventoryProductionAction(input: {

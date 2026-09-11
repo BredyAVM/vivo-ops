@@ -70,3 +70,13 @@ Actualización del 2026-09-09: la migración
 `20260909191418_inventory_allow_early_production_completion_v1.sql` convierte el
 tiempo configurado en estimación y permite la acreditación anticipada confirmada,
 con auditoría dentro del lote y del flujo ya existentes.
+
+Actualización del 2026-09-11: `inventory_start_recipe_v3` encadena de forma
+atómica una transformación inmediata de un solo insumo con su preparación base
+inmediata. En Tártara, si Cocina intenta envasar 1, 2 o 5 oz y el granel no
+alcanza, se produce automáticamente el múltiplo mínimo desde Mayonesa y Menjurje,
+se consumen las porciones y el remanente queda como Tártara a granel. Se
+reutilizan recetas, lotes y movimientos existentes; no se agregó ninguna tabla
+ni columna. Los errores operativos esperados regresan como resultado controlado
+para que la interfaz muestre el insumo, lo requerido y lo disponible sin el
+mensaje genérico de Server Components.

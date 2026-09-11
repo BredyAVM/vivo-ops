@@ -97,6 +97,11 @@ type BatchDraft = {
   notes: string;
 };
 
+type ActionFeedback = {
+  ok?: boolean;
+  message?: string | null;
+};
+
 const INPUT_CLASS = 'w-full rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm text-white outline-none focus:border-[#FEEF00]/70';
 const PRIMARY_BUTTON_CLASS = 'rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#FFF34D]';
 const SECONDARY_BUTTON_CLASS = 'rounded-xl border border-[#343442] bg-[#17171F] px-4 py-2 text-sm font-semibold text-[#D5D5DE] transition hover:border-[#FEEF00]/50';
@@ -170,8 +175,12 @@ export default function InventoryProductionWorkspaceClient({
     setError(null);
     startTransition(async () => {
       try {
-        await action();
-        setNotice(successMessage);
+        const result = await action() as ActionFeedback | null;
+        if (result?.ok === false) {
+          setError(result.message || 'No se pudo completar la operación.');
+          return;
+        }
+        setNotice(result?.ok === true && result.message ? result.message : successMessage);
         router.refresh();
       } catch (actionError) {
         setError(actionError instanceof Error ? actionError.message : 'No se pudo completar la operación.');
@@ -432,7 +441,7 @@ export default function InventoryProductionWorkspaceClient({
 
       <RecipeSection
         title="Salsas y transformaciones inmediatas"
-        description="La salida física declarada queda disponible en la misma operación."
+        description="La salida queda disponible en la misma operación. Al envasar Tártara, si falta granel pero hay mayonesa y menjurje, el sistema prepara automáticamente el lote mínimo y conserva el remanente."
         recipes={immediateRecipes}
         recipeDrafts={recipeDrafts}
         permissions={workspace.permissions}
