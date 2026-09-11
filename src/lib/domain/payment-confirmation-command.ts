@@ -28,6 +28,7 @@ export type PaymentConfirmationInput = {
   overrideOperationDate?: boolean;
   requireExplicitHandling?: boolean;
   requireExactChange?: boolean;
+  expectedChangeDebtUsd?: number;
 };
 
 const clean = (value: string | null | undefined) => value?.trim() || null;
@@ -55,6 +56,7 @@ export function buildPaymentConfirmationCommand(input: PaymentConfirmationInput)
     overrideOperationDate: input.overrideOperationDate === true,
     requireExplicitHandling: input.requireExplicitHandling === true,
     requireExactChange: input.requireExactChange === true,
+    ...(input.expectedChangeDebtUsd === undefined ? {} : { expectedChangeDebtUsd: input.expectedChangeDebtUsd }),
     changeLines: changeLines.map(line => {
       const code = line.currencyCode.trim().toUpperCase();
       return { accountId: line.moneyAccountId, currency: code, amount: line.amount,

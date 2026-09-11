@@ -1103,6 +1103,7 @@ export async function searchMasterOpsOrdersAction(input: {
 }
 
 export type MasterOpsPaymentConfirmationInput = {
+  expectedChangeDebtUsd?: number;
   reportId: number;
   orderId: number;
   confirmedMoneyAccountId: number;
@@ -1278,68 +1279,14 @@ async function validateMasterOpsMoneyLines(
 }
 
 export async function settleMasterOpsClientFundPayoutAction(input: {
+  requestId: string;
+  expectedDifferenceUsd?: number;
   orderId: number;
   lines: MasterOpsMoneyLineInput[];
   notes?: string | null;
 }) {
-  const { supabase } = await requireMasterOrAdminContext();
-  const orderId = Number(input.orderId || 0);
-  const notes = String(input.notes || "").trim() || null;
-
-  if (!Number.isFinite(orderId) || orderId <= 0) {
-    throw new Error("Orden invalida.");
-  }
-
-  const cleanLines = await validateMasterOpsMoneyLines(
-    supabase,
-    input.lines,
-    notes,
-    "devolucion"
-  );
-  const { data: order, error: orderError } = await supabase
-    .from("orders")
-    .select("id, client_id")
-    .eq("id", orderId)
-    .maybeSingle();
-
-  if (orderError) throw new Error(orderError.message);
-  if (!order) throw new Error("No se pudo cargar la orden.");
-
-  const clientId = Number(order.client_id || 0);
-  if (!Number.isFinite(clientId) || clientId <= 0) {
-    throw new Error("La orden no tiene cliente asociado.");
-  }
-
-  const { data: client, error: clientError } = await supabase
-    .from("clients")
-    .select("id, fund_balance_usd")
-    .eq("id", clientId)
-    .maybeSingle();
-
-  if (clientError) throw new Error(clientError.message);
-  if (!client) throw new Error("No se pudo cargar el fondo del cliente.");
-
-  const availableFundUsd = Math.max(0, roundOpsMoney(client.fund_balance_usd));
-  const requestedPayoutUsd = roundOpsMoney(
-    cleanLines.reduce((sum, line) => sum + line.amountUsd, 0)
-  );
-  if (requestedPayoutUsd > availableFundUsd + 0.005) {
-    throw new Error(
-      `La devolucion de ${requestedPayoutUsd.toFixed(2)} USD supera el fondo disponible de ${availableFundUsd.toFixed(2)} USD.`
-    );
-  }
-
-  return settleClientFundPayoutAction({
-    orderId,
-    lines: cleanLines.map((line) => ({
-      moneyAccountId: line.moneyAccountId,
-      currencyCode: line.currencyCode,
-      amount: line.amount,
-      exchangeRateVesPerUsd: line.exchangeRateVesPerUsd,
-      notes: line.notes,
-    })),
-    notes,
-  });
+  await requireMasterOrAdminContext();
+  return settleClientFundPayoutAction(input);
 }
 
 export async function closeMasterOpsRoundingBalanceAction(input: {

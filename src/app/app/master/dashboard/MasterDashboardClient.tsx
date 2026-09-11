@@ -4988,6 +4988,9 @@ const [paymentApplyFundNotes, setPaymentApplyFundNotes] = useState('');
 const [paymentGiveChangeBoxOpen, setPaymentGiveChangeBoxOpen] = useState(false);
 const [paymentGiveChangeLines, setPaymentGiveChangeLines] = useState<ClientFundPayoutLineDraft[]>([]);
 const [paymentGiveChangeNotes, setPaymentGiveChangeNotes] = useState('');
+const fundPayoutRequestRef = useRef<string | null>(null);
+const fundPayoutBusyRef = useRef(false);
+const [fundPayoutSaving, setFundPayoutSaving] = useState(false);
 const [paymentConfirmBoxOpen, setPaymentConfirmBoxOpen] = useState(false);
 const [paymentConfirmReportId, setPaymentConfirmReportId] = useState<number | null>(null);
 const [paymentConfirmReviewNotes, setPaymentConfirmReviewNotes] = useState('');
@@ -7024,6 +7027,8 @@ const resetPriceAdjustBox = () => {
 };
 
 const resetPaymentReportBox = () => {
+  if (fundPayoutBusyRef.current) return;
+  fundPayoutRequestRef.current = null;
   setPaymentReportBoxOpen(false);
   setPaymentReportMoneyAccountId('');
   setPaymentReportAmount('');
@@ -7565,6 +7570,7 @@ const handleApplyStaffPayrollPayment = async (o: Order) => {
 };
 
 const handleDeliverClientChange = async (o: Order) => {
+  if (fundPayoutBusyRef.current) return;
   try {
     const lines = paymentGiveChangeLines
       .map((line) => {
@@ -7608,7 +7614,12 @@ const handleDeliverClientChange = async (o: Order) => {
       }
     }
 
+    fundPayoutBusyRef.current = true;
+    setFundPayoutSaving(true);
+    fundPayoutRequestRef.current ??= crypto.randomUUID();
     const result = await settleClientFundPayoutAction({
+      requestId: fundPayoutRequestRef.current,
+      expectedDifferenceUsd: selectedClientFundDebtUsd,
       orderId: o.id,
       lines: lines.map((line) => ({
         moneyAccountId: line.moneyAccountId,
@@ -7625,12 +7636,16 @@ const handleDeliverClientChange = async (o: Order) => {
       return;
     }
 
-    showToast('success', 'Fondo devuelto al cliente.');
+    showToast('success', result.differenceUsd > 0 ? `Cambio entregado. Diferencia por cobrar: ${fmtUSD(result.differenceUsd)}.` : 'Fondo devuelto al cliente.');
+    fundPayoutBusyRef.current = false;
     resetPaymentReportBox();
     router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error devolviendo el fondo.';
     showToast('error', message);
+  } finally {
+    fundPayoutBusyRef.current = false;
+    setFundPayoutSaving(false);
   }
 };
 
@@ -7770,6 +7785,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       referenceCode: rp.referenceCode ?? null,
       counterpartyName: rp.payerName ?? null,
       description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
+      expectedChangeDebtUsd: overpaymentHandling === 'change_given' ? selectedConfirmChangeDebtUsd : 0,
       paymentKind: isRetentionConfirmation ? 'retention' : null,
       overpaymentHandling,
       overpaymentNotes,
@@ -12246,10 +12262,10 @@ const getPaymentConfirmChangeLineUsd = (line: ClientFundPayoutLineDraft) => {
 
   if (account.currencyCode === 'VES') {
     const exchangeRate = Number(String(line.exchangeRate || '').replace(',', '.'));
-    return Number.isFinite(exchangeRate) && exchangeRate > 0 ? amount / exchangeRate : 0;
+    return Number.isFinite(exchangeRate) && exchangeRate > 0 ? Number((amount / exchangeRate).toFixed(2)) : 0;
   }
 
-  return amount;
+  return Number(amount.toFixed(2));
 };
 
 const selectedConfirmChangeLinesUsd = Number(
@@ -12390,10 +12406,10 @@ const getClientFundPayoutLineUsd = (line: ClientFundPayoutLineDraft) => {
 
   if (account.currencyCode === 'VES') {
     const exchangeRate = Number(String(line.exchangeRate || '').replace(',', '.'));
-    return Number.isFinite(exchangeRate) && exchangeRate > 0 ? amount / exchangeRate : 0;
+    return Number.isFinite(exchangeRate) && exchangeRate > 0 ? Number((amount / exchangeRate).toFixed(2)) : 0;
   }
 
-  return amount;
+  return Number(amount.toFixed(2));
 };
 
 const selectedClientFundPayoutUsd = Number(
@@ -21695,7 +21711,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
 
         {selectedClientFundDebtUsd > 0.005 ? (
           <div className="rounded-md border border-orange-500/30 bg-[#1A1208] px-2 py-1.5 text-[11px] text-orange-200">
-            Se registrara una salida mayor al fondo disponible. Esta orden quedara pendiente por{' '}
+            El cambio agrega una diferencia por cobrar en esta orden de{' '}
             {fmtUSD(selectedClientFundDebtUsd)}.
           </div>
         ) : null}
@@ -21861,6 +21877,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
             type="button"
             className="rounded-md border border-sky-500/40 bg-[#0D141D] px-3 py-2 text-[11px] font-semibold text-sky-300"
             onClick={() => handleDeliverClientChange(selectedOrder)}
+            disabled={fundPayoutSaving}
           >
             Confirmar devolución
           </button>

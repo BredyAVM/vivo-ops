@@ -77,12 +77,13 @@ Registro y anulación de cierres Master migrados junto a sus pendientes de
 conciliación: `ADMIN_ACCOUNT_CLOSURE_ATOMIC_2026-09-11.md`. No incluye líneas
 base, resolución financiera de diferencias ni todos los circuitos POS/Mostrador.
 
-Decisión pendiente antes de migrar devoluciones del fondo: Dashboard permite
-una salida superior al saldo del cliente (`settleClientFundPayoutAction`),
-descontando solamente la parte cubierta; Ops exige que toda la devolución esté
-cubierta. Se requiere definir una regla única, sin inventar un motivo/categoría
-para el dinero adicional. Cancelación de órdenes con dinero/fondo y nómina
-siguen pendientes; no deben confundirse con anular un movimiento financiero.
+Decisión aprobada el 11 de septiembre: entregar cambio mayor al disponible
+genera una diferencia por cobrar en la orden (4,73 → 5 = 0,27 pendiente), no
+un fondo negativo ni un gasto sin justificar. Implementación y pruebas en
+`ADMIN_CLIENT_CHANGE_RECEIVABLE_2026-09-11.md`: entrega del fondo atómica,
+confirmación con cambio adicional, anulación y lectura compartida por cobranza.
+Cancelación de órdenes con dinero/fondo y nómina siguen pendientes; no deben
+confundirse con anular un movimiento financiero.
 
 Actualización del 11 de septiembre: también está implementada la corrección
 atómica de entregas antiguas, con historial visible incluido. Ver

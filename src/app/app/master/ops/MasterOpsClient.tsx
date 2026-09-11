@@ -257,6 +257,8 @@ type DirectActionPayload = {
   overpaymentHandling?: "change_given" | "store_fund" | "close_difference" | null;
   overpaymentNotes?: string | null;
   moneyLines?: MoneyLinePayload[];
+  requestId?: string;
+  expectedDifferenceUsd?: number;
   changeLines?: MoneyLinePayload[];
   pickupChangeRequestId?: number;
 };
@@ -1340,6 +1342,8 @@ function OrderDetailPanel({
   const [fundPayoutBoxOpen, setFundPayoutBoxOpen] = useState(false);
   const [fundPayoutLines, setFundPayoutLines] = useState<MoneyLineDraft[]>([]);
   const [fundPayoutNotes, setFundPayoutNotes] = useState("");
+  const fundPayoutRequestRef = useRef<string | null>(null);
+  const fundPayoutBusyRef = useRef(false);
   const [returnQueueBoxOpen, setReturnQueueBoxOpen] = useState(false);
   const [returnQueueReason, setReturnQueueReason] = useState("");
   const [roundingBoxOpen, setRoundingBoxOpen] = useState(false);
@@ -1665,14 +1669,24 @@ function OrderDetailPanel({
 
   async function handleFundPayoutSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const ok = await onDirectAction(order, "deliver-fund-change", {
-      notes: fundPayoutNotes,
-      moneyLines: buildMoneyPayloads(fundPayoutLines, fundPayoutNotes),
-    });
-    if (ok) {
-      setFundPayoutBoxOpen(false);
-      setFundPayoutLines([]);
-      setFundPayoutNotes("");
+    if (fundPayoutBusyRef.current) return;
+    fundPayoutBusyRef.current = true;
+    fundPayoutRequestRef.current ??= crypto.randomUUID();
+    try {
+      const ok = await onDirectAction(order, "deliver-fund-change", {
+        requestId: fundPayoutRequestRef.current,
+        expectedDifferenceUsd: Number(Math.max(0, fundPayoutTotalUsd - clientFundAvailableUsd).toFixed(2)),
+        notes: fundPayoutNotes,
+        moneyLines: buildMoneyPayloads(fundPayoutLines, fundPayoutNotes),
+      });
+      if (ok) {
+        fundPayoutRequestRef.current = null;
+        setFundPayoutBoxOpen(false);
+        setFundPayoutLines([]);
+        setFundPayoutNotes("");
+      }
+    } finally {
+      fundPayoutBusyRef.current = false;
     }
   }
 
@@ -3064,7 +3078,11 @@ function OrderDetailPanel({
                         className="rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-sky-100 hover:border-sky-400"
                         type="button"
                         disabled={busy}
-                        onClick={() => setFundPayoutBoxOpen(false)}
+                        onClick={() => {
+                          if (fundPayoutBusyRef.current) return;
+                          fundPayoutRequestRef.current = null;
+                          setFundPayoutBoxOpen(false);
+                        }}
                       >
                         Cerrar
                       </button>
@@ -3155,14 +3173,14 @@ function OrderDetailPanel({
                     </div>
                     {fundPayoutExceedsAvailable ? (
                       <div className="mt-2 rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
-                        El total cargado supera el fondo disponible por {formatMasterOrderUSD(fundPayoutTotalUsd - clientFundAvailableUsd)}.
+                        El cambio agrega una diferencia por cobrar en esta orden de {formatMasterOrderUSD(fundPayoutTotalUsd - clientFundAvailableUsd)}.
                       </div>
                     ) : null}
                     <div className="mt-3 flex justify-end">
                       <button
                         className="rounded-xl border border-sky-400 bg-sky-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
                         type="submit"
-                        disabled={busy || fundPayoutTotalUsd <= 0.005 || fundPayoutExceedsAvailable}
+                        disabled={busy || fundPayoutTotalUsd <= 0.005 || clientFundAvailableUsd <= 0}
                       >
                         {runningAction === `deliver-fund-change:${order.id}` ? "Devolviendo..." : "Guardar devolucion"}
                       </button>
@@ -3365,7 +3383,7 @@ function OrderDetailPanel({
                         )
                       : 0;
                     const changeMatchesExcess =
-                      Math.abs(confirmationChangeTotalUsd - predictedExcessUsd) <= 0.01;
+                      confirmationChangeTotalUsd >= predictedExcessUsd - 0.01;
                     const confirmationAmount = confirmationDraft ? parseDecimal(confirmationDraft.amount) : 0;
                     const confirmationRate = confirmationDraft ? parseDecimal(confirmationDraft.exchangeRate) : 0;
                     const confirmationFieldsValid = Boolean(
@@ -3662,6 +3680,7 @@ function OrderDetailPanel({
                                       </button>
                                       <span className={changeMatchesExcess ? "text-[11px] text-emerald-300" : "text-[11px] text-red-200"}>
                                         Cambio {formatMasterOrderUSD(confirmationChangeTotalUsd)} / {formatMasterOrderUSD(predictedExcessUsd)}
+                                        {confirmationChangeTotalUsd > predictedExcessUsd ? ` · Diferencia por cobrar ${formatMasterOrderUSD(confirmationChangeTotalUsd - predictedExcessUsd)}` : ""}
                                       </span>
                                     </div>
                                   </div>
@@ -4453,12 +4472,15 @@ export default function MasterOpsClient({
               }, 0)
               .toFixed(2)
           );
-          if (Math.abs(totalChangeUsd - predictedExcessUsd) > 0.01) {
+          if (totalChangeUsd < predictedExcessUsd - 0.01) {
             throw new Error("El cambio debe coincidir con el excedente calculado.");
           }
         }
 
         result = await confirmMasterOpsPaymentReportAction({
+          expectedChangeDebtUsd: overpaymentHandling === "change_given"
+            ? Number(Math.max(0, changeLines.reduce((sum, line) => sum + Number((line.currencyCode === "VES" ? line.amount / Number(line.exchangeRateVesPerUsd) : line.amount).toFixed(2)), 0) - predictedExcessUsd).toFixed(2))
+            : 0,
           reportId,
           orderId: order.id,
           confirmedMoneyAccountId: moneyAccountId,
@@ -4523,10 +4545,9 @@ export default function MasterOpsClient({
             }, 0)
             .toFixed(2)
         );
-        if (payoutTotalUsd > Math.max(0, Number(order.clientFundBalanceUsd || 0)) + 0.005) {
-          throw new Error("La devolucion no puede superar el fondo disponible del cliente.");
-        }
         result = await settleMasterOpsClientFundPayoutAction({
+          requestId: payload.requestId || "",
+          expectedDifferenceUsd: payload.expectedDifferenceUsd ?? 0,
           orderId: order.id,
           lines,
           notes: payload.notes?.trim() || null,
