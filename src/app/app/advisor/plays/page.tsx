@@ -6,7 +6,10 @@ import { EmptyBlock, StatusBadge } from '../advisor-ui';
 type PlayRow = {
   id: number | string;
   name: string;
+  description: string | null;
   status: string;
+  rules_snapshot: Record<string, unknown> | null;
+  advisor_guidance: string | null;
   starts_at: string | null;
   ends_at: string | null;
   gift_product_id: number | string;
@@ -24,8 +27,33 @@ type ClientRow = {
 type BenefitRow = {
   id: number | string;
   quantity: number | string;
+  unit_benefit_value_usd: number | string;
   unit_advisor_cost_usd: number | string;
   product: { name: string } | Array<{ name: string }> | null;
+};
+
+type BenefitUpgradeRow = {
+  id: number | string;
+  play_benefit_id: number | string;
+  target_quantity: number | string;
+  customer_difference_usd_snapshot: number | string | null;
+  product: { name: string } | Array<{ name: string }> | null;
+};
+
+type BenefitUpgrade = {
+  id: number;
+  quantity: number;
+  customerDifferenceUsd: number;
+  name: string;
+};
+
+type BenefitOption = {
+  id: number;
+  quantity: number;
+  benefitValueUsd: number;
+  advisorCostUsd: number;
+  name: string;
+  upgrades: BenefitUpgrade[];
 };
 
 type MemberRow = {
@@ -62,6 +90,17 @@ const dateTimeFormatter = new Intl.DateTimeFormat('es-VE', {
   timeZone: 'America/Caracas',
 });
 
+const monthYearFormatter = new Intl.DateTimeFormat('es-VE', {
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'America/Caracas',
+});
+
+const monthFormatter = new Intl.DateTimeFormat('es-VE', {
+  month: 'long',
+  timeZone: 'America/Caracas',
+});
+
 function one<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
@@ -69,6 +108,99 @@ function one<T>(value: T | T[] | null | undefined) {
 function numberValue(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function optionalNumber(value: unknown) {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function monthYearLabel(value: unknown) {
+  const clean = stringValue(value);
+  const match = clean.match(/^(\d{4})-(\d{2})/);
+  if (!match) return clean;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || month < 1 || month > 12) return clean;
+  return monthYearFormatter.format(new Date(Date.UTC(year, month - 1, 15)));
+}
+
+function monthLabel(value: unknown) {
+  const month = Number(value);
+  if (!Number.isInteger(month) || month < 1 || month > 12) return '';
+  return monthFormatter.format(new Date(Date.UTC(2026, month - 1, 15)));
+}
+
+function rangeLabel(from: unknown, to: unknown) {
+  const fromLabel = monthYearLabel(from);
+  const toLabel = monthYearLabel(to);
+  if (fromLabel && toLabel) return `${fromLabel}–${toLabel}`;
+  if (fromLabel) return `desde ${fromLabel}`;
+  if (toLabel) return `hasta ${toLabel}`;
+  return '';
+}
+
+function playCriteria(rules: Record<string, unknown> | null | undefined) {
+  if (!rules) return [];
+  const criteria: string[] = [];
+  const minPurchases = optionalNumber(rules.min_purchase_count);
+  const maxPurchases = optionalNumber(rules.max_purchase_count);
+  if (minPurchases != null && minPurchases > 0 && maxPurchases != null) {
+    criteria.push(`${Math.trunc(minPurchases)}–${Math.trunc(maxPurchases)} cierres`);
+  } else if (minPurchases != null && minPurchases > 0) {
+    criteria.push(`${Math.trunc(minPurchases)}+ cierres`);
+  } else if (maxPurchases != null) {
+    criteria.push(`Hasta ${Math.trunc(maxPurchases)} cierres`);
+  }
+
+  const minRevenue = optionalNumber(rules.min_net_revenue_usd);
+  if (minRevenue != null && minRevenue > 0) criteria.push(`Facturación desde $${minRevenue.toFixed(2)}`);
+
+  const minDays = optionalNumber(rules.min_days_since_purchase);
+  const maxDays = optionalNumber(rules.max_days_since_purchase);
+  if (minDays != null && maxDays != null) {
+    criteria.push(`${Math.trunc(minDays)}–${Math.trunc(maxDays)} días sin comprar`);
+  } else if (minDays != null) {
+    criteria.push(`${Math.trunc(minDays)}+ días sin comprar`);
+  } else if (maxDays != null) {
+    criteria.push(`Compra en los últimos ${Math.trunc(maxDays)} días`);
+  }
+
+  const firstPurchaseRange = rangeLabel(rules.first_purchase_from, rules.first_purchase_to);
+  if (firstPurchaseRange) criteria.push(`Primera compra ${firstPurchaseRange}`);
+  const lastPurchaseRange = rangeLabel(rules.last_purchase_from, rules.last_purchase_to);
+  if (lastPurchaseRange) criteria.push(`Última compra ${lastPurchaseRange}`);
+
+  const lastGiftRange = rangeLabel(rules.last_gift_from, rules.last_gift_to);
+  const includeNeverGifted = rules.include_never_gifted !== false;
+  if (lastGiftRange) {
+    criteria.push(`Último obsequio ${lastGiftRange}${includeNeverGifted ? ' o nunca' : ''}`);
+  } else if (!includeNeverGifted) {
+    criteria.push('Con obsequio previo');
+  }
+
+  const anniversaryMode = stringValue(rules.anniversary_mode);
+  const anniversaryMonth = monthLabel(rules.anniversary_month);
+  if (anniversaryMode === 'include' && anniversaryMonth) criteria.push(`Aniversario en ${anniversaryMonth}`);
+  if (anniversaryMode === 'exclude' && anniversaryMonth) criteria.push(`Sin aniversario en ${anniversaryMonth}`);
+
+  const fulfillment = stringValue(rules.fulfillment);
+  if (fulfillment === 'pickup') criteria.push('Ha usado pickup');
+  if (fulfillment === 'delivery') criteria.push('Ha usado delivery');
+  return criteria;
+}
+
+function benefitCreditLabel(options: BenefitOption[], selectionMode: PlayRow['benefit_selection_mode']) {
+  const values = options.map((option) => option.benefitValueUsd).filter((value) => value > 0);
+  if (values.length === 0) return 'Sin crédito aplicable';
+  if (values.length === 1) return `Crédito $${values[0]?.toFixed(2)}`;
+  if (selectionMode === 'multiple') return `Crédito hasta $${values.reduce((sum, value) => sum + value, 0).toFixed(2)}`;
+  return `Crédito $${Math.min(...values).toFixed(2)}–$${Math.max(...values).toFixed(2)}`;
 }
 
 function dateLabel(value: string | null | undefined) {
@@ -273,7 +405,11 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const view = viewValue(query.view);
   const playsResult = await ctx.supabase
     .from('crm_plays')
-    .select('id, name, status, starts_at, ends_at, gift_product_id, gift_quantity, benefit_selection_mode, purchase_requirement_mode, minimum_order_amount_usd')
+    .select(`
+      id, name, description, status, rules_snapshot, advisor_guidance,
+      starts_at, ends_at, gift_product_id, gift_quantity,
+      benefit_selection_mode, purchase_requirement_mode, minimum_order_amount_usd
+    `)
     // Draft and frozen plays remain private to the master dashboard.
     .in('status', ['active', 'paused'])
     .order('starts_at', { ascending: false })
@@ -307,7 +443,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     );
   }
 
-  const [membersResult, benefitOptionsResult] = await Promise.all([
+  const [membersResult, benefitOptionsResult, benefitUpgradesResult] = await Promise.all([
     ctx.supabase
       .from('crm_play_members')
       .select(`
@@ -322,7 +458,16 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
       .limit(500),
     ctx.supabase
       .from('crm_play_benefits')
-      .select('id, quantity, unit_advisor_cost_usd, product:products!crm_play_benefits_product_id_fkey(name)')
+      .select('id, quantity, unit_benefit_value_usd, unit_advisor_cost_usd, product:products!crm_play_benefits_product_id_fkey(name)')
+      .eq('play_id', Number(selectedPlay.id))
+      .order('sort_order', { ascending: true })
+      .order('id', { ascending: true }),
+    ctx.supabase
+      .from('crm_play_benefit_upgrades')
+      .select(`
+        id, play_benefit_id, target_quantity, customer_difference_usd_snapshot,
+        product:products!crm_play_benefit_upgrades_target_product_id_fkey(name)
+      `)
       .eq('play_id', Number(selectedPlay.id))
       .order('sort_order', { ascending: true })
       .order('id', { ascending: true }),
@@ -332,12 +477,29 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const members = (membersResult.data ?? []) as unknown as MemberRow[];
 
   if (benefitOptionsResult.error) console.error('Unable to load CRM play benefits', benefitOptionsResult.error.message);
-  const benefitOptions = ((benefitOptionsResult.data ?? []) as unknown as BenefitRow[]).map((option) => ({
+  if (benefitUpgradesResult.error) console.error('Unable to load CRM play benefit upgrades', benefitUpgradesResult.error.message);
+  const upgradesByBenefit = new Map<number, BenefitUpgrade[]>();
+  for (const row of (benefitUpgradesResult.data ?? []) as unknown as BenefitUpgradeRow[]) {
+    const benefitId = numberValue(row.play_benefit_id);
+    const upgrades = upgradesByBenefit.get(benefitId) ?? [];
+    upgrades.push({
+      id: numberValue(row.id),
+      quantity: numberValue(row.target_quantity),
+      customerDifferenceUsd: numberValue(row.customer_difference_usd_snapshot),
+      name: one(row.product)?.name?.trim() || 'Ampliación',
+    });
+    upgradesByBenefit.set(benefitId, upgrades);
+  }
+  const benefitOptions: BenefitOption[] = ((benefitOptionsResult.data ?? []) as unknown as BenefitRow[]).map((option) => ({
     id: numberValue(option.id),
     quantity: numberValue(option.quantity),
+    benefitValueUsd: numberValue(option.unit_benefit_value_usd) * numberValue(option.quantity),
     advisorCostUsd: numberValue(option.unit_advisor_cost_usd) * numberValue(option.quantity),
     name: one(option.product)?.name?.trim() || 'Beneficio',
+    upgrades: upgradesByBenefit.get(numberValue(option.id)) ?? [],
   }));
+  const selectionCriteria = playCriteria(selectedPlay.rules_snapshot);
+  const availableUpgrades = benefitOptions.flatMap((option) => option.upgrades);
 
   // This is a server-only request snapshot used to classify due follow-ups consistently.
   // eslint-disable-next-line react-hooks/purity
@@ -404,11 +566,17 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
                 : `${benefitOptions.length} alternativas · se entrega 1`}
           </div>
         </div>
+        <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[#AAB2C5]">
+          {selectedPlay.description?.trim() || 'Reconocimiento preparado para este grupo de clientes.'}
+        </p>
         <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] text-[#AAB2C5]">
           <span className="rounded-full border border-[#2A3040] px-2 py-0.5">
             {selectedPlay.purchase_requirement_mode === 'minimum_order'
               ? `Compra mínima $${numberValue(selectedPlay.minimum_order_amount_usd).toFixed(2)}`
               : 'Sin compra mínima'}
+          </span>
+          <span className="rounded-full border border-[#31513F] bg-[#10251A] px-2 py-0.5 font-semibold text-[#7CE0A9]">
+            {benefitCreditLabel(benefitOptions, selectedPlay.benefit_selection_mode)}
           </span>
           <span className="rounded-full border border-[#2A3040] px-2 py-0.5">
             Cargo según selección: {benefitOptions.length === 0
@@ -417,6 +585,72 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
                 ? `hasta $${benefitOptions.reduce((sum, option) => sum + option.advisorCostUsd, 0).toFixed(2)}`
                 : `$${Math.min(...benefitOptions.map((option) => option.advisorCostUsd)).toFixed(2)}–$${Math.max(...benefitOptions.map((option) => option.advisorCostUsd)).toFixed(2)}`}
           </span>
+        </div>
+
+        {availableUpgrades.length > 0 ? (
+          <div className="mt-2 flex min-w-0 items-start gap-1.5 rounded-[9px] border border-[#2A3040] bg-[#0D1017] px-2 py-1.5 text-[9px] leading-4">
+            <span className="shrink-0 font-semibold uppercase tracking-[0.08em] text-[#F7DA66]">Ampliable</span>
+            <span className="min-w-0 text-[#B7BECC]">
+              {availableUpgrades.map((upgrade) => (
+                `${upgrade.name} +$${upgrade.customerDifferenceUsd.toFixed(2)}`
+              )).join(' · ')} · paga el cliente
+            </span>
+          </div>
+        ) : null}
+
+        <div className="mt-2 grid gap-1.5 sm:grid-cols-3">
+          <details className="group rounded-[10px] border border-[#2A3040] bg-[#0D1017] open:border-[#3B4355] sm:open:col-span-3">
+            <summary className="flex h-8 cursor-pointer list-none items-center justify-between gap-2 px-2.5 text-[10px] font-semibold text-[#D6DAE4] [&::-webkit-details-marker]:hidden">
+              <span>Quiénes aplican</span>
+              <span className="text-[#747E91] transition group-open:rotate-180" aria-hidden="true">⌄</span>
+            </summary>
+            <div className="border-t border-[#232632] px-2.5 py-2">
+              <p className="mb-1.5 text-[9px] text-[#747E91]">Estos clientes quedaron seleccionados por:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(selectionCriteria.length > 0 ? selectionCriteria : ['Criterios definidos por la administración']).map((criterion) => (
+                  <span key={criterion} className="rounded-full border border-[#343A48] bg-[#151923] px-2 py-1 text-[9px] text-[#C5CBD8]">
+                    {criterion}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </details>
+
+          <details className="group rounded-[10px] border border-[#2A3040] bg-[#0D1017] open:border-[#3B4355] sm:open:col-span-3">
+            <summary className="flex h-8 cursor-pointer list-none items-center justify-between gap-2 px-2.5 text-[10px] font-semibold text-[#D6DAE4] [&::-webkit-details-marker]:hidden">
+              <span>Beneficio y uso</span>
+              <span className="text-[#747E91] transition group-open:rotate-180" aria-hidden="true">⌄</span>
+            </summary>
+            <div className="space-y-1.5 border-t border-[#232632] px-2.5 py-2">
+              {benefitOptions.length === 0 ? (
+                <p className="text-[9px] text-[#8B93A7]">La jugada no tiene beneficios configurados.</p>
+              ) : benefitOptions.map((option) => (
+                <div key={option.id} className="rounded-[8px] border border-[#292E3B] bg-[#121620] px-2 py-1.5 text-[9px] text-[#C5CBD8]">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <span className="font-semibold text-[#F5F7FB]">{option.quantity.toLocaleString('es-VE')} × {option.name}</span>
+                    <span>Crédito ${option.benefitValueUsd.toFixed(2)} · cargo ${option.advisorCostUsd.toFixed(2)}</span>
+                  </div>
+                  {option.upgrades.length > 0 ? (
+                    <p className="mt-1 text-[#9FA8BA]">
+                      Puede entregar el base o aplicar el crédito a {option.upgrades.map((upgrade) => (
+                        `${upgrade.name} (+$${upgrade.customerDifferenceUsd.toFixed(2)})`
+                      )).join(' · ')}. La diferencia la paga el cliente.
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </details>
+
+          <details className="group rounded-[10px] border border-[#2A3040] bg-[#0D1017] open:border-[#3B4355] sm:open:col-span-3">
+            <summary className="flex h-8 cursor-pointer list-none items-center justify-between gap-2 px-2.5 text-[10px] font-semibold text-[#D6DAE4] [&::-webkit-details-marker]:hidden">
+              <span>Cómo abordarla</span>
+              <span className="text-[#747E91] transition group-open:rotate-180" aria-hidden="true">⌄</span>
+            </summary>
+            <p className="whitespace-pre-line border-t border-[#232632] px-2.5 py-2 text-[9px] leading-4 text-[#B7BECC]">
+              {selectedPlay.advisor_guidance?.trim() || 'Realiza un contacto cercano y presenta el beneficio según la indicación de la jugada.'}
+            </p>
+          </details>
         </div>
       </section>
 
