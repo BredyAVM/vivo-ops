@@ -26,6 +26,9 @@ export type MasterOrderDetailLine = {
   unitsPerService: number;
   priceBs: number;
   lineTotalUsd: number;
+  crmPlayName?: string | null;
+  crmBenefitCreditUsd?: number | null;
+  crmCustomerPaidDifferenceUsd?: number | null;
   productType?: string | null;
   isDelivery?: boolean;
   editableDetailLines?: string[];
@@ -475,6 +478,34 @@ export function MasterOrderDetailMetric({
   );
 }
 
+function MasterOrderCrmBenefitBadge({ line }: { line: MasterOrderDetailLine }) {
+  const playName = line.crmPlayName?.trim();
+  if (!playName) return null;
+
+  const creditUsd = Math.max(0, Number(line.crmBenefitCreditUsd || 0));
+  const customerDifferenceUsd = Math.max(0, Number(line.crmCustomerPaidDifferenceUsd || 0));
+  const isPartialExemption = customerDifferenceUsd > 0.005;
+
+  return (
+    <div
+      className={[
+        "mt-1.5 inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-md border px-2 py-1 text-[11px] leading-4",
+        isPartialExemption
+          ? "border-amber-500/30 bg-amber-950/20 text-amber-200"
+          : "border-emerald-500/30 bg-emerald-950/20 text-emerald-200",
+      ].join(" ")}
+    >
+      <span className="font-semibold">Jugada: {playName}</span>
+      <span className="text-[#8A8A96]">·</span>
+      <span>
+        {isPartialExemption
+          ? `Precio parcialmente exonerado · crédito ${formatMasterOrderUSD(creditUsd)} · diferencia cobrada ${formatMasterOrderUSD(customerDifferenceUsd)}`
+          : `Precio exonerado${creditUsd > 0.005 ? ` · beneficio ${formatMasterOrderUSD(creditUsd)}` : ""}`}
+      </span>
+    </div>
+  );
+}
+
 export function MasterOrderDetailBody({
   order,
   activeTab,
@@ -511,6 +542,7 @@ export function MasterOrderDetailBody({
             lines.map((line, index) => (
               <div key={`${line.name}-${index}`} className="leading-5">
                 <div className="text-[#F5F5F7]">{masterOrderLineText(line)}</div>
+                <MasterOrderCrmBenefitBadge line={line} />
                 {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
                     {line.editableDetailLines.slice(0, 12).map((text, detailIndex) => (

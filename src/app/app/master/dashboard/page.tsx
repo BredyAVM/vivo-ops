@@ -133,6 +133,13 @@ type RawOrderItemRow = {
   admin_price_override_at: string | null;
 };
 
+type RawCrmPlayRedemptionRow = {
+  order_item_id: number | string | null;
+  play_name_snapshot: string | null;
+  benefit_credit_usd: number | string | null;
+  customer_paid_difference_usd: number | string | null;
+};
+
 type RawOrderAdjustmentRow = {
   id: number;
   order_id: number;
@@ -2008,6 +2015,7 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
     { data: reportsData },
     { data: movementsData, error: movementsError },
     { data: orderAdjustmentsData, error: orderAdjustmentsError },
+    { data: crmRedemptionsData, error: crmRedemptionsError },
   ] = await Promise.all([
     supabase
       .from('order_items')
@@ -2097,6 +2105,11 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
       .in('order_id', orderIdsForQuery)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false }),
+    supabase
+      .from('crm_play_redemptions')
+      .select('order_item_id, play_name_snapshot, benefit_credit_usd, customer_paid_difference_usd')
+      .in('order_id', orderIdsForQuery)
+      .eq('status', 'redeemed'),
   ]);
 
   if (orderItemsError) {
@@ -2116,6 +2129,30 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
   }
 
   const rawOrderItems = (orderItemsData ?? []) as RawOrderItemRow[];
+
+  if (crmRedemptionsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando beneficios de jugadas</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo identificar la jugada aplicada en las órdenes.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {crmRedemptionsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const crmRedemptionByOrderItemId = new Map<number, RawCrmPlayRedemptionRow>();
+  for (const redemption of (crmRedemptionsData ?? []) as RawCrmPlayRedemptionRow[]) {
+    const orderItemId = Number(redemption.order_item_id || 0);
+    if (Number.isFinite(orderItemId) && orderItemId > 0) {
+      crmRedemptionByOrderItemId.set(orderItemId, redemption);
+    }
+  }
 
   if (orderAdjustmentsError) {
     return (
@@ -3353,12 +3390,21 @@ const lines = rowItems.map((item) => {
   const isDelivery =
     productName.toLowerCase().startsWith('delivery') ||
     productName.toLowerCase().includes('delivery');
+  const crmRedemption = crmRedemptionByOrderItemId.get(Number(item.id));
 
   return {
     name: productName,
     qty,
     unitsPerService,
     priceBs: unitPriceBs,
+    lineTotalUsd: toNumber(item.line_total_usd, 0),
+    crmPlayName: crmRedemption?.play_name_snapshot?.trim() || null,
+    crmBenefitCreditUsd: crmRedemption
+      ? toNumber(crmRedemption.benefit_credit_usd, 0)
+      : null,
+    crmCustomerPaidDifferenceUsd: crmRedemption
+      ? toNumber(crmRedemption.customer_paid_difference_usd, 0)
+      : null,
     productType: catalogItemById.get(productId)?.type,
     isDelivery,
     editableDetailLines: item.notes

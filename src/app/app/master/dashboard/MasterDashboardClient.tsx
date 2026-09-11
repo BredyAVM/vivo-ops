@@ -178,6 +178,10 @@ type OrderLine = {
   qty: number;
   unitsPerService: number;
   priceBs: number;
+  lineTotalUsd: number;
+  crmPlayName?: string | null;
+  crmBenefitCreditUsd?: number | null;
+  crmCustomerPaidDifferenceUsd?: number | null;
   productType?: CatalogItem['type'];
   inventoryGroup?: CatalogItem['inventoryGroup'];
   inventoryUnitName?: string;
@@ -3185,7 +3189,10 @@ function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
       qty: line.qty,
       unitsPerService: line.unitsPerService,
       priceBs: line.priceBs,
-      lineTotalUsd: 0,
+      lineTotalUsd: line.lineTotalUsd,
+      crmPlayName: line.crmPlayName ?? null,
+      crmBenefitCreditUsd: line.crmBenefitCreditUsd ?? null,
+      crmCustomerPaidDifferenceUsd: line.crmCustomerPaidDifferenceUsd ?? null,
       productType: line.productType ?? null,
       isDelivery: line.isDelivery,
       editableDetailLines: getVisibleEditableDetailLines(line.editableDetailLines ?? []),

@@ -157,6 +157,13 @@ type MasterOpsDetailItemRow = {
   notes: string | null;
 };
 
+type MasterOpsCrmRedemptionRow = {
+  order_item_id: number | string | null;
+  play_name_snapshot: string | null;
+  benefit_credit_usd: number | string | null;
+  customer_paid_difference_usd: number | string | null;
+};
+
 type MasterOpsDetailPaymentRow = {
   id: number;
   status: "pending" | "confirmed" | "rejected";
@@ -373,6 +380,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       paymentReportsResult,
       orderEventsResult,
       orderAdjustmentsResult,
+      crmRedemptionsResult,
       pickupChangeRequestsResult,
       financialActivityResult,
       inventoryPreviewResult,
@@ -410,6 +418,11 @@ export async function loadMasterOpsOrderDetailAction(input: {
         .select("id, adjustment_type, reason, notes, created_at, created_by_user_id")
         .eq("order_id", orderId)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("crm_play_redemptions")
+        .select("order_item_id, play_name_snapshot, benefit_credit_usd, customer_paid_difference_usd")
+        .eq("order_id", orderId)
+        .eq("status", "redeemed"),
       supabase.rpc("counter_read_pickup_change_requests", {
         p_order_id: orderId,
       }),
@@ -430,6 +443,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       paymentReportsResult.error ??
       orderEventsResult.error ??
       orderAdjustmentsResult.error ??
+      crmRedemptionsResult.error ??
       pickupChangeRequestsResult.error ??
       financialActivityResult.error;
     if (firstError) throw new Error(firstError.message);
@@ -455,6 +469,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
     }
 
     const orderItems = (orderItemsResult.data ?? []) as MasterOpsDetailItemRow[];
+    const crmRedemptions = (crmRedemptionsResult.data ?? []) as MasterOpsCrmRedemptionRow[];
     const paymentReports = (paymentReportsResult.data ?? []) as MasterOpsDetailPaymentRow[];
     const orderEvents = (orderEventsResult.data ?? []) as MasterOpsDetailEventRow[];
     const orderAdjustments = (orderAdjustmentsResult.data ?? []) as MasterOpsDetailAdjustmentRow[];
@@ -513,6 +528,13 @@ export async function loadMasterOpsOrderDetailAction(input: {
         cleanText(profile.full_name, "Usuario"),
       ] as const)
     );
+    const crmRedemptionByOrderItemId = new Map<number, MasterOpsCrmRedemptionRow>();
+    for (const redemption of crmRedemptions) {
+      const orderItemId = Number(redemption.order_item_id || 0);
+      if (Number.isFinite(orderItemId) && orderItemId > 0) {
+        crmRedemptionByOrderItemId.set(orderItemId, redemption);
+      }
+    }
 
     const lines: MasterOrderDetailLine[] = orderItems.map((item) => {
       const productName = cleanText(item.product_name_snapshot, "Producto");
@@ -520,6 +542,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       const product = Number.isFinite(productId) ? productById.get(productId) : null;
       const productUnits = Number(product?.units_per_service ?? 0);
       const lowerName = productName.toLowerCase();
+      const crmRedemption = crmRedemptionByOrderItemId.get(Number(item.id));
 
       return {
         name: productName,
@@ -530,6 +553,13 @@ export async function loadMasterOpsOrderDetailAction(input: {
             : extractMasterOpsUnitsPerService(productName),
         priceBs: roundOpsMoney(item.unit_price_bs_snapshot),
         lineTotalUsd: roundOpsMoney(item.line_total_usd),
+        crmPlayName: crmRedemption?.play_name_snapshot?.trim() || null,
+        crmBenefitCreditUsd: crmRedemption
+          ? roundOpsMoney(crmRedemption.benefit_credit_usd)
+          : null,
+        crmCustomerPaidDifferenceUsd: crmRedemption
+          ? roundOpsMoney(crmRedemption.customer_paid_difference_usd)
+          : null,
         productType: product?.type ?? null,
         isDelivery: lowerName.startsWith("delivery") || lowerName.includes("delivery"),
         editableDetailLines: item.notes
