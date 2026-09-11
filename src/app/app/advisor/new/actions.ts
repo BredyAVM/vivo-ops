@@ -12,7 +12,7 @@ import {
   type OrderChangeSection,
 } from '@/lib/orders/order-change-detail';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
-import { isInternalOrderDetailLine } from '@/lib/crm/play-order';
+import { normalizeOrderDetailForSave, type DetailComponent } from '@/lib/orders/order-detail-persistence';
 import { sendPushToRoleDevices } from '@/lib/push';
 
 const STALE_ORDER_EDIT_MESSAGE =
@@ -1008,6 +1008,43 @@ export async function submitAdvisorOrderCorrectionForReviewAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+type AdvisorDetailInput = { productId: number; qty: number; editableDetailLines: string[] };
+
+async function normalizeAdvisorItemDetails(
+  supabase: Awaited<ReturnType<typeof requireAuthContext>>['supabase'], items: AdvisorDetailInput[],
+) {
+  if (!Array.isArray(items) || !items.length || items.length > 200) throw new Error('La orden debe contener entre 1 y 200 ítems.');
+  const ids = [...new Set(items.map(item => Number(item.productId)))];
+  if (ids.some(id => !Number.isSafeInteger(id) || id <= 0)) throw new Error('Producto inválido.');
+  const [products, components] = await Promise.all([
+    supabase.from('products').select('id,name,inventory_policy,is_detail_editable,detail_units_limit').in('id', ids),
+    supabase.from('product_components').select('parent_product_id,component_product_id,component_mode,quantity,is_required,counts_toward_detail_limit,sort_order').in('parent_product_id', ids).order('sort_order'),
+  ]);
+  if (products.error || components.error) throw new Error('No se pudo verificar la composición. Intenta guardar nuevamente.');
+  const childIds = [...new Set((components.data ?? []).map(c => Number(c.component_product_id)))];
+  const children = childIds.length ? await supabase.from('products').select('id,name').in('id', childIds) : { data: [], error: null };
+  if (children.error) throw new Error('No se pudieron verificar las piezas. Intenta guardar nuevamente.');
+  const names = new Map((children.data ?? []).map(p => [Number(p.id), String(p.name)]));
+  return items.map((item, index) => {
+    const product = products.data?.find(p => Number(p.id) === Number(item.productId));
+    if (!product) throw new Error(`Ítem ${index + 1}: no se encontró el producto.`);
+    const detailComponents: DetailComponent[] = (components.data ?? []).filter(c => Number(c.parent_product_id) === Number(item.productId)).map(c => ({
+      component_product_id: Number(c.component_product_id), component_mode: c.component_mode,
+      quantity: Number(c.quantity), is_required: Boolean(c.is_required),
+      counts_toward_detail_limit: Boolean(c.counts_toward_detail_limit), name: names.get(Number(c.component_product_id)) ?? '',
+    }));
+    if (detailComponents.some(c => !c.name)) throw new Error(`Ítem ${index + 1}: falta una pieza en el catálogo.`);
+    try { return normalizeOrderDetailForSave(product, Number(item.qty), item.editableDetailLines, detailComponents); }
+    catch (error) { throw new Error(`Ítem ${index + 1}: ${error instanceof Error ? error.message : 'Detalle inválido.'}`); }
+  });
+}
+
+/** Read-only preflight, before the composer writes a client or order header. */
+export async function validateAdvisorOrderDetailsAction(items: AdvisorDetailInput[]) {
+  const ctx = await requireAuthContext();
+  return normalizeAdvisorItemDetails(ctx.supabase, items);
+}
+
 export async function replaceAdvisorOrderItemsAction(input: {
   orderId: number;
   items: ReplaceAdvisorOrderItemInput[];
@@ -1039,7 +1076,8 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
   assertAdvisorCanEditOrderStatus(order.status);
 
-  const itemsPayload = input.items.map((item) => ({
+  const details = await normalizeAdvisorItemDetails(ctx.supabase, input.items);
+  const itemsPayload = input.items.map((item, index) => ({
     order_id: orderId,
     product_id: Number(item.productId),
     qty: toFiniteNumber(item.qty),
@@ -1051,12 +1089,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
     line_total_bs_snapshot: toFiniteNumber(item.lineTotalBsSnapshot),
     sku_snapshot: item.skuSnapshot || null,
     product_name_snapshot: String(item.productNameSnapshot || '').trim() || 'Item',
-    notes: Array.isArray(item.editableDetailLines)
-      ? item.editableDetailLines
-          .map((line) => String(line || '').trim())
-          .filter((line) => line && !isInternalOrderDetailLine(line))
-          .join('\n') || null
-      : null,
+    notes: details[index].join('\n') || null,
     crm_play_member_id: toFiniteNumber(item.crmPlayMemberId, 0) > 0
       ? Math.trunc(toFiniteNumber(item.crmPlayMemberId))
       : null,

@@ -12,6 +12,7 @@ import { normalizeRemoteSearchValue, normalizeSearchValue, splitSearchTokens } f
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/play-order';
+import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persistence';
 import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
 import {
   buildWhatsAppOrderSummaryText,
@@ -31,6 +32,7 @@ import {
   saveAdvisorOrderDraftAction,
   submitAdvisorOrderCorrectionForReviewAction,
   updateAdvisorOrderHeaderAction,
+  validateAdvisorOrderDetailsAction,
 } from './actions';
 
 type ClientType = 'assigned' | 'own' | 'legacy';
@@ -1094,7 +1096,7 @@ function normalizeDraftItemsPayload(value: unknown): DraftItem[] {
         unit_price_usd_snapshot: Number(row.unit_price_usd_snapshot || 0) || 0,
         line_total_usd: Number(row.line_total_usd || 0) || 0,
         editable_detail_lines: Array.isArray(row.editable_detail_lines)
-          ? getVisibleDetailLines(row.editable_detail_lines.map((line) => String(line || '')))
+          ? persistableOrderDetailLines(row.editable_detail_lines)
           : [],
       } satisfies DraftItem;
     })
@@ -2184,7 +2186,7 @@ export default function AdvisorOrderComposer({
               unit_price_usd_snapshot: Number(item.unit_price_usd_snapshot ?? 0) || 0,
               line_total_usd: Number(item.line_total_usd ?? 0) || 0,
               editable_detail_lines: item.notes?.trim()
-                ? getVisibleDetailLines(item.notes.split('\n'))
+                ? persistableOrderDetailLines(item.notes.split('\n'))
                 : [],
               crm_benefit: crmBenefit,
             };
@@ -3019,6 +3021,7 @@ export default function AdvisorOrderComposer({
     productId: number,
     options?: {
       totalMultiplier?: number;
+      requiredMultiplier?: number;
       selectedByProductId?: Map<number, number>;
       includeMetadata?: boolean;
     }
@@ -3031,7 +3034,7 @@ export default function AdvisorOrderComposer({
       let componentQty = 0;
 
       if (component.component_mode === 'fixed' && component.is_required) {
-        componentQty = Number(component.quantity || 0);
+        componentQty = Number(component.quantity || 0) * (options?.requiredMultiplier ?? 1);
       } else {
         componentQty = selectedByProductId.get(component.component_product_id) ?? 0;
       }
@@ -3363,6 +3366,7 @@ export default function AdvisorOrderComposer({
       configAlias.trim() ? `Para: ${configAlias.trim()}` : null,
       ...buildComponentDetailLines(configProduct.id, {
         selectedByProductId,
+        requiredMultiplier: configQty,
         includeMetadata: true,
       }),
     ].filter((line): line is string => !!line);
@@ -3929,6 +3933,11 @@ export default function AdvisorOrderComposer({
     setSaving(true);
 
     try {
+      const validatedDetails = await validateAdvisorOrderDetailsAction(draftItems.map(item => ({
+        productId: item.product_id,
+        qty: item.qty,
+        editableDetailLines: persistableOrderDetailLines(item.editable_detail_lines),
+      })));
       const clientId = await ensureClientId();
       if (crmContext && crmPurchaseEligible && crmFulfillments.length > 0) {
         const preparation = await prepareAdvisorCrmPlayBenefitsAction({
@@ -4029,9 +4038,7 @@ export default function AdvisorOrderComposer({
         line_total_bs_snapshot: snapshot.lineBs,
         sku_snapshot: item.sku_snapshot,
         product_name_snapshot: item.product_name_snapshot,
-        notes: item.crm_benefit && !crmPurchaseEligible
-          ? null
-          : getVisibleDetailLines(item.editable_detail_lines).join('\n') || null,
+        notes: validatedDetails[idx].join('\n') || null,
         crm_play_member_id: item.crm_benefit && crmPurchaseEligible
           ? item.crm_benefit.playMemberId
           : null,
@@ -4062,9 +4069,7 @@ export default function AdvisorOrderComposer({
               lineTotalBsSnapshot: snapshot.lineBs,
               skuSnapshot: item.sku_snapshot,
               productNameSnapshot: item.product_name_snapshot,
-              editableDetailLines: item.crm_benefit && !crmPurchaseEligible
-                ? []
-                : getVisibleDetailLines(item.editable_detail_lines),
+              editableDetailLines: validatedDetails[idx],
               crmPlayMemberId: item.crm_benefit && crmPurchaseEligible
                 ? item.crm_benefit.playMemberId
                 : null,
