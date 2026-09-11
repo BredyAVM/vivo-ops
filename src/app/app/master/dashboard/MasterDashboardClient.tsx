@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useOrderCancellationPreview } from '@/lib/orders/use-order-cancellation-preview';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { resolveLegacyAdminSection } from '@/lib/admin-finance/legacy-navigation';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
@@ -5327,6 +5328,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     () => dashboardOrders.find((o) => o.id === selectedOrderId) ?? null,
     [dashboardOrders, selectedOrderId]
   );
+  const cancellation = useOrderCancellationPreview(cancelOrderBoxOpen && detailOpen ? selectedOrder?.id ?? null : null);
+  const cancellationBusyRef = useRef(false);
+  const cancelCashUsd = cancellation.data?.cashAvailableUsd ?? 0;
+  const cancelFundUsd = cancellation.data?.fundUsedUsd ?? 0;
   const selectedOrderDetailCore = useMemo(
     () => (selectedOrder ? toMasterOrderDetailOrder(selectedOrder) : null),
     [selectedOrder]
@@ -8035,13 +8040,15 @@ const handleReturnFromKitchenToQueue = async (o: Order) => {
 };
 
 const handleCancelOrder = async (o: Order) => {
+  if (cancellationBusyRef.current || !cancellation.data || cancellation.data.orderId !== o.id) return;
+  cancellationBusyRef.current = true;
   try {
     if (!cancelOrderReason.trim()) {
       showToast('error', 'Debes indicar un motivo.');
       return;
     }
 
-    const hasConfirmedPayment = o.confirmedPaidUsd > 0.005;
+    const hasConfirmedPayment = cancelCashUsd > 0.005;
     const refundLines = cancelOrderRefundLines
       .map((line) => {
         const moneyAccountId = Number(line.moneyAccountId || 0);
@@ -8085,13 +8092,15 @@ const handleCancelOrder = async (o: Order) => {
         }
       }
 
-      if (selectedCancelRefundUsd > o.confirmedPaidUsd + 0.01) {
+      if (selectedCancelRefundUsd > cancelCashUsd + 0.005) {
         showToast('error', 'La devolución no puede superar el pago confirmado.');
         return;
       }
     }
 
     await cancelOrderAction({
+      requestId: cancellation.getRequestId(),
+      fingerprint: cancellation.data.fingerprint,
       orderId: o.id,
       reason: cancelOrderReason.trim(),
       paidHandling: hasConfirmedPayment ? cancelOrderPaidHandling : null,
@@ -8107,18 +8116,6 @@ const handleCancelOrder = async (o: Order) => {
                 notes: line.notes,
               }))
           : [],
-      refundMoneyAccountId:
-        hasConfirmedPayment && cancelOrderPaidHandling === 'refund' && refundLines[0]?.account
-          ? refundLines[0].account.id
-          : null,
-      refundCurrency:
-        hasConfirmedPayment && cancelOrderPaidHandling === 'refund' && refundLines[0]?.account
-          ? refundLines[0].account.currencyCode
-          : null,
-      refundExchangeRateVesPerUsd:
-        hasConfirmedPayment && cancelOrderPaidHandling === 'refund'
-          ? refundLines[0]?.exchangeRate ?? null
-          : null,
     });
 
     showToast('success', 'Orden cancelada.');
@@ -8129,6 +8126,8 @@ const handleCancelOrder = async (o: Order) => {
     const message =
       err instanceof Error ? err.message : 'Error cancelando la orden.';
     showToast('error', message);
+  } finally {
+    cancellationBusyRef.current = false;
   }
 };
 
@@ -12298,7 +12297,7 @@ const selectedCancelRefundUsd = Number(
 );
 const selectedCancelRefundToFundUsd = Math.max(
   0,
-  Number(((selectedOrder?.confirmedPaidUsd ?? 0) - selectedCancelRefundUsd).toFixed(2))
+  Number((cancelCashUsd - selectedCancelRefundUsd).toFixed(2))
 );
 
 const selectedMovementAccount =
@@ -22595,6 +22594,7 @@ deliveryAssignMode === 'external' ? (
   <button
     className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2.5 py-1.5 text-[11px] text-red-400"
     onClick={() => {
+      cancellation.reload();
       setCancelOrderBoxOpen(true);
       setCancelOrderReason('');
       setCancelOrderPaidHandling('store_fund');
@@ -22602,7 +22602,7 @@ deliveryAssignMode === 'external' ? (
         {
           localId: crypto.randomUUID(),
           moneyAccountId: '',
-          amount: selectedOrder.confirmedPaidUsd > 0.005 ? String(Number(selectedOrder.confirmedPaidUsd.toFixed(2))) : '',
+          amount: '',
           exchangeRate: activeExchangeRate?.rateBsPerUsd ? String(activeExchangeRate.rateBsPerUsd) : '',
           notes: '',
         },
@@ -22616,10 +22616,20 @@ deliveryAssignMode === 'external' ? (
 {cancelOrderBoxOpen ? (
   <div className="rounded-lg border border-red-500/30 bg-[#0B0B0D] p-2">
     <div className="text-[10px] font-medium text-[#B7B7C2]">Cancelar pedido</div>
+    <div aria-live="polite" className="mt-2 text-[11px] text-[#B7B7C2]">
+      {cancellation.loading ? 'Calculando saldo…' : cancellation.error}
+      {(cancellation.data?.alreadyStoredUsd ?? 0) > 0 ? (
+        <div>Ya enviado a fondo: {fmtUSD(cancellation.data!.alreadyStoredUsd)}. No se acredita otra vez.</div>
+      ) : null}
+      <button type="button" className="mt-1 underline disabled:opacity-50"
+        disabled={isOrderActionBusy || cancellation.loading} onClick={cancellation.reload}>Actualizar saldo</button>
+    </div>
 
     <div className="mt-2">
       <textarea
         value={cancelOrderReason}
+        aria-label="Motivo de cancelación"
+        maxLength={1000}
         onChange={(e) => setCancelOrderReason(e.target.value)}
         rows={3}
         placeholder="Motivo de cancelación (obligatorio)"
@@ -22627,13 +22637,13 @@ deliveryAssignMode === 'external' ? (
       />
     </div>
 
-    {selectedOrder.confirmedPaidUsd > 0.005 || Number(selectedOrder.editMeta.clientFundUsedUsd || 0) > 0.005 ? (
+    {cancelCashUsd > 0.005 || cancelFundUsd > 0.005 ? (
       <div className="mt-2 space-y-2 rounded-md border border-[#3B3220] bg-[#151208] p-2 text-[11px] text-[#E8E2D0]">
         <div className="font-semibold text-[#F7DA66]">Esta orden tiene dinero involucrado</div>
-        {selectedOrder.confirmedPaidUsd > 0.005 ? (
+        {cancelCashUsd > 0.005 ? (
           <>
             <div>
-              Pago confirmado: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(selectedOrder.confirmedPaidUsd)}</span>
+              Disponible para devolver: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(cancelCashUsd)}</span>
             </div>
             <div className="grid gap-1.5">
               <label className="flex items-center gap-2 rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1.5">
@@ -22656,18 +22666,18 @@ deliveryAssignMode === 'external' ? (
           </>
         ) : null}
 
-        {Number(selectedOrder.editMeta.clientFundUsedUsd || 0) > 0.005 ? (
+        {cancelFundUsd > 0.005 ? (
           <div>
-            Fondo usado en la orden: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(Number(selectedOrder.editMeta.clientFundUsedUsd || 0))}</span>. Se restaurara al cliente al cancelar.
+            Fondo usado en la orden: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(cancelFundUsd)}</span>. Se restaurara al cliente al cancelar.
           </div>
         ) : null}
 
-        {selectedOrder.confirmedPaidUsd > 0.005 && cancelOrderPaidHandling === 'refund' ? (
+        {cancelCashUsd > 0.005 && cancelOrderPaidHandling === 'refund' ? (
           <div className="space-y-2 rounded-md border border-[#242433] bg-[#0B0B0D] p-2">
             <div className="grid grid-cols-3 gap-2 rounded-md border border-[#242433] bg-[#121218] p-2">
               <div>
-                <div className="text-[10px] text-[#8A8A96]">Pagado</div>
-                <div className="font-semibold text-[#F5F5F7]">{fmtUSD(selectedOrder.confirmedPaidUsd)}</div>
+                <div className="text-[10px] text-[#8A8A96]">Disponible</div>
+                <div className="font-semibold text-[#F5F5F7]">{fmtUSD(cancelCashUsd)}</div>
               </div>
               <div>
                 <div className="text-[10px] text-[#8A8A96]">Devuelto</div>
@@ -22710,7 +22720,7 @@ deliveryAssignMode === 'external' ? (
                           const account = moneyAccounts.find((item) => item.id === Number(nextId));
                           const remainingUsd = Math.max(
                             0,
-                            selectedOrder.confirmedPaidUsd -
+                            cancelCashUsd -
                               cancelOrderRefundLines.reduce(
                                 (sum, item) => sum + (item.localId === line.localId ? 0 : getCancelOrderRefundLineUsd(item)),
                                 0
@@ -22815,7 +22825,7 @@ deliveryAssignMode === 'external' ? (
         onClick={() =>
           runOrderAction(`cancel:${selectedOrder.id}`, 'Cancelando...', () => handleCancelOrder(selectedOrder))
         }
-        disabled={isOrderActionBusy}
+        disabled={isOrderActionBusy || !cancellation.data}
       >
         {getOrderActionLabel(`cancel:${selectedOrder.id}`, 'Confirmar cancelación')}
       </button>

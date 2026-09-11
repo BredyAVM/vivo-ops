@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useOrderCancellationPreview } from "@/lib/orders/use-order-cancellation-preview";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
 import {
@@ -258,6 +259,7 @@ type DirectActionPayload = {
   overpaymentNotes?: string | null;
   moneyLines?: MoneyLinePayload[];
   requestId?: string;
+  cancellationFingerprint?: string;
   expectedDifferenceUsd?: number;
   changeLines?: MoneyLinePayload[];
   pickupChangeRequestId?: number;
@@ -1349,6 +1351,8 @@ function OrderDetailPanel({
   const [roundingBoxOpen, setRoundingBoxOpen] = useState(false);
   const [roundingNotes, setRoundingNotes] = useState("Ajuste por redondeo");
   const [cancelBoxOpen, setCancelBoxOpen] = useState(false);
+  const cancellation = useOrderCancellationPreview(cancelBoxOpen ? order.id : null);
+  const cancellationBusyRef = useRef(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelPaidHandling, setCancelPaidHandling] = useState<"store_fund" | "refund">("store_fund");
   const [cancelRefundLines, setCancelRefundLines] = useState<MoneyLineDraft[]>([]);
@@ -1420,12 +1424,9 @@ function OrderDetailPanel({
       ),
     [cancelRefundLines, moneyAccountByKey]
   );
-  const confirmedMoneyPaidUsd = Math.max(
-    0,
-    Number((order.confirmedPaidUsd - order.clientFundUsedUsd).toFixed(2))
-  );
+  const confirmedMoneyPaidUsd = cancellation.data?.cashAvailableUsd ?? 0;
   const cancelRefundMatchesConfirmedMoney =
-    Math.abs(cancelRefundTotalUsd - confirmedMoneyPaidUsd) <= 0.01;
+    Math.abs(cancelRefundTotalUsd - confirmedMoneyPaidUsd) < 0.005;
   const selectedPaymentAccount = paymentReportOptions.find((option) => option.key === paymentReportAccountKey) ?? null;
   const loadedPaymentSuggestion = getLoadedMasterOpsPaymentSuggestion(
     order,
@@ -1700,16 +1701,24 @@ function OrderDetailPanel({
 
   async function handleCancelSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const ok = await onDirectAction(order, "cancel-order", {
-      reason: cancelReason,
-      paidHandling: confirmedMoneyPaidUsd > 0.005 ? cancelPaidHandling : null,
-      moneyLines: cancelPaidHandling === "refund" ? buildMoneyPayloads(cancelRefundLines, cancelReason) : [],
-    });
-    if (ok) {
-      setCancelBoxOpen(false);
-      setCancelReason("");
-      setCancelPaidHandling("store_fund");
-      setCancelRefundLines([]);
+    if (cancellationBusyRef.current || !cancellation.data) return;
+    cancellationBusyRef.current = true;
+    try {
+      const ok = await onDirectAction(order, "cancel-order", {
+        requestId: cancellation.getRequestId(),
+        cancellationFingerprint: cancellation.data.fingerprint,
+        reason: cancelReason,
+        paidHandling: confirmedMoneyPaidUsd > 0.005 ? cancelPaidHandling : null,
+        moneyLines: confirmedMoneyPaidUsd > 0.005 && cancelPaidHandling === "refund" ? buildMoneyPayloads(cancelRefundLines, cancelReason) : [],
+      });
+      if (ok) {
+        setCancelBoxOpen(false);
+        setCancelReason("");
+        setCancelPaidHandling("store_fund");
+        setCancelRefundLines([]);
+      }
+    } finally {
+      cancellationBusyRef.current = false;
     }
   }
 
@@ -2572,7 +2581,7 @@ function OrderDetailPanel({
                       className="rounded-xl border border-red-500/45 bg-red-500/10 px-3 py-1.5 text-[12px] font-semibold text-red-200 transition hover:border-red-400 disabled:cursor-wait disabled:opacity-60"
                       type="button"
                       disabled={busy}
-                      onClick={() => setCancelBoxOpen((value) => !value)}
+                      onClick={() => { cancellation.reload(); setCancelBoxOpen((value) => !value); }}
                     >
                       Cancelar
                     </button>
@@ -3214,21 +3223,31 @@ function OrderDetailPanel({
                 {cancelBoxOpen ? (
                   <form className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3" onSubmit={handleCancelSubmit}>
                     <div className="text-[12px] font-semibold text-red-100">Cancelar orden</div>
+                    <div aria-live="polite" className="mt-2 text-[11px] text-red-100/80">
+                      {cancellation.loading ? "Calculando saldo…" : cancellation.error}
+                      {(cancellation.data?.alreadyStoredUsd ?? 0) > 0 ? (
+                        <div>Ya enviado a fondo: {formatMasterOrderUSD(cancellation.data!.alreadyStoredUsd)}. No se acredita otra vez.</div>
+                      ) : null}
+                      <button type="button" className="mt-1 underline disabled:opacity-50"
+                        disabled={busy || cancellation.loading} onClick={cancellation.reload}>Actualizar saldo</button>
+                    </div>
                     <textarea
                       className="mt-3 min-h-[74px] w-full rounded-lg border border-red-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
                       value={cancelReason}
+                      aria-label="Motivo de cancelación"
+                      maxLength={1000}
                       onChange={(event) => setCancelReason(event.target.value)}
                       placeholder="Motivo obligatorio."
                     />
-                    {order.clientFundUsedUsd > 0.005 ? (
+                    {(cancellation.data?.fundUsedUsd ?? 0) > 0.005 ? (
                       <div className="mt-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-2 text-[11px] text-emerald-100/85">
-                        Al cancelar se restauraran {formatMasterOrderUSD(order.clientFundUsedUsd)} de fondo aplicado al cliente.
+                        Al cancelar se restauraran {formatMasterOrderUSD((cancellation.data?.fundUsedUsd ?? 0))} de fondo aplicado al cliente.
                       </div>
                     ) : null}
                     {confirmedMoneyPaidUsd > 0.005 ? (
                       <div className="mt-3 rounded-xl border border-red-500/25 bg-[#0B0B0D] p-2">
                         <div className="text-[11px] text-red-100/80">
-                          Esta orden tiene {formatMasterOrderUSD(confirmedMoneyPaidUsd)} en pagos confirmados.
+                          Esta orden tiene {formatMasterOrderUSD(confirmedMoneyPaidUsd)} disponibles para devolver.
                         </div>
                         <div className="mt-2 grid gap-2">
                           <label className="flex items-center gap-2 text-[12px] text-[#F5F5F7]">
@@ -3334,6 +3353,7 @@ function OrderDetailPanel({
                         type="submit"
                         disabled={
                           busy ||
+                          !cancellation.data ||
                           !cancelReason.trim() ||
                           (confirmedMoneyPaidUsd > 0.005 &&
                             cancelPaidHandling === "refund" &&
@@ -4592,6 +4612,8 @@ export default function MasterOpsClient({
           notes: line.notes ?? null,
         }));
         result = await cancelMasterOpsOrderAction({
+          requestId: payload.requestId ?? "",
+          fingerprint: payload.cancellationFingerprint ?? "",
           orderId: order.id,
           reason,
           paidHandling: payload.paidHandling ?? null,

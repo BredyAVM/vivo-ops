@@ -1,4 +1,5 @@
 'use server';
+import { buildOrderCancellationCommand, readOrderCancellationPreview, readOrderCancellationReceipt, type OrderCancellationInput } from '@/lib/domain/order-cancellation-command';
 
 import { buildPaymentConfirmationCommand, readPaymentConfirmationReceipt, type PaymentConfirmationInput } from '@/lib/domain/payment-confirmation-command';
 
@@ -2982,304 +2983,45 @@ export async function returnToCreatedAction(input: {
   revalidatePath('/app/advisor/inbox');
 }
 
-export async function cancelOrderAction(input: {
-  orderId: number;
-  reason: string;
-  paidHandling?: 'store_fund' | 'refund' | null;
-  refundLines?: Array<{
-    moneyAccountId: number;
-    currencyCode: string;
-    amount: number;
-    exchangeRateVesPerUsd?: number | null;
-    notes?: string | null;
-  }>;
-  refundMoneyAccountId?: number | null;
-  refundCurrency?: string | null;
-  refundExchangeRateVesPerUsd?: number | null;
-}) {
+export async function previewOrderCancellationAction(orderId: number) {
+  const { supabase } = await requireMasterOrAdmin();
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) throw new Error('Orden inválida.');
+  const { data, error } = await supabase.rpc('preview_order_cancellation_v1', { p_order_id: orderId });
+  if (error) throw new Error(error.message);
+  return readOrderCancellationPreview(data);
+}
+
+export async function cancelOrderAction(input: OrderCancellationInput) {
   const { supabase, user } = await requireMasterOrAdmin();
-
-  const orderId = Number(input.orderId);
-  const reason = String(input.reason || '').trim();
-
-  if (!Number.isFinite(orderId) || orderId <= 0) {
-    throw new Error('Orden inválida.');
-  }
-
-  if (!reason) {
-    throw new Error('Debes indicar un motivo de cancelación.');
-  }
-
-  const { data: currentOrder, error: currentOrderError } = await supabase
-    .from('orders')
-    .select('id, client_id, status, notes, extra_fields')
-    .eq('id', orderId)
-    .single();
-
-  if (currentOrderError || !currentOrder) {
-    throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
-  }
-
-  if (currentOrder.status === 'cancelled') {
-    throw new Error('La orden ya está cancelada.');
-  }
-
-  const clientId = Number(currentOrder.client_id || 0);
-  const previousFundUsedUsd = roundMoney((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd);
-  const { data: orderMovements, error: orderMovementsError } = await supabase
-    .from('money_movements')
-    .select('direction, amount_usd_equivalent, status, confirmed_at')
-    .eq('order_id', orderId);
-
-  if (orderMovementsError) {
-    throw new Error(orderMovementsError.message);
-  }
-
-  const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
-    const isConfirmed = row.status === 'confirmed';
-    if (!isConfirmed) return sum;
-
-    const signedAmount =
-      toSafeNumber(row.amount_usd_equivalent, 0) *
-      (row.direction === 'outflow' ? -1 : 1);
-    return sum + signedAmount;
-  }, 0));
-
-  const hasClientFundsToRestore = previousFundUsedUsd > 0.005;
-  const hasConfirmedMoneyToSettle = confirmedPaidUsd > 0.005;
-  const paidHandling = input.paidHandling ?? null;
-  const cleanRefundLines =
-    hasConfirmedMoneyToSettle && paidHandling === 'refund'
-      ? (Array.isArray(input.refundLines) && input.refundLines.length > 0
-          ? input.refundLines
-          : [
-              {
-                moneyAccountId: Number(input.refundMoneyAccountId || 0),
-                currencyCode: String(input.refundCurrency || '').trim().toUpperCase(),
-                amount: toNativeAmountFromUsd(
-                  confirmedPaidUsd,
-                  String(input.refundCurrency || '').trim().toUpperCase(),
-                  input.refundExchangeRateVesPerUsd ?? null
-                ),
-                exchangeRateVesPerUsd: input.refundExchangeRateVesPerUsd ?? null,
-                notes: reason,
-              },
-            ]
-        )
-          .map((line) => {
-            const moneyAccountId = Number(line.moneyAccountId || 0);
-            const currencyCode = String(line.currencyCode || '').trim().toUpperCase();
-            const amount = Number(toSafeNumber(line.amount, 0).toFixed(2));
-            const exchangeRate =
-              line.exchangeRateVesPerUsd == null
-                ? null
-                : Number(toSafeNumber(line.exchangeRateVesPerUsd, 0).toFixed(6));
-            const amountUsd = Number(
-              (currencyCode === 'VES' ? amount / Number(exchangeRate || 0) : amount).toFixed(2)
-            );
-
-            return {
-              moneyAccountId,
-              currencyCode,
-              amount,
-              exchangeRate,
-              amountUsd,
-              notes: String(line.notes || reason || '').trim() || null,
-            };
-          })
-          .filter((line) => line.moneyAccountId > 0 && line.currencyCode && line.amount > 0)
-      : [];
-  const cleanRefundUsd = roundMoney(cleanRefundLines.reduce((sum, line) => sum + line.amountUsd, 0));
-  const refundRemainderUsd = roundMoney(Math.max(0, confirmedPaidUsd - cleanRefundUsd));
-
-  if ((hasClientFundsToRestore || hasConfirmedMoneyToSettle) && (!Number.isFinite(clientId) || clientId <= 0)) {
-    throw new Error('La orden tiene dinero involucrado, pero no tiene cliente asociado para ajustar fondo/devoluciÃ³n.');
-  }
-
-  if (hasConfirmedMoneyToSettle && paidHandling !== 'store_fund' && paidHandling !== 'refund') {
-    throw new Error('Debes indicar si el pago confirmado se enviarÃ¡ al fondo o se registrarÃ¡ como devoluciÃ³n.');
-  }
-
-  if (hasConfirmedMoneyToSettle && paidHandling === 'refund') {
-    if (cleanRefundLines.length === 0) {
-      throw new Error('Debes agregar al menos una linea de devolucion.');
-    }
-
-    for (const line of cleanRefundLines) {
-      if (line.currencyCode === 'VES' && (!line.exchangeRate || line.exchangeRate <= 0)) {
-        throw new Error('Debes indicar una tasa valida para cada devolucion en Bs.');
-      }
-      if (!Number.isFinite(line.amountUsd) || line.amountUsd <= 0) {
-        throw new Error('Una linea de devolucion tiene monto invalido.');
-      }
-    }
-
-    if (cleanRefundUsd > confirmedPaidUsd + 0.01) {
-      throw new Error('La devolucion no puede superar el pago confirmado.');
-    }
-  }
-
-  if (false && hasConfirmedMoneyToSettle && paidHandling === 'refund') {
-    const refundMoneyAccountId = Number(input.refundMoneyAccountId || 0);
-    const refundCurrency = String(input.refundCurrency || '').trim().toUpperCase();
-    if (!Number.isFinite(refundMoneyAccountId) || refundMoneyAccountId <= 0) {
-      throw new Error('Debes seleccionar la cuenta desde la cual se harÃ¡ la devoluciÃ³n.');
-    }
-    if (!refundCurrency) {
-      throw new Error('Debes indicar la moneda de la devoluciÃ³n.');
-    }
-    if (refundCurrency === 'VES' && toSafeNumber(input.refundExchangeRateVesPerUsd, 0) <= 0) {
-      throw new Error('Debes indicar una tasa vÃ¡lida para la devoluciÃ³n en bolÃ­vares.');
-    }
-  }
-
-  if (hasClientFundsToRestore) {
-    await restoreClientFundToOrder(supabase, {
-      clientId,
-      orderId,
-      amountUsd: previousFundUsedUsd,
-      userId: user.id,
-      notes: `Fondo restaurado por cancelaciÃ³n: ${reason}`,
-    });
-  }
-
-  if (hasConfirmedMoneyToSettle && paidHandling === 'store_fund') {
-    await restoreClientFundToOrder(supabase, {
-      clientId,
-      orderId,
-      amountUsd: confirmedPaidUsd,
-      userId: user.id,
-      notes: `Pago enviado a fondo por cancelaciÃ³n: ${reason}`,
-    });
-  }
-
-  if (false && hasConfirmedMoneyToSettle && paidHandling === 'refund') {
-    const refundCurrency = String(input.refundCurrency || '').trim().toUpperCase();
-    const refundExchangeRate =
-      refundCurrency === 'VES'
-        ? Number(toSafeNumber(input.refundExchangeRateVesPerUsd, 0).toFixed(6))
-        : null;
-    const refundAmount = toNativeAmountFromUsd(confirmedPaidUsd, refundCurrency, refundExchangeRate);
-
-    const { error: refundMovementError } = await supabase
-      .from('money_movements')
-      .insert({
-        movement_date: new Date().toISOString().slice(0, 10),
-        created_by_user_id: user.id,
-        confirmed_at: new Date().toISOString(),
-        confirmed_by_user_id: user.id,
-        status: 'confirmed',
-        approval_required: false,
-        direction: 'outflow',
-        movement_type: 'withdrawal',
-        money_account_id: Number(input.refundMoneyAccountId),
-        currency_code: refundCurrency,
-        amount: refundAmount,
-        exchange_rate_ves_per_usd: refundExchangeRate,
-        amount_usd_equivalent: confirmedPaidUsd,
-        reference_code: null,
-        counterparty_name: null,
-        description: `DevoluciÃ³n por orden cancelada #${orderId}`,
-        notes: reason,
-        order_id: orderId,
-        payment_report_id: null,
-        movement_group_id: null,
+  const command = buildOrderCancellationCommand(input);
+  const { data, error } = await supabase.rpc('cancel_order_atomic_v1', command);
+  if (error) throw new Error(error.message);
+  const receipt = readOrderCancellationReceipt(data);
+  // Money, status and both histories were committed together. A notification
+  // failure must never turn a completed cancellation into an apparent failure.
+  if (!receipt.replayed) {
+    try {
+      const context = await loadOrderEventContext(supabase, receipt.orderId);
+      await appendOrderEvent(supabase, {
+        orderId: receipt.orderId, context, persistedEventId: receipt.eventId,
+        eventType: 'order_cancelled', eventGroup: 'approval', title: 'Orden cancelada',
+        message: command.p_input.reason, severity: 'critical', actorUserId: user.id,
+        payload: receipt.payload,
+        recipients: [
+          { targetRole: 'master' }, { targetUserId: context?.advisorUserId },
+          { targetUserId: context?.internalDriverUserId }, { targetRole: 'kitchen' },
+        ],
       });
-
-    if (refundMovementError) {
-      throw new Error(refundMovementError?.message || 'Error registrando la devolucion.');
+    } catch (notificationError) {
+      console.error('Cancellation committed; notification failed', notificationError);
     }
   }
-
-  if (hasConfirmedMoneyToSettle && paidHandling === 'refund') {
-    const movementGroupId = cleanRefundLines.length > 1 || refundRemainderUsd > 0.005 ? crypto.randomUUID() : null;
-    const now = new Date().toISOString();
-
-    const { error: refundMovementError } = await supabase
-      .from('money_movements')
-      .insert(cleanRefundLines.map((line, index) => ({
-        movement_date: now.slice(0, 10),
-        created_by_user_id: user.id,
-        confirmed_at: now,
-        confirmed_by_user_id: user.id,
-        status: 'confirmed',
-        approval_required: false,
-        direction: 'outflow',
-        movement_type: 'withdrawal',
-        money_account_id: line.moneyAccountId,
-        currency_code: line.currencyCode,
-        amount: line.amount,
-        exchange_rate_ves_per_usd: line.currencyCode === 'VES' ? line.exchangeRate : null,
-        amount_usd_equivalent: line.amountUsd,
-        reference_code: null,
-        counterparty_name: null,
-        description: `Devolucion por orden cancelada #${orderId} - linea ${index + 1}`,
-        notes: line.notes,
-        order_id: orderId,
-        payment_report_id: null,
-        movement_group_id: movementGroupId,
-      })));
-
-    if (refundMovementError) {
-      throw new Error(refundMovementError?.message || 'Error registrando la devolucion.');
-    }
-
-    if (refundRemainderUsd > 0.005) {
-      await restoreClientFundToOrder(supabase, {
-        clientId,
-        orderId,
-        amountUsd: refundRemainderUsd,
-        userId: user.id,
-        notes: `Resto de devolucion enviado a fondo por cancelacion: ${reason}`,
-      });
-    }
-  }
-
-  const { error: updateError } = await supabase
-    .from('orders')
-    .update({
-      status: 'cancelled',
-      review_notes: reason,
-      queued_needs_reapproval: false,
-      queued_last_modified_at: null,
-      queued_last_modified_by: null,
-      last_modified_at: new Date().toISOString(),
-      last_modified_by: user.id,
-    })
-    .eq('id', orderId);
-
-  if (updateError) {
-    throw new Error(updateError.message);
-  }
-
-  const eventContext = await loadOrderEventContext(supabase, orderId);
-  await appendOrderEvent(supabase, {
-    orderId,
-    context: eventContext,
-    eventType: 'order_cancelled',
-    eventGroup: 'approval',
-    title: 'Orden cancelada',
-    message: reason,
-    severity: 'critical',
-    actorUserId: user.id,
-    payload: {
-      reason,
-      paid_handling: paidHandling,
-      confirmed_paid_usd: confirmedPaidUsd,
-      restored_fund_usd: previousFundUsedUsd,
-    },
-    recipients: [
-      { targetRole: 'master' },
-      { targetUserId: eventContext?.advisorUserId },
-      { targetUserId: eventContext?.internalDriverUserId },
-      { targetRole: 'kitchen' },
-    ],
-  });
-
-  revalidatePath('/app/master/dashboard');
-  revalidatePath('/app/advisor');
-  revalidatePath('/app/advisor/orders');
-  revalidatePath('/app/advisor/inbox');
+  revalidateMasterDashboardFinancialReferences();
+  for (const path of ['/app/admin', '/app/admin/finanzas', '/app/admin/finanzas/cuentas',
+    '/app/admin/finanzas/cartera', '/app/admin/finanzas/pedidos', '/app/admin/tareas',
+    '/app/advisor', '/app/advisor/orders', '/app/advisor/inbox',
+    '/app/kitchen', '/app/counter', '/app/inventory']) revalidatePath(path);
+  return { ok: true as const, ...receipt };
 }
 
 export async function assignInternalDriverAction(input: {
