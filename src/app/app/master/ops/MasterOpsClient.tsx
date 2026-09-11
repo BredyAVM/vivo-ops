@@ -20,7 +20,7 @@ import type {
   OrderFinancialActivityType,
 } from "@/lib/finance/order-financial-activity";
 import { parseDecimalInput } from "@/lib/number-input";
-import { parseDeliveryCostInput } from "@/lib/domain/delivery-cost";
+import { parseDeliveryCostInput, parseDeliveryDistanceInput } from "@/lib/domain/delivery-cost";
 import {
   ORDER_STATUS_LABELS,
   formatOrderDisplayNumber,
@@ -1773,7 +1773,7 @@ function OrderDetailPanel({
 
   async function handleAssignExternalSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const distanceKm = Number(String(deliveryAssignDistanceKm || "").replace(",", "."));
+    const distanceKm = deliveryAssignDistanceKm.trim() === "" ? null : Number(deliveryAssignDistanceKm.replace(",", "."));
     const costUsd = deliveryAssignCostUsd.trim() === "" ? null : Number(deliveryAssignCostUsd.replace(",", "."));
     const ok = await onDirectAction(order, canCorrectDeliveredDelivery ? "correct-delivered-external" : "assign-external", {
       partnerId: Number(deliveryAssignPartnerId || 0),
@@ -2735,16 +2735,21 @@ function OrderDetailPanel({
                         value={deliveryAssignDistanceKm}
                         onChange={(event) => setDeliveryAssignDistanceKm(event.target.value)}
                         inputMode="decimal"
-                        placeholder="Distancia km"
+                        aria-label="Distancia del delivery en km"
+                        placeholder={canCorrectDeliveredDelivery ? "Distancia km" : "Distancia km (si la conoces)"}
                       />
                       <input
                         className="rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
                         value={deliveryAssignCostUsd}
                         onChange={(event) => setDeliveryAssignCostUsd(event.target.value)}
                         inputMode="decimal"
-                        placeholder="Costo USD"
+                        aria-label="Costo del delivery en USD"
+                        placeholder={canCorrectDeliveredDelivery ? "Costo USD" : "Costo USD (automático si está vacío)"}
                       />
                     </div>
+                    {!canCorrectDeliveredDelivery ? (
+                      <p className="mt-2 text-xs text-[#B7B7C2]">Usa el tabulador por empresa y distancia. Si falta información, puedes continuar con el costo pendiente.</p>
+                    ) : null}
                     <input
                       className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
                       value={deliveryAssignReference}
@@ -4364,11 +4369,9 @@ export default function MasterOpsClient({
         });
       } else if (action === "assign-external") {
         const partnerId = Number(payload.partnerId || 0);
-        const distanceKm = Number(payload.distanceKm);
+        const distanceKm = parseDeliveryDistanceInput(payload.distanceKm);
         const costUsd = parseDeliveryCostInput(payload.costUsd);
         if (!Number.isFinite(partnerId) || partnerId <= 0) throw new Error("Debes seleccionar un partner externo.");
-        if (!Number.isFinite(distanceKm) || distanceKm <= 0) throw new Error("Debes indicar la distancia en km.");
-        if (costUsd === null) throw new Error("Debes indicar el costo del delivery.");
         result = await assignExternalPartnerAction({
           orderId: order.id,
           partnerId,

@@ -34,7 +34,7 @@ begin
   assert failed, 'late failure injected';
   assert (select to_jsonb(o)=before_row from public.orders o where id=9000000002), 'assignment and cost rolled back together';
   assert (select count(*)=before_events from public.order_events where order_id=9000000002), 'events rolled back';
-  r:=public.assign_delivery_with_cost_v1(9000000002,'external',null,p,'TEST',4,null);
+  r:=public.assign_delivery_with_cost_v1(9000000002,'external',null,p,'TEST',null,null);
   assert r->>'cost_usd' is null and r->>'cost_status'='missing', 'no cost inherited';
   r:=public.assign_delivery_with_cost_v1(9000000002,'external',null,p,'TEST',4,0);
   assert r->>'cost_status'='recorded' and (r->>'cost_usd')::numeric=0, 'explicit zero retained';

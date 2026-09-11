@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { resolveLegacyAdminSection } from '@/lib/admin-finance/legacy-navigation';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { parseDecimalInput } from '@/lib/number-input';
-import { readStoredDeliveryCost } from '@/lib/domain/delivery-cost';
+import { parseDeliveryCostInput, parseDeliveryDistanceInput, readStoredDeliveryCost } from '@/lib/domain/delivery-cost';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { ModulePreference } from '../../ModulePreference';
@@ -2576,17 +2576,13 @@ function findDeliveryPartnerRate(
 ) {
   if (!partner || !Number.isFinite(distanceKm) || distanceKm <= 0) return null;
 
-  const activeRates = (partner.rates ?? [])
-    .filter((rate) => rate.isActive)
-    .sort((a, b) => a.kmFrom - b.kmFrom);
-
-  return (
-    activeRates.find(
+  const matchingRates = (partner.rates ?? []).filter(
       (rate) =>
+        rate.isActive &&
         distanceKm >= rate.kmFrom &&
         (rate.kmTo == null || distanceKm <= rate.kmTo)
-    ) ?? null
   );
+  return matchingRates.length === 1 ? matchingRates[0] : null;
 }
 
 function splitISOToDeliveryFields(iso: string) {
@@ -7237,20 +7233,20 @@ const handleAssignExternal = async (o: Order) => {
       return;
     }
 
-    const distanceKm = Number(String(deliveryAssignDistanceKm || '').replace(',', '.'));
-    const costUsd = Number(String(deliveryAssignCostUsd || '').replace(',', '.'));
+    const correctionMode = isDeliveredDeliveryCorrection(o);
+    const distanceKm = parseDeliveryDistanceInput(deliveryAssignDistanceKm);
+    const costUsd = correctionMode || deliveryAssignCostManuallyEdited ? parseDeliveryCostInput(deliveryAssignCostUsd) : null;
 
-    if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
+    if (correctionMode && distanceKm === null) {
       showToast('error', 'Debes indicar la distancia en km.');
       return;
     }
 
-    if (!deliveryAssignCostUsd.trim() || !Number.isFinite(costUsd) || costUsd < 0) {
+    if (correctionMode && costUsd === null) {
       showToast('error', 'Debes indicar el costo del delivery.');
       return;
     }
 
-    const correctionMode = isDeliveredDeliveryCorrection(o);
     if (correctionMode && deliveryCorrectionReason.trim().length < 6) {
       showToast('error', 'Indica el motivo de la correccion.');
       return;
@@ -7278,15 +7274,16 @@ const handleAssignExternal = async (o: Order) => {
       return;
     }
 
-    await assignExternalPartnerAction({
+    const assignment = await assignExternalPartnerAction({
       orderId: o.id,
       partnerId: Number(deliveryAssignPartnerId),
       reference: deliveryAssignReference.trim() || null,
       distanceKm,
-      costUsd,
+      // The server captures the current tariff; a preview is not a manual override.
+      costUsd: deliveryAssignCostManuallyEdited ? costUsd : null,
     });
 
-    showToast('success', 'Partner externo asignado.');
+    showToast('success', assignment.costUsd === null ? 'Externo asignado. Costo pendiente para Administración.' : `Externo asignado · costo ${fmtUSD(assignment.costUsd)}.`);
     resetDeliveryAssignBox();
     router.refresh();
   } catch (err) {
@@ -22278,7 +22275,8 @@ deliveryAssignMode === 'external' ? (
       <input
         value={deliveryAssignDistanceKm}
         onChange={(e) => handleDeliveryAssignDistanceChange(e.target.value)}
-        placeholder="Distancia en km"
+        aria-label="Distancia del delivery en km"
+        placeholder={isDeliveredDeliveryCorrection(selectedOrder) ? "Distancia en km" : "Distancia km (si la conoces)"}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
     </div>
@@ -22307,11 +22305,15 @@ deliveryAssignMode === 'external' ? (
       <input
         value={deliveryAssignCostUsd}
         onChange={(e) => handleDeliveryAssignCostChange(e.target.value)}
-        placeholder="Costo del delivery en USD"
+        aria-label="Costo del delivery en USD"
+        placeholder={isDeliveredDeliveryCorrection(selectedOrder) ? "Costo del delivery en USD" : "Costo USD (automático si está vacío)"}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
     </div>
 
+    {!isDeliveredDeliveryCorrection(selectedOrder) ? (
+      <p className="mt-2 text-[11px] text-[#B7B7C2]">Si falta distancia o tarifa, puedes continuar. Administración completa el costo después.</p>
+    ) : null}
     <div className="mt-2">
       <input
         value={deliveryAssignReference}

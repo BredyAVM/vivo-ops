@@ -42,7 +42,7 @@ import {
   getOrderMoneySnapshot,
   getOrderRoundingClosureSnapshot,
 } from '@/lib/orders/order-money';
-import { parseDeliveryCostInput, readDeliveryCorrectionReceipt } from '@/lib/domain/delivery-cost';
+import { parseDeliveryCostInput, parseDeliveryDistanceInput, readDeliveryCorrectionReceipt } from '@/lib/domain/delivery-cost';
 import { getMasterDashboardPermissions } from './permissions';
 
 const MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG = 'master-dashboard-financial-references';
@@ -3077,16 +3077,19 @@ export async function assignExternalPartnerAction(input: {
   const { supabase, user } = await requireMasterOrAdmin();
 
   const normalizedCostUsd = parseDeliveryCostInput(input.costUsd);
-  const { error } = await supabase.rpc('assign_delivery_with_cost_v1', {
+  const distanceKm = parseDeliveryDistanceInput(input.distanceKm);
+  const { data, error } = await supabase.rpc('assign_delivery_with_cost_v1', {
     p_order_id: input.orderId,
     p_kind: 'external',
     p_driver_user_id: null,
     p_partner_id: input.partnerId,
     p_reference: input.reference,
-    p_distance_km: input.distanceKm ?? null,
+    p_distance_km: distanceKm,
     p_cost_usd: normalizedCostUsd,
   });
   if (error) throw new Error(error.message);
+  const costUsd = parseDeliveryCostInput(data?.cost_usd);
+  const costSource = typeof data?.source === 'string' ? data.source : null;
   const eventContext = await loadOrderEventContext(supabase, input.orderId);
   await appendOrderEvent(supabase, {
     orderId: input.orderId,
@@ -3100,8 +3103,10 @@ export async function assignExternalPartnerAction(input: {
     payload: {
       partner_id: input.partnerId,
       reference: input.reference,
-      distance_km: input.distanceKm ?? null,
-      cost_usd: input.costUsd ?? null,
+      distance_km: distanceKm,
+      cost_usd: costUsd,
+      cost_source: costSource,
+      cost_status: costUsd === null ? 'missing' : 'recorded',
       assignment_kind: 'external',
     },
     recipients: [
@@ -3112,6 +3117,7 @@ export async function assignExternalPartnerAction(input: {
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
   revalidatePath('/app/admin/finanzas/delivery');
+  return { ok: true as const, costUsd, costSource };
 }
 
 export async function correctDeliveredDeliveryAssignmentAction(input: {

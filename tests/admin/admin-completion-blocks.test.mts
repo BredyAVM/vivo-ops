@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseDeliveryCostInput, readStoredDeliveryCost, deliveryCostSourceLabel, readDeliveryCorrectionReceipt } from '../../src/lib/domain/delivery-cost.ts';
+import { parseDeliveryCostInput, parseDeliveryDistanceInput, readStoredDeliveryCost, deliveryCostSourceLabel, readDeliveryCorrectionReceipt } from '../../src/lib/domain/delivery-cost.ts';
 import { readFileSync, readdirSync } from 'node:fs';
 import { deliveryFilters, deliveryHref, deliveryOrderHref, parseDeliveryOverview, parseDeliverySettlement } from '../../src/lib/admin-finance/delivery-model.ts';
 import { buildAdminTaskGroups, filterAdminTaskGroups } from '../../src/lib/admin-finance/tasks-model.ts';
@@ -10,6 +10,40 @@ import type { AdminFinanceAccountSnapshot, AdminFinanceAccountsOverview } from '
 import type { ActiveOrder, ActiveOrdersOverview } from '../../src/lib/admin-finance/active-orders-model.ts';
 import type { CommissionRow } from '../../src/lib/admin-finance/commissions-model.ts';
 const now = new Date('2026-09-10T17:00:00Z');
+
+test('external assignment permits unknown distance without inventing zero', () => {
+  for (const input of [null, undefined, '', '   ']) assert.equal(parseDeliveryDistanceInput(input), null);
+  assert.equal(parseDeliveryDistanceInput(' 3,05 '), 3.05);
+  assert.equal(parseDeliveryDistanceInput(999999), 999999);
+  for (const input of [0, '0', -1, NaN, Infinity, true, {}, 'abc', '2e1', 1000000]) assert.throws(() => parseDeliveryDistanceInput(input));
+});
+
+test('delivery source labels distinguish automatic tariff, pending and manual cost', () => {
+  assert.equal(deliveryCostSourceLabel('external_partner_tariff_v1'), 'Tabulador al asignar');
+  assert.equal(deliveryCostSourceLabel('external_partner_pending_v1'), 'Pendiente de completar');
+  assert.equal(deliveryCostSourceLabel('external_partner_manual_v1'), 'Registrado al asignar · externo');
+});
+
+test('assignment uses the committed tariff cost in its visible history', () => {
+  const source = readFileSync(new URL('../../src/app/app/master/dashboard/actions.ts', import.meta.url), 'utf8');
+  const action = source.slice(source.indexOf('export async function assignExternalPartnerAction'), source.indexOf('export async function correctDeliveredDeliveryAssignmentAction'));
+  assert.match(action, /requireMasterOrAdmin\(\)/);
+  assert.match(action, /parseDeliveryDistanceInput\(input.distanceKm\)/);
+  assert.match(action, /parseDeliveryCostInput\(data\?\.cost_usd\)/);
+  assert.match(action, /cost_usd: costUsd/);
+  assert.doesNotMatch(action, /cost_usd: input.costUsd/);
+});
+
+test('both Master forms allow pending cost on new assignments', () => {
+  const ops = readFileSync(new URL('../../src/app/app/master/ops/MasterOpsClient.tsx', import.meta.url), 'utf8');
+  const branch = ops.slice(ops.indexOf('} else if (action === "assign-external")'), ops.indexOf('} else if (action === "correct-delivered-internal")'));
+  assert.match(branch, /parseDeliveryDistanceInput/);
+  assert.doesNotMatch(branch, /if \(costUsd === null\)|Debes indicar la distancia/);
+  const dashboard = readFileSync(new URL('../../src/app/app/master/dashboard/MasterDashboardClient.tsx', import.meta.url), 'utf8');
+  const handler = dashboard.slice(dashboard.indexOf('const handleAssignExternal ='), dashboard.indexOf('const handleApprove ='));
+  assert.match(handler, /costUsd: deliveryAssignCostManuallyEdited \? costUsd : null/);
+  assert.match(handler, /if \(correctionMode && costUsd === null\)/);
+});
 test('delivery correction verifies its visible history receipt', () => {
   assert.deepEqual(readDeliveryCorrectionReceipt({ eventId: 12, payload: { notes: 'Corrección' } }), { eventId: 12, payload: { notes: 'Corrección' } });
   for (const value of [null, [], {}, { eventId: 0, payload: {} }, { eventId: '12', payload: {} }, { eventId: 12, payload: [] }]) assert.throws(() => readDeliveryCorrectionReceipt(value));

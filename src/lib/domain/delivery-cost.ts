@@ -9,9 +9,20 @@ export function parseDeliveryCostInput(value: unknown): number | null {
   return number;
 }
 
+/** Distance is optional at dispatch, but an entered value must be usable. */
+export function parseDeliveryDistanceInput(value: unknown): number | null {
+  if (value == null || (typeof value === 'string' && value.trim() === '')) return null;
+  let number: number | null;
+  try { number = parseDeliveryCostInput(value); } catch { throw new Error('Distancia de delivery inválida.'); }
+  if (number === null || number <= 0 || number > 999999) throw new Error('Distancia de delivery inválida.');
+  return number;
+}
+
 export function deliveryCostSourceLabel(source: string | null): string {
   if (source === 'internal_assignment_input') return 'Registrado al asignar · interno';
   if (source === 'external_partner_manual_v1') return 'Registrado al asignar · externo';
+  if (source === 'external_partner_tariff_v1') return 'Tabulador al asignar';
+  if (source === 'external_partner_pending_v1') return 'Pendiente de completar';
   if (source?.startsWith('admin_delivered_correction_')) return 'Corrección administrativa';
   return source ? 'Registro anterior · sin trazabilidad completa' : 'Sin fuente de costo';
 }
