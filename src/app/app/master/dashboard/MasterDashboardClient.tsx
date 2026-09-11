@@ -5051,6 +5051,8 @@ const orderActionBusyRef = useRef(false);
   const [reconciliationResolveSaving, setReconciliationResolveSaving] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferSaving, setTransferSaving] = useState(false);
+  const transferRequestIdRef = useRef<string | null>(null);
+  const transferBusyRef = useRef(false);
   const [transferSourceAccountId, setTransferSourceAccountId] = useState('');
   const [transferTargetAccountId, setTransferTargetAccountId] = useState('');
   const [transferSourceAmount, setTransferSourceAmount] = useState('');
@@ -8340,6 +8342,7 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const resetMoneyTransferForm = () => {
+    transferRequestIdRef.current = null;
     setTransferSourceAccountId('');
     setTransferTargetAccountId('');
     setTransferSourceAmount('');
@@ -9164,6 +9167,8 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const handleCreateMoneyTransfer = async () => {
+    if (transferBusyRef.current) return;
+    transferBusyRef.current = true;
     try {
       const sourceMoneyAccountId = Number(transferSourceAccountId || 0);
       const targetMoneyAccountId = Number(transferTargetAccountId || 0);
@@ -9232,7 +9237,9 @@ const handleSaveQuickCatalog = async () => {
       }
 
       setTransferSaving(true);
+      transferRequestIdRef.current ??= crypto.randomUUID();
       await createMoneyTransferAction({
+        requestId: transferRequestIdRef.current,
         sourceMoneyAccountId,
         targetMoneyAccountId,
         sourceAmount,
@@ -9254,6 +9261,7 @@ const handleSaveQuickCatalog = async () => {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo registrar el traspaso.');
     } finally {
+      transferBusyRef.current = false;
       setTransferSaving(false);
     }
   };
@@ -23471,6 +23479,7 @@ deliveryAssignMode === 'external' ? (
         open={transferOpen}
         title="Traspaso entre cuentas"
         onClose={() => {
+          if (transferBusyRef.current) return;
           setTransferOpen(false);
           resetMoneyTransferForm();
         }}
