@@ -12,6 +12,7 @@ import { normalizeRemoteSearchValue, normalizeSearchValue, splitSearchTokens } f
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { crmPlayDetailLine, isInternalOrderDetailLine } from '@/lib/crm/play-order';
+import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
@@ -24,6 +25,7 @@ import {
 import {
   ensureAdvisorOrderCreatedEventAction,
   markAdvisorOrderDraftConvertedAction,
+  prepareAdvisorCrmPlayBenefitsAction,
   redeemAdvisorCrmPlayBenefitsAction,
   replaceAdvisorOrderItemsAction,
   saveAdvisorOrderDraftAction,
@@ -400,30 +402,6 @@ function protectedDraftViolation(
   return null;
 }
 
-export type AdvisorCrmOrderContext = {
-  playMemberId: number;
-  playName: string;
-  purchaseRequirementMode: 'none' | 'minimum_order';
-  minimumOrderAmountUsd: number | null;
-  client: ClientRow;
-  benefits: Array<{
-    playBenefitId: number;
-    productId: number;
-    quantity: number;
-    creditUsd: number;
-    name: string;
-    sku: string | null;
-    upgrades: Array<{
-      id: number;
-      productId: number;
-      quantity: number;
-      customerDifferenceUsd: number;
-      name: string;
-      sku: string | null;
-    }>;
-  }>;
-};
-
 const STORAGE_KEYS = {
   recentClients: 'advisor_recent_clients_v1',
   recentProducts: 'advisor_recent_products_v1',
@@ -649,6 +627,55 @@ function getProductSourcePricing(product: ProductRow) {
     ) || 0;
 
   return { sourceCurrency, sourceAmount };
+}
+
+function getInitialCrmBenefitIds(context: AdvisorCrmOrderContext) {
+  if (context.selectedPlayBenefitIds.length > 0) return context.selectedPlayBenefitIds;
+  if (context.benefitSelectionMode === 'single' && context.benefits.length === 1) {
+    return [context.benefits[0].playBenefitId];
+  }
+  return [];
+}
+
+function buildCrmBenefitDraftItem(
+  context: AdvisorCrmOrderContext,
+  benefit: AdvisorCrmOrderContext['benefits'][number],
+  productById: Map<number, ProductRow>,
+  playBenefitUpgradeId: number | null = null,
+) {
+  const upgrade = playBenefitUpgradeId == null
+    ? null
+    : benefit.upgrades.find((option) => option.id === playBenefitUpgradeId) ?? null;
+  const product = productById.get(upgrade?.productId ?? benefit.productId);
+  if (!product) return null;
+
+  const quantity = upgrade?.quantity ?? benefit.quantity;
+  const customerDifferenceUsd = Math.max(0, upgrade?.customerDifferenceUsd ?? 0);
+  const catalogPricing = getProductSourcePricing(product);
+  return {
+    localId: `crm-${context.playMemberId}-${benefit.playBenefitId}`,
+    product_id: product.id,
+    product_type: product.type,
+    sku_snapshot: upgrade?.sku ?? benefit.sku ?? product.sku,
+    product_name_snapshot: upgrade?.name ?? benefit.name ?? product.name,
+    units_per_service: Number(product.units_per_service ?? 0) || 0,
+    qty: quantity,
+    source_price_currency: 'USD' as const,
+    source_price_amount: quantity > 0 ? customerDifferenceUsd / quantity : 0,
+    unit_price_usd_snapshot: quantity > 0 ? customerDifferenceUsd / quantity : 0,
+    line_total_usd: customerDifferenceUsd,
+    editable_detail_lines: [
+      crmPlayDetailLine('play', context.playName),
+      crmPlayDetailLine('benefit', upgrade?.name ?? benefit.name),
+    ],
+    crm_benefit: {
+      playBenefitId: benefit.playBenefitId,
+      playBenefitUpgradeId: upgrade?.id ?? null,
+      eligibleUnitPriceUsd: quantity > 0 ? customerDifferenceUsd / quantity : 0,
+      catalogSourceCurrency: catalogPricing.sourceCurrency,
+      catalogSourceAmount: catalogPricing.sourceAmount,
+    },
+  } satisfies DraftItem;
 }
 
 function calculateCatalogSnapshotForDraftItem(item: DraftItem, product: ProductRow, fxRateNumber: number) {
@@ -1495,6 +1522,8 @@ export default function AdvisorOrderComposer({
   const [searchTerm, setSearchTerm] = useState('');
   const [clientResults, setClientResults] = useState<ClientRow[]>([]);
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
+  const [crmContext, setCrmContext] = useState<AdvisorCrmOrderContext | null>(initialCrmContext);
+  const [crmContextLoading, setCrmContextLoading] = useState(false);
   const [recentClients, setRecentClients] = useState<RecentClientChip[]>([]);
   const [clientUsageById, setClientUsageById] = useState<Record<string, number>>({});
   const [isNewClientMode, setIsNewClientMode] = useState(false);
@@ -1543,6 +1572,7 @@ export default function AdvisorOrderComposer({
   const copyingQuoteRef = useRef(false);
   const savingOrderRef = useRef(false);
   const savingDraftRef = useRef(false);
+  const crmLookupRequestRef = useRef(0);
   const [itemJustAdded, setItemJustAdded] = useState(false);
   const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
   const [existingOrderStatus, setExistingOrderStatus] = useState('');
@@ -1610,9 +1640,9 @@ export default function AdvisorOrderComposer({
     }, 0);
     return Number((subtotal * (1 - (discountEnabled ? discountPctNumber : 0) / 100)).toFixed(2));
   }, [discountEnabled, discountPctNumber, draftItems, fxRateNumber]);
-  const crmPurchaseEligible = !initialCrmContext
-    || initialCrmContext.purchaseRequirementMode === 'none'
-    || commercialSubtotalAfterDiscountUsd + 0.005 >= Number(initialCrmContext.minimumOrderAmountUsd ?? 0);
+  const crmPurchaseEligible = !crmContext
+    || crmContext.purchaseRequirementMode === 'none'
+    || commercialSubtotalAfterDiscountUsd + 0.005 >= Number(crmContext.minimumOrderAmountUsd ?? 0);
   const effectiveDraftPricing = useMemo(() => draftItems.map((item) => {
     if (!item.crm_benefit) {
       return {
@@ -2303,36 +2333,14 @@ export default function AdvisorOrderComposer({
         applyInitialDraft(initialDraft);
       } else if (initialCrmContext) {
         const productById = new Map(nextProducts.map((product) => [product.id, product]));
+        const initialBenefitIds = new Set(getInitialCrmBenefitIds(initialCrmContext));
         const crmItems = initialCrmContext.benefits.flatMap((benefit) => {
-          const product = productById.get(benefit.productId);
-          if (!product) return [];
-          const catalogPricing = getProductSourcePricing(product);
-          return [{
-            localId: `crm-${initialCrmContext.playMemberId}-${benefit.playBenefitId}`,
-            product_id: product.id,
-            product_type: product.type,
-            sku_snapshot: benefit.sku ?? product.sku,
-            product_name_snapshot: benefit.name || product.name,
-            units_per_service: Number(product.units_per_service ?? 0) || 0,
-            qty: benefit.quantity,
-            source_price_currency: 'USD' as const,
-            source_price_amount: 0,
-            unit_price_usd_snapshot: 0,
-            line_total_usd: 0,
-            editable_detail_lines: [
-              crmPlayDetailLine('play', initialCrmContext.playName),
-              crmPlayDetailLine('benefit', benefit.name),
-            ],
-            crm_benefit: {
-              playBenefitId: benefit.playBenefitId,
-              playBenefitUpgradeId: null,
-              eligibleUnitPriceUsd: 0,
-              catalogSourceCurrency: catalogPricing.sourceCurrency,
-              catalogSourceAmount: catalogPricing.sourceAmount,
-            },
-          } satisfies DraftItem];
+          if (!initialBenefitIds.has(benefit.playBenefitId)) return [];
+          const item = buildCrmBenefitDraftItem(initialCrmContext, benefit, productById);
+          return item ? [item] : [];
         });
 
+        setCrmContext(initialCrmContext);
         setSelectedClient(initialCrmContext.client);
         rememberClient(initialCrmContext.client);
         setSearchTerm(initialCrmContext.client.phone || initialCrmContext.client.full_name || '');
@@ -2340,11 +2348,14 @@ export default function AdvisorOrderComposer({
         setIsNewClientMode(false);
         setDraftItems(crmItems);
         setInfo(
-          initialCrmContext.purchaseRequirementMode === 'minimum_order'
+          crmItems.length === 0
+            ? `La jugada ${initialCrmContext.playName} está disponible. Elige el beneficio que desea usar el cliente.`
+            : initialCrmContext.purchaseRequirementMode === 'minimum_order'
             ? `La jugada ${initialCrmContext.playName} está disponible. El beneficio se activa al completar $${Number(initialCrmContext.minimumOrderAmountUsd ?? 0).toFixed(2)} en otros productos.`
             : `Beneficio de ${initialCrmContext.playName} cargado sin costo para el cliente.`
         );
       } else if (initialClient) {
+        setCrmContext(null);
         setSelectedClient(initialClient);
         rememberClient(initialClient);
         setSearchTerm(initialClient.phone || initialClient.full_name || '');
@@ -2720,7 +2731,65 @@ export default function AdvisorOrderComposer({
     setDeliveryNotePhone(client.delivery_note_phone || '');
   }
 
+  async function detectClientCrmContext(client: ClientRow, fallbackNotice: string) {
+    const requestId = crmLookupRequestRef.current + 1;
+    crmLookupRequestRef.current = requestId;
+    setCrmContextLoading(true);
+    setCrmContext(null);
+    setDraftItems((current) => current.filter((item) => !item.crm_benefit));
+
+    try {
+      const response = await fetch(`/api/advisor/clients/${client.id}/crm-order-context`, {
+        cache: 'no-store',
+      });
+      const payload = await response.json() as {
+        context?: AdvisorCrmOrderContext | null;
+        error?: string;
+      };
+      if (crmLookupRequestRef.current !== requestId) return;
+      if (!response.ok) throw new Error(payload.error || 'No se pudo revisar la jugada del cliente.');
+
+      const context = payload.context ?? null;
+      if (!context || Number(context.client.id) !== Number(client.id)) {
+        setCrmContext(null);
+        setInfo(fallbackNotice);
+        return;
+      }
+
+      const initialBenefitIds = new Set(getInitialCrmBenefitIds(context));
+      const crmItems = context.benefits.flatMap((benefit) => {
+        if (!initialBenefitIds.has(benefit.playBenefitId)) return [];
+        const item = buildCrmBenefitDraftItem(context, benefit, productById);
+        return item ? [item] : [];
+      });
+
+      setCrmContext(context);
+      setDraftItems((current) => [
+        ...current.filter((item) => !item.crm_benefit),
+        ...crmItems,
+      ]);
+      setInfo(
+        crmItems.length === 0
+          ? `${client.full_name} está en ${context.playName}. Elige el beneficio que desea usar.`
+          : context.purchaseRequirementMode === 'minimum_order'
+            ? `${client.full_name} está en ${context.playName}. El beneficio se activa con ${formatUsd(Number(context.minimumOrderAmountUsd ?? 0))} en otros productos.`
+            : `${client.full_name} está en ${context.playName}. Su beneficio ya está listo en el pedido.`,
+      );
+    } catch (lookupError) {
+      if (crmLookupRequestRef.current !== requestId) return;
+      setCrmContext(null);
+      setInfo(`${fallbackNotice} No se pudo verificar su jugada en este momento; el pedido normal sigue disponible.`);
+      console.warn(
+        'No se pudo detectar la jugada del cliente.',
+        lookupError instanceof Error ? lookupError.message : lookupError,
+      );
+    } finally {
+      if (crmLookupRequestRef.current === requestId) setCrmContextLoading(false);
+    }
+  }
+
   function selectClient(client: ClientRow, notice?: string) {
+    const nextNotice = notice || `Cliente listo: ${client.full_name}`;
     setSelectedClient(client);
     rememberClient(client);
     applyClientProfile(client);
@@ -2728,7 +2797,19 @@ export default function AdvisorOrderComposer({
     setIsNewClientMode(false);
     setClientResults([]);
     setSearchTerm(client.phone ?? client.full_name);
-    setInfo(notice || `Cliente listo: ${client.full_name}`);
+    setInfo(nextNotice);
+    if (!isEditingOrder) void detectClientCrmContext(client, nextNotice);
+  }
+
+  function clearSelectedClient() {
+    crmLookupRequestRef.current += 1;
+    setCrmContextLoading(false);
+    setCrmContext(null);
+    setSelectedClient(null);
+    setDraftItems((current) => current.filter((item) => !item.crm_benefit));
+    setSearchTerm('');
+    setClientResults([]);
+    setInfo('Busca el cliente que hará el pedido.');
   }
 
   async function handleSearchClients(e?: FormEvent) {
@@ -2975,51 +3056,27 @@ export default function AdvisorOrderComposer({
   }
 
   function selectCrmBenefitProduct(playBenefitId: number, playBenefitUpgradeId: number | null) {
-    if (!initialCrmContext) return;
-    const benefit = initialCrmContext.benefits.find((option) => option.playBenefitId === playBenefitId);
+    if (!crmContext) return;
+    const benefit = crmContext.benefits.find((option) => option.playBenefitId === playBenefitId);
     if (!benefit) return;
     const upgrade = playBenefitUpgradeId == null
       ? null
       : benefit.upgrades.find((option) => option.id === playBenefitUpgradeId) ?? null;
-    const productId = upgrade?.productId ?? benefit.productId;
-    const product = productById.get(productId);
-    if (!product) {
+    const nextItem = buildCrmBenefitDraftItem(crmContext, benefit, productById, playBenefitUpgradeId);
+    if (!nextItem) {
       setError('Ese producto ya no está disponible en el catálogo.');
       return;
     }
 
-    const quantity = upgrade?.quantity ?? benefit.quantity;
     const customerDifferenceUsd = Math.max(0, upgrade?.customerDifferenceUsd ?? 0);
-    const catalogPricing = getProductSourcePricing(product);
-    const nextItem: DraftItem = {
-      localId: `crm-${initialCrmContext.playMemberId}-${benefit.playBenefitId}`,
-      product_id: product.id,
-      product_type: product.type,
-      sku_snapshot: upgrade?.sku ?? benefit.sku ?? product.sku,
-      product_name_snapshot: upgrade?.name ?? benefit.name ?? product.name,
-      units_per_service: Number(product.units_per_service ?? 0) || 0,
-      qty: quantity,
-      source_price_currency: 'USD',
-      source_price_amount: quantity > 0 ? customerDifferenceUsd / quantity : 0,
-      unit_price_usd_snapshot: quantity > 0 ? customerDifferenceUsd / quantity : 0,
-      line_total_usd: customerDifferenceUsd,
-      editable_detail_lines: [
-        crmPlayDetailLine('play', initialCrmContext.playName),
-        crmPlayDetailLine('benefit', upgrade?.name ?? benefit.name),
-      ],
-      crm_benefit: {
-        playBenefitId: benefit.playBenefitId,
-        playBenefitUpgradeId: upgrade?.id ?? null,
-        eligibleUnitPriceUsd: quantity > 0 ? customerDifferenceUsd / quantity : 0,
-        catalogSourceCurrency: catalogPricing.sourceCurrency,
-        catalogSourceAmount: catalogPricing.sourceAmount,
-      },
-    };
 
     setDraftItems((current) => {
-      const existingIndex = current.findIndex((item) => item.crm_benefit?.playBenefitId === playBenefitId);
-      if (existingIndex < 0) return [...current, nextItem];
-      return current.map((item, index) => index === existingIndex
+      const selectionBase = crmContext.benefitSelectionMode === 'single'
+        ? current.filter((item) => !item.crm_benefit)
+        : current;
+      const existingIndex = selectionBase.findIndex((item) => item.crm_benefit?.playBenefitId === playBenefitId);
+      if (existingIndex < 0) return [...selectionBase, nextItem];
+      return selectionBase.map((item, index) => index === existingIndex
         ? { ...nextItem, localId: item.localId }
         : item);
     });
@@ -3679,10 +3736,10 @@ export default function AdvisorOrderComposer({
         quote_only: false,
         surface: 'advisor_mobile',
       },
-      crm: initialCrmContext
+      crm: crmContext
         ? {
-            play_member_id: initialCrmContext.playMemberId,
-            play_name: initialCrmContext.playName,
+            play_member_id: crmContext.playMemberId,
+            play_name: crmContext.playName,
             benefit_ids: crmFulfillments.map((fulfillment) => fulfillment.playBenefitId),
             fulfillments: crmFulfillments,
             purchase_requirement_met: crmPurchaseEligible,
@@ -3726,8 +3783,8 @@ export default function AdvisorOrderComposer({
     }
 
     if (
-      initialCrmContext
-      && Number(selectedClient?.id) !== Number(initialCrmContext.client.id)
+      crmContext
+      && Number(selectedClient?.id) !== Number(crmContext.client.id)
     ) {
       setError('El pedido de una jugada debe conservar el cliente para quien fue publicado el beneficio.');
       return;
@@ -3839,11 +3896,9 @@ export default function AdvisorOrderComposer({
       return;
     }
 
-    if (initialCrmContext && !isEditingOrder) {
-      if (crmPurchaseEligible
-        && crmFulfillments.length > 0
-        && crmFulfillments.length !== initialCrmContext.benefits.length) {
-        setError('Para aplicar la combinación debes mantener todos los beneficios elegidos; también puedes quitarlos todos y guardar la compra normal.');
+    if (crmContext && !isEditingOrder && crmPurchaseEligible) {
+      if (crmContext.benefitSelectionMode === 'single' && crmFulfillments.length > 1) {
+        setError('Esta jugada permite aplicar un solo beneficio por pedido.');
         return;
       }
     }
@@ -3853,6 +3908,15 @@ export default function AdvisorOrderComposer({
 
     try {
       const clientId = await ensureClientId();
+      if (crmContext && crmPurchaseEligible && crmFulfillments.length > 0) {
+        const preparation = await prepareAdvisorCrmPlayBenefitsAction({
+          playMemberId: crmContext.playMemberId,
+          playBenefitIds: crmFulfillments.map((fulfillment) => fulfillment.playBenefitId),
+        });
+        if (!preparation.ok) {
+          throw new Error(`No se pudo preparar el beneficio: ${preparation.message}`);
+        }
+      }
       const nextEditSnapshot = isEditingOrder ? buildCurrentEditSnapshot(clientId) : null;
       const advisorEditChangeMeta =
         isEditingOrder && nextEditSnapshot && originalEditSnapshot
@@ -3988,9 +4052,9 @@ export default function AdvisorOrderComposer({
           );
         }
 
-        if (initialCrmContext && crmPurchaseEligible && crmFulfillments.length > 0) {
+        if (crmContext && crmPurchaseEligible && crmFulfillments.length > 0) {
           const redemption = await redeemAdvisorCrmPlayBenefitsAction({
-            playMemberId: initialCrmContext.playMemberId,
+            playMemberId: crmContext.playMemberId,
             orderId: targetOrderId,
             fulfillments: crmFulfillments,
           });
@@ -4074,16 +4138,20 @@ export default function AdvisorOrderComposer({
         {error ? <div className="rounded-[18px] border border-[#5E2229] bg-[#261114] px-4 py-3 text-sm text-[#F0A6AE]">{error}</div> : null}
         {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
 
-        {initialCrmContext && !isEditingOrder ? (
+        {crmContext && !isEditingOrder ? (
           <section className="rounded-[20px] border border-[#5A4F12] bg-[#171506] p-3.5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B7AA53]">Cliente en jugada</div>
-                <div className="mt-1 text-sm font-semibold text-[#FFF18B]">{initialCrmContext.playName}</div>
+                <div className="mt-1 text-sm font-semibold text-[#FFF18B]">{crmContext.playName}</div>
                 <p className={`mt-1 text-xs ${crmPurchaseEligible ? 'text-[#7CE0A9]' : 'text-[#F7DA66]'}`}>
-                  {crmPurchaseEligible
+                  {crmPurchaseEligible && crmFulfillments.length === 0
+                    ? crmContext.benefitSelectionMode === 'single'
+                      ? 'Elige abajo el beneficio que desea usar el cliente.'
+                      : 'Elige uno o varios beneficios para armar la combinación del cliente.'
+                    : crmPurchaseEligible
                     ? 'Beneficio activo: el producto base queda incluido y una ampliación cobra solo la diferencia.'
-                    : `Faltan ${formatUsd(Math.max(0, Number(initialCrmContext.minimumOrderAmountUsd ?? 0) - commercialSubtotalAfterDiscountUsd))} en otros productos. Mientras tanto, el producto conserva su precio normal.`}
+                    : `Faltan ${formatUsd(Math.max(0, Number(crmContext.minimumOrderAmountUsd ?? 0) - commercialSubtotalAfterDiscountUsd))} en otros productos. Mientras tanto, el producto conserva su precio normal.`}
                 </p>
               </div>
               {crmFulfillments.length > 0 ? (
@@ -4098,7 +4166,7 @@ export default function AdvisorOrderComposer({
             </div>
 
             <div className="mt-3 space-y-2">
-              {initialCrmContext.benefits.map((benefit) => {
+              {crmContext.benefits.map((benefit) => {
                 const currentItem = draftItems.find((item) => item.crm_benefit?.playBenefitId === benefit.playBenefitId);
                 return (
                   <div key={benefit.playBenefitId} className="rounded-[14px] border border-[#302B10] bg-[#0D0D0A] p-2.5">
@@ -4133,9 +4201,9 @@ export default function AdvisorOrderComposer({
 
         <Section
           title="1. Cliente"
-          subtitle={initialCrmContext ? 'Este pedido queda vinculado al cliente seleccionado en la jugada.' : 'Busca primero y crea solo si no existe.'}
+          subtitle={crmContext ? 'La jugada se detectó automáticamente al elegir al cliente.' : 'Busca primero y crea solo si no existe.'}
         >
-          {!initialCrmContext ? (
+          {!crmContext ? (
             <Field label="Buscar cliente">
               <div className="flex gap-2">
                 <input
@@ -4170,9 +4238,22 @@ export default function AdvisorOrderComposer({
 
           {selectedClient ? (
             <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
-              <div className="font-medium">{selectedClient.full_name}</div>
-              <div className="mt-1 text-xs text-[#8B93A7]">{selectedClient.phone || 'Sin telefono'}</div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{selectedClient.full_name}</div>
+                  <div className="mt-1 text-xs text-[#8B93A7]">{selectedClient.phone || 'Sin telefono'}</div>
+                </div>
+                {!isEditingOrder ? (
+                  <button
+                    type="button"
+                    onClick={clearSelectedClient}
+                    className="shrink-0 rounded-xl border border-[#303543] px-2.5 py-1.5 text-[10px] font-semibold text-[#C9D0DF]"
+                  >
+                    Cambiar
+                  </button>
+                ) : null}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                 <div className="rounded-[14px] border border-[#232632] bg-[#12151d] px-3 py-2">
                   <div className="text-[#8B93A7]">Tipo</div>
                   <div className="mt-1 font-medium text-[#F5F7FB]">
@@ -4185,11 +4266,20 @@ export default function AdvisorOrderComposer({
                     {selectedClientFundUsd > 0 ? formatUsd(selectedClientFundUsd) : 'Sin fondo'}
                   </div>
                 </div>
+                <div className="min-w-0 rounded-[14px] border border-[#232632] bg-[#12151d] px-3 py-2">
+                  <div className="text-[#8B93A7]">Jugada</div>
+                  <div
+                    className={`mt-1 truncate font-medium ${crmContext ? 'text-[#FFF18B]' : 'text-[#F5F7FB]'}`}
+                    title={crmContext?.playName}
+                  >
+                    {crmContextLoading ? 'Revisando…' : crmContext?.playName || 'Sin jugada'}
+                  </div>
+                </div>
               </div>
             </div>
           ) : null}
 
-          {!initialCrmContext && clientResults.length > 0 ? (
+          {!crmContext && clientResults.length > 0 ? (
             <div className="space-y-2">
               {clientResults.map((client) => (
                 <button
@@ -4212,7 +4302,7 @@ export default function AdvisorOrderComposer({
             </div>
           ) : null}
 
-          {!initialCrmContext ? (
+          {!crmContext ? (
             <button
               type="button"
               onClick={() => {
@@ -4225,7 +4315,7 @@ export default function AdvisorOrderComposer({
             </button>
           ) : null}
 
-          {!initialCrmContext && isNewClientMode ? (
+          {!crmContext && isNewClientMode ? (
             <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
               <Field label="Nombre">
                 <input value={newClientName} onChange={(e) => setNewClientName(e.target.value)} className={inputClass()} placeholder="Nombre completo" />

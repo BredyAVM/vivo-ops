@@ -823,6 +823,37 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
   return { ok: true as const, lastModifiedAt: nowIso };
 }
 
+export async function prepareAdvisorCrmPlayBenefitsAction(input: {
+  playMemberId: number;
+  playBenefitIds: number[];
+}) {
+  try {
+    const ctx = await requireAuthContext();
+    const playMemberId = Math.trunc(Number(input.playMemberId));
+    const playBenefitIds = Array.from(new Set(
+      (Array.isArray(input.playBenefitIds) ? input.playBenefitIds : [])
+        .map((value) => Math.trunc(Number(value)))
+        .filter((value) => value > 0),
+    ));
+    if (playMemberId <= 0 || playBenefitIds.length === 0) {
+      return { ok: false as const, message: 'La selección del beneficio no es válida.' };
+    }
+
+    const { error } = await ctx.supabase.rpc('crm_set_play_benefits_v2', {
+      p_play_member_id: playMemberId,
+      p_play_benefit_ids: playBenefitIds,
+    });
+    if (error) return { ok: false as const, message: error.message };
+
+    return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'No se pudo preparar el beneficio de la jugada.',
+    };
+  }
+}
+
 export async function redeemAdvisorCrmPlayBenefitsAction(input: {
   playMemberId: number;
   orderId: number;
