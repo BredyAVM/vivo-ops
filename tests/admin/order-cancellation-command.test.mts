@@ -91,3 +91,12 @@ test('database command has protected receipts, locked balances and atomic cancel
   assert.match(migration, /guard_cancelled_order_money/);
   assert.doesNotMatch(migration, /set total_usd=0|delete from public.money_movements/i);
 });
+
+test('direct financial cancellations are blocked only in the post-deployment cutover', () => {
+  const names = readdirSync(new URL('../../supabase/migrations/', import.meta.url));
+  const main = names.find((name) => name.endsWith('_order_cancellation_atomic_v1.sql'))!;
+  const cutover = names.find((name) => name.endsWith('_order_cancellation_cutover_guard_v1.sql'))!;
+  assert.ok(cutover > main, 'base must exist before cutover');
+  assert.match(read('supabase/migrations/' + cutover), /Esta orden tiene dinero involucrado/);
+  assert.doesNotMatch(read('supabase/migrations/' + main), /Esta orden tiene dinero involucrado/);
+});

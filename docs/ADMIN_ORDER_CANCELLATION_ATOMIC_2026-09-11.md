@@ -56,7 +56,7 @@ física ni se modifican cierres históricos de comisiones.
 
 ## Verificación
 
-- 113 pruebas Node de administración, 79 de comisiones y 6 de seguridad.
+- 114 pruebas Node de administración, 79 de comisiones y 6 de seguridad.
 - Compilación de producción Next.js y su comprobación TypeScript aprobadas.
   `tsc --noEmit` directo sigue señalando errores previos de tipos en archivos
   de pruebas .mts; no se cambiaron ni se ocultaron en este bloque.
@@ -93,6 +93,16 @@ aviso de descubrimiento del esquema, no una autorización de lectura de filas.
 [Criterio del aviso](https://supabase.com/docs/guides/database/database-linter).
 La sesión de navegador disponible es Asesor; la inspección visual del nuevo
 formulario Master/Admin queda pendiente de una sesión con ese rol.
+
+Publicación funcional: commit `6b155f7`, despliegue
+`vivo-9h9hgr6jn-bredyavms-projects.vercel.app`, READY con alias de producción.
+Migraciones aplicadas: `20260911171210` (operación) y `20260911171756`
+(protección posterior al despliegue). Suite SQL de cancelación repetida después
+de ambas migraciones: aprobada. Consulta sin escritura de las 20 órdenes
+vigentes más recientes: 20 resúmenes disponibles, cero bloqueos en esa muestra.
+Revisión de logs de esa publicación: un aviso Node DEP0169 por `url.parse()`
+en una respuesta HTTP 200, sin excepción funcional identificada en esa muestra.
+Su origen exacto queda pendiente de diagnóstico; no se ocultó la advertencia.
 
 Pendientes: nómina y deducibles; uso independiente del fondo y redondeo atómicos;
 conciliación histórica guiada; corrección integral de cancelaciones; rediseño
