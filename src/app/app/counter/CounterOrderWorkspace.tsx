@@ -47,6 +47,10 @@ import type {
   CounterQuickSaleProductComponent,
   CounterQuickSaleProductOption,
 } from './CounterClient';
+import {
+  isCounterProductSuspended,
+  useCounterProductAvailability,
+} from './useCounterProductAvailability';
 
 function CounterOperationDialog({
   title,
@@ -1445,17 +1449,45 @@ function CounterPickupItemsEditor({
     const component = configComponents.find((item) => item.componentProductId === row.componentProductId);
     return sum + (component?.countsTowardDetailLimit ? Number(row.qty || 0) : 0);
   }, 0);
+  const availabilityTargetAt = useMemo(() => {
+    const scheduledDate = /^\d{4}-\d{2}-\d{2}$/.test(String(order.scheduledDate || ''))
+      ? String(order.scheduledDate)
+      : getTodayKey();
+    return `${scheduledDate}T${scheduleTimeInput(order.scheduledTime)}:00-04:00`;
+  }, [order.scheduledDate, order.scheduledTime]);
+  const availabilityProductIds = useMemo(
+    () => products.map((product) => product.id).slice(0, 200),
+    [products],
+  );
+  const {
+    availabilityByProductId,
+    availabilityLoading,
+    availabilityError,
+  } = useCounterProductAvailability({
+    targetAt: availabilityTargetAt,
+    productIds: availabilityProductIds,
+  });
   const filteredProducts = useMemo(() => {
+    if (availabilityLoading && availabilityByProductId.size === 0) return [];
     const term = productSearch.trim().toLocaleLowerCase('es-VE');
     if (!term) return [];
     return products
+      .filter(
+        (product) => !isCounterProductSuspended(availabilityByProductId.get(product.id)),
+      )
       .filter((product) =>
         [product.name, product.sku, product.type]
           .filter(Boolean)
           .some((value) => String(value).toLocaleLowerCase('es-VE').includes(term))
       )
       .slice(0, 12);
-  }, [productSearch, products]);
+  }, [availabilityByProductId, availabilityLoading, productSearch, products]);
+  const suspendedProductCount = useMemo(
+    () => products.filter(
+      (product) => isCounterProductSuspended(availabilityByProductId.get(product.id)),
+    ).length,
+    [availabilityByProductId, products],
+  );
   const lineRows = useMemo(() => {
     return cartItems.map((item) => {
       const product = productsById.get(item.productId) ?? null;
@@ -1520,6 +1552,13 @@ function CounterPickupItemsEditor({
   const estimatedDifferenceUsd = Math.round((estimatedTotalUsd - order.totalUsd) * 100) / 100;
 
   function addProduct(product: CounterQuickSaleProductOption) {
+    if (isCounterProductSuspended(availabilityByProductId.get(product.id))) {
+      setLocalError(
+        availabilityByProductId.get(product.id)?.message
+          ?? 'Máster detuvo temporalmente la venta de este producto.',
+      );
+      return;
+    }
     const productConfigComponents = componentsByParentId.get(product.id) ?? [];
     if (product.isDetailEditable) {
       const optionalFixedSelections = productConfigComponents
@@ -1636,6 +1675,24 @@ function CounterPickupItemsEditor({
   function confirmProductConfig() {
     if (!configProduct) return;
 
+    if (isCounterProductSuspended(availabilityByProductId.get(configProduct.id))) {
+      setLocalError(
+        availabilityByProductId.get(configProduct.id)?.message
+          ?? 'Máster detuvo temporalmente la venta de este producto.',
+      );
+      return;
+    }
+    const suspendedSelection = configSelections.find(
+      (selection) => selection.qty > 0
+        && isCounterProductSuspended(
+          availabilityByProductId.get(selection.componentProductId),
+        ),
+    );
+    if (suspendedSelection) {
+      setLocalError(`${suspendedSelection.componentName} está detenido temporalmente por Máster.`);
+      return;
+    }
+
     const limit = Number(configProduct.detailUnitsLimit || 0);
     if (limit > 0 && configSelectedUnits !== limit) {
       setLocalError(`Debes seleccionar exactamente ${limit} piezas.`);
@@ -1695,6 +1752,20 @@ function CounterPickupItemsEditor({
 
     if (hasReduction && reason.trim().length < 4) {
       setLocalError('Indica el motivo de la reduccion o retiro.');
+      return;
+    }
+
+    const suspendedCartItem = cartItems.find((item) =>
+      isCounterProductSuspended(availabilityByProductId.get(item.productId))
+      || item.editableDetailLines.some((line) => {
+        const match = line.match(/^@sel\|([1-9][0-9]*)\|/);
+        return match
+          ? isCounterProductSuspended(availabilityByProductId.get(Number(match[1])))
+          : false;
+      }),
+    );
+    if (suspendedCartItem) {
+      setLocalError('Máster detuvo uno de los productos agregados. Retíralo para guardar el cambio.');
       return;
     }
 
@@ -1869,12 +1940,23 @@ function CounterPickupItemsEditor({
                 className="min-h-12 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
               />
             </label>
+            {availabilityError ? (
+              <div className="mt-2 rounded-[8px] border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                {availabilityError}
+              </div>
+            ) : suspendedProductCount > 0 ? (
+              <div className="mt-2 text-xs text-[#9FA0AA]">
+                {suspendedProductCount} producto(s) detenido(s) por Máster no aparecen en la búsqueda.
+              </div>
+            ) : null}
 
             {productSearch.trim() ? (
               <div className="mt-2 max-h-[310px] overflow-y-auto rounded-[8px] border border-[#303044] bg-[#0B0B0D]">
                 {filteredProducts.length === 0 ? (
                   <div className="px-4 py-5 text-center text-sm text-[#9FA0AA]">
-                    No encontramos productos con ese nombre o codigo.
+                    {availabilityLoading && availabilityByProductId.size === 0
+                      ? 'Consultando productos disponibles…'
+                      : 'No encontramos productos disponibles con ese nombre o código.'}
                   </div>
                 ) : (
                   filteredProducts.map((product) => (
@@ -1940,16 +2022,23 @@ function CounterPickupItemsEditor({
             {configSelectableComponents.map((component) => {
               const currentQty =
                 configSelections.find((row) => row.componentProductId === component.componentProductId)?.qty ?? 0;
+              const componentSuspended = isCounterProductSuspended(
+                availabilityByProductId.get(component.componentProductId),
+              );
 
               return (
                 <label
                   key={component.componentProductId}
-                  className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-2 text-sm text-[#F5F5F7]"
+                  className={[
+                    'rounded-[8px] border bg-[#0B0B0D] p-2 text-sm text-[#F5F5F7]',
+                    componentSuspended ? 'border-red-400/35 opacity-60' : 'border-[#303044]',
+                  ].join(' ')}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold">{component.componentName}</span>
                     <input
                       value={currentQty ? String(currentQty) : ''}
+                      disabled={componentSuspended}
                       onChange={(event) =>
                         setConfigSelectionQty(
                           component.componentProductId,
@@ -1958,11 +2047,13 @@ function CounterPickupItemsEditor({
                         )
                       }
                       inputMode="numeric"
-                      className="h-9 w-20 rounded-[8px] border border-[#303044] bg-[#111118] px-2 text-right text-sm outline-none focus:border-[#FEEF00]/70"
+                      className="h-9 w-20 rounded-[8px] border border-[#303044] bg-[#111118] px-2 text-right text-sm outline-none focus:border-[#FEEF00]/70 disabled:cursor-not-allowed disabled:opacity-45"
                     />
                   </div>
                   <div className="mt-1 text-[11px] text-[#9FA0AA]">
-                    {component.componentMode === 'fixed' ? 'Fijo opcional' : 'Seleccionable'}
+                    {componentSuspended
+                      ? 'Venta detenida por Máster'
+                      : component.componentMode === 'fixed' ? 'Fijo opcional' : 'Seleccionable'}
                     {component.countsTowardDetailLimit ? ' · cuenta para limite' : ''}
                   </div>
                 </label>

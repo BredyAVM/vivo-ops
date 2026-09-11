@@ -962,13 +962,18 @@ async function executeCounterQuickSaleAction(
     const availabilityRows = Array.isArray(availabilityData?.products)
       ? availabilityData.products as Array<{
           product_id?: number;
+          availability_state?: string;
           inventory_blocks_submission?: boolean;
+          is_commercially_suspended?: boolean;
           protected_balance_active?: boolean;
           protected_maximum_quantity?: number | null;
           protected_available_component_units?: number | null;
         }>
       : [];
-    if (availabilityRows.some((row) => row.inventory_blocks_submission === true)) {
+    if (availabilityRows.some(
+      (row) => row.is_commercially_suspended === true
+        || row.availability_state === 'declared_unavailable',
+    )) {
       throw new Error('counter_product_suspended');
     }
     const availabilityByProductId = new Map(
@@ -1015,7 +1020,7 @@ async function executeCounterQuickSaleAction(
     p_idempotency_key: idempotencyKey,
     p_payload: payload,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(directSaleErrorMessage(error.message));
   const result = asRecord(data);
   const orderId = Math.trunc(toSafeNumber(result.id, 0));
   if (orderId <= 0) throw new Error('La venta se creo sin un numero de orden valido.');
@@ -1155,7 +1160,7 @@ export async function changeCounterPickupItemsAction(
     p_added_items: addedItems,
     p_reason: String(input.reason || '').trim() || null,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(directSaleErrorMessage(error.message));
   const result = asRecord(data);
 
   revalidatePath('/app/counter');

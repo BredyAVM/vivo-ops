@@ -9,7 +9,6 @@ import {
   calculateOrderLineSnapshot,
   calculateOrderTotalsSnapshot,
 } from '@/lib/pricing/order-snapshots';
-import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import {
   searchCounterClientsAction,
   type CounterClientSearchResult,
@@ -23,6 +22,11 @@ import type {
   CounterQuickSaleProductComponent,
   CounterQuickSaleProductOption,
 } from './CounterClient';
+import {
+  isCounterProductSuspended,
+  useCounterProductAvailability,
+  type CounterProductAvailability,
+} from './useCounterProductAvailability';
 import { getCounterUiErrorMessage } from './ui-errors';
 
 type CounterQuickSaleCartItem = {
@@ -31,17 +35,6 @@ type CounterQuickSaleCartItem = {
   qty: string;
   notes: string;
   editableDetailLines: string[];
-};
-
-type CounterProductAvailability = {
-  product_id: number;
-  availability_state: string;
-  message: string;
-  requires_master_review: boolean;
-  inventory_blocks_submission: boolean;
-  protected_balance_active?: boolean;
-  protected_maximum_quantity?: number | null;
-  protected_available_component_units?: number | null;
 };
 
 function protectedCartViolation(
@@ -187,7 +180,6 @@ export function CounterQuickSalePanel({
   onCancel: () => void;
   onSubmit: (input: CounterDirectSaleIntent) => void;
 }) {
-  const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [clientSearch, setClientSearch] = useState('');
   const [clientSearchResults, setClientSearchResults] = useState<CounterClientSearchResult[]>([]);
   const [clientSearchLoading, setClientSearchLoading] = useState(false);
@@ -210,6 +202,7 @@ export function CounterQuickSalePanel({
   const [receiverPhone, setReceiverPhone] = useState('');
   const [note, setNote] = useState('');
   const [scheduleMode, setScheduleMode] = useState<'now' | 'scheduled'>('now');
+  const [availabilityNowAnchor] = useState(() => new Date().toISOString());
   const [scheduledDate, setScheduledDate] = useState(getTodayKey());
   const [scheduledTime, setScheduledTime] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('pos');
@@ -238,9 +231,6 @@ export function CounterQuickSalePanel({
   const [qty, setQty] = useState('1');
   const [itemNotes, setItemNotes] = useState('');
   const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
-  const [availabilityByProductId, setAvailabilityByProductId] = useState<Map<number, CounterProductAvailability>>(new Map());
-  const [availabilityLoading, setAvailabilityLoading] = useState(false);
-  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [configProductId, setConfigProductId] = useState<number | null>(null);
   const [configAlias, setConfigAlias] = useState('');
   const [configSelections, setConfigSelections] = useState<Array<{
@@ -280,10 +270,22 @@ export function CounterQuickSalePanel({
       ? phoneLookup.clients
       : [];
   const availabilityTargetAt = useMemo(() => {
-    if (scheduleMode === 'now') return new Date().toISOString();
+    if (scheduleMode === 'now') return availabilityNowAnchor;
     if (!scheduledDate || !/^\d{2}:\d{2}$/.test(scheduledTime)) return null;
     return `${scheduledDate}T${scheduledTime}:00-04:00`;
-  }, [scheduleMode, scheduledDate, scheduledTime]);
+  }, [availabilityNowAnchor, scheduleMode, scheduledDate, scheduledTime]);
+  const availabilityProductIds = useMemo(
+    () => products.map((product) => product.id).slice(0, 200),
+    [products],
+  );
+  const {
+    availabilityByProductId,
+    availabilityLoading,
+    availabilityError,
+  } = useCounterProductAvailability({
+    targetAt: availabilityTargetAt,
+    productIds: availabilityProductIds,
+  });
   const configProduct = configProductId ? productsById.get(configProductId) ?? null : null;
   const configComponents = configProductId ? componentsByParentId.get(configProductId) ?? [] : [];
   const configSelectableComponents = configComponents.filter(
@@ -294,50 +296,26 @@ export function CounterQuickSalePanel({
     return sum + (component?.countsTowardDetailLimit ? Number(row.qty || 0) : 0);
   }, 0);
   const filteredProducts = useMemo(() => {
+    if (availabilityLoading && availabilityByProductId.size === 0) return [];
     const term = productSearch.trim().toLocaleLowerCase('es-VE');
-    if (!term) return products.slice(0, 80);
-    return products
+    const sellableProducts = products.filter(
+      (product) => !isCounterProductSuspended(availabilityByProductId.get(product.id)),
+    );
+    if (!term) return sellableProducts.slice(0, 80);
+    return sellableProducts
       .filter((product) =>
         [product.name, product.sku, product.type]
           .filter(Boolean)
           .some((value) => String(value).toLocaleLowerCase('es-VE').includes(term))
       )
       .slice(0, 80);
-  }, [productSearch, products]);
-
-  useEffect(() => {
-    if (!availabilityTargetAt || products.length === 0) {
-      setAvailabilityByProductId(new Map());
-      setAvailabilityError(null);
-      setAvailabilityLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setAvailabilityLoading(true);
-      setAvailabilityError(null);
-      const { data, error } = await supabase.rpc('inventory_catalog_availability_v1', {
-        p_target_at: availabilityTargetAt,
-        p_product_ids: products.map((product) => product.id).slice(0, 200),
-        p_surface: 'counter_inventory',
-      });
-      if (cancelled) return;
-      if (error) {
-        setAvailabilityByProductId(new Map());
-        setAvailabilityError('No se pudo consultar inventario. La venta puede continuar y Máster revisará la solicitud.');
-      } else {
-        const rows = Array.isArray(data?.products) ? data.products as CounterProductAvailability[] : [];
-        setAvailabilityByProductId(new Map(rows.map((row) => [Number(row.product_id), row])));
-      }
-      setAvailabilityLoading(false);
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [availabilityTargetAt, products, supabase]);
+  }, [availabilityByProductId, availabilityLoading, productSearch, products]);
+  const suspendedProductCount = useMemo(
+    () => products.filter(
+      (product) => isCounterProductSuspended(availabilityByProductId.get(product.id)),
+    ).length,
+    [availabilityByProductId, products],
+  );
   const lineRows = useMemo(() => {
     return cartItems.map((item) => {
       const product = productsById.get(item.productId) ?? null;
@@ -534,7 +512,7 @@ export function CounterQuickSalePanel({
       setLocalError('Selecciona un producto valido.');
       return;
     }
-    if (availabilityByProductId.get(product.id)?.inventory_blocks_submission) {
+    if (isCounterProductSuspended(availabilityByProductId.get(product.id))) {
       setLocalError(
         availabilityByProductId.get(product.id)?.message
           ?? 'Máster detuvo temporalmente la venta de este producto.',
@@ -633,7 +611,9 @@ export function CounterQuickSalePanel({
     const suspendedSelection = configSelections.find(
       (selection) =>
         selection.qty > 0
-        && availabilityByProductId.get(selection.componentProductId)?.inventory_blocks_submission,
+        && isCounterProductSuspended(
+          availabilityByProductId.get(selection.componentProductId),
+        ),
     );
     if (suspendedSelection) {
       setLocalError(`${suspendedSelection.componentName} está detenido temporalmente por Máster.`);
@@ -736,7 +716,7 @@ export function CounterQuickSalePanel({
       return;
     }
     const blockedItem = cartItems.find((item) =>
-      availabilityByProductId.get(item.productId)?.inventory_blocks_submission,
+      isCounterProductSuspended(availabilityByProductId.get(item.productId)),
     );
     if (blockedItem) {
       setLocalError(
@@ -1100,7 +1080,9 @@ export function CounterQuickSalePanel({
               : availabilityError
                 ? availabilityError
                 : availabilityTargetAt
-                  ? 'Fecha lista. Las señales son informativas y no impiden crear la venta.'
+                  ? suspendedProductCount > 0
+                    ? `${suspendedProductCount} producto(s) detenido(s) por Máster no aparecen en el catálogo. Las demás señales son informativas.`
+                    : 'Fecha lista. El catálogo respeta las ventas detenidas por Máster; las demás señales son informativas.'
                   : 'Completa fecha y hora para abrir el catálogo.'}
           </div>
         </div>
@@ -1128,7 +1110,11 @@ export function CounterQuickSalePanel({
           {productSearch.trim() ? (
             <div className="max-h-[210px] overflow-y-auto rounded-[8px] border border-[#242433] bg-[#111118]">
               {filteredProducts.length === 0 ? (
-                <div className="px-3 py-3 text-sm text-[#9FA0AA]">Sin resultados.</div>
+                <div className="px-3 py-3 text-sm text-[#9FA0AA]">
+                  {availabilityLoading && availabilityByProductId.size === 0
+                    ? 'Consultando productos disponibles…'
+                    : 'Sin resultados disponibles.'}
+                </div>
               ) : (
                 filteredProducts.map((product) => (
                   <button
@@ -1224,8 +1210,8 @@ export function CounterQuickSalePanel({
                 {configSelectableComponents.map((component) => {
                   const currentQty =
                     configSelections.find((row) => row.componentProductId === component.componentProductId)?.qty ?? 0;
-                  const componentSuspended = Boolean(
-                    availabilityByProductId.get(component.componentProductId)?.inventory_blocks_submission,
+                  const componentSuspended = isCounterProductSuspended(
+                    availabilityByProductId.get(component.componentProductId),
                   );
 
                   return (
