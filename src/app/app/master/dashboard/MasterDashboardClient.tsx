@@ -5030,6 +5030,8 @@ const orderActionBusyRef = useRef(false);
   const [baselineNotes, setBaselineNotes] = useState('');
   const [closureOpen, setClosureOpen] = useState(false);
   const [closureSaving, setClosureSaving] = useState(false);
+  const closureRequestIdRef = useRef<string | null>(null);
+  const closureBusyRef = useRef(false);
   const [closureCountedAmount, setClosureCountedAmount] = useState('');
   const [closureDate, setClosureDate] = useState(getCaracasTodayString());
   const [closureTime, setClosureTime] = useState(getCaracasCurrentTimeString());
@@ -8358,6 +8360,7 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const resetClosureForm = () => {
+    closureRequestIdRef.current = null;
     setClosureDate(getCaracasTodayString());
     setClosureTime(getCaracasCurrentTimeString());
     setClosureCountedAmount('');
@@ -9401,7 +9404,7 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const handleCreateMoneyAccountClosure = async () => {
-    if (!selectedAccount) return;
+    if (!selectedAccount || closureBusyRef.current) return;
 
     const countedAmount = Number(String(closureCountedAmount || '').replace(',', '.'));
     const exchangeRate =
@@ -9420,8 +9423,11 @@ const handleSaveQuickCatalog = async () => {
     }
 
     try {
+      closureBusyRef.current = true;
       setClosureSaving(true);
+      closureRequestIdRef.current ??= crypto.randomUUID();
       const result = await createMoneyAccountClosureAction({
+        requestId: closureRequestIdRef.current,
         moneyAccountId: selectedAccount.id,
         closureDate,
         closureTime,
@@ -9442,6 +9448,7 @@ const handleSaveQuickCatalog = async () => {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo registrar el cierre.');
     } finally {
+      closureBusyRef.current = false;
       setClosureSaving(false);
     }
   };
@@ -23860,6 +23867,7 @@ deliveryAssignMode === 'external' ? (
             : 'Cierre de cuenta'
         }
         onClose={() => {
+          if (closureBusyRef.current) return;
           setClosureOpen(false);
           resetClosureForm();
         }}

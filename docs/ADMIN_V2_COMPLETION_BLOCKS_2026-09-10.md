@@ -73,6 +73,16 @@ completa certificada: `ADMIN_TRANSFER_ATOMIC_2026-09-11.md`.
 Anulación genérica Master migrada a comando atómico con fondo y reversión de
 redondeo certificado: `ADMIN_FINANCIAL_VOID_ATOMIC_2026-09-11.md`. Conservar sus
 excepciones de Mostrador histórico y movimientos de cierre en los pendientes.
+Registro y anulación de cierres Master migrados junto a sus pendientes de
+conciliación: `ADMIN_ACCOUNT_CLOSURE_ATOMIC_2026-09-11.md`. No incluye líneas
+base, resolución financiera de diferencias ni todos los circuitos POS/Mostrador.
+
+Decisión pendiente antes de migrar devoluciones del fondo: Dashboard permite
+una salida superior al saldo del cliente (`settleClientFundPayoutAction`),
+descontando solamente la parte cubierta; Ops exige que toda la devolución esté
+cubierta. Se requiere definir una regla única, sin inventar un motivo/categoría
+para el dinero adicional. Cancelación de órdenes con dinero/fondo y nómina
+siguen pendientes; no deben confundirse con anular un movimiento financiero.
 
 Actualización del 11 de septiembre: también está implementada la corrección
 atómica de entregas antiguas, con historial visible incluido. Ver
