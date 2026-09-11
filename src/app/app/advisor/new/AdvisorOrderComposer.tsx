@@ -11,7 +11,7 @@ import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone
 import { normalizeRemoteSearchValue, normalizeSearchValue, splitSearchTokens } from '@/lib/search/normalize-search';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
-import { crmPlayDetailLine, isInternalOrderDetailLine } from '@/lib/crm/play-order';
+import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/play-order';
 import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
 import {
   buildWhatsAppOrderSummaryText,
@@ -147,6 +147,7 @@ type DraftItem = {
   line_total_usd: number;
   editable_detail_lines: string[];
   crm_benefit?: {
+    playMemberId: number;
     playBenefitId: number;
     playBenefitUpgradeId: number | null;
     eligibleUnitPriceUsd: number;
@@ -254,6 +255,9 @@ type ExistingOrderItemRow = {
   sku_snapshot: string | null;
   product_name_snapshot: string | null;
   notes: string | null;
+  crm_play_member_id: number | string | null;
+  crm_play_benefit_id: number | string | null;
+  crm_play_benefit_upgrade_id: number | string | null;
   product:
     | {
         type: ProductRow['type'];
@@ -664,11 +668,9 @@ function buildCrmBenefitDraftItem(
     source_price_amount: quantity > 0 ? customerDifferenceUsd / quantity : 0,
     unit_price_usd_snapshot: quantity > 0 ? customerDifferenceUsd / quantity : 0,
     line_total_usd: customerDifferenceUsd,
-    editable_detail_lines: [
-      crmPlayDetailLine('play', context.playName),
-      crmPlayDetailLine('benefit', upgrade?.name ?? benefit.name),
-    ],
+    editable_detail_lines: [],
     crm_benefit: {
+      playMemberId: context.playMemberId,
       playBenefitId: benefit.playBenefitId,
       playBenefitUpgradeId: upgrade?.id ?? null,
       eligibleUnitPriceUsd: quantity > 0 ? customerDifferenceUsd / quantity : 0,
@@ -1060,7 +1062,7 @@ function buildDraftItemsSnapshot(items: DraftItem[]) {
     productName: normalizeSnapshotText(item.product_name_snapshot),
     qty: Number(item.qty || 0),
     lineTotalUsd: Number(Number(item.line_total_usd || 0).toFixed(2)),
-    detailLines: item.editable_detail_lines.map((line) => normalizeSnapshotText(line)).filter(Boolean),
+    detailLines: getVisibleDetailLines(item.editable_detail_lines),
   }));
 }
 
@@ -1092,7 +1094,7 @@ function normalizeDraftItemsPayload(value: unknown): DraftItem[] {
         unit_price_usd_snapshot: Number(row.unit_price_usd_snapshot || 0) || 0,
         line_total_usd: Number(row.line_total_usd || 0) || 0,
         editable_detail_lines: Array.isArray(row.editable_detail_lines)
-          ? row.editable_detail_lines.map((line) => String(line || '').trim()).filter(Boolean)
+          ? getVisibleDetailLines(row.editable_detail_lines.map((line) => String(line || '')))
           : [],
       } satisfies DraftItem;
     })
@@ -1839,7 +1841,8 @@ export default function AdvisorOrderComposer({
         (product) =>
           product.is_active !== false &&
           product.extra_fields?.inventory_component_only !== true &&
-          product.extra_fields?.catalog_access_scope !== 'admin_internal'
+          product.extra_fields?.catalog_access_scope !== 'admin_internal' &&
+          !isCrmOnlyCatalogProduct(product)
       )
       .map((product) => ({
         product,
@@ -2040,7 +2043,7 @@ export default function AdvisorOrderComposer({
             supabase
               .from('order_items')
               .select(
-                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, sku_snapshot, product_name_snapshot, notes, product:products(type, units_per_service)'
+                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, sku_snapshot, product_name_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, product:products(type, units_per_service)'
               )
               .eq('order_id', Number(sourceOrderId))
               .order('id', { ascending: true }),
@@ -2145,6 +2148,28 @@ export default function AdvisorOrderComposer({
               });
             }
 
+            const currentProduct = activeProductById.get(Number(item.product_id));
+            const crmPlayMemberId = Number(item.crm_play_member_id || 0);
+            const crmPlayBenefitId = Number(item.crm_play_benefit_id || 0);
+            const crmUpgradeId = Number(item.crm_play_benefit_upgrade_id || 0);
+            const crmBenefit = crmPlayMemberId > 0 && crmPlayBenefitId > 0
+              ? {
+                  playMemberId: crmPlayMemberId,
+                  playBenefitId: crmPlayBenefitId,
+                  playBenefitUpgradeId: crmUpgradeId > 0 ? crmUpgradeId : null,
+                  eligibleUnitPriceUsd:
+                    Number(item.qty || 0) > 0
+                      ? Number(item.line_total_usd ?? 0) / Number(item.qty || 1)
+                      : 0,
+                  catalogSourceCurrency: (currentProduct?.source_price_currency || 'USD') as CurrencyCode,
+                  catalogSourceAmount: Number(
+                    currentProduct?.source_price_amount
+                      ?? currentProduct?.base_price_usd
+                      ?? 0,
+                  ) || 0,
+                }
+              : undefined;
+
             return {
               localId: `existing-${item.id}`,
               product_id: Number(item.product_id),
@@ -2159,11 +2184,9 @@ export default function AdvisorOrderComposer({
               unit_price_usd_snapshot: Number(item.unit_price_usd_snapshot ?? 0) || 0,
               line_total_usd: Number(item.line_total_usd ?? 0) || 0,
               editable_detail_lines: item.notes?.trim()
-                ? item.notes
-                    .split('\n')
-                    .map((line) => line.trim())
-                    .filter(Boolean)
+                ? getVisibleDetailLines(item.notes.split('\n'))
                 : [],
+              crm_benefit: crmBenefit,
             };
           }).filter((item): item is DraftItem => !!item);
           const schedule = order.extra_fields?.schedule;
@@ -3347,10 +3370,8 @@ export default function AdvisorOrderComposer({
     const editingItem = configEditingLocalId
       ? draftItems.find((draft) => draft.localId === configEditingLocalId) ?? null
       : null;
-    const internalCrmLines = editingItem?.editable_detail_lines.filter((line) =>
-      String(line || '').trim().toLowerCase().startsWith('@crm|')) ?? [];
     const item = {
-      ...buildDraftItem(configProduct, configQty, [...detailLines, ...internalCrmLines]),
+      ...buildDraftItem(configProduct, configQty, detailLines),
       crm_benefit: editingItem?.crm_benefit,
     } satisfies DraftItem;
 
@@ -3417,8 +3438,9 @@ export default function AdvisorOrderComposer({
             ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
             : Number(item.line_total_usd || 0) * fxRateNumber;
         parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
-        if (item.editable_detail_lines.length > 0) {
-          for (const detail of item.editable_detail_lines) {
+        const visibleDetails = getVisibleDetailLines(item.editable_detail_lines);
+        if (visibleDetails.length > 0) {
+          for (const detail of visibleDetails) {
             parts.push(`   - ${detail}`);
           }
         }
@@ -3496,7 +3518,7 @@ export default function AdvisorOrderComposer({
             ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
             : Number(item.line_total_usd || 0) * fxRateNumber;
         parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
-        for (const detail of item.editable_detail_lines) {
+        for (const detail of getVisibleDetailLines(item.editable_detail_lines)) {
           const normalizedDetail = String(detail || '').trim();
           if (normalizedDetail) parts.push(`   - ${normalizedDetail}`);
         }
@@ -4009,7 +4031,16 @@ export default function AdvisorOrderComposer({
         product_name_snapshot: item.product_name_snapshot,
         notes: item.crm_benefit && !crmPurchaseEligible
           ? null
-          : item.editable_detail_lines.length > 0 ? item.editable_detail_lines.join('\n') : null,
+          : getVisibleDetailLines(item.editable_detail_lines).join('\n') || null,
+        crm_play_member_id: item.crm_benefit && crmPurchaseEligible
+          ? item.crm_benefit.playMemberId
+          : null,
+        crm_play_benefit_id: item.crm_benefit && crmPurchaseEligible
+          ? item.crm_benefit.playBenefitId
+          : null,
+        crm_play_benefit_upgrade_id: item.crm_benefit && crmPurchaseEligible
+          ? item.crm_benefit.playBenefitUpgradeId
+          : null,
         };
       });
 
@@ -4031,7 +4062,18 @@ export default function AdvisorOrderComposer({
               lineTotalBsSnapshot: snapshot.lineBs,
               skuSnapshot: item.sku_snapshot,
               productNameSnapshot: item.product_name_snapshot,
-              editableDetailLines: item.crm_benefit && !crmPurchaseEligible ? [] : item.editable_detail_lines,
+              editableDetailLines: item.crm_benefit && !crmPurchaseEligible
+                ? []
+                : getVisibleDetailLines(item.editable_detail_lines),
+              crmPlayMemberId: item.crm_benefit && crmPurchaseEligible
+                ? item.crm_benefit.playMemberId
+                : null,
+              crmPlayBenefitId: item.crm_benefit && crmPurchaseEligible
+                ? item.crm_benefit.playBenefitId
+                : null,
+              crmPlayBenefitUpgradeId: item.crm_benefit && crmPurchaseEligible
+                ? item.crm_benefit.playBenefitUpgradeId
+                : null,
             };
           }),
         });

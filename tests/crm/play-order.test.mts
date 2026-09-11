@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   crmPlayDetailLine,
+  isCrmOnlyCatalogProduct,
   isInternalOrderDetailLine,
   isPlayOrderAvailableAt,
 } from '../../src/lib/crm/play-order.ts';
@@ -27,4 +28,13 @@ test('normalizes internal CRM metadata to a single safe line', () => {
     crmPlayDetailLine('play', 'Aniversario\nseptiembre|interno'),
     '@crm|play:Aniversario septiembre interno',
   );
+});
+
+test('keeps regular products searchable and reserves Gambit products for CRM', () => {
+  assert.equal(isCrmOnlyCatalogProduct({ type: 'gambit', extra_fields: {} }), true);
+  assert.equal(
+    isCrmOnlyCatalogProduct({ type: 'combo', extra_fields: { catalog_access_scope: 'crm_only' } }),
+    true,
+  );
+  assert.equal(isCrmOnlyCatalogProduct({ type: 'combo', extra_fields: {} }), false);
 });

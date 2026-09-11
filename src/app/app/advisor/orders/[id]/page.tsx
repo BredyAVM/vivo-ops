@@ -984,7 +984,7 @@ export default async function AdvisorOrderDetailPage({
   ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
   const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
-  const { data: financialStateData, error: financialStateError } = await (ctx.supabase as any).rpc(
+  const { data: financialStateData, error: financialStateError } = await ctx.supabase.rpc(
     'get_order_financial_state',
     {
       p_order_id: orderId,
@@ -1379,9 +1379,9 @@ export default async function AdvisorOrderDetailPage({
                   </div>
                   <div className="font-medium text-[#F0D000]">{formatBs(getLineTotalBs(item, detailFxRate))}</div>
                 </div>
-                {item.notes?.trim() ? (
+                {getVisibleEditableDetailLines(item.notes).length > 0 ? (
                   <div className="mt-2 whitespace-pre-line rounded-[14px] bg-[#12151d] px-3 py-2 text-xs leading-5 text-[#AAB2C5]">
-                    {item.notes.trim()}
+                    {getVisibleEditableDetailLines(item.notes).join('\n')}
                   </div>
                 ) : null}
                 {item.admin_price_override_usd != null ? (

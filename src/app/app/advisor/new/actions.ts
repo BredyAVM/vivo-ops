@@ -12,6 +12,7 @@ import {
   type OrderChangeSection,
 } from '@/lib/orders/order-change-detail';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
+import { isInternalOrderDetailLine } from '@/lib/crm/play-order';
 import { sendPushToRoleDevices } from '@/lib/push';
 
 const STALE_ORDER_EDIT_MESSAGE =
@@ -29,6 +30,9 @@ type ReplaceAdvisorOrderItemInput = {
   skuSnapshot: string | null;
   productNameSnapshot: string;
   editableDetailLines: string[];
+  crmPlayMemberId: number | null;
+  crmPlayBenefitId: number | null;
+  crmPlayBenefitUpgradeId: number | null;
 };
 
 type AdvisorOrderChangeSummaryInput = {
@@ -1047,29 +1051,71 @@ export async function replaceAdvisorOrderItemsAction(input: {
     line_total_bs_snapshot: toFiniteNumber(item.lineTotalBsSnapshot),
     sku_snapshot: item.skuSnapshot || null,
     product_name_snapshot: String(item.productNameSnapshot || '').trim() || 'Item',
-    notes:
-      Array.isArray(item.editableDetailLines) && item.editableDetailLines.length > 0
-        ? item.editableDetailLines.map((line) => String(line || '').trim()).filter(Boolean).join('\n') || null
-        : null,
+    notes: Array.isArray(item.editableDetailLines)
+      ? item.editableDetailLines
+          .map((line) => String(line || '').trim())
+          .filter((line) => line && !isInternalOrderDetailLine(line))
+          .join('\n') || null
+      : null,
+    crm_play_member_id: toFiniteNumber(item.crmPlayMemberId, 0) > 0
+      ? Math.trunc(toFiniteNumber(item.crmPlayMemberId))
+      : null,
+    crm_play_benefit_id: toFiniteNumber(item.crmPlayBenefitId, 0) > 0
+      ? Math.trunc(toFiniteNumber(item.crmPlayBenefitId))
+      : null,
+    crm_play_benefit_upgrade_id: toFiniteNumber(item.crmPlayBenefitUpgradeId, 0) > 0
+      ? Math.trunc(toFiniteNumber(item.crmPlayBenefitUpgradeId))
+      : null,
   }));
 
   const adminSupabase = createSupabaseServiceRoleServer();
 
   const { data: existingItems, error: existingItemsError } = await adminSupabase
     .from('order_items')
-    .select('id, product_id, product_name_snapshot, qty, unit_price_usd_snapshot, notes')
+    .select('id, product_id, product_name_snapshot, qty, unit_price_usd_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id')
     .eq('order_id', orderId);
 
   if (existingItemsError) {
     throw new Error(existingItemsError.message);
   }
 
-  const { error: insertItemsError } = await adminSupabase
+  const { data: insertedItems, error: insertItemsError } = await adminSupabase
     .from('order_items')
-    .insert(itemsPayload);
+    .insert(itemsPayload)
+    .select('id, product_id, qty, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id');
 
   if (insertItemsError) {
     throw new Error(insertItemsError.message);
+  }
+
+  for (const insertedItem of insertedItems ?? []) {
+    const crmPlayMemberId = Number(insertedItem.crm_play_member_id || 0);
+    const crmPlayBenefitId = Number(insertedItem.crm_play_benefit_id || 0);
+    if (crmPlayMemberId <= 0 || crmPlayBenefitId <= 0) continue;
+
+    const { data: reboundRedemptions, error: rebindError } = await adminSupabase
+      .from('crm_play_redemptions')
+      .update({
+        order_item_id: Number(insertedItem.id),
+        product_id: Number(insertedItem.product_id),
+        quantity: toFiniteNumber(insertedItem.qty),
+        play_benefit_upgrade_id: Number(insertedItem.crm_play_benefit_upgrade_id || 0) > 0
+          ? Number(insertedItem.crm_play_benefit_upgrade_id)
+          : null,
+      })
+      .eq('order_id', orderId)
+      .eq('play_member_id', crmPlayMemberId)
+      .eq('play_benefit_id', crmPlayBenefitId)
+      .eq('status', 'redeemed')
+      .select('id');
+
+    if (rebindError || !reboundRedemptions || reboundRedemptions.length !== 1) {
+      const insertedIds = (insertedItems ?? []).map((row) => Number(row.id)).filter((id) => id > 0);
+      if (insertedIds.length > 0) {
+        await adminSupabase.from('order_items').delete().in('id', insertedIds);
+      }
+      throw new Error(rebindError?.message || 'No se pudo conservar la vinculación del beneficio CRM.');
+    }
   }
 
   const oldItemIds = (existingItems ?? [])
