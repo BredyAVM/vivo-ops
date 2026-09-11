@@ -52,7 +52,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
   const search = String(params.q ?? '').trim().slice(0, 80);
   const manualClientSearch = String(params.addq ?? '').trim().slice(0, 80);
 
-  const [playsResult, productsResult] = await Promise.all([
+  const [playsResult, productsResult, profilesResult, rolesResult] = await Promise.all([
     ctx.supabase
       .from('crm_plays')
       .select(`
@@ -74,10 +74,19 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .in('type', ['product', 'combo', 'promo', 'gambit', 'service'])
       .order('name', { ascending: true })
       .limit(300),
+    ctx.supabase
+      .from('profiles')
+      .select('id, full_name, is_active')
+      .eq('is_active', true)
+      .order('full_name', { ascending: true })
+      .limit(200),
+    ctx.supabase.rpc('admin_list_user_roles'),
   ]);
 
   if (playsResult.error) throw new Error(playsResult.error.message);
   if (productsResult.error) throw new Error(productsResult.error.message);
+  if (profilesResult.error) throw new Error(profilesResult.error.message);
+  if (rolesResult.error) throw new Error(rolesResult.error.message);
 
   const playIds = (playsResult.data ?? []).map((row) => Number(row.id));
   const [benefitOptionsResult, benefitUpgradesResult, compatibilityResult] = await Promise.all([
@@ -203,20 +212,23 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
   let members: MasterPlayMember[] = [];
   let memberCount = 0;
   let page = requestedPage;
-  let activeAdvisors: PlayAdvisorOption[] = [];
+  const advisorIds = new Set(
+    ((rolesResult.data ?? []) as RawUserRoleRow[])
+      .filter((row) => String(row.role) === 'advisor')
+      .map((row) => String(row.user_id)),
+  );
+  const activeAdvisors: PlayAdvisorOption[] = (profilesResult.data ?? [])
+    .filter((profile) => advisorIds.has(String(profile.id)))
+    .map((profile) => ({
+      id: String(profile.id),
+      name: profile.full_name?.trim() || 'Asesor sin nombre',
+    }));
   let manualClientSuggestions: ManualPlayClientSuggestion[] = [];
   let amendments: PlayAmendment[] = [];
 
   if (selectedPlay && !createMode) {
     if (['frozen', 'active', 'paused'].includes(selectedPlay.status)) {
-      const [profilesResult, rolesResult, amendmentsResult, suggestionsResult] = await Promise.all([
-        ctx.supabase
-          .from('profiles')
-          .select('id, full_name, is_active')
-          .eq('is_active', true)
-          .order('full_name', { ascending: true })
-          .limit(200),
-        ctx.supabase.rpc('admin_list_user_roles'),
+      const [amendmentsResult, suggestionsResult] = await Promise.all([
         ctx.supabase
           .from('crm_play_amendments')
           .select(`
@@ -237,22 +249,8 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
             })
           : Promise.resolve({ data: [], error: null }),
       ]);
-      if (profilesResult.error) throw new Error(profilesResult.error.message);
-      if (rolesResult.error) throw new Error(rolesResult.error.message);
       if (amendmentsResult.error) throw new Error(amendmentsResult.error.message);
       if (suggestionsResult.error) throw new Error(suggestionsResult.error.message);
-
-      const advisorIds = new Set(
-        ((rolesResult.data ?? []) as RawUserRoleRow[])
-          .filter((row) => String(row.role) === 'advisor')
-          .map((row) => String(row.user_id)),
-      );
-      activeAdvisors = (profilesResult.data ?? [])
-        .filter((profile) => advisorIds.has(String(profile.id)))
-        .map((profile) => ({
-          id: String(profile.id),
-          name: profile.full_name?.trim() || 'Asesor sin nombre',
-        }));
 
       manualClientSuggestions = ((suggestionsResult.data ?? []) as RawManualClientSuggestion[]).map((row) => ({
         clientId: Number(row.client_id),

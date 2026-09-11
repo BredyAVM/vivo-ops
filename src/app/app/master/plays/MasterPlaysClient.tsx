@@ -397,12 +397,14 @@ function PlayDefinitionForm({
   play,
   plays,
   benefits,
+  activeAdvisors,
   busy,
   onSubmit,
 }: {
   play: MasterPlay | null;
   plays: MasterPlay[];
   benefits: PlayBenefit[];
+  activeAdvisors: PlayAdvisorOption[];
   busy: boolean;
   onSubmit: (input: SavePlayDraftInput) => void;
 }) {
@@ -459,6 +461,12 @@ function PlayDefinitionForm({
   });
   const [anniversaryMonth, setAnniversaryMonth] = useState(play ? optionalNumberString(rules.anniversary_month) : '');
   const [fulfillment, setFulfillment] = useState<PlayFulfillmentFilter>(() => play ? (stringValue(rules.fulfillment) || 'any') as PlayFulfillmentFilter : 'any');
+  const [includedAdvisorIds, setIncludedAdvisorIds] = useState<string[]>(() => {
+    const storedIds = rules.included_advisor_ids;
+    if (!Array.isArray(storedIds)) return activeAdvisors.map((advisor) => advisor.id);
+    const activeIds = new Set(activeAdvisors.map((advisor) => advisor.id));
+    return storedIds.map(String).filter((id) => activeIds.has(id));
+  });
   const projectedEconomicsPerClient = useMemo(() => {
     const rows = benefitOptions.flatMap((option) => {
       const quantity = Number(option.quantity);
@@ -625,6 +633,7 @@ function PlayDefinitionForm({
       anniversaryMode,
       anniversaryMonth: anniversaryMonth === '' ? null : Number(anniversaryMonth),
       fulfillment,
+      includedAdvisorIds,
     });
   }
 
@@ -1021,6 +1030,60 @@ function PlayDefinitionForm({
           <div className="mb-3">
             <h3 className="text-xs font-semibold text-[#E7E7ED]">Condiciones comerciales</h3>
             <p className="mt-0.5 text-[10px] text-[#666675]">Deja un campo vacío cuando no quieras usar ese límite.</p>
+          </div>
+          <div className="mb-3 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3">
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h4 className="text-[11px] font-semibold text-sky-100">Asesores incluidos</h4>
+                <p className="mt-0.5 text-[9px] text-sky-100/55">
+                  {includedAdvisorIds.length} de {activeAdvisors.length} seleccionados · la prueba solo incluirá clientes adjudicados a ellos.
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIncludedAdvisorIds(activeAdvisors.map((advisor) => advisor.id))}
+                  className="h-7 rounded-lg border border-sky-300/25 px-2.5 text-[9px] font-semibold text-sky-100 transition hover:bg-sky-300/10"
+                >
+                  Marcar todos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIncludedAdvisorIds([])}
+                  className="h-7 rounded-lg border border-[#343443] px-2.5 text-[9px] font-semibold text-[#B7B7C2] transition hover:bg-[#1B1B23]"
+                >
+                  Desmarcar todos
+                </button>
+              </div>
+            </div>
+            {activeAdvisors.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {activeAdvisors.map((advisor) => {
+                  const checked = includedAdvisorIds.includes(advisor.id);
+                  return (
+                    <label
+                      key={advisor.id}
+                      className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] transition ${checked ? 'border-sky-300/45 bg-sky-300/10 text-sky-50' : 'border-[#30303C] bg-[#0B0B0D] text-[#777785]'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => setIncludedAdvisorIds((current) => event.target.checked
+                          ? [...current, advisor.id]
+                          : current.filter((id) => id !== advisor.id))}
+                        className="h-3.5 w-3.5 accent-sky-300"
+                      />
+                      <span>{advisor.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-[10px] text-amber-200">No hay asesores activos disponibles para esta jugada.</p>
+            )}
+            {includedAdvisorIds.length === 0 ? (
+              <p className="mt-2 text-[9px] text-amber-200/80">La próxima prueba dará cero candidatos hasta que marques al menos un asesor.</p>
+            ) : null}
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Cierres mínimos">
@@ -1811,6 +1874,7 @@ export default function MasterPlaysClient({
                     play={selectedPlay}
                     plays={plays}
                     benefits={benefits}
+                    activeAdvisors={activeAdvisors}
                     busy={pending}
                     onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
                   />
@@ -1827,6 +1891,7 @@ export default function MasterPlaysClient({
                       play={selectedPlay}
                       plays={plays}
                       benefits={benefits}
+                      activeAdvisors={activeAdvisors}
                       busy={pending}
                       onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
                     />
@@ -1909,6 +1974,7 @@ export default function MasterPlaysClient({
                 play={null}
                 plays={plays}
                 benefits={benefits}
+                activeAdvisors={activeAdvisors}
                 busy={pending}
                 onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
               />

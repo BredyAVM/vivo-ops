@@ -63,6 +63,7 @@ export type SavePlayDraftInput = {
   anniversaryMode: PlayAnniversaryMode;
   anniversaryMonth?: number | null;
   fulfillment: PlayFulfillmentFilter;
+  includedAdvisorIds: string[];
 };
 
 export type PlayActionResult = {
@@ -170,6 +171,15 @@ function normalizeCompatiblePlayIds(value: unknown, currentPlayId: number) {
   )).slice(0, 50);
 }
 
+function normalizeAdvisorIds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(
+    value
+      .map((candidate) => cleanText(candidate, 36).toLowerCase())
+      .filter((candidate) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(candidate)),
+  )).slice(0, 200);
+}
+
 async function syncPlayCompatibilities(
   supabase: Awaited<ReturnType<typeof requireMasterOrAdminContext>>['supabase'],
   playId: number,
@@ -255,6 +265,7 @@ function rulesFromInput(input: SavePlayDraftInput, excludedClientIds: number[]) 
     anniversary_mode: anniversaryMode,
     anniversary_month: anniversaryMonth,
     fulfillment: normalizeFulfillment(input.fulfillment),
+    included_advisor_ids: normalizeAdvisorIds(input.includedAdvisorIds),
     excluded_client_ids: Array.from(new Set(excludedClientIds.filter((id) => Number.isInteger(id) && id > 0))),
   };
 }
