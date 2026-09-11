@@ -64,6 +64,12 @@ agrega `SECURITY DEFINER` para sortear el permiso.
 
 ## Qué NO está terminado
 
+Actualización posterior del mismo día: los pagos nuevos de comisión ya cuentan
+con operación atómica, vínculo y reversión (`ADMIN_COMMISSION_ATOMIC_PAYMENTS_2026-09-10.md`).
+Las asignaciones nuevas de Delivery en Master/Ops ya guardan costo y trazabilidad
+juntos (`ADMIN_DELIVERY_COST_SNAPSHOT_2026-09-10.md`). Los puntos 1 y 2 siguientes
+conservan pendientes sus conciliaciones históricas y los límites descritos allí.
+
 Integración por enlaces no equivale a migración completa ni permite retirar V1.
 Continúan pendientes:
 

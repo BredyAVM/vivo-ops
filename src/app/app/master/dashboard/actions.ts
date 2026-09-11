@@ -39,6 +39,7 @@ import {
   getOrderMoneySnapshot,
   getOrderRoundingClosureSnapshot,
 } from '@/lib/orders/order-money';
+import { parseDeliveryCostInput } from '@/lib/domain/delivery-cost';
 import { getMasterDashboardPermissions } from './permissions';
 
 const MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG = 'master-dashboard-financial-references';
@@ -4035,50 +4036,17 @@ export async function assignInternalDriverAction(input: {
   costUsd?: number | null;
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
-  const normalizedCostUsd =
-    input.costUsd != null && Number.isFinite(Number(input.costUsd)) && Number(input.costUsd) > 0
-      ? Math.max(0, Number(input.costUsd))
-      : null;
-
-  const { error } = await supabase.rpc('assign_internal_driver', {
+  const normalizedCostUsd = parseDeliveryCostInput(input.costUsd);
+  const { error } = await supabase.rpc('assign_delivery_with_cost_v1', {
     p_order_id: input.orderId,
+    p_kind: 'internal',
     p_driver_user_id: input.driverUserId,
+    p_partner_id: null,
+    p_reference: null,
+    p_distance_km: null,
+    p_cost_usd: normalizedCostUsd,
   });
-
   if (error) throw new Error(error.message);
-
-  const { data: orderRow, error: orderFetchError } = await supabase
-    .from('orders')
-    .select('extra_fields')
-    .eq('id', input.orderId)
-    .single();
-
-  if (orderFetchError) throw new Error(orderFetchError.message);
-
-  const extraFields =
-    orderRow?.extra_fields && typeof orderRow.extra_fields === 'object' && !Array.isArray(orderRow.extra_fields)
-      ? (orderRow.extra_fields as Record<string, unknown>)
-      : {};
-  const currentDelivery =
-    extraFields.delivery && typeof extraFields.delivery === 'object' && !Array.isArray(extraFields.delivery)
-      ? (extraFields.delivery as Record<string, unknown>)
-      : {};
-
-  const { error: snapshotError } = await supabase
-    .from('orders')
-    .update({
-      extra_fields: {
-        ...extraFields,
-        delivery: {
-          ...currentDelivery,
-          cost_usd: normalizedCostUsd,
-          cost_source: 'internal_product',
-        },
-      },
-    })
-    .eq('id', input.orderId);
-
-  if (snapshotError) throw new Error(snapshotError.message);
   const eventContext = await loadOrderEventContext(supabase, input.orderId);
   await appendOrderEvent(supabase, {
     orderId: input.orderId,
@@ -4101,6 +4069,8 @@ export async function assignInternalDriverAction(input: {
     ],
   });
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/finanzas/delivery');
 }
 
 export async function assignExternalPartnerAction(input: {
@@ -4112,47 +4082,17 @@ export async function assignExternalPartnerAction(input: {
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
 
-  const { error } = await supabase.rpc('assign_external_partner', {
+  const normalizedCostUsd = parseDeliveryCostInput(input.costUsd);
+  const { error } = await supabase.rpc('assign_delivery_with_cost_v1', {
     p_order_id: input.orderId,
+    p_kind: 'external',
+    p_driver_user_id: null,
     p_partner_id: input.partnerId,
     p_reference: input.reference,
+    p_distance_km: input.distanceKm ?? null,
+    p_cost_usd: normalizedCostUsd,
   });
-
   if (error) throw new Error(error.message);
-  const { data: orderRow, error: orderFetchError } = await supabase
-    .from('orders')
-    .select('extra_fields')
-    .eq('id', input.orderId)
-    .single();
-
-  if (orderFetchError) throw new Error(orderFetchError.message);
-
-  const extraFields =
-    orderRow?.extra_fields && typeof orderRow.extra_fields === 'object' && !Array.isArray(orderRow.extra_fields)
-      ? (orderRow.extra_fields as Record<string, unknown>)
-      : {};
-  const currentDelivery =
-    extraFields.delivery && typeof extraFields.delivery === 'object' && !Array.isArray(extraFields.delivery)
-      ? (extraFields.delivery as Record<string, unknown>)
-      : {};
-
-  const { error: snapshotError } = await supabase
-    .from('orders')
-    .update({
-      extra_fields: {
-        ...extraFields,
-        delivery: {
-          ...currentDelivery,
-          distance_km:
-            input.distanceKm != null ? Math.max(0, Number(input.distanceKm || 0)) : currentDelivery.distance_km ?? null,
-          cost_usd: input.costUsd != null ? Math.max(0, Number(input.costUsd || 0)) : currentDelivery.cost_usd ?? null,
-          cost_source: 'external_partner_manual',
-        },
-      },
-    })
-    .eq('id', input.orderId);
-
-  if (snapshotError) throw new Error(snapshotError.message);
   const eventContext = await loadOrderEventContext(supabase, input.orderId);
   await appendOrderEvent(supabase, {
     orderId: input.orderId,
@@ -4176,6 +4116,8 @@ export async function assignExternalPartnerAction(input: {
     ],
   });
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/finanzas/delivery');
 }
 
 export async function correctDeliveredDeliveryAssignmentAction(input: {
@@ -4234,10 +4176,8 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
         ? (extraFields.delivery as Record<string, unknown>)
         : {};
     const nowIso = new Date().toISOString();
-    const normalizedCostUsd =
-      input.costUsd != null && Number.isFinite(Number(input.costUsd))
-        ? Math.max(0, roundMoney(input.costUsd))
-        : null;
+    const parsedCostUsd = parseDeliveryCostInput(input.costUsd);
+    const normalizedCostUsd = parsedCostUsd === null ? null : roundMoney(parsedCostUsd);
     const previousDelivery = {
       internal_driver_user_id: currentOrder.internal_driver_user_id ?? null,
       external_partner_id: currentOrder.external_partner_id ?? null,
@@ -4248,6 +4188,7 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
       distance_km: currentDelivery.distance_km ?? null,
       cost_usd: currentDelivery.cost_usd ?? null,
       cost_source: currentDelivery.cost_source ?? null,
+      cost_snapshot: currentDelivery.cost_snapshot ?? null,
     };
 
     const updatePayload: Record<string, unknown> = {
@@ -4280,6 +4221,8 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
           delivery_mode: 'internal',
           cost_usd: normalizedCostUsd,
           cost_source: 'admin_delivered_correction_internal',
+          cost_snapshot: null,
+          distance_km: null,
           corrected_at: nowIso,
           corrected_by_user_id: user.id,
           correction_notes: notes,
@@ -4326,6 +4269,7 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
           distance_km: Math.max(0, roundMoney(distanceKm)),
           cost_usd: normalizedCostUsd,
           cost_source: 'admin_delivered_correction_external',
+          cost_snapshot: null,
           corrected_at: nowIso,
           corrected_by_user_id: user.id,
           correction_notes: notes,

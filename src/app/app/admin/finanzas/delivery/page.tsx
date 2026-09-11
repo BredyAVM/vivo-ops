@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { requireAdminContext } from '@/lib/auth';
+import { deliveryCostSourceLabel } from '@/lib/domain/delivery-cost';
 import { loadDeliveryOverview, type DeliveryRpcClient } from '@/lib/admin-finance/delivery-data';
 import { deliveryFilters, deliveryHref, deliveryOrderHref } from '@/lib/admin-finance/delivery-model';
 import { AdminKpi, AdminPagination, AdminReadError, adminInput, adminPanel } from '../../_components/AdminReadUi';
@@ -37,7 +38,7 @@ export default async function AdminDeliveryPage({ searchParams }: { searchParams
     <section className={adminPanel} aria-labelledby="delivery-orders"><h2 id="delivery-orders" className="text-sm font-semibold">Detalle del período</h2>
       <div className="mt-3 divide-y divide-[#292937]">{data.rows.map(row => <article key={row.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div className="min-w-0"><Link href={deliveryOrderHref(row)} prefetch={false} className="inline-flex min-h-11 items-center text-sm text-white underline">#{row.orderNumber} · {row.clientName}</Link><p className="text-xs text-[#A3A3AE]">{modes[row.mode]} · {row.responsible} · {date.format(new Date(row.deliveredAt))}</p></div>
-        <div className="text-right"><p className="text-sm font-semibold tabular-nums">{row.costUsd === null ? 'Sin costo guardado' : usd.format(row.costUsd)}</p><p className="mt-1 text-xs text-[#9B9BA7]">{row.costSource ? 'Fuente registrada' : 'Sin fuente de costo'}</p></div>
+        <div className="text-right"><p className="text-sm font-semibold tabular-nums">{row.costUsd === null ? 'Sin costo guardado' : usd.format(row.costUsd)}</p><p className="mt-1 text-xs text-[#9B9BA7]">{deliveryCostSourceLabel(row.costSource)}</p></div>
       </article>)}{!data.rows.length ? <p className="py-5 text-sm text-[#9B9BA7]">No hay entregas en esta página. Ajusta los filtros o vuelve a la primera página.</p> : null}</div>
       <AdminPagination page={filters.page} total={data.summary.deliveries} href={page => deliveryHref(filters, { page })} />
     </section>

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { parseDeliveryCostInput, readStoredDeliveryCost, deliveryCostSourceLabel } from '../../src/lib/domain/delivery-cost.ts';
 import { readFileSync, readdirSync } from 'node:fs';
 import { deliveryFilters, deliveryHref, deliveryOrderHref, parseDeliveryOverview, parseDeliverySettlement } from '../../src/lib/admin-finance/delivery-model.ts';
 import { buildAdminTaskGroups, filterAdminTaskGroups } from '../../src/lib/admin-finance/tasks-model.ts';
@@ -9,6 +10,33 @@ import type { AdminFinanceAccountSnapshot, AdminFinanceAccountsOverview } from '
 import type { ActiveOrder, ActiveOrdersOverview } from '../../src/lib/admin-finance/active-orders-model.ts';
 import type { CommissionRow } from '../../src/lib/admin-finance/commissions-model.ts';
 const now = new Date('2026-09-10T17:00:00Z');
+test('delivery cost distinguishes blank, zero and a positive manual amount', () => {
+  for (const input of [null, undefined, '', '   ']) assert.equal(parseDeliveryCostInput(input), null);
+  for (const input of [0, '0', '0,00']) assert.equal(parseDeliveryCostInput(input), 0);
+  assert.equal(parseDeliveryCostInput(' 2,35 '), 2.35);
+});
+test('delivery cost rejects malformed and out-of-range financial inputs', () => {
+  for (const input of [-1, '-1', NaN, Infinity, true, {}, [], 'abc', '1,2,3', '1e9', 1000000000]) assert.throws(() => parseDeliveryCostInput(input));
+});
+test('delivery readers keep unavailable cost unavailable and distinguish legacy provenance', () => {
+  assert.equal(readStoredDeliveryCost('bad'), null);
+  assert.equal(readStoredDeliveryCost(null), null);
+  assert.equal(readStoredDeliveryCost(0), 0);
+  assert.match(deliveryCostSourceLabel('internal_product'), /Registro anterior/);
+  assert.match(deliveryCostSourceLabel('internal_assignment_input'), /Registrado al asignar/);
+  assert.match(deliveryCostSourceLabel('external_partner_manual_v1'), /Registrado al asignar/);
+});
+test('assignment actions use a single cost command, not a client-side metadata rewrite', () => {
+  const actions = readFileSync(new URL('../../src/app/app/master/dashboard/actions.ts', import.meta.url), 'utf8');
+  const assignments = actions.slice(actions.indexOf('export async function assignInternalDriverAction'), actions.indexOf('export async function correctDeliveredDeliveryAssignmentAction'));
+  assert.equal((assignments.match(/rpc\('assign_delivery_with_cost_v1'/g) ?? []).length, 2);
+  assert.doesNotMatch(assignments, /\.update\(/);
+  assert.equal((assignments.match(/requireMasterOrAdmin\(\)/g) ?? []).length, 2);
+  const dashboard = readFileSync(new URL('../../src/app/app/master/dashboard/MasterDashboardClient.tsx', import.meta.url), 'utf8');
+  const reader = dashboard.slice(dashboard.indexOf('function getEffectiveDeliveryCostUsd'), dashboard.indexOf('function isDeliveryCatalogItem'));
+  assert.doesNotMatch(reader, /getInternalDeliveryPayUsd/);
+  assert.match(reader, /readStoredDeliveryCost/);
+});
 const filters = deliveryFilters({}, now);
 function payload() { return { definitionVersion: 'admin-delivery-v1', asOf: now.toISOString(), from: filters.from, to: filters.to, mode: filters.mode, query: '', offset: 0, pageSize: 30, summary: { deliveries: 1, costed: 0, knownCostUsd: 0, internal: 1, external: 0, unassigned: 0 }, undatedDeliveries: 2, rows: [{ id: 25, orderNumber: 'V-25', clientName: 'Cliente', deliveredAt: now.toISOString(), mode: 'internal', responsible: 'Rider', costUsd: null, costSource: 'internal_product' }], pending: { results: [{ id: 12, orderId: 25, orderNumber: null, status: 'open', responsibleName: 'Rider', dispatchedAt: now.toISOString() }], nextCursor: null } }; }
 test('delivery uses Caracas dates and validates ranges and cursor pairs', () => {

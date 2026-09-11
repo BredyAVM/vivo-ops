@@ -19,6 +19,7 @@ import type {
   OrderFinancialActivityType,
 } from "@/lib/finance/order-financial-activity";
 import { parseDecimalInput } from "@/lib/number-input";
+import { parseDeliveryCostInput } from "@/lib/domain/delivery-cost";
 import {
   ORDER_STATUS_LABELS,
   formatOrderDisplayNumber,
@@ -1735,10 +1736,10 @@ function OrderDetailPanel({
 
   async function handleAssignInternalSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const costUsd = Number(String(deliveryAssignCostUsd || "").replace(",", "."));
+    const costUsd = deliveryAssignCostUsd.trim() === "" ? null : Number(deliveryAssignCostUsd.replace(",", "."));
     const ok = await onDirectAction(order, canCorrectDeliveredDelivery ? "correct-delivered-internal" : "assign-internal", {
       driverUserId: deliveryAssignDriverId,
-      costUsd: Number.isFinite(costUsd) && costUsd >= 0 ? costUsd : null,
+      costUsd,
       correctionNotes: deliveryCorrectionNotes,
     });
     if (ok) {
@@ -1750,7 +1751,7 @@ function OrderDetailPanel({
   async function handleAssignExternalSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const distanceKm = Number(String(deliveryAssignDistanceKm || "").replace(",", "."));
-    const costUsd = Number(String(deliveryAssignCostUsd || "").replace(",", "."));
+    const costUsd = deliveryAssignCostUsd.trim() === "" ? null : Number(deliveryAssignCostUsd.replace(",", "."));
     const ok = await onDirectAction(order, canCorrectDeliveredDelivery ? "correct-delivered-external" : "assign-external", {
       partnerId: Number(deliveryAssignPartnerId || 0),
       reference: deliveryAssignReference.trim() || null,
@@ -4320,15 +4321,15 @@ export default function MasterOpsClient({
         result = await assignInternalDriverAction({
           orderId: order.id,
           driverUserId,
-          costUsd: payload.costUsd != null ? Math.max(0, Number(payload.costUsd || 0)) : null,
+          costUsd: parseDeliveryCostInput(payload.costUsd),
         });
       } else if (action === "assign-external") {
         const partnerId = Number(payload.partnerId || 0);
         const distanceKm = Number(payload.distanceKm);
-        const costUsd = Number(payload.costUsd);
+        const costUsd = parseDeliveryCostInput(payload.costUsd);
         if (!Number.isFinite(partnerId) || partnerId <= 0) throw new Error("Debes seleccionar un partner externo.");
         if (!Number.isFinite(distanceKm) || distanceKm <= 0) throw new Error("Debes indicar la distancia en km.");
-        if (!Number.isFinite(costUsd) || costUsd < 0) throw new Error("Debes indicar el costo del delivery.");
+        if (costUsd === null) throw new Error("Debes indicar el costo del delivery.");
         result = await assignExternalPartnerAction({
           orderId: order.id,
           partnerId,
@@ -4339,24 +4340,24 @@ export default function MasterOpsClient({
       } else if (action === "correct-delivered-internal") {
         const driverUserId = String(payload.driverUserId || "").trim();
         const notes = String(payload.correctionNotes || "").trim();
-        const costUsd = payload.costUsd == null ? null : Number(payload.costUsd);
+        const costUsd = parseDeliveryCostInput(payload.costUsd);
         if (!driverUserId) throw new Error("Debes seleccionar un motorizado interno.");
         if (notes.length < 6) throw new Error("Debes indicar un motivo claro para la correccion.");
         result = await correctDeliveredDeliveryAssignmentAction({
           orderId: order.id,
           assignmentKind: "internal",
           driverUserId,
-          costUsd: costUsd != null && Number.isFinite(costUsd) ? Math.max(0, costUsd) : null,
+          costUsd,
           notes,
         });
       } else if (action === "correct-delivered-external") {
         const partnerId = Number(payload.partnerId || 0);
         const distanceKm = Number(payload.distanceKm);
-        const costUsd = Number(payload.costUsd);
+        const costUsd = parseDeliveryCostInput(payload.costUsd);
         const notes = String(payload.correctionNotes || "").trim();
         if (!Number.isFinite(partnerId) || partnerId <= 0) throw new Error("Debes seleccionar un partner externo.");
         if (!Number.isFinite(distanceKm) || distanceKm <= 0) throw new Error("Debes indicar la distancia en km.");
-        if (!Number.isFinite(costUsd) || costUsd < 0) throw new Error("Debes indicar el costo del delivery.");
+        if (costUsd === null) throw new Error("Debes indicar el costo del delivery.");
         if (notes.length < 6) throw new Error("Debes indicar un motivo claro para la correccion.");
         result = await correctDeliveredDeliveryAssignmentAction({
           orderId: order.id,
