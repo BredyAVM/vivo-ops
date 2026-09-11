@@ -70,6 +70,9 @@ protección de reenvíos. Ver `ADMIN_PAYMENT_CONFIRMATION_ATOMIC_2026-09-11.md`.
 Esto no cierra todavía el punto 3 completo ni migra nómina y uso del fondo.
 Traspasos Master nuevos también tienen comando, reenvío protegido y anulación
 completa certificada: `ADMIN_TRANSFER_ATOMIC_2026-09-11.md`.
+Anulación genérica Master migrada a comando atómico con fondo y reversión de
+redondeo certificado: `ADMIN_FINANCIAL_VOID_ATOMIC_2026-09-11.md`. Conservar sus
+excepciones de Mostrador histórico y movimientos de cierre en los pendientes.
 
 Actualización del 11 de septiembre: también está implementada la corrección
 atómica de entregas antiguas, con historial visible incluido. Ver
