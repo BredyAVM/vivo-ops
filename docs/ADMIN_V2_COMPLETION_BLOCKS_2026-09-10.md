@@ -64,6 +64,11 @@ agrega `SECURITY DEFINER` para sortear el permiso.
 
 ## Qué NO está terminado
 
+Actualización financiera del 11 de septiembre: confirmación de reportes en
+Master/Ops migrada a un comando atómico con cambio/fondo/redondeo/historial y
+protección de reenvíos. Ver `ADMIN_PAYMENT_CONFIRMATION_ATOMIC_2026-09-11.md`.
+Esto no cierra todavía el punto 3 completo ni migra nómina y uso del fondo.
+
 Actualización del 11 de septiembre: también está implementada la corrección
 atómica de entregas antiguas, con historial visible incluido. Ver
 `ADMIN_DELIVERY_CORRECTION_2026-09-11.md`. No incluye conciliación ni relleno de
