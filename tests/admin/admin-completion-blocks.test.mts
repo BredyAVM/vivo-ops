@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseDeliveryCostInput, readStoredDeliveryCost, deliveryCostSourceLabel } from '../../src/lib/domain/delivery-cost.ts';
+import { parseDeliveryCostInput, readStoredDeliveryCost, deliveryCostSourceLabel, readDeliveryCorrectionReceipt } from '../../src/lib/domain/delivery-cost.ts';
 import { readFileSync, readdirSync } from 'node:fs';
 import { deliveryFilters, deliveryHref, deliveryOrderHref, parseDeliveryOverview, parseDeliverySettlement } from '../../src/lib/admin-finance/delivery-model.ts';
 import { buildAdminTaskGroups, filterAdminTaskGroups } from '../../src/lib/admin-finance/tasks-model.ts';
@@ -10,6 +10,30 @@ import type { AdminFinanceAccountSnapshot, AdminFinanceAccountsOverview } from '
 import type { ActiveOrder, ActiveOrdersOverview } from '../../src/lib/admin-finance/active-orders-model.ts';
 import type { CommissionRow } from '../../src/lib/admin-finance/commissions-model.ts';
 const now = new Date('2026-09-10T17:00:00Z');
+test('delivery correction verifies its visible history receipt', () => {
+  assert.deepEqual(readDeliveryCorrectionReceipt({ eventId: 12, payload: { notes: 'Corrección' } }), { eventId: 12, payload: { notes: 'Corrección' } });
+  for (const value of [null, [], {}, { eventId: 0, payload: {} }, { eventId: '12', payload: {} }, { eventId: 12, payload: [] }]) assert.throws(() => readDeliveryCorrectionReceipt(value));
+});
+test('historical correction uses session-authorized RPC and reuses committed visible history', () => {
+  const actions = readFileSync(new URL('../../src/app/app/master/dashboard/actions.ts', import.meta.url), 'utf8');
+  const correction = actions.slice(actions.indexOf('export async function correctDeliveredDeliveryAssignmentAction'), actions.indexOf('export async function reviewOrderChangesAction'));
+  assert.match(correction, /requireAdminRole\(roles\)/);
+  assert.match(correction, /rpc\('correct_delivered_delivery_v1'/);
+  assert.match(correction, /persistedEventId: receipt.eventId/);
+  assert.doesNotMatch(correction, /createSupabaseServiceRoleServer|\.update\(/);
+});
+test('correction command atomically writes both histories behind Admin authorization', () => {
+  const dir = new URL('../../supabase/migrations/', import.meta.url);
+  const name = readdirSync(dir).find(name => name.endsWith('_delivery_correction_atomic_v1.sql'))!;
+  const sql = readFileSync(new URL(name, dir), 'utf8');
+  assert.match(sql, /security invoker set search_path=''/i);
+  assert.match(sql, /auth.uid\(\) is null/);
+  assert.match(sql, /role='admin'/);
+  assert.match(sql, /for update/i);
+  assert.match(sql, /insert into public.order_events/i);
+  assert.match(sql, /insert into public.order_timeline_events/i);
+  assert.doesNotMatch(sql, /security definer/i);
+});
 test('delivery cost distinguishes blank, zero and a positive manual amount', () => {
   for (const input of [null, undefined, '', '   ']) assert.equal(parseDeliveryCostInput(input), null);
   for (const input of [0, '0', '0,00']) assert.equal(parseDeliveryCostInput(input), 0);

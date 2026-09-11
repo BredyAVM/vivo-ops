@@ -64,6 +64,11 @@ agrega `SECURITY DEFINER` para sortear el permiso.
 
 ## Qué NO está terminado
 
+Actualización del 11 de septiembre: también está implementada la corrección
+atómica de entregas antiguas, con historial visible incluido. Ver
+`ADMIN_DELIVERY_CORRECTION_2026-09-11.md`. No incluye conciliación ni relleno de
+costos históricos, ni cierra todas las rutas de escritura directa.
+
 Actualización posterior del mismo día: los pagos nuevos de comisión ya cuentan
 con operación atómica, vínculo y reversión (`ADMIN_COMMISSION_ATOMIC_PAYMENTS_2026-09-10.md`).
 Las asignaciones nuevas de Delivery en Master/Ops ya guardan costo y trazabilidad
