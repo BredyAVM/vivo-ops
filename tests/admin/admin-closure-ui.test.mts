@@ -54,7 +54,7 @@ function movement(id: number, amount: number, date = '2026-09-12', hour = '10:00
 }
 function reset(kind = 'bank') {
   Object.assign(state, { roles: ['admin'], calls: [], reads: 0, data: receipt, error: null, offline: false, readError: false, cacheFails: false,
-    tables: { money_accounts: [{ id: 1, currency_code: 'USD', account_kind: kind }], money_account_closure_profiles: [{ money_account_id: 1, closure_kind: kind }],
+    tables: { money_accounts: [{ id: 1, currency_code: 'USD', account_kind: kind, is_active: true }], money_account_closure_profiles: [{ money_account_id: 1, closure_kind: kind }],
       money_account_closure_baselines: [], money_account_closures: [], money_movements: [movement(1, 10)] } });
 }
 test('invalid date, count, precision and identity are rejected', () => {
@@ -71,17 +71,23 @@ test('Admin boundaries protect both preview and recording', async () => {
   }
 });
 test('canonical closure uses one call with stable request and exact submitted cut', async () => {
-  reset(); assert.equal((await createAdminAccountClosure(input)).status, 'confirmed');
+  reset('cash'); assert.equal((await createAdminAccountClosure(input)).status, 'confirmed');
   const { requestId, ...command } = input;
   assert.deepEqual(state.calls, [{ name: 'create_account_closure_v1', params: { p_request_id: requestId, p_input: command } }]);
   state.data = { ...receipt, replayed: true }; const replay = await createAdminAccountClosure(input);
   assert.equal(replay.status, 'confirmed'); if (replay.status === 'confirmed') assert.equal(replay.receipt.replayed, true);
 });
 test('uncertain errors retain ambiguity and definitive rejections remain editable', async () => {
-  reset(); state.offline = true; assert.equal((await createAdminAccountClosure(input)).status, 'uncertain');
-  reset(); state.data = null; assert.equal((await createAdminAccountClosure(input)).status, 'uncertain');
-  reset(); state.error = { code: '22023', message: 'Diferencia no permitida' }; assert.equal((await createAdminAccountClosure(input)).status, 'rejected');
-  reset(); state.cacheFails = true; assert.equal((await createAdminAccountClosure(input)).status, 'confirmed');
+  reset('cash'); state.offline = true; assert.equal((await createAdminAccountClosure(input)).status, 'uncertain');
+  reset('cash'); state.data = null; assert.equal((await createAdminAccountClosure(input)).status, 'uncertain');
+  reset('cash'); state.error = { code: '22023', message: 'Diferencia no permitida' }; assert.equal((await createAdminAccountClosure(input)).status, 'rejected');
+  reset('cash'); state.cacheFails = true; assert.equal((await createAdminAccountClosure(input)).status, 'confirmed');
+});
+test('daily native closures pause until cutoff policy is unified; an existing receipt can still be verified', async () => {
+  reset(); assert.equal((await createAdminAccountClosure(input)).status, 'rejected'); assert.equal(state.calls.length, 0);
+  reset(); state.tables.account_closure_operations = [{ request_id: input.requestId }]; state.data = { ...receipt, replayed: true };
+  assert.equal((await createAdminAccountClosure(input)).status, 'confirmed'); assert.equal(state.calls.length, 1);
+  reset('cash'); state.tables.money_accounts[0].is_active = false; assert.equal((await createAdminAccountClosure(input)).status, 'rejected'); assert.equal(state.calls.length, 0);
 });
 test('bank preview uses entire day; cash respects intraday cut', async () => {
   reset(); state.tables.money_movements.push(movement(2, 7, '2026-09-12', '13:00'));

@@ -65,8 +65,10 @@ devoluciones y algunos pagos de servicio, mantienen sus bloques pendientes.
    de órdenes implementada en `ADMIN_ORDER_REVIEW_2026-09-12.md`. Pendientes:
    antes/después completo de cambios comerciales, impacto en comisiones, cobertura
    de botones antiguos. Registro nativo de cierre implementado en
-   `ADMIN_CLOSURE_UI_2026-09-12.md`; pendientes anulación, resolución de diferencias
-   y conciliación financiera completa.
+   `ADMIN_CLOSURE_UI_2026-09-12.md` para cajas y puntos. La conciliación diaria nativa
+   queda en revisión por divergencia de corte horario/diario con el estado de cuenta.
+   Requiere confirmar esa regla antes de habilitar bancos/wallets. Pendientes también
+   anulación, resolución de diferencias y conciliación financiera completa.
 3. **Cobranza y clientes**: saldo, pagos, diferencias, cambios y fondo del cliente,
    seguimiento y resolución desde cada caso sin repetir un cobro.
 4. **Comisiones, metas, jugadas y delivery**: configuración y operación conectadas

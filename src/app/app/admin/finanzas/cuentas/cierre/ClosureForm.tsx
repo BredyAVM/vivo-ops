@@ -18,15 +18,16 @@ export default function ClosureForm({ accounts, initialAccountId, activeRate, to
   const preview = review?.key === key ? review.result : null;
   const uncertain = result?.status === 'uncertain';
   useEffect(() => {
+    if (!account?.intraday) return;
     let cancelled = false;
     void previewAdminAccountClosure({ moneyAccountId: accountId, closureDate: date, closureTime: effectiveTime })
       .then(result => { if (!cancelled) setReview({ key, result }); })
       .catch(() => { if (!cancelled) setReview({ key, result: { status: 'error', message: 'No se pudo verificar el saldo esperado.' } }); });
     return () => { cancelled = true; };
-  }, [accountId, date, effectiveTime, key]);
+  }, [accountId, account?.intraday, date, effectiveTime, key]);
   const native = (n: number) => new Intl.NumberFormat('es-VE', { style: 'currency', currency: account?.currencyCode ?? 'USD' }).format(n);
   async function save(e?: FormEvent) {
-    e?.preventDefault(); if (busy.current || !account || result?.status === 'confirmed') return;
+    e?.preventDefault(); if (busy.current || !account || (!account.intraday && !attempt.current) || result?.status === 'confirmed') return;
     if (!attempt.current) {
       if (preview?.status !== 'ready' || !counted.trim()) return;
       attempt.current = { requestId: crypto.randomUUID(), moneyAccountId: accountId, closureDate: date, closureTime: effectiveTime,
@@ -49,9 +50,9 @@ export default function ClosureForm({ accounts, initialAccountId, activeRate, to
       <label className="text-sm">Motivo<input value={reason} maxLength={500} onChange={e => setReason(e.target.value)} className={inputClass} /></label>
       <label className="text-sm sm:col-span-2">Notas (opcional)<textarea value={notes} maxLength={2000} onChange={e => setNotes(e.target.value)} rows={2} className={inputClass} /></label>
     </fieldset>
-    <section aria-live="polite">{preview?.status === 'ready' ? <div className="grid grid-cols-2 gap-3"><div><h2 className="text-xs text-[#9B9BA7]">Saldo esperado</h2><p className="mt-1 text-lg font-semibold tabular-nums">{native(preview.preview.expectedAmount)}</p></div><div><h2 className="text-xs text-[#9B9BA7]">Diferencia estimada</h2><p className="mt-1 text-lg font-semibold tabular-nums">{counted.trim() && Number.isFinite(Number(counted.replace(',', '.'))) ? native(Number(counted.replace(',', '.')) - preview.preview.expectedAmount) : '—'}</p></div></div> : <p className="text-sm text-orange-200">{preview?.status === 'error' ? preview.message : 'Consultando saldo esperado…'}</p>}</section>
+    <section aria-live="polite">{!account?.intraday ? <p role="status" className="text-sm text-orange-200">Conciliación diaria en revisión. Debemos unificar el corte por hora o por día antes de habilitarla aquí. Puedes registrar arqueos de caja y cierres de punto.</p> : preview?.status === 'ready' ? <div className="grid grid-cols-2 gap-3"><div><h2 className="text-xs text-[#9B9BA7]">Saldo esperado</h2><p className="mt-1 text-lg font-semibold tabular-nums">{native(preview.preview.expectedAmount)}</p></div><div><h2 className="text-xs text-[#9B9BA7]">Diferencia estimada</h2><p className="mt-1 text-lg font-semibold tabular-nums">{counted.trim() && Number.isFinite(Number(counted.replace(',', '.'))) ? native(Number(counted.replace(',', '.')) - preview.preview.expectedAmount) : '—'}</p></div></div> : <p className="text-sm text-orange-200">{preview?.status === 'error' ? preview.message : 'Consultando saldo esperado…'}</p>}</section>
     <p className="text-xs text-[#9B9BA7]">El saldo se recalcula al guardar. El cierre conserva las reglas de diferencias de esta cuenta; el traspaso del punto al banco se registra por separado.</p>
     {result && <p role="alert" className="text-sm text-orange-200">{result.message}</p>}
-    {uncertain ? <div className="space-y-2"><p className="text-xs text-orange-200">No cierres ni recargues esta pantalla hasta comprobar el resultado.</p><button type="button" disabled={pending} onClick={() => void save()} className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-sm font-semibold text-black">{pending ? 'Comprobando…' : 'Comprobar el mismo cierre'}</button></div> : <div className="flex flex-wrap gap-3"><button disabled={pending || preview?.status !== 'ready' || !account} className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-sm font-semibold text-black disabled:opacity-50">{pending ? 'Guardando…' : 'Guardar cierre'}</button><button type="button" disabled={pending} onClick={() => setRefresh(n => n + 1)} className="min-h-11 px-3 text-sm underline">Actualizar saldo</button></div>}
+    {uncertain ? <div className="space-y-2"><p className="text-xs text-orange-200">No cierres ni recargues esta pantalla hasta comprobar el resultado.</p><button type="button" disabled={pending} onClick={() => void save()} className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-sm font-semibold text-black">{pending ? 'Comprobando…' : 'Comprobar el mismo cierre'}</button></div> : <div className="flex flex-wrap gap-3"><button disabled={pending || preview?.status !== 'ready' || !account?.intraday} className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-sm font-semibold text-black disabled:opacity-50">{pending ? 'Guardando…' : 'Guardar cierre'}</button><button type="button" disabled={pending || !account?.intraday} onClick={() => setRefresh(n => n + 1)} className="min-h-11 px-3 text-sm underline">Actualizar saldo</button></div>}
   </form>;
 }

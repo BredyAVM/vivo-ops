@@ -1,5 +1,21 @@
 # Cierre de cuentas desde Administración
 
+## Estado tras verificación visual: corte parcial
+
+Caja y puntos disponibles. La nueva conciliación diaria (bancos, wallets y otras
+cuentas no intradía) queda temporalmente deshabilitada en cliente y servidor hasta
+confirmar la regla de negocio: saldo observado a una hora concreta o saldo final
+del día. No se modifica ni se certifica el flujo bancario anterior.
+
+La comprobación real encontró divergencia entre `admin_finance_account_snapshots_v2`
+(movimientos posteriores a `anchor_at`) y `create_account_closure_v1`/vista previa
+(cuentas diarias excluyen todos los movimientos de la fecha del cierre anterior).
+Un movimiento de la misma fecha, registrado después de la hora indicada, queda
+incluido en una pantalla y excluido en la otra. No es una diferencia de tasa.
+No se corrigieron cierres ni movimientos históricos ni se supuso qué saldo era el
+verdadero. No hubo cierres nuevos en la ventana inicial de publicación verificada.
+La comprobación de un intento ya registrado conserva su vía de reintento.
+
 ## Implementación
 
 - Cuentas y Herramientas abren `/app/admin/finanzas/cuentas/cierre`. La cuenta del
@@ -36,7 +52,7 @@
 
 ## Pruebas
 
-- 181 pruebas aprobadas (119 Admin, 56 operaciones, 6 seguridad), compilación de
+- 181 pruebas aprobadas inicialmente (119 Admin, 56 operaciones, 6 seguridad), compilación de
   producción y ESLint de los archivos nuevos aprobados. Sin residuos de las
   cuentas, movimientos ni función de la prueba SQL.
 
@@ -50,3 +66,16 @@
 - La comprobación global `tsc --noEmit` encuentra errores previos en tests de
   comisiones y tipados Node registerHooks; no son errores de los archivos nuevos.
   La compilación Next verifica tipos de aplicación por separado.
+
+## Publicación y comprobación posterior
+
+- `ce19e23` publicado READY. Sesión Admin: navegación desde Cuentas, selección de
+  cuenta conservada y caja USD con hora de corte y esperado coherente con su estado
+  de cuenta; no se guardó ningún cierre real. Primera consulta de errores encontró
+  una advertencia previa Node DEP0169 en Master/Ops con HTTP 200, no un error de esta ruta.
+- Protección posterior: conciliación diaria deshabilitada en interfaz y acción
+  nativas; caja/punto e intentos ya registrados conservan su circuito. 182 pruebas
+  aprobadas (119 Admin, 57 operaciones y 6 seguridad), build y ESLint aprobados.
+- Decisión pendiente del usuario: ¿el saldo bancario ingresado representa el
+  momento de la consulta al banco, o un corte final del día? La respuesta debe
+  unificar lector, comando e interfaz; no autoriza a reescribir saldos históricos.
