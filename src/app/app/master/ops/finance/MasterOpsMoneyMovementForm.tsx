@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition, type FormEvent } from "react";
+import { useMemo, useRef, useState, useTransition, type FormEvent } from "react";
+import Link from "next/link";
+import { adminMovementHistoryHref } from "@/lib/admin-finance/movement-navigation";
 import { useRouter } from "next/navigation";
 import { parseDecimalInput } from "@/lib/number-input";
 import { MASTER_OPS_OUTFLOW_AUTO_APPROVAL_MAX_USD } from "@/lib/finance/master-ops-movement-policy";
@@ -17,6 +19,10 @@ type Props = {
   activeRate: number | null;
   defaultDate: string;
   isAdmin: boolean;
+  initialAccountId?: number | null;
+  initialDirection?: "inflow" | "outflow";
+  submitAction?: typeof createMasterOpsMoneyMovementAction;
+  showAdminHistory?: boolean;
 };
 
 function formatUsd(value: number) {
@@ -32,11 +38,16 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-export default function MasterOpsMoneyMovementForm({ accounts, activeRate, defaultDate, isAdmin }: Props) {
+export default function MasterOpsMoneyMovementForm({ accounts, activeRate, defaultDate, isAdmin,
+  initialAccountId, initialDirection = "inflow", submitAction = createMasterOpsMoneyMovementAction,
+  showAdminHistory = false,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [direction, setDirection] = useState<"inflow" | "outflow">("inflow");
-  const [accountId, setAccountId] = useState("");
+  const busyRef = useRef(false);
+  const [historyHref, setHistoryHref] = useState<string | null>(null);
+  const [direction, setDirection] = useState<"inflow" | "outflow">(initialDirection);
+  const [accountId, setAccountId] = useState(initialAccountId && accounts.some(account => account.id === initialAccountId) ? String(initialAccountId) : "");
   const [amount, setAmount] = useState("");
   const [feeAmount, setFeeAmount] = useState("");
   const [movementDate, setMovementDate] = useState(defaultDate);
@@ -61,11 +72,14 @@ export default function MasterOpsMoneyMovementForm({ accounts, activeRate, defau
 
   function submitMovement(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busyRef.current) return;
+    busyRef.current = true;
     setFeedback(null);
+    setHistoryHref(null);
 
     startTransition(async () => {
       try {
-        const result = await createMasterOpsMoneyMovementAction({
+        const result = await submitAction({
           direction,
           moneyAccountId: Number(accountId),
           amount: parseDecimalInput(amount),
@@ -82,6 +96,7 @@ export default function MasterOpsMoneyMovementForm({ accounts, activeRate, defau
           tone: result.status === "pending" ? "pending" : "success",
           message: result.message,
         });
+        if (showAdminHistory) setHistoryHref(adminMovementHistoryHref(Number(accountId), movementDate));
         setAmount("");
         setFeeAmount("");
         setReferenceCode("");
@@ -94,6 +109,8 @@ export default function MasterOpsMoneyMovementForm({ accounts, activeRate, defau
           tone: "error",
           message: error instanceof Error ? error.message : "No se pudo registrar el movimiento.",
         });
+      } finally {
+        busyRef.current = false;
       }
     });
   }
@@ -108,6 +125,8 @@ export default function MasterOpsMoneyMovementForm({ accounts, activeRate, defau
 
   return (
     <form className="space-y-4" onSubmit={submitMovement}>
+      <fieldset disabled={isPending} className="min-w-0 space-y-4 disabled:opacity-70">
+      <legend className="sr-only">Registrar movimiento operativo</legend>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de movimiento">
         {([
           ["inflow", "Ingreso"],
@@ -272,6 +291,7 @@ export default function MasterOpsMoneyMovementForm({ accounts, activeRate, defau
         </button>
       </div>
 
+      </fieldset>
       {feedback ? (
         <div
           role={feedback.tone === "error" ? "alert" : "status"}
@@ -285,6 +305,7 @@ export default function MasterOpsMoneyMovementForm({ accounts, activeRate, defau
           ].join(" ")}
         >
           {feedback.message}
+          {historyHref ? <Link href={historyHref} prefetch={false} className="mt-2 flex min-h-11 items-center underline">Ver movimientos de esta cuenta →</Link> : null}
         </div>
       ) : null}
     </form>

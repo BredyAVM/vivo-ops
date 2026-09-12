@@ -10,6 +10,7 @@ const sections = [
     ['Crear, editar y consultar clientes', legacyAdminHref('clients')], ['Órdenes', '/app/master/ops'], ['Presupuestos de eventos', '/app/events'], ['Jugadas comerciales', '/app/master/plays'], ['Metas de asesores', '/app/commissions/goals'],
   ] },
   { title: 'Cuentas y reglas financieras', links: [
+    ['Registrar ingreso o egreso', '/app/admin/finanzas/cuentas/movimiento'],
     ['Cuentas y movimientos', '/app/admin/finanzas/cuentas'], ['Cartera y cobros', '/app/admin/finanzas/cartera'], ['Tasa diaria e historial', legacyAdminHref('exchange_rate')], ['Administrar cuentas y reglas', legacyAdminHref('accounts')], ['Comisiones', '/app/admin/finanzas/comisiones'], ['Delivery y retornos', '/app/admin/finanzas/delivery'], ['Partners y tarifas de delivery', legacyAdminHref('deliveries')],
   ] },
   { title: 'Equipo y configuración', links: [

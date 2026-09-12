@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import AccountOperationLinks from './AccountOperationLinks';
 import AdminQualityIndicator from '@/app/app/admin/_components/AdminQualityIndicator';
 import {
   filterAdminFinanceAccounts,
@@ -232,6 +233,8 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
           <time dateTime={overview.asOf}>{formatAsOf(overview.asOf)}</time>
         </div>
       </header>
+
+      <AccountOperationLinks />
 
       <section aria-label="Resumen de cuentas" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <OverviewKpi

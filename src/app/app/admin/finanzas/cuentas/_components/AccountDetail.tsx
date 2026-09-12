@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import AccountOperationLinks from './AccountOperationLinks';
 import AdminQualityIndicator from '@/app/app/admin/_components/AdminQualityIndicator';
 import type {
   AdminFinanceAccountDetail,
@@ -515,6 +516,8 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
           </div>
         </div>
       </header>
+
+      {account.isActive ? <AccountOperationLinks accountId={account.id} /> : null}
 
       <section aria-label="Estado de la cuenta" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <DetailKpi
