@@ -1592,6 +1592,7 @@ export default function AdvisorOrderComposer({
   const [configQty, setConfigQty] = useState(1);
   const [configAlias, setConfigAlias] = useState('');
   const [configSelections, setConfigSelections] = useState<ConfigSelection[]>([]);
+  const [configPendingCrmItem, setConfigPendingCrmItem] = useState<DraftItem | null>(null);
   const isEditingOrder = Number.isFinite(existingOrderId) && Number(existingOrderId) > 0;
   const fxRateLockedForAdvisorEdit = isEditingOrder && !advisorRecalculationMode;
   const sourceOrderId =
@@ -2988,6 +2989,7 @@ export default function AdvisorOrderComposer({
     setConfigQty(1);
     setConfigAlias('');
     setConfigSelections([]);
+    setConfigPendingCrmItem(null);
   }
 
   function pulseAddedItemFeedback() {
@@ -3078,6 +3080,30 @@ export default function AdvisorOrderComposer({
     } satisfies DraftItem;
   }
 
+  function productNeedsConfiguration(product: ProductRow) {
+    return Boolean(product.is_detail_editable) || productComponents.some(
+      (row) =>
+        row.parent_product_id === product.id
+        && (row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required))
+    );
+  }
+
+  function applyCrmBenefitDraftItem(nextItem: DraftItem, editingLocalId: string | null) {
+    setDraftItems((current) => {
+      const selectionBase = crmContext?.benefitSelectionMode === 'single'
+        ? current.filter((item) => !item.crm_benefit || item.localId === editingLocalId)
+        : current;
+
+      if (editingLocalId && selectionBase.some((item) => item.localId === editingLocalId)) {
+        return selectionBase.map((item) => item.localId === editingLocalId
+          ? { ...nextItem, localId: item.localId, persistedOrderItemId: item.persistedOrderItemId }
+          : item);
+      }
+
+      return [...selectionBase, nextItem];
+    });
+  }
+
   function selectCrmBenefitProduct(playBenefitId: number, playBenefitUpgradeId: number | null) {
     if (!crmContext) return;
     const benefit = crmContext.benefits.find((option) => option.playBenefitId === playBenefitId);
@@ -3092,17 +3118,38 @@ export default function AdvisorOrderComposer({
     }
 
     const customerDifferenceUsd = Math.max(0, upgrade?.customerDifferenceUsd ?? 0);
+    const product = productById.get(nextItem.product_id);
+    const existingItem = draftItems.find((item) => item.crm_benefit?.playBenefitId === playBenefitId) ?? null;
 
-    setDraftItems((current) => {
-      const selectionBase = crmContext.benefitSelectionMode === 'single'
-        ? current.filter((item) => !item.crm_benefit)
-        : current;
-      const existingIndex = selectionBase.findIndex((item) => item.crm_benefit?.playBenefitId === playBenefitId);
-      if (existingIndex < 0) return [...selectionBase, nextItem];
-      return selectionBase.map((item, index) => index === existingIndex
-        ? { ...nextItem, localId: item.localId }
-        : item);
-    });
+    if (!product) {
+      setError('Ese producto ya no está disponible en el catálogo.');
+      return;
+    }
+
+    if (productNeedsConfiguration(product)) {
+      const pendingItem = {
+        ...nextItem,
+        localId: existingItem?.localId ?? nextItem.localId,
+        persistedOrderItemId: existingItem?.persistedOrderItemId,
+      } satisfies DraftItem;
+
+      if (existingItem && existingItem.product_id === product.id) {
+        openEditConfig(existingItem, pendingItem);
+      } else {
+        openConfigForProduct(product, nextItem.qty, {
+          editingLocalId: existingItem?.localId ?? null,
+          pendingCrmItem: pendingItem,
+        });
+      }
+      clearMessages();
+      const compositionLabel = Number(product.detail_units_limit || 0) > 0
+        ? `las ${product.detail_units_limit} piezas`
+        : 'su composición';
+      setInfo(`Define ${compositionLabel} de ${product.name} y confirma para agregar el obsequio.`);
+      return;
+    }
+
+    applyCrmBenefitDraftItem(nextItem, existingItem?.localId ?? null);
     clearMessages();
     setInfo(upgrade
       ? `${upgrade.name}: el cliente paga ${formatUsd(customerDifferenceUsd)} de diferencia si cumple la condición.`
@@ -3144,7 +3191,11 @@ export default function AdvisorOrderComposer({
     );
   }
 
-  function openConfigForProduct(product: ProductRow, quantity: number) {
+  function openConfigForProduct(
+    product: ProductRow,
+    quantity: number,
+    options?: { editingLocalId?: string | null; pendingCrmItem?: DraftItem | null },
+  ) {
     const optionalFixedSelections = getProductComponents(product.id)
       .filter((row) => row.component_mode === 'fixed' && !row.is_required && Number(row.quantity || 0) > 0)
       .map((row) => {
@@ -3158,15 +3209,16 @@ export default function AdvisorOrderComposer({
       })
       .filter((row): row is ConfigSelection => !!row);
 
-    setConfigEditingLocalId(null);
+    setConfigEditingLocalId(options?.editingLocalId ?? null);
     setConfigProductId(product.id);
     setConfigQty(quantity);
     setConfigAlias('');
     setConfigSelections(optionalFixedSelections);
+    setConfigPendingCrmItem(options?.pendingCrmItem ?? null);
     setConfigOpen(true);
   }
 
-  function openEditConfig(item: DraftItem) {
+  function openEditConfig(item: DraftItem, pendingCrmItem: DraftItem | null = null) {
     const parsed = parseEditableDetailLines(item.editable_detail_lines);
     const product = productById.get(item.product_id);
     if (!product) {
@@ -3182,6 +3234,7 @@ export default function AdvisorOrderComposer({
     setConfigProductId(item.product_id);
     setConfigQty(item.qty);
     setConfigAlias(parsed.alias);
+    setConfigPendingCrmItem(pendingCrmItem);
     setConfigSelections(
       parsed.selections
         .map((selection) => {
@@ -3241,13 +3294,7 @@ export default function AdvisorOrderComposer({
       return;
     }
 
-    const hasConfigurableComponents = productComponents.some(
-      (row) =>
-        row.parent_product_id === selectedProduct.id &&
-        (row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required))
-    );
-
-    if (selectedProduct.is_detail_editable || hasConfigurableComponents) {
+    if (productNeedsConfiguration(selectedProduct)) {
       if (quantity !== 1) {
         setError('Los productos configurables se cargan uno por uno. Debes usar cantidad 1.');
         return;
@@ -3382,18 +3429,27 @@ export default function AdvisorOrderComposer({
     const editingItem = configEditingLocalId
       ? draftItems.find((draft) => draft.localId === configEditingLocalId) ?? null
       : null;
-    const item = {
-      ...buildDraftItem(configProduct, configQty, detailLines),
-      crm_benefit: editingItem?.crm_benefit,
-    } satisfies DraftItem;
+    const item = configPendingCrmItem
+      ? {
+          ...configPendingCrmItem,
+          qty: configQty,
+          editable_detail_lines: detailLines,
+        } satisfies DraftItem
+      : {
+          ...buildDraftItem(configProduct, configQty, detailLines),
+          persistedOrderItemId: editingItem?.persistedOrderItemId,
+          crm_benefit: editingItem?.crm_benefit,
+        } satisfies DraftItem;
 
-    if (configEditingLocalId) {
-      setDraftItems((current) =>
-        current.map((draft) =>
-          draft.localId === configEditingLocalId ? { ...item, localId: draft.localId } : draft
-        )
-      );
-      setInfo(`Composicion actualizada: ${configProduct.name}`);
+    if (configPendingCrmItem) {
+      applyCrmBenefitDraftItem(item, configEditingLocalId);
+      pulseAddedItemFeedback();
+      setInfo(`Obsequio configurado: ${configProduct.name}`);
+    } else if (configEditingLocalId) {
+      setDraftItems((current) => current.map((draft) =>
+        draft.localId === configEditingLocalId ? { ...item, localId: draft.localId } : draft
+      ));
+      setInfo(`Composición actualizada: ${configProduct.name}`);
     } else {
       rememberProduct(configProduct.id);
       setDraftItems((current) => [...current, item]);
@@ -4208,6 +4264,9 @@ export default function AdvisorOrderComposer({
             </div>
 
             <div className="mt-3 space-y-2">
+              <div className="rounded-[12px] border border-[#4A421B] bg-[#100F08] px-3 py-2 text-[11px] leading-5 text-[#D8CC82]">
+                El obsequio no entra automáticamente. Toca una opción, define su composición cuando corresponda y confirma.
+              </div>
               {crmContext.benefits.map((benefit) => {
                 const currentItem = draftItems.find((item) => item.crm_benefit?.playBenefitId === benefit.playBenefitId);
                 return (
@@ -4735,7 +4794,7 @@ export default function AdvisorOrderComposer({
                   ) : null}
 
                   <div className="mt-3 flex gap-2">
-                    {itemIsConfigurable ? (
+                    {itemIsConfigurable && !isProtectedCrmBenefit ? (
                       <button type="button" onClick={() => openEditConfig(item)} className="h-9 rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]">
                         Editar
                       </button>

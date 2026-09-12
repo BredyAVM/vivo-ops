@@ -83,6 +83,23 @@ test('CRM benefits stay optional and distinguish reserved from delivered persist
   assert.doesNotMatch(composer, /redeemAdvisorCrmPlayBenefitsAction/);
 });
 
+test('configurable CRM gifts enter the order only after their composition is confirmed', () => {
+  const composer = readFileSync(new URL('../../src/app/app/advisor/new/AdvisorOrderComposer.tsx', import.meta.url), 'utf8');
+  const selectionStart = composer.indexOf('function selectCrmBenefitProduct');
+  const selectionEnd = composer.indexOf('\n  function handleRecalculateDraftPricesFromCatalog', selectionStart);
+  const selection = composer.slice(selectionStart, selectionEnd);
+
+  assert.notEqual(selectionStart, -1);
+  assert.notEqual(selectionEnd, -1);
+  assert.match(selection, /if \(productNeedsConfiguration\(product\)\)/);
+  assert.match(selection, /openConfigForProduct\(product, nextItem\.qty/);
+  assert.ok(selection.indexOf('return;') < selection.indexOf('applyCrmBenefitDraftItem(nextItem'));
+  assert.match(composer, /configPendingCrmItem[\s\S]*editable_detail_lines: detailLines/);
+  assert.match(composer, /applyCrmBenefitDraftItem\(item, configEditingLocalId\)/);
+  assert.match(composer, /El obsequio no entra automáticamente/);
+  assert.match(composer, /itemIsConfigurable && !isProtectedCrmBenefit/);
+});
+
 test('advisor and master edits use the same atomic order command instead of partial item writes', () => {
   const advisorActions = readFileSync(new URL('../../src/app/app/advisor/new/actions.ts', import.meta.url), 'utf8');
   const advisorReplace = exportedFunctionBlock(advisorActions, 'replaceAdvisorOrderItemsAction');
