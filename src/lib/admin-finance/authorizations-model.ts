@@ -67,6 +67,7 @@ export function parseExpenseReview(value: unknown): ExpenseReview {
 }
 export function authorizationHref(row: AuthorizationRow) {
   if (row.kind === 'expense') return `/app/admin/autorizaciones/egresos/${row.id}`;
+  if (row.kind === 'order' || row.kind === 'reapproval') return `/app/admin/autorizaciones/ordenes/${row.orderId ?? row.id}`;
   const p = new URLSearchParams({ openOrder: String(row.orderId ?? row.id), returnTo: '/app/admin/autorizaciones',
     ...(row.focusDate ? { focusDate: row.focusDate } : {}), ...(row.kind === 'payment' ? { tab: 'pagos' } : {}) });
   return `/app/master/ops?${p}`;

@@ -61,8 +61,10 @@ devoluciones y algunos pagos de servicio, mantienen sus bloques pendientes.
    de verificación visual y el endurecimiento adicional de ingresos/egresos.
 2. **Autorizaciones y cierre**: primer corte de bandeja individual y decisión nativa
    de egresos en `ADMIN_AUTHORIZATIONS_2026-09-12.md`. Órdenes nuevas, ratificaciones
-   y pagos conectados con su detalle operativo. Pendientes: versión exacta y antes/
-   después de cambios comerciales; cierres y conciliación financiera nativos.
+   y pagos conectados con su detalle operativo. Revisión nativa de versión exacta
+   de órdenes implementada en `ADMIN_ORDER_REVIEW_2026-09-12.md`. Pendientes:
+   antes/después completo de cambios comerciales, impacto en comisiones, cobertura
+   de botones antiguos; cierres y conciliación financiera nativos.
 3. **Cobranza y clientes**: saldo, pagos, diferencias, cambios y fondo del cliente,
    seguimiento y resolución desde cada caso sin repetir un cobro.
 4. **Comisiones, metas, jugadas y delivery**: configuración y operación conectadas

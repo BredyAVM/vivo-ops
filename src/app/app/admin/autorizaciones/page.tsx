@@ -34,6 +34,6 @@ export default async function AuthorizationsPage({ searchParams }: { searchParam
       {!data.rows.length ? <p className="py-5 text-sm text-[#9B9BA7]">No hay registros en esta página con este filtro.</p> : null}
       <AdminPagination page={page} total={data.total} href={p => `/app/admin/autorizaciones?tipo=${kind}&page=${p}`} />
     </section>
-    <p className="text-xs text-[#9B9BA7]">Órdenes y pagos se revisan en su operación de origen. Los cierres, conciliaciones e inventarios conservan sus bandejas en Otros pendientes.</p>
+    <p className="text-xs text-[#9B9BA7]">Los pagos abren su operación de origen. Los cierres, conciliaciones e inventarios conservan sus bandejas en Otros pendientes.</p>
   </div>;
 }
