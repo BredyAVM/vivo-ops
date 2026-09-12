@@ -23,7 +23,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
       </a>
 
       <div className="mx-auto min-h-dvh w-full max-w-[1800px] md:grid md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="sticky top-0 hidden h-dvh flex-col border-r border-[#242433] bg-[#0E0E13] px-3 py-5 md:flex xl:px-4">
+        <aside className="sticky top-0 hidden h-dvh min-w-0 flex-col border-r border-[#242433] bg-[#0E0E13] px-3 py-5 md:flex xl:px-4">
           <Link
             href="/app/admin"
             className="rounded-xl px-2 py-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
@@ -33,7 +33,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
             <span className="mt-1 block text-xs text-[#8A8A96]">Centro de control V2</span>
           </Link>
 
-          <div className="mt-7 min-h-0 flex-1 overflow-y-auto pr-1">
+          <div className="mt-7 min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
             <AdminNavigation variant="desktop" />
           </div>
 

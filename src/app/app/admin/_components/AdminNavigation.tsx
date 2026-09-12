@@ -64,7 +64,7 @@ export default function AdminNavigation({ variant }: AdminNavigationProps) {
   }
 
   return (
-    <nav aria-label="Navegación de Administración" className="grid gap-1.5">
+    <nav aria-label="Navegación de Administración" className="grid w-full min-w-0 grid-cols-1 gap-1.5">
       {adminNavigation.map((item) => {
         const active = isActive(item.href);
         return (
@@ -73,8 +73,9 @@ export default function AdminNavigation({ variant }: AdminNavigationProps) {
             href={item.href}
             prefetch={item.prefetch}
             aria-current={active ? 'page' : undefined}
+            title={item.label}
             className={[
-              'group flex min-h-11 items-center gap-2.5 rounded-xl border px-2.5 py-2 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
+              'group flex min-h-11 w-full min-w-0 items-center gap-2.5 rounded-xl border px-2.5 py-2 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
               active
                 ? 'border-[#FEEF00]/35 bg-[#FEEF00]/10 text-white'
                 : 'border-transparent text-[#C8C8D1] hover:border-[#2D2D3B] hover:bg-[#17171F] hover:text-white',

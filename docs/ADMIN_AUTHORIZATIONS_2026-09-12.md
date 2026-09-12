@@ -72,4 +72,8 @@ pagos bancarios ni se cambian umbrales de aprobación.
   corte no certifica sus controles ni retira el panel de respaldo.
 - Aprobación interactiva real deliberadamente no ejecutada. La prueba de escritura
   es SQL reversible más acciones con dependencias simuladas, no una operación real.
-- Revisión visual de la nueva ruta tras despliegue por completar en este corte.
+- Publicación `472983f`: Vercel READY, alias de producción verificado. Primer
+  escaneo de errores sin registros. No se verificó configuración de log drains.
+- Sesión Admin real: bandeja, filtros, detalle de egreso y cambio a rechazo con
+  campo de motivo comprobados sin enviar decisiones. Se detectó desbordamiento
+  horizontal previo del menú lateral; ajuste de contención en corte posterior.

@@ -55,6 +55,15 @@ test('does not prefetch the heavy operational centers from the new shell', () =>
   }
 });
 
+test('desktop menu has a bounded grid track so long labels cannot widen the sidebar', () => {
+  const navigation = read('src/app/app/admin/_components/AdminNavigation.tsx');
+  const shell = read('src/app/app/admin/_components/AdminShell.tsx');
+  assert.match(navigation, /grid w-full min-w-0 grid-cols-1/);
+  assert.match(navigation, /group flex min-h-11 w-full min-w-0/);
+  assert.match(navigation, /title=\{item.label\}/);
+  assert.match(shell, /h-dvh min-w-0 flex-col/);
+});
+
 test('keeps the Admin home KPI-first and leaves the detailed dashboard on its own route', () => {
   const page = read('src/app/app/admin/page.tsx');
   const executiveDashboard = read('src/app/app/admin/_components/ExecutiveDashboard.tsx');
