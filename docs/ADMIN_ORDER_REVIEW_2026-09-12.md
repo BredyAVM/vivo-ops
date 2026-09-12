@@ -48,6 +48,11 @@
   anónimos rechazados por la base.
 - Limpieza comprobada: cero órdenes/líneas de prueba y ninguna función de prueba.
 - Migración aditiva aplicada, sin aprobar ni modificar pedidos reales.
+- Commit `b8d922e` publicado: Vercel READY y alias de producción comprobados.
+  Escaneo inicial sin errores. Revisión de una orden existente verificada en
+  sesión Admin: importes, detalle, horario y ausencia de botón cuando no hay
+  aprobación pendiente. No había órdenes pendientes para probar ese botón real;
+  la escritura está cubierta por pruebas reversibles, no por una operación real.
 
 ## Seguimiento del despliegue anterior
 

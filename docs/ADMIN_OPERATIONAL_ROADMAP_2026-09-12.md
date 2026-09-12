@@ -64,7 +64,9 @@ devoluciones y algunos pagos de servicio, mantienen sus bloques pendientes.
    y pagos conectados con su detalle operativo. Revisión nativa de versión exacta
    de órdenes implementada en `ADMIN_ORDER_REVIEW_2026-09-12.md`. Pendientes:
    antes/después completo de cambios comerciales, impacto en comisiones, cobertura
-   de botones antiguos; cierres y conciliación financiera nativos.
+   de botones antiguos. Registro nativo de cierre implementado en
+   `ADMIN_CLOSURE_UI_2026-09-12.md`; pendientes anulación, resolución de diferencias
+   y conciliación financiera completa.
 3. **Cobranza y clientes**: saldo, pagos, diferencias, cambios y fondo del cliente,
    seguimiento y resolución desde cada caso sin repetir un cobro.
 4. **Comisiones, metas, jugadas y delivery**: configuración y operación conectadas

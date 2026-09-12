@@ -3,6 +3,7 @@ import { adminMovementHref } from '@/lib/admin-finance/movement-navigation';
 
 export default function AccountOperationLinks({ accountId }: { accountId?: number }) {
   return <nav aria-label="Operaciones de cuenta" className="flex flex-wrap gap-2">
+    <Link href={`/app/admin/finanzas/cuentas/cierre${accountId ? `?cuenta=${accountId}` : ''}`} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-4 text-sm font-semibold text-white">Cerrar cuenta</Link>
     <Link href="/app/admin/autorizaciones?tipo=expense" prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-4 text-sm font-semibold text-white">Autorizar egresos</Link>
     {([['inflow', '+ Ingreso'], ['outflow', '− Egreso']] as const).map(([direction, label]) => (
       <Link key={direction} href={adminMovementHref(direction, accountId)} prefetch={false}
