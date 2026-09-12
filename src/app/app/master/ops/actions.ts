@@ -159,6 +159,7 @@ type MasterOpsDetailItemRow = {
 
 type MasterOpsCrmRedemptionRow = {
   order_item_id: number | string | null;
+  status: 'reserved' | 'redeemed';
   play_name_snapshot: string | null;
   benefit_credit_usd: number | string | null;
   customer_paid_difference_usd: number | string | null;
@@ -420,9 +421,9 @@ export async function loadMasterOpsOrderDetailAction(input: {
         .order("created_at", { ascending: false }),
       supabase
         .from("crm_play_redemptions")
-        .select("order_item_id, play_name_snapshot, benefit_credit_usd, customer_paid_difference_usd")
+        .select("order_item_id, status, play_name_snapshot, benefit_credit_usd, customer_paid_difference_usd")
         .eq("order_id", orderId)
-        .eq("status", "redeemed"),
+        .in("status", ["reserved", "redeemed"]),
       supabase.rpc("counter_read_pickup_change_requests", {
         p_order_id: orderId,
       }),
@@ -554,6 +555,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
         priceBs: roundOpsMoney(item.unit_price_bs_snapshot),
         lineTotalUsd: roundOpsMoney(item.line_total_usd),
         crmPlayName: crmRedemption?.play_name_snapshot?.trim() || null,
+        crmBenefitStatus: crmRedemption?.status ?? null,
         crmBenefitCreditUsd: crmRedemption
           ? roundOpsMoney(crmRedemption.benefit_credit_usd)
           : null,
@@ -1690,6 +1692,7 @@ export type MasterOpsEditOrderItem = {
   crmPlayMemberId?: number | null;
   crmPlayBenefitId?: number | null;
   crmPlayBenefitUpgradeId?: number | null;
+  crmRedemptionStatus?: 'reserved' | 'redeemed' | null;
 };
 
 export type MasterOpsEditOrder = {
@@ -2752,6 +2755,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
   const [
     orderResult,
     orderItemsResult,
+    crmRedemptionsResult,
     productsResult,
     productComponentsResult,
     advisorsResult,
@@ -2825,6 +2829,11 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       .eq("order_id", orderId)
       .order("id", { ascending: true }),
     ctx.supabase
+      .from("crm_play_redemptions")
+      .select("order_item_id, status, play_name_snapshot, benefit_credit_usd, customer_paid_difference_usd")
+      .eq("order_id", orderId)
+      .in("status", ["reserved", "redeemed"]),
+    ctx.supabase
       .from("products")
       .select(
         `
@@ -2884,6 +2893,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
   const error =
     orderResult.error ??
     orderItemsResult.error ??
+    crmRedemptionsResult.error ??
     productsResult.error ??
     productComponentsResult.error ??
     advisorsResult.error ??
@@ -3008,6 +3018,11 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
   }
 
   const fxRate = toNumber(pricing.fx_rate, toNumber(activeRateResult.data?.rate_bs_per_usd, 0));
+  const crmRedemptionStatusByOrderItemId = new Map(
+    ((crmRedemptionsResult.data ?? []) as MasterOpsCrmRedemptionRow[])
+      .map((redemption) => [Number(redemption.order_item_id), redemption.status] as const)
+      .filter(([orderItemId]) => Number.isFinite(orderItemId) && orderItemId > 0),
+  );
 
   let isPriceProtected = Boolean(orderRow.is_price_locked);
   if (!isPriceProtected) {
@@ -3057,6 +3072,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       crmPlayBenefitId: item.crm_play_benefit_id == null ? null : Number(item.crm_play_benefit_id),
       crmPlayBenefitUpgradeId:
         item.crm_play_benefit_upgrade_id == null ? null : Number(item.crm_play_benefit_upgrade_id),
+      crmRedemptionStatus: crmRedemptionStatusByOrderItemId.get(Number(item.id)) ?? null,
     };
   });
 

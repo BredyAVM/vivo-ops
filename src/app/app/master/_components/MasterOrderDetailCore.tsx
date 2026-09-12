@@ -27,6 +27,7 @@ export type MasterOrderDetailLine = {
   priceBs: number;
   lineTotalUsd: number;
   crmPlayName?: string | null;
+  crmBenefitStatus?: 'reserved' | 'redeemed' | null;
   crmBenefitCreditUsd?: number | null;
   crmCustomerPaidDifferenceUsd?: number | null;
   productType?: string | null;
@@ -485,17 +486,22 @@ function MasterOrderCrmBenefitBadge({ line }: { line: MasterOrderDetailLine }) {
   const creditUsd = Math.max(0, Number(line.crmBenefitCreditUsd || 0));
   const customerDifferenceUsd = Math.max(0, Number(line.crmCustomerPaidDifferenceUsd || 0));
   const isPartialExemption = customerDifferenceUsd > 0.005;
+  const isReserved = line.crmBenefitStatus === 'reserved';
 
   return (
     <div
       className={[
         "mt-1.5 inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-md border px-2 py-1 text-[11px] leading-4",
-        isPartialExemption
+        isReserved
+          ? "border-amber-400/30 bg-amber-950/20 text-amber-100"
+          : isPartialExemption
           ? "border-amber-500/30 bg-amber-950/20 text-amber-200"
           : "border-emerald-500/30 bg-emerald-950/20 text-emerald-200",
       ].join(" ")}
     >
-      <span className="font-semibold">Jugada: {playName}</span>
+      <span className="font-semibold">
+        {isReserved ? 'Jugada reservada' : 'Jugada entregada'}: {playName}
+      </span>
       <span className="text-[#8A8A96]">·</span>
       <span>
         {isPartialExemption

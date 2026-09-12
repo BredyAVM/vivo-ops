@@ -27,7 +27,6 @@ import {
   ensureAdvisorOrderCreatedEventAction,
   markAdvisorOrderDraftConvertedAction,
   prepareAdvisorCrmPlayBenefitsAction,
-  redeemAdvisorCrmPlayBenefitsAction,
   replaceAdvisorOrderItemsAction,
   saveAdvisorOrderDraftAction,
   submitAdvisorOrderCorrectionForReviewAction,
@@ -155,6 +154,7 @@ type DraftItem = {
     eligibleUnitPriceUsd: number;
     catalogSourceCurrency: CurrencyCode;
     catalogSourceAmount: number;
+    redemptionStatus?: 'reserved' | 'redeemed' | null;
   };
 };
 
@@ -270,6 +270,11 @@ type ExistingOrderItemRow = {
         units_per_service: number | null;
       }
     | null;
+};
+
+type ExistingCrmRedemptionRow = {
+  order_item_id: number | string | null;
+  status: 'reserved' | 'redeemed';
 };
 
 type OrderEditSnapshot = {
@@ -2041,6 +2046,11 @@ export default function AdvisorOrderComposer({
               )
               .eq('order_id', Number(sourceOrderId))
               .order('id', { ascending: true }),
+            supabase
+              .from('crm_play_redemptions')
+              .select('order_item_id, status')
+              .eq('order_id', Number(sourceOrderId))
+              .in('status', ['reserved', 'redeemed']),
           ] as const)
         : null;
 
@@ -2048,13 +2058,22 @@ export default function AdvisorOrderComposer({
         ? await Promise.all([...baseRequests, ...editRequests])
         : await Promise.all(baseRequests);
 
-      const [productResult, componentResult, exchangeRateResult, existingOrderResult, existingItemsResult] = results as [
+      const [
+        productResult,
+        componentResult,
+        exchangeRateResult,
+        existingOrderResult,
+        existingItemsResult,
+        existingRedemptionsResult,
+      ] = results as [
         Awaited<(typeof baseRequests)[0]>,
         Awaited<(typeof baseRequests)[1]>,
         Awaited<(typeof baseRequests)[2]>,
         | Awaited<NonNullable<typeof editRequests>[0]>
         | undefined,
         | Awaited<NonNullable<typeof editRequests>[1]>
+        | undefined,
+        | Awaited<NonNullable<typeof editRequests>[2]>
         | undefined,
       ];
 
@@ -2096,8 +2115,13 @@ export default function AdvisorOrderComposer({
       }
 
       if (sourceOrderId) {
-        if (existingOrderResult?.error) {
-          setError(existingOrderResult.error.message);
+        if (existingOrderResult?.error || existingItemsResult?.error || existingRedemptionsResult?.error) {
+          setError(
+            existingOrderResult?.error?.message
+              ?? existingItemsResult?.error?.message
+              ?? existingRedemptionsResult?.error?.message
+              ?? 'No se pudo cargar la orden.',
+          );
         } else if (!existingOrderResult?.data) {
           setError(isEditingOrder ? 'No se pudo cargar la orden para corregir.' : 'No se pudo cargar la orden base.');
         } else {
@@ -2110,6 +2134,11 @@ export default function AdvisorOrderComposer({
 
           const orderClient = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
           const existingOrderItems = (existingItemsResult?.data ?? []) as ExistingOrderItemRow[];
+          const redemptionStatusByOrderItemId = new Map(
+            ((existingRedemptionsResult?.data ?? []) as ExistingCrmRedemptionRow[])
+              .map((redemption) => [Number(redemption.order_item_id), redemption.status] as const)
+              .filter(([orderItemId]) => Number.isFinite(orderItemId) && orderItemId > 0),
+          );
           const activeProductById = new Map(nextProducts.map((product) => [product.id, product]));
           const skippedRepeatItems: ExistingOrderItemRow[] = [];
           const pricing = order.extra_fields?.pricing;
@@ -2161,6 +2190,7 @@ export default function AdvisorOrderComposer({
                       ?? currentProduct?.base_price_usd
                       ?? 0,
                   ) || 0,
+                  redemptionStatus: redemptionStatusByOrderItemId.get(Number(item.id)) ?? null,
                 }
               : undefined;
 
@@ -3250,9 +3280,10 @@ export default function AdvisorOrderComposer({
       && isEditingOrder
       && item.persistedOrderItemId
       && item.crm_benefit
+      && item.crm_benefit.redemptionStatus === 'redeemed'
     );
     if (protectedBenefit) {
-      setError('Este beneficio ya fue aplicado y no puede quitarse durante una corrección.');
+      setError('Este beneficio ya fue entregado y no puede quitarse durante una corrección ordinaria.');
       return;
     }
     setDraftItems((current) => current.filter((item) => item.localId !== localId));
@@ -4073,16 +4104,6 @@ export default function AdvisorOrderComposer({
           );
         }
 
-        if (crmContext && crmPurchaseEligible && crmFulfillments.length > 0) {
-          const redemption = await redeemAdvisorCrmPlayBenefitsAction({
-            playMemberId: crmContext.playMemberId,
-            orderId: targetOrderId,
-            fulfillments: crmFulfillments,
-          });
-          if (!redemption.ok) {
-            throw new Error(`La orden fue creada, pero no se pudo vincular el beneficio: ${redemption.message}`);
-          }
-        }
       }
 
       if (!isEditingOrder && activeDraftId) {
@@ -4674,7 +4695,14 @@ export default function AdvisorOrderComposer({
                     ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
                     : Number(item.line_total_usd || 0) * fxRateNumber);
                 const isProtectedCrmBenefit = Boolean(
-                  isEditingOrder && item.persistedOrderItemId && item.crm_benefit
+                  isEditingOrder
+                  && item.persistedOrderItemId
+                  && item.crm_benefit?.redemptionStatus === 'redeemed'
+                );
+                const isReservedCrmBenefit = Boolean(
+                  isEditingOrder
+                  && item.persistedOrderItemId
+                  && item.crm_benefit?.redemptionStatus === 'reserved'
                 );
 
                 return (
@@ -4714,12 +4742,19 @@ export default function AdvisorOrderComposer({
                     ) : null}
                     {isProtectedCrmBenefit ? (
                       <span className="inline-flex h-9 items-center rounded-[12px] border border-[#275B46] bg-[#0D1E18] px-3 text-xs font-medium text-[#7CE0A9]">
-                        Beneficio aplicado
+                        Beneficio entregado
                       </span>
                     ) : (
-                      <button type="button" onClick={() => removeDraftItem(item.localId)} className="h-9 rounded-[12px] border border-[#5E2229] px-3 text-xs font-medium text-[#F0A6AE]">
-                        Quitar
-                      </button>
+                      <>
+                        {isReservedCrmBenefit ? (
+                          <span className="inline-flex h-9 items-center rounded-[12px] border border-[#66551A] bg-[#231E0C] px-3 text-xs font-medium text-[#F7DA66]">
+                            Reservado
+                          </span>
+                        ) : null}
+                        <button type="button" onClick={() => removeDraftItem(item.localId)} className="h-9 rounded-[12px] border border-[#5E2229] px-3 text-xs font-medium text-[#F0A6AE]">
+                          Quitar
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>

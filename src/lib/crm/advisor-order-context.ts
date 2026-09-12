@@ -38,7 +38,7 @@ export async function loadAdvisorCrmOrderContext({
     `)
     .eq('client_id', clientId)
     .eq('advisor_id_snapshot', advisorUserId)
-    .in('benefit_status', ['available', 'reserved'])
+    .eq('benefit_status', 'available')
     .neq('workflow_status', 'removed')
     .order('id', { ascending: false });
 

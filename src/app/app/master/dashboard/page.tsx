@@ -135,6 +135,7 @@ type RawOrderItemRow = {
 
 type RawCrmPlayRedemptionRow = {
   order_item_id: number | string | null;
+  status: 'reserved' | 'redeemed';
   play_name_snapshot: string | null;
   benefit_credit_usd: number | string | null;
   customer_paid_difference_usd: number | string | null;
@@ -2107,9 +2108,9 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
       .order('id', { ascending: false }),
     supabase
       .from('crm_play_redemptions')
-      .select('order_item_id, play_name_snapshot, benefit_credit_usd, customer_paid_difference_usd')
+      .select('order_item_id, status, play_name_snapshot, benefit_credit_usd, customer_paid_difference_usd')
       .in('order_id', orderIdsForQuery)
-      .eq('status', 'redeemed'),
+      .in('status', ['reserved', 'redeemed']),
   ]);
 
   if (orderItemsError) {
@@ -3399,6 +3400,7 @@ const lines = rowItems.map((item) => {
     priceBs: unitPriceBs,
     lineTotalUsd: toNumber(item.line_total_usd, 0),
     crmPlayName: crmRedemption?.play_name_snapshot?.trim() || null,
+    crmBenefitStatus: crmRedemption?.status ?? null,
     crmBenefitCreditUsd: crmRedemption
       ? toNumber(crmRedemption.benefit_credit_usd, 0)
       : null,

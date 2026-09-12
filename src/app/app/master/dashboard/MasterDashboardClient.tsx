@@ -180,6 +180,7 @@ type OrderLine = {
   priceBs: number;
   lineTotalUsd: number;
   crmPlayName?: string | null;
+  crmBenefitStatus?: 'reserved' | 'redeemed' | null;
   crmBenefitCreditUsd?: number | null;
   crmCustomerPaidDifferenceUsd?: number | null;
   productType?: CatalogItem['type'];
@@ -3191,6 +3192,7 @@ function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
       priceBs: line.priceBs,
       lineTotalUsd: line.lineTotalUsd,
       crmPlayName: line.crmPlayName ?? null,
+      crmBenefitStatus: line.crmBenefitStatus ?? null,
       crmBenefitCreditUsd: line.crmBenefitCreditUsd ?? null,
       crmCustomerPaidDifferenceUsd: line.crmCustomerPaidDifferenceUsd ?? null,
       productType: line.productType ?? null,

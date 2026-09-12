@@ -232,6 +232,15 @@ function workflowPresentation(
     };
   }
 
+  if (benefitStatus === 'reserved') {
+    return {
+      label: 'Obsequio reservado',
+      dot: 'bg-[#F0D000]',
+      chip: 'border-[#66551A] bg-[#231E0C] text-[#F7DA66]',
+      row: 'border-l-[#D6B900]',
+    };
+  }
+
   if (due) {
     return {
       label: 'Vencido',

@@ -73,12 +73,14 @@ test('all advisor persistence paths preserve metadata; display filters are not s
   assert.doesNotMatch(replacement, /!isInternalOrderDetailLine/);
 });
 
-test('CRM benefits stay optional and an existing redeemed line keeps its persisted identity', () => {
+test('CRM benefits stay optional and distinguish reserved from delivered persisted lines', () => {
   const composer = readFileSync(new URL('../../src/app/app/advisor/new/AdvisorOrderComposer.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(composer, /getInitialCrmBenefitIds/);
   assert.match(composer, /el pedido puede continuar sin obsequio/i);
   assert.match(composer, /persistedOrderItemId: Number\(item\.id\)/);
-  assert.match(composer, /Beneficio aplicado/);
+  assert.match(composer, /Beneficio entregado/);
+  assert.match(composer, /Reservado/);
+  assert.doesNotMatch(composer, /redeemAdvisorCrmPlayBenefitsAction/);
 });
 
 test('advisor and master edits use the same atomic order command instead of partial item writes', () => {
@@ -103,4 +105,23 @@ test('the atomic database command preserves redeemed CRM rows and exposes only i
   assert.match(wrapper, /security definer/);
   assert.match(wrapper, /grant execute[\s\S]*to authenticated/);
   assert.match(wrapper, /revoke all[\s\S]*from public, anon, service_role/);
+});
+
+test('CRM benefits reserve on item creation and become financial only on order delivery', () => {
+  const lifecycle = readFileSync(
+    new URL('../../supabase/migrations/20260912001929_crm_benefit_reservation_delivery_lifecycle_v1.sql', import.meta.url),
+    'utf8',
+  );
+  assert.match(lifecycle, /status in \('reserved', 'redeemed', 'voided'\)/);
+  assert.match(lifecycle, /create trigger crm_order_items_reserve_benefit[\s\S]*after insert on public\.order_items/);
+  assert.match(lifecycle, /create trigger orders_finalize_crm_benefits_on_delivery[\s\S]*new\.status = 'delivered'/);
+  assert.match(lifecycle, /old\.status = 'reserved' and new\.status = 'redeemed'/);
+  assert.match(lifecycle, /crm_order_items_release_reservation[\s\S]*before delete on public\.order_items/);
+  assert.match(lifecycle, /redemption\.status = 'reserved'[\s\S]*not exists/);
+  assert.match(lifecycle, /status in \('reserved', 'redeemed'\)[\s\S]*order_id <> new\.order_id/);
+  assert.match(lifecycle, /update_order_core_atomic_v2/);
+
+  const context = readFileSync(new URL('../../src/lib/crm/advisor-order-context.ts', import.meta.url), 'utf8');
+  assert.match(context, /\.eq\('benefit_status', 'available'\)/);
+  assert.doesNotMatch(context, /\['available', 'reserved'\]/);
 });

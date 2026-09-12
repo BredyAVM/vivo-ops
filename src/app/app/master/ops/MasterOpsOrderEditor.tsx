@@ -550,7 +550,7 @@ export default function MasterOpsOrderEditor({
 
   function updateItemQuantity(item: MasterOpsEditOrderItem, rawValue: string) {
     if (item.crmPlayMemberId) {
-      setError("El beneficio ya aplicado conserva su producto y cantidad para mantener la trazabilidad de la jugada.");
+      setError("El beneficio reservado o entregado conserva su producto y cantidad para mantener la trazabilidad de la jugada.");
       return;
     }
     const qty = toNumber(rawValue, Number.NaN);
@@ -574,8 +574,8 @@ export default function MasterOpsOrderEditor({
 
   function removeItem(localId: string) {
     const item = form?.items.find((candidate) => candidate.localId === localId);
-    if (item?.crmPlayMemberId) {
-      setError("El beneficio ya aplicado no se elimina desde una modificación ordinaria. Cancela la orden si necesitas anular todo el pedido.");
+    if (item?.crmPlayMemberId && item.crmRedemptionStatus === 'redeemed') {
+      setError("El beneficio ya entregado no se elimina desde una modificación ordinaria. Cancela la orden si necesitas anular todo el pedido.");
       return;
     }
     setForm((current) =>
@@ -1504,6 +1504,8 @@ export default function MasterOpsOrderEditor({
                       {orderedItems.map((item) => {
                         const product = catalogById.get(item.productId);
                         const isCrmBenefit = Boolean(item.crmPlayMemberId && item.crmPlayBenefitId);
+                        const isDeliveredCrmBenefit = isCrmBenefit && item.crmRedemptionStatus === 'redeemed';
+                        const isReservedCrmBenefit = isCrmBenefit && item.crmRedemptionStatus === 'reserved';
                         const visibleDetailLines = getVisibleEditableDetailLines(item.editableDetailLines);
                         const itemUnitBs = fxRate > 0 ? item.unitPriceUsdSnapshot * fxRate : 0;
                         return (
@@ -1537,7 +1539,7 @@ export default function MasterOpsOrderEditor({
                                 <div className="mt-1 text-xs font-normal text-[#8A8A96]">{bs(item.lineTotalUsd * fxRate)}</div>
                               </div>
                               <div className="flex flex-wrap gap-2 md:justify-end">
-                                {product?.isDetailEditable && !isCrmBenefit ? (
+                                {product?.isDetailEditable && !isDeliveredCrmBenefit ? (
                                   <button
                                     className="rounded-lg border border-[#242433] px-2 py-1 text-xs text-[#F5F5F7] hover:border-[#FEEF00]/50"
                                     type="button"
@@ -1546,11 +1548,17 @@ export default function MasterOpsOrderEditor({
                                     Config.
                                   </button>
                                 ) : null}
-                                {isCrmBenefit ? (
+                                {isDeliveredCrmBenefit ? (
                                   <span className="inline-flex items-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200">
-                                    Beneficio aplicado
+                                    Beneficio entregado
                                   </span>
                                 ) : (
+                                  <>
+                                    {isReservedCrmBenefit ? (
+                                      <span className="inline-flex items-center rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-xs text-amber-200">
+                                        Beneficio reservado
+                                      </span>
+                                    ) : null}
                                   <button
                                     className="rounded-lg border border-red-500/40 px-2 py-1 text-xs text-red-200"
                                     type="button"
@@ -1558,6 +1566,7 @@ export default function MasterOpsOrderEditor({
                                   >
                                     Quitar
                                   </button>
+                                  </>
                                 )}
                               </div>
                             </div>

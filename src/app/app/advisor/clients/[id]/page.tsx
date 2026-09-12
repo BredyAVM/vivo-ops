@@ -138,10 +138,12 @@ type PlayRedemptionRow = {
   play_member_id: number | string;
   order_id: number | string;
   quantity: number | string;
-  status: 'redeemed' | 'voided' | string;
+  status: 'reserved' | 'redeemed' | 'voided' | string;
   advisor_charge_usd: number | string;
   customer_paid_difference_usd: number | string;
-  redeemed_at: string;
+  reserved_at: string | null;
+  redeemed_at: string | null;
+  created_at: string;
   product: { name: string | null } | Array<{ name: string | null }> | null;
   order: { order_number: string | null } | Array<{ order_number: string | null }> | null;
 };
@@ -218,6 +220,7 @@ function workflowLabel(status: string) {
 
 function memberStageLabel(member: PlayMemberRow) {
   if (member.benefit_status === 'redeemed') return 'Obsequio entregado';
+  if (member.benefit_status === 'reserved') return 'Obsequio reservado';
   if (['accepted', 'converted', 'not_interested', 'unreachable', 'not_applicable', 'closed', 'removed'].includes(member.workflow_status)) {
     return workflowLabel(member.workflow_status);
   }
@@ -268,7 +271,8 @@ function benefitStatusLabel(status: string) {
   const labels: Record<string, string> = {
     available: 'Disponible',
     selected: 'Seleccionado',
-    redeemed: 'Aplicado',
+    reserved: 'Reservado en pedido',
+    redeemed: 'Entregado',
     expired: 'Vencido',
     waived: 'No utilizado',
   };
@@ -390,7 +394,7 @@ export default async function AdvisorClientProfilePage({
           .from('crm_play_redemptions')
           .select(`
             id, play_member_id, order_id, quantity, status,
-            advisor_charge_usd, customer_paid_difference_usd, redeemed_at,
+            advisor_charge_usd, customer_paid_difference_usd, reserved_at, redeemed_at, created_at,
             product:products(name),
             order:orders(order_number)
           `)
@@ -441,6 +445,15 @@ export default async function AdvisorClientProfilePage({
   const isPlayActive = selectedPlay?.status === 'active'
     && (!selectedPlay.starts_at || new Date(selectedPlay.starts_at).getTime() <= generatedAt)
     && (!selectedPlay.ends_at || new Date(selectedPlay.ends_at).getTime() > generatedAt);
+  const selectedMemberReservation = selectedMember
+    ? (redemptionsByMemberId.get(numberValue(selectedMember.id)) ?? [])
+        .find((redemption) => redemption.status === 'reserved') ?? null
+    : null;
+  const primaryOrderHref = selectedMemberReservation
+    ? `/app/advisor/orders/${numberValue(selectedMemberReservation.order_id)}`
+    : selectedMember && selectedPlay && isPlayActive && selectedMember.benefit_status === 'available'
+      ? `/app/advisor/new?client=${clientId}&playMember=${numberValue(selectedMember.id)}`
+      : `/app/advisor/new?client=${clientId}`;
 
   return (
     <div className="space-y-4">
@@ -470,12 +483,10 @@ export default async function AdvisorClientProfilePage({
           </div>
         )}
         <Link
-          href={selectedMember && selectedPlay && isPlayActive && ['available', 'reserved'].includes(selectedMember.benefit_status)
-            ? `/app/advisor/new?client=${clientId}&playMember=${numberValue(selectedMember.id)}`
-            : `/app/advisor/new?client=${clientId}`}
+          href={primaryOrderHref}
           className="inline-flex h-11 flex-1 items-center justify-center rounded-[13px] border border-[#F0D000] px-4 text-sm font-semibold text-[#F7DA66]"
         >
-          Crear pedido
+          {selectedMemberReservation ? 'Ver pedido reservado' : 'Crear pedido'}
         </Link>
       </div>
 
@@ -548,7 +559,7 @@ export default async function AdvisorClientProfilePage({
                 selectionMode={selectedPlay.benefit_selection_mode || 'single'}
                 purchaseRequirementMode={selectedPlay.purchase_requirement_mode || 'none'}
                 minimumOrderAmountUsd={selectedPlay.minimum_order_amount_usd == null ? null : numberValue(selectedPlay.minimum_order_amount_usd)}
-                isActive={isPlayActive && selectedMember.benefit_status !== 'redeemed'}
+                isActive={isPlayActive && selectedMember.benefit_status === 'available'}
               />
               {selectedMember.benefit_status !== 'redeemed' && selectedMember.next_follow_up_at ? (
                 <div className="mt-1 text-[#F7DA66]">Próximo seguimiento: {dateTimeLabel(selectedMember.next_follow_up_at)}</div>
@@ -623,7 +634,7 @@ export default async function AdvisorClientProfilePage({
               if (!play) return null;
               const memberId = numberValue(member.id);
               const memberRedemptions = redemptionsByMemberId.get(memberId) ?? [];
-              const activeRedemptions = memberRedemptions.filter((redemption) => redemption.status === 'redeemed');
+              const activeRedemptions = memberRedemptions.filter((redemption) => ['reserved', 'redeemed'].includes(redemption.status));
               const primaryRedemption = activeRedemptions[0] ?? memberRedemptions[0] ?? null;
               const redemptionProduct = primaryRedemption ? one(primaryRedemption.product) : null;
               const redemptionOrder = primaryRedemption ? one(primaryRedemption.order) : null;
@@ -647,14 +658,14 @@ export default async function AdvisorClientProfilePage({
                     <span>Último movimiento: {dateTimeLabel(member.last_event_at)}</span>
                   </div>
                   {primaryRedemption ? (
-                    <div className={`mt-2 rounded-xl border px-3 py-2 text-[10px] ${primaryRedemption.status === 'redeemed' ? 'border-emerald-400/20 bg-emerald-400/[0.05] text-emerald-100' : 'border-[#30303D] bg-[#15151C] text-[#8B93A7]'}`}>
+                    <div className={`mt-2 rounded-xl border px-3 py-2 text-[10px] ${primaryRedemption.status === 'redeemed' ? 'border-emerald-400/20 bg-emerald-400/[0.05] text-emerald-100' : primaryRedemption.status === 'reserved' ? 'border-amber-400/20 bg-amber-400/[0.05] text-amber-100' : 'border-[#30303D] bg-[#15151C] text-[#8B93A7]'}`}>
                       <div className="font-medium">
-                        {primaryRedemption.status === 'redeemed' ? 'Aplicado' : 'Aplicación anulada'} · {numberValue(primaryRedemption.quantity)} × {redemptionProduct?.name?.trim() || 'Beneficio'}
+                        {primaryRedemption.status === 'redeemed' ? 'Entregado' : primaryRedemption.status === 'reserved' ? 'Reservado' : 'Aplicación anulada'} · {numberValue(primaryRedemption.quantity)} × {redemptionProduct?.name?.trim() || 'Beneficio'}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 opacity-75">
                         <span>{redemptionOrder?.order_number || `Pedido #${primaryRedemption.order_id}`}</span>
-                        <span>{dateTimeLabel(primaryRedemption.redeemed_at)}</span>
-                        <span>Cargo comisión {moneyFormatter.format(numberValue(primaryRedemption.advisor_charge_usd))}</span>
+                        <span>{dateTimeLabel(primaryRedemption.redeemed_at || primaryRedemption.reserved_at || primaryRedemption.created_at)}</span>
+                        {primaryRedemption.status === 'redeemed' ? <span>Cargo comisión {moneyFormatter.format(numberValue(primaryRedemption.advisor_charge_usd))}</span> : null}
                         {numberValue(primaryRedemption.customer_paid_difference_usd) > 0 ? <span>Diferencia cliente {moneyFormatter.format(numberValue(primaryRedemption.customer_paid_difference_usd))}</span> : null}
                       </div>
                     </div>
