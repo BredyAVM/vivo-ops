@@ -198,7 +198,7 @@ export async function createMasterOpsMoneyMovementAction(
         roles: ["admin"],
         title: "Egreso pendiente de aprobación",
         body: `${description} · USD ${totalUsd.toFixed(2)} requiere revisión administrativa.`,
-        url: "/app/master/dashboard",
+        url: "/app/admin/autorizaciones?tipo=expense",
         tag: `master-ops-money-movement-${movementGroupId || moneyAccountId}-${movementDate}`,
         tone: "critical",
         requireInteraction: true,

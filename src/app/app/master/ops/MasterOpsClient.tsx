@@ -4711,6 +4711,9 @@ export default function MasterOpsClient({
               </div>
 
               <div className="flex min-w-0 flex-wrap items-center gap-2.5 xl:col-span-2 xl:row-start-2 xl:flex-nowrap xl:justify-between">
+                {searchParams.get("returnTo") === "/app/admin/autorizaciones" && roles.includes("admin") ? (
+                  <Link href="/app/admin/autorizaciones" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FEEF00] underline">← Autorizaciones</Link>
+                ) : null}
                 <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-2xl border border-[#242433] bg-[#0F0F14] p-1">
                   <TopNavButton label="Operacion" active={inboxMode == null} onClick={closeInbox} />
                   <TopNavButton

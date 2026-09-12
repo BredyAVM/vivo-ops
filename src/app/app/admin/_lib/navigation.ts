@@ -19,6 +19,7 @@ export const adminNavigation: AdminNavigationItem[] = [
     marker: 'IN',
   },
   { key: 'tasks', label: 'Pendientes', shortLabel: 'Pendientes', description: 'Revisiones por cuenta, pedido y comisión', href: '/app/admin/tareas', prefetch: false, marker: 'PD' },
+  { key: 'authorizations', label: 'Autorizaciones', shortLabel: 'Autorizar', description: 'Egresos, órdenes, modificaciones y pagos', href: '/app/admin/autorizaciones', prefetch: false, marker: 'AU' },
   {
     key: 'finance',
     label: 'Finanzas',

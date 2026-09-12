@@ -59,9 +59,10 @@ devoluciones y algunos pagos de servicio, mantienen sus bloques pendientes.
    resultado e historial. Transferencias integradas con el comando atómico existente
    en el corte documentado en `ADMIN_TRANSFERS_UI_2026-09-12.md`; pendiente cierre
    de verificación visual y el endurecimiento adicional de ingresos/egresos.
-2. **Autorizaciones y cierre**: bandeja por operación individual, no solo grupos por
-   cuenta. Órdenes nuevas y re-aprobaciones, egresos, pagos reportados y ajustes que
-   efectivamente requieran autorización. Integrar cierres y conciliación financiera.
+2. **Autorizaciones y cierre**: primer corte de bandeja individual y decisión nativa
+   de egresos en `ADMIN_AUTHORIZATIONS_2026-09-12.md`. Órdenes nuevas, ratificaciones
+   y pagos conectados con su detalle operativo. Pendientes: versión exacta y antes/
+   después de cambios comerciales; cierres y conciliación financiera nativos.
 3. **Cobranza y clientes**: saldo, pagos, diferencias, cambios y fondo del cliente,
    seguimiento y resolución desde cada caso sin repetir un cobro.
 4. **Comisiones, metas, jugadas y delivery**: configuración y operación conectadas
@@ -118,8 +119,9 @@ Actualización posterior: transferencias nativas con comprobante e identidad de
 reintento implementadas en el corte `ADMIN_TRANSFERS_UI_2026-09-12.md`.
 Para ingresos/egresos siguen pendientes el comprobante por ID de operación y
 reintentos garantizados en base de datos. También sigue pendiente la prueba
-funcional con sesión Admin en la interfaz. La bandeja integral de autorizaciones
-sigue en el bloque 2; no se declara construida por actualizar esta hoja de ruta.
+funcional completa con sesión Admin en la interfaz. La bandeja de autorizaciones
+ya tiene un primer corte individual; su cobertura integral y cierres siguen en el
+bloque 2, con límites documentados en `ADMIN_AUTHORIZATIONS_2026-09-12.md`.
 
 ## Verificación del primer corte
 
