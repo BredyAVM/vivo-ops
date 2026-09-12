@@ -100,6 +100,21 @@ test('configurable CRM gifts enter the order only after their composition is con
   assert.match(composer, /itemIsConfigurable && !isProtectedCrmBenefit/);
 });
 
+test('an available CRM play can be added while editing an existing advisor order', () => {
+  const composer = readFileSync(new URL('../../src/app/app/advisor/new/AdvisorOrderComposer.tsx', import.meta.url), 'utf8');
+  const actions = readFileSync(new URL('../../src/app/app/advisor/new/actions.ts', import.meta.url), 'utf8');
+  const loader = exportedFunctionBlock(actions, 'loadAdvisorExistingOrderCrmContextAction');
+
+  assert.match(loader, /\.eq\('attributed_advisor_id', ctx\.user\.id\)/);
+  assert.match(loader, /canAdvisorModifyOrder/);
+  assert.match(loader, /loadAdvisorCrmOrderContext/);
+  assert.match(composer, /loadAdvisorExistingOrderCrmContextAction/);
+  assert.match(composer, /setCrmContext\(existingOrderCrmContext\)/);
+  assert.doesNotMatch(composer, /crmContext && !isEditingOrder/);
+  assert.match(composer, /if \(crmContext && crmPurchaseEligible\)/);
+  assert.match(composer, /void detectClientCrmContext\(client, nextNotice\)/);
+});
+
 test('advisor and master edits use the same atomic order command instead of partial item writes', () => {
   const advisorActions = readFileSync(new URL('../../src/app/app/advisor/new/actions.ts', import.meta.url), 'utf8');
   const advisorReplace = exportedFunctionBlock(advisorActions, 'replaceAdvisorOrderItemsAction');

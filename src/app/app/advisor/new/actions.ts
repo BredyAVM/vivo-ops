@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
+import { loadAdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context';
 import { readEventBudgetPayload } from '@/lib/events/event-budget';
 import {
   sanitizeOrderChangeDetails,
@@ -857,6 +858,31 @@ export async function prepareAdvisorCrmPlayBenefitsAction(input: {
       message: error instanceof Error ? error.message : 'No se pudo preparar el beneficio de la jugada.',
     };
   }
+}
+
+export async function loadAdvisorExistingOrderCrmContextAction(input: { orderId: number }) {
+  const ctx = await requireAuthContext();
+  const orderId = Math.trunc(Number(input.orderId));
+  if (orderId <= 0) throw new Error('Orden inválida.');
+
+  const { data: order, error } = await ctx.supabase
+    .from('orders')
+    .select('client_id, attributed_advisor_id, status')
+    .eq('id', orderId)
+    .eq('attributed_advisor_id', ctx.user.id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!order || order.attributed_advisor_id !== ctx.user.id) return null;
+  if (!canAdvisorModifyOrder(String(order.status || ''))) return null;
+
+  const clientId = Number(order.client_id || 0);
+  if (clientId <= 0) return null;
+
+  return loadAdvisorCrmOrderContext({
+    supabase: ctx.supabase,
+    advisorUserId: ctx.user.id,
+    clientId,
+  });
 }
 
 export async function submitAdvisorOrderCorrectionForReviewAction(input: {

@@ -25,6 +25,7 @@ import {
 } from '@/lib/orders/whatsapp-summary';
 import {
   ensureAdvisorOrderCreatedEventAction,
+  loadAdvisorExistingOrderCrmContextAction,
   markAdvisorOrderDraftConvertedAction,
   prepareAdvisorCrmPlayBenefitsAction,
   replaceAdvisorOrderItemsAction,
@@ -2055,9 +2056,22 @@ export default function AdvisorOrderComposer({
           ] as const)
         : null;
 
-      const results = editRequests
-        ? await Promise.all([...baseRequests, ...editRequests])
-        : await Promise.all(baseRequests);
+      const dataRequestsPromise = editRequests
+        ? Promise.all([...baseRequests, ...editRequests])
+        : Promise.all(baseRequests);
+      const existingOrderCrmContextPromise = isEditingOrder && sourceOrderId
+        ? loadAdvisorExistingOrderCrmContextAction({ orderId: sourceOrderId }).catch((contextError) => {
+            console.warn(
+              'No se pudo revisar la jugada al modificar la orden.',
+              contextError instanceof Error ? contextError.message : contextError,
+            );
+            return null;
+          })
+        : Promise.resolve(null);
+      const [results, existingOrderCrmContext] = await Promise.all([
+        dataRequestsPromise,
+        existingOrderCrmContextPromise,
+      ]);
 
       const [
         productResult,
@@ -2228,6 +2242,7 @@ export default function AdvisorOrderComposer({
           setClientResults([]);
           setIsNewClientMode(false);
           setDraftItems(orderItems);
+          if (isEditingOrder) setCrmContext(existingOrderCrmContext);
           setFulfillment(order.fulfillment || 'pickup');
           setDeliveryDate(isEditingOrder ? schedule?.date || (schedule?.asap ? getTodayInputValue() : '') : '');
           setDeliveryHour12(isEditingOrder ? parsedTime.hour12 : '');
@@ -2821,7 +2836,7 @@ export default function AdvisorOrderComposer({
     setClientResults([]);
     setSearchTerm(client.phone ?? client.full_name);
     setInfo(nextNotice);
-    if (!isEditingOrder) void detectClientCrmContext(client, nextNotice);
+    void detectClientCrmContext(client, nextNotice);
   }
 
   function clearSelectedClient() {
@@ -3986,7 +4001,7 @@ export default function AdvisorOrderComposer({
       return;
     }
 
-    if (crmContext && !isEditingOrder && crmPurchaseEligible) {
+    if (crmContext && crmPurchaseEligible) {
       if (crmContext.benefitSelectionMode === 'single' && crmFulfillments.length > 1) {
         setError('Esta jugada permite aplicar un solo beneficio por pedido.');
         return;
@@ -4236,7 +4251,7 @@ export default function AdvisorOrderComposer({
         {error ? <div className="rounded-[18px] border border-[#5E2229] bg-[#261114] px-4 py-3 text-sm text-[#F0A6AE]">{error}</div> : null}
         {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
 
-        {crmContext && !isEditingOrder ? (
+        {crmContext ? (
           <section className="rounded-[20px] border border-[#5A4F12] bg-[#171506] p-3.5">
             <div className="flex items-start justify-between gap-3">
               <div>
