@@ -11,23 +11,69 @@ Escritorio prioritario, móvil útil y poco texto. Publicar cortes verificados.
 Este documento actualiza el orden de trabajo, no certifica que todos los bloques
 estén implementados. Los documentos anteriores conservan evidencia histórica.
 
+## Ampliación confirmada: cobertura administrativa completa
+
+El usuario ratificó que el nuevo módulo debe permitir operar TODAS las capacidades
+administrativas existentes, incluyendo crear productos, mantener catálogo y
+usuarios, configurar comisiones y conectar los apartados de comisiones y jugadas.
+No basta con un resumen de datos o un listado de enlaces sin recorrido operativo.
+
+La cobertura se verificará por acción, no por existencia de una pantalla:
+
+| Área | Operaciones que debe cubrir | Integración que debe comprobarse |
+| --- | --- | --- |
+| Catálogo | Crear y modificar productos; precios, componentes, presentaciones y activación | Producto utilizable al crear una orden; componentes válidos y descuento de inventario correcto; precios históricos conservados |
+| Inventario | Configuración física, recetas, recepción, producción, conteos, ajustes, devoluciones y averías | Unidades, disponibilidad y órdenes consistentes; sin registrar dos veces una entrada o salida |
+| Usuarios y permisos | Crear y administrar usuarios, estado y roles según la política autorizada | Permisos efectivos en cada módulo; cambios auditados, sin ampliar roles por el mero acceso a Administración |
+| Órdenes y autorizaciones | Crear/editar, aprobar, ratificar, cambiar precios/ajustes permitidos, cancelar y rectificar según estado | Pagos, entrega, inventario, beneficios y comisiones conservan coherencia y trazabilidad |
+| Comisiones y metas | Configurar reglas vigentes, periodos y metas; calcular, revisar, cerrar, reabrir cuando proceda, registrar deducciones y pagos autorizados | Reutilizar los apartados actuales, conservar orden/asesor/periodo y distinguir cálculo, cierre y pago |
+| Jugadas y beneficios | Crear/configurar, probar, seleccionar participantes, activar y administrar ciclo de vida según permisos | Cliente/asesor/jugada/beneficio/orden vinculados; descuentos y regalos reflejados conforme a las reglas de comisión existentes, sin inventar nuevas reglas |
+| Cuentas y caja | Ingreso, egreso, transferencia, aprobación, anulación, cierre y conciliación | Movimiento, cuenta, moneda, saldo e historial; sin doble contabilización |
+| Clientes y cobranza | Crear/editar y consultar ficha, órdenes, fondos y seguimiento de pendientes | Acceso al caso original para resolver, sin repetir pagos ni perder relación con asesor/jugada |
+| Delivery | Empresas, tarifas, asignación/corrección, costos pendientes, retornos y pagos de servicio | Separar precio al cliente, costo del servicio y dinero en custodia |
+| Gobierno y reportes | Tasa, parámetros vigentes, notificaciones, eventos, descargas e historial | Acceso práctico con permisos actuales y filtros coherentes |
+
+Esto es un listado de aceptación, no una certificación de que todas estas acciones
+ya están disponibles en V2. Las capacidades nuevas o todavía incompletas, como
+devoluciones y algunos pagos de servicio, mantienen sus bloques pendientes.
+
+### Reglas de conexión y cierre de cada área
+
+1. Inventariar cada opción administrativa vigente y clasificarla: operativa en V2,
+   integrada a un centro existente, dependiente del panel anterior o pendiente.
+2. Mantener un solo conjunto de reglas y registros por dominio. Integrar los
+   centros ya construidos sin crear otra configuración de comisiones o jugadas.
+3. Desde Administración debe poderse encontrar la acción, ejecutarla, comprobar
+   su resultado y regresar al contexto de trabajo. Se permite un centro modular
+   dedicado; no se exige meter todos los formularios en la portada de KPIs.
+4. Probar recorridos conectados: producto → orden → inventario; jugada/beneficio →
+   orden → comisión según reglas vigentes; comisión pagada → cuenta e historial.
+5. Cambiar una configuración no debe reescribir silenciosamente ventas, beneficios
+   aplicados o cierres históricos. Mostrar vigencia e impacto cuando corresponda.
+6. No retirar el panel anterior hasta comprobar la cobertura de todas sus opciones.
+   Si una capacidad se decide retirar o cambiar de alcance, requiere decisión explícita.
+
 ## Orden de implementación
 
 1. **Cuentas operativas**: ingreso y egreso en Administración, cuenta preseleccionada,
-   resultado e historial. Después, transferencias con el comando atómico existente.
+   resultado e historial. Transferencias integradas con el comando atómico existente
+   en el corte documentado en `ADMIN_TRANSFERS_UI_2026-09-12.md`; pendiente cierre
+   de verificación visual y el endurecimiento adicional de ingresos/egresos.
 2. **Autorizaciones y cierre**: bandeja por operación individual, no solo grupos por
    cuenta. Órdenes nuevas y re-aprobaciones, egresos, pagos reportados y ajustes que
    efectivamente requieran autorización. Integrar cierres y conciliación financiera.
 3. **Cobranza y clientes**: saldo, pagos, diferencias, cambios y fondo del cliente,
    seguimiento y resolución desde cada caso sin repetir un cobro.
-4. **Comisiones y delivery**: revisión, correcciones, cierre y pago; distinguir
+4. **Comisiones, metas, jugadas y delivery**: configuración y operación conectadas
+   con los centros actuales; revisión, correcciones, cierre y pago; distinguir
    retorno de dinero en custodia del pago del servicio. Tratar faltantes e historia
    con evidencia, sin inventar costos ni pagos.
 5. **Rectificaciones y devoluciones**: fechas/delivery/datos de órdenes con revisión
    del impacto; retorno físico por unidad y estado compatible, venta normal y avería
    o venta al asesor. La cancelación no demuestra por sí sola un retorno físico.
-6. **Herramientas**: productos, inventario, clientes, equipo/permisos, tasa, tarifas,
-   eventos y jugadas. Reutilizar centros vigentes; distinguir enlace de migración.
+6. **Administración completa**: crear/editar productos y catálogo, inventario,
+   clientes, usuarios y permisos, tasa, tarifas, eventos y notificaciones. Verificar
+   cada opción vigente y su recorrido operativo; no limitar el bloque a enlaces.
 7. **Pendientes, auditoría y reportes**: cobertura de todos los dominios, filtros y
    exportación coherentes, quién hizo/solicitó/autorizó y cuándo.
 8. **KPIs y diseño común**: facturación y cierres día/semana, cobrado/pendiente,
@@ -68,10 +114,12 @@ Implementación inicial en `/app/admin/finanzas/cuentas/movimiento`:
 - No se cambia el umbral vigente de egresos de Master ni se autoaprueban solicitudes
   existentes. Admin ya confirma sus propios registros según la regla actual.
 
-Pendientes de este corte: transferencias nativas, comprobante por ID de operación,
-reintentos garantizados en base de datos y prueba funcional con sesión Admin en la
-interfaz. La bandeja integral de autorizaciones sigue en el bloque 2; no se declara
-construida por actualizar esta hoja de ruta.
+Actualización posterior: transferencias nativas con comprobante e identidad de
+reintento implementadas en el corte `ADMIN_TRANSFERS_UI_2026-09-12.md`.
+Para ingresos/egresos siguen pendientes el comprobante por ID de operación y
+reintentos garantizados en base de datos. También sigue pendiente la prueba
+funcional con sesión Admin en la interfaz. La bandeja integral de autorizaciones
+sigue en el bloque 2; no se declara construida por actualizar esta hoja de ruta.
 
 ## Verificación del primer corte
 

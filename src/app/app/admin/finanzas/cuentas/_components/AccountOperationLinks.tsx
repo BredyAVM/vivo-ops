@@ -9,5 +9,7 @@ export default function AccountOperationLinks({ accountId }: { accountId?: numbe
         {label}
       </Link>
     ))}
+    <Link href={`/app/admin/finanzas/cuentas/transferencia${accountId ? `?cuenta=${accountId}` : ''}`} prefetch={false}
+      className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-4 text-sm font-semibold text-white hover:border-[#FEEF00]/50">Transferir</Link>
   </nav>;
 }

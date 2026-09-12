@@ -17,6 +17,7 @@ import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { formatOrderDisplayLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { isOrderPriceProtected } from '@/lib/domain/order-domain';
 import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
+import { executeMoneyTransfer } from '@/lib/finance/money-transfer-command';
 import {
   advisorReceivesCommissions,
   loadEligibleCommissionAdvisors,
@@ -7669,22 +7670,8 @@ export async function createMoneyTransferAction(input: {
   description: string;
   notes: string;
 }) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
-  const { requestId, ...command } = input;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId || '')) {
-    throw new Error('Actualiza la pantalla antes de registrar el traspaso.');
-  }
-  const { data, error } = await supabase.rpc('create_money_transfer_v1', {
-    p_request_id: requestId,
-    p_input: command,
-  });
-  if (error) throw new Error(error.message);
-  if (!data || data.movementGroupId !== requestId
-    || !Number.isSafeInteger(Number(data.sourceMovementId)) || Number(data.sourceMovementId) <= 0
-    || !Number.isSafeInteger(Number(data.targetMovementId)) || Number(data.targetMovementId) <= 0) {
-    throw new Error('No se pudo verificar el comprobante del traspaso. Reintenta sin cambiar los datos.');
-  }
+  const result = await executeMoneyTransfer(input);
+  if (result.status !== 'confirmed') throw new Error(result.message);
   revalidateMasterDashboardFinancialReferences();
 }
 

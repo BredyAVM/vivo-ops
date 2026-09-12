@@ -5,8 +5,12 @@ test('transfer creation is one authenticated command with a required retry ident
   const source=readFileSync(new URL('../../src/app/app/master/dashboard/actions.ts',import.meta.url),'utf8');
   const body=source.slice(source.indexOf('export async function createMoneyTransferAction('),source.indexOf('export async function approveMoneyMovementGroupAction('));
   assert.match(body,/requestId: string/);
-  assert.match(body,/requireAdminRole/);
-  assert.match(body,/create_money_transfer_v1/);
+  assert.match(body,/executeMoneyTransfer\(input\)/);
+  const command=readFileSync(new URL('../../src/lib/finance/money-transfer-command.ts',import.meta.url),'utf8');
+  assert.match(command,/requireAdminContext\(\)/);
+  assert.match(command,/create_money_transfer_v1/);
+  assert.match(command,/parseMoneyTransferReceipt/);
+  assert.doesNotMatch(command,/service.role|\.insert\(/i);
   assert.doesNotMatch(body,/\.insert\(|crypto.randomUUID/);
 });
 test('the form keeps its transfer identity on errors and prevents concurrent submissions', () => {
