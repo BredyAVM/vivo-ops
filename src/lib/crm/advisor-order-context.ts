@@ -2,7 +2,7 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isPlayOrderAvailableAt } from '@/lib/crm/play-order';
-import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
+import type { AdvisorCrmOrderContext, MasterCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
 
 type LoadAdvisorCrmOrderContextInput = {
   supabase: SupabaseClient;
@@ -16,12 +16,21 @@ type RelatedRow = Record<string, unknown> | Array<Record<string, unknown>> | nul
 function firstRelated(value: RelatedRow) {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
-export async function loadAdvisorCrmOrderContext({
+export async function loadAdvisorCrmOrderContext(input: LoadAdvisorCrmOrderContextInput): Promise<AdvisorCrmOrderContext | null> {
+  return loadCrmOrderContext(input);
+}
+
+// The caller must authorize master/admin access before requesting an unscoped member.
+export async function loadMasterCrmOrderContext(input: Omit<LoadAdvisorCrmOrderContextInput, 'advisorUserId'>): Promise<MasterCrmOrderContext | null> {
+  return loadCrmOrderContext(input);
+}
+
+async function loadCrmOrderContext({
   supabase,
   advisorUserId,
   clientId,
   playMemberId = null,
-}: LoadAdvisorCrmOrderContextInput): Promise<AdvisorCrmOrderContext | null> {
+}: Omit<LoadAdvisorCrmOrderContextInput, 'advisorUserId'> & { advisorUserId?: string }): Promise<MasterCrmOrderContext | null> {
   let memberQuery = supabase
     .from('crm_play_members')
     .select(`
@@ -37,10 +46,11 @@ export async function loadAdvisorCrmOrderContext({
       )
     `)
     .eq('client_id', clientId)
-    .eq('advisor_id_snapshot', advisorUserId)
     .eq('benefit_status', 'available')
     .neq('workflow_status', 'removed')
     .order('id', { ascending: false });
+
+  if (advisorUserId !== undefined) memberQuery = memberQuery.eq('advisor_id_snapshot', advisorUserId);
 
   if (playMemberId && Number.isFinite(playMemberId) && playMemberId > 0) {
     memberQuery = memberQuery.eq('id', Math.trunc(playMemberId));
@@ -139,6 +149,7 @@ export async function loadAdvisorCrmOrderContext({
     .filter((benefitId) => availableBenefitIds.has(benefitId));
 
   return {
+    advisorUserId: activeMember.advisor_id_snapshot == null ? null : String(activeMember.advisor_id_snapshot),
     playMemberId: activeMemberId,
     playName: String(play.name || 'Jugada activa'),
     benefitSelectionMode: String(play.benefit_selection_mode) === 'multiple' ? 'multiple' : 'single',

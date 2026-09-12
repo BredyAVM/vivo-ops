@@ -38,3 +38,7 @@ export type AdvisorCrmOrderContext = {
     }>;
   }>;
 };
+
+export type MasterCrmOrderContext = AdvisorCrmOrderContext & {
+  advisorUserId: string | null;
+};

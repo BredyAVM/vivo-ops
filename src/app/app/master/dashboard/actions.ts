@@ -9009,7 +9009,8 @@ export async function createOrderAction(input: {
   }
 
   const attributedAdvisorId =
-    source === 'advisor' ? input.attributedAdvisorUserId : user.id;
+    source === 'advisor' || input.items.some((item) => item.crmPlayMemberId != null)
+      ? input.attributedAdvisorUserId : user.id;
 
   if (!attributedAdvisorId) {
     throw new Error('No se pudo resolver el asesor atribuido.');
@@ -9186,6 +9187,9 @@ export async function createOrderAction(input: {
       item.adminPriceOverrideUsd != null ? adminOverrideTimestamp : null,
     sku_snapshot: item.skuSnapshot,
     product_name_snapshot: item.productNameSnapshot,
+    crm_play_member_id: item.crmPlayMemberId ?? null,
+    crm_play_benefit_id: item.crmPlayBenefitId ?? null,
+    crm_play_benefit_upgrade_id: item.crmPlayBenefitUpgradeId ?? null,
     notes:
       item.editableDetailLines && item.editableDetailLines.length > 0
         ? item.editableDetailLines.join('\n')
@@ -9876,7 +9880,8 @@ export async function updateOrderAction(input: {
   }
 
   const attributedAdvisorId =
-    source === 'advisor' ? input.attributedAdvisorUserId : user.id;
+    source === 'advisor' || input.items.some((item) => item.crmPlayMemberId != null)
+      ? input.attributedAdvisorUserId : user.id;
 
   if (!attributedAdvisorId) {
     throw new Error('No se pudo resolver el asesor atribuido.');

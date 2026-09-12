@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { inventoryUnitLabel } from "@/app/app/inventory/display";
 import { requireMasterOrAdminContext } from "@/lib/auth";
+import { loadMasterCrmOrderContext } from "@/lib/crm/advisor-order-context";
+import { resolveCrmOrderBenefit, validateMasterCrmBenefitSelection } from "@/lib/crm/master-order-benefit";
 import {
   mapOrderFinancialActivity,
   type OrderFinancialActivity,
@@ -1693,6 +1695,7 @@ export type MasterOpsEditOrderItem = {
   crmPlayBenefitId?: number | null;
   crmPlayBenefitUpgradeId?: number | null;
   crmRedemptionStatus?: 'reserved' | 'redeemed' | null;
+  crmPlayName?: string | null;
 };
 
 export type MasterOpsEditOrder = {
@@ -2020,6 +2023,18 @@ function stripMasterOpsOrderItem(item: MasterOpsOrderSaveItem): MasterOpsOrderSa
   };
 }
 
+export async function loadMasterOpsClientCrmContextAction(input: { clientId: number; orderId?: number | null }) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!Number.isSafeInteger(input.clientId) || input.clientId <= 0) throw new Error("Cliente inválido.");
+  if (input.orderId != null) {
+    if (!Number.isSafeInteger(input.orderId) || input.orderId <= 0) throw new Error("Orden inválida.");
+    const { data: order, error } = await ctx.supabase.from("orders").select("status").eq("id", input.orderId).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!order || !canEditMasterOpsOrder(order)) return null;
+  }
+  return loadMasterCrmOrderContext({ supabase: ctx.supabase, clientId: input.clientId });
+}
+
 async function prepareMasterOpsOrderSave(
   mode: "create" | "edit",
   input: MasterOpsOrderCreateInput | MasterOpsOrderUpdateInput
@@ -2180,6 +2195,18 @@ async function prepareMasterOpsOrderSave(
   );
   const existingItems = (orderItemsResult.data ?? []) as MasterOpsExistingSaveItemRow[];
   const existingItemsById = new Map(existingItems.map((item) => [Number(item.id), item] as const));
+  const newCrmItems = input.items.filter((item) => !item.orderItemId && item.crmPlayMemberId != null);
+  const newCrmContext = newCrmItems.length
+    ? await loadMasterCrmOrderContext({
+        supabase: ctx.supabase,
+        clientId: Number(input.selectedClientId || 0),
+        playMemberId: Number(newCrmItems[0].crmPlayMemberId),
+      })
+    : null;
+  if (newCrmItems.length && !newCrmContext) throw new Error("La jugada ya no está disponible para este cliente. Vuelve a abrir el editor.");
+  if (newCrmItems.length && input.items.some((item) => item.orderItemId && existingItemsById.get(Number(item.orderItemId))?.crm_play_member_id)) {
+    throw new Error("La orden ya tiene un beneficio reservado. Conserva ese beneficio o retíralo y guarda antes de elegir otro.");
+  }
   const submittedExistingIds = new Set<number>();
   let itemPricingChanged = mode === "create";
 
@@ -2188,6 +2215,17 @@ async function prepareMasterOpsOrderSave(
     const liveProduct = liveProducts.get(productId) ?? null;
     const orderItemId = Number(item.orderItemId || 0) > 0 ? Number(item.orderItemId) : null;
     const existingItem = orderItemId ? existingItemsById.get(orderItemId) ?? null : null;
+    const newCrmChoice = !existingItem && item.crmPlayMemberId != null && newCrmContext
+      ? resolveCrmOrderBenefit(newCrmContext, Number(item.crmPlayBenefitId), item.crmPlayBenefitUpgradeId ?? null)
+      : null;
+    if (!item.crmPlayMemberId && (item.crmPlayBenefitId != null || item.crmPlayBenefitUpgradeId != null)) {
+      throw new Error("La vinculación del beneficio está incompleta.");
+    }
+    if (existingItem && (
+      Number(item.crmPlayMemberId || 0) !== Number(existingItem.crm_play_member_id || 0) ||
+      Number(item.crmPlayBenefitId || 0) !== Number(existingItem.crm_play_benefit_id || 0) ||
+      Number(item.crmPlayBenefitUpgradeId || 0) !== Number(existingItem.crm_play_benefit_upgrade_id || 0)
+    )) throw new Error("Una línea existente debe conservar su vinculación con la jugada.");
 
     if (mode === "create" && orderItemId) {
       throw new Error("Un pedido nuevo no puede reutilizar líneas de otra orden.");
@@ -2215,6 +2253,10 @@ async function prepareMasterOpsOrderSave(
           String(item.adminPriceOverrideReason || "").trim());
     const isNewLine = !existingItem;
     const linePricingChanged = isNewLine || productChanged || quantityChanged || overrideChanged;
+    if (existingItem?.crm_play_member_id && (productChanged || quantityChanged || overrideChanged)) {
+      throw new Error("El beneficio reservado conserva su producto, cantidad y condiciones económicas.");
+    }
+    if (newCrmChoice && nextOverride != null) throw new Error("El precio del beneficio lo determina la jugada.");
     if (linePricingChanged) itemPricingChanged = true;
 
     if (!liveProduct) {
@@ -2240,7 +2282,13 @@ async function prepareMasterOpsOrderSave(
     let adminPriceOverrideUsd: number | null;
     let adminPriceOverrideReason: string | null;
 
-    if (existingItem && !linePricingChanged) {
+    if (newCrmChoice) {
+      sourcePriceCurrency = newCrmChoice.sourcePriceCurrency;
+      sourcePriceAmount = newCrmChoice.sourcePriceAmount;
+      unitPriceUsdSnapshot = newCrmChoice.unitPriceUsdSnapshot;
+      adminPriceOverrideUsd = null;
+      adminPriceOverrideReason = null;
+    } else if (existingItem && !linePricingChanged) {
       sourcePriceCurrency = existingItem.pricing_origin_currency === "VES" ? "VES" : "USD";
       sourcePriceAmount = toNumber(existingItem.pricing_origin_amount, 0);
       unitPriceUsdSnapshot = toNumber(existingItem.unit_price_usd_snapshot, 0);
@@ -2295,11 +2343,11 @@ async function prepareMasterOpsOrderSave(
       allowInactiveCatalog: Boolean(existingItem) && !linePricingChanged,
       validateOverride: isNewLine || overrideChanged,
       crmPlayMemberId:
-        existingItem?.crm_play_member_id == null ? null : Number(existingItem.crm_play_member_id),
+        newCrmChoice?.crmPlayMemberId ?? (existingItem?.crm_play_member_id == null ? null : Number(existingItem.crm_play_member_id)),
       crmPlayBenefitId:
-        existingItem?.crm_play_benefit_id == null ? null : Number(existingItem.crm_play_benefit_id),
+        newCrmChoice?.crmPlayBenefitId ?? (existingItem?.crm_play_benefit_id == null ? null : Number(existingItem.crm_play_benefit_id)),
       crmPlayBenefitUpgradeId:
-        existingItem?.crm_play_benefit_upgrade_id == null
+        newCrmChoice ? newCrmChoice.crmPlayBenefitUpgradeId : existingItem?.crm_play_benefit_upgrade_id == null
           ? null
           : Number(existingItem.crm_play_benefit_upgrade_id),
     };
@@ -2433,6 +2481,24 @@ async function prepareMasterOpsOrderSave(
   });
   if (validationIssues.length > 0) {
     throw new Error(validationIssues[0].message);
+  }
+
+  if (newCrmContext) {
+    const commercialSubtotalUsd = recalculatedItems
+      .filter((item) => !item.crmPlayMemberId)
+      .reduce((sum, item) => sum + item.lineTotalUsd, 0) * (1 - requestedDiscountPct / 100);
+    validateMasterCrmBenefitSelection({
+      context: newCrmContext,
+      clientId: Number(input.selectedClientId),
+      advisorUserId: attributedAdvisorUserId || null,
+      commercialSubtotalUsd,
+      items: newCrmItems,
+    });
+    const { error } = await ctx.supabase.rpc("crm_set_play_benefits_v2", {
+      p_play_member_id: newCrmContext.playMemberId,
+      p_play_benefit_ids: newCrmItems.map((item) => Number(item.crmPlayBenefitId)),
+    });
+    if (error) throw new Error(error.message);
   }
 
   return {
@@ -3073,6 +3139,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       crmPlayBenefitUpgradeId:
         item.crm_play_benefit_upgrade_id == null ? null : Number(item.crm_play_benefit_upgrade_id),
       crmRedemptionStatus: crmRedemptionStatusByOrderItemId.get(Number(item.id)) ?? null,
+      crmPlayName: ((crmRedemptionsResult.data ?? []) as MasterOpsCrmRedemptionRow[])
+        .find((redemption) => Number(redemption.order_item_id) === Number(item.id))?.play_name_snapshot ?? null,
     };
   });
 

@@ -14,6 +14,7 @@ import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { searchClientsAction } from "../dashboard/actions";
 import {
   createMasterOpsOrderAction,
+  loadMasterOpsClientCrmContextAction,
   loadMasterOpsOrderCreateDataAction,
   loadMasterOpsOrderEditDataAction,
   updateMasterOpsOrderAction,
@@ -28,6 +29,8 @@ import {
 } from "./actions";
 import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
 import { MASTER_OPS_ORDER_PAYMENT_METHODS } from "./order-editor-payment";
+import type { MasterCrmOrderContext } from "@/lib/crm/advisor-order-context-types";
+import { resolveCrmOrderBenefit } from "@/lib/crm/master-order-benefit";
 
 type Props = {
   mode?: "create" | "edit";
@@ -76,6 +79,7 @@ type ConfigState = {
   detailUnitsLimit: number;
   alias: string;
   selections: ConfigSelection[];
+  pendingCrmItem?: MasterOpsEditOrderItem;
 };
 
 function toNumber(value: unknown, fallback = 0) {
@@ -300,6 +304,10 @@ export default function MasterOpsOrderEditor({
   const [selectedProductId, setSelectedProductId] = useState<number | "">("");
   const [productQty, setProductQty] = useState("1");
   const [configState, setConfigState] = useState<ConfigState | null>(null);
+  const [crmContext, setCrmContext] = useState<MasterCrmOrderContext | null>(null);
+  const [crmLoading, setCrmLoading] = useState(false);
+  const [crmError, setCrmError] = useState<string | null>(null);
+  const [crmReload, setCrmReload] = useState(0);
   const productQtyRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -391,6 +399,23 @@ export default function MasterOpsOrderEditor({
     };
   }, [clientSearch]);
 
+  const crmClientId = form?.selectedClientId ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    setCrmContext(null);
+    setCrmError(null);
+    if (!isOpen || !crmClientId) {
+      setCrmLoading(false);
+      return;
+    }
+    setCrmLoading(true);
+    loadMasterOpsClientCrmContextAction({ clientId: crmClientId, orderId: isCreateMode ? null : orderId })
+      .then((context) => { if (!cancelled) setCrmContext(context); })
+      .catch((err) => { if (!cancelled) setCrmError(err instanceof Error ? err.message : "No se pudo consultar la jugada."); })
+      .finally(() => { if (!cancelled) setCrmLoading(false); });
+    return () => { cancelled = true; };
+  }, [crmClientId, isOpen, isCreateMode, orderId, crmReload]);
+
   const activeRate = data?.activeRate ?? fallbackActiveRate ?? null;
   const pricingChanged = isCreateMode || isMasterOpsOrderPricingChanged(data?.order, form);
   const requestedFxRate = Math.max(0, toNumber(form?.fxRate, 0));
@@ -432,6 +457,17 @@ export default function MasterOpsOrderEditor({
     [form?.items, fxRate]
   );
 
+  const currentCrmContext = crmContext?.client.id === crmClientId ? crmContext : null;
+  const crmAdvisorMatches = Boolean(currentCrmContext?.advisorUserId &&
+    form?.attributedAdvisorUserId === currentCrmContext.advisorUserId);
+  const crmAdvisor = data?.advisors.find((advisor) => advisor.id === currentCrmContext?.advisorUserId);
+  const crmCommercialSubtotal = calculatedItems.filter((item) => !item.crmPlayMemberId)
+    .reduce((sum, item) => sum + item.lineTotalUsd, 0) * (1 - (form?.discountEnabled ? toNumber(form.discountPct, 0) : 0) / 100);
+  const crmMinimum = currentCrmContext?.purchaseRequirementMode === "minimum_order"
+    ? Number(currentCrmContext.minimumOrderAmountUsd || 0) : 0;
+  const crmPurchaseEligible = crmCommercialSubtotal + 0.005 >= crmMinimum;
+  const hasPersistedCrmBenefit = Boolean(form?.items.some((item) => item.orderItemId && item.crmPlayMemberId));
+
   const orderedItems = useMemo(
     () => sortOrderItemsByPriority(calculatedItems, (item) => createPriorityInput(data?.catalogItems ?? [], item)),
     [calculatedItems, data?.catalogItems]
@@ -460,7 +496,7 @@ export default function MasterOpsOrderEditor({
 
   const isAdvancedOrderEdit = form && !isCreateMode ? !["created", "queued"].includes(form.status) : false;
   const canAssignResponsibleAdvisor = Boolean(
-    form?.source === "advisor" || (!isCreateMode && form?.source === "walk_in")
+    form?.source === "advisor" || (!isCreateMode && form?.source === "walk_in") || currentCrmContext || hasPersistedCrmBenefit
   );
   const requiresEditReason = Boolean(
     isAdvancedOrderEdit ||
@@ -584,6 +620,11 @@ export default function MasterOpsOrderEditor({
   }
 
   function selectClient(client: MasterOpsEditClient) {
+    if (form?.selectedClientId !== client.id && form?.items.some((item) => item.crmPlayMemberId)) {
+      setError("Retira el beneficio antes de cambiar el cliente de la orden.");
+      return;
+    }
+    setConfigState(null);
     patchForm({
       selectedClientId: client.id,
       client,
@@ -604,6 +645,11 @@ export default function MasterOpsOrderEditor({
   }
 
   function useNewClient() {
+    if (form?.items.some((item) => item.crmPlayMemberId)) {
+      setError("Retira el beneficio antes de cambiar el cliente de la orden.");
+      return;
+    }
+    setConfigState(null);
     patchForm({ selectedClientId: null, client: null });
     setClientSearch("");
     setClientResults([]);
@@ -633,7 +679,7 @@ export default function MasterOpsOrderEditor({
     setSelectedProductId(firstMatch?.id ?? "");
   }
 
-  function openConfig(product: MasterOpsEditCatalogItem, editingItem?: MasterOpsEditOrderItem | null) {
+  function openConfig(product: MasterOpsEditCatalogItem, editingItem?: MasterOpsEditOrderItem | null, pendingCrmItem?: MasterOpsEditOrderItem) {
     const components = componentsByParentId.get(product.id) ?? [];
     const parsed = editingItem ? parseEditableDetailLines(editingItem.editableDetailLines) : { alias: "", selections: [] };
     const editableComponents = components.filter(
@@ -675,18 +721,53 @@ export default function MasterOpsOrderEditor({
     }
 
     setConfigState({
+      pendingCrmItem,
       editingLocalId: editingItem?.localId ?? null,
       productId: product.id,
       productName: editingItem?.productNameSnapshot ?? product.name,
       sku: editingItem?.skuSnapshot ?? product.sku,
-      qty: editingItem?.qty ?? 1,
-      sourcePriceCurrency: editingItem?.sourcePriceCurrency ?? product.sourcePriceCurrency,
-      sourcePriceAmount: editingItem?.sourcePriceAmount ?? product.sourcePriceAmount,
-      fallbackUnitUsd: editingItem?.unitPriceUsdSnapshot ?? product.basePriceUsd,
+      qty: editingItem?.qty ?? pendingCrmItem?.qty ?? 1,
+      sourcePriceCurrency: editingItem?.sourcePriceCurrency ?? pendingCrmItem?.sourcePriceCurrency ?? product.sourcePriceCurrency,
+      sourcePriceAmount: editingItem?.sourcePriceAmount ?? pendingCrmItem?.sourcePriceAmount ?? product.sourcePriceAmount,
+      fallbackUnitUsd: editingItem?.unitPriceUsdSnapshot ?? pendingCrmItem?.unitPriceUsdSnapshot ?? product.basePriceUsd,
       detailUnitsLimit: product.detailUnitsLimit,
       alias: parsed.alias,
       selections,
     });
+  }
+
+  function appendCrmItem(item: MasterOpsEditOrderItem) {
+    setForm((current) => current ? {
+      ...current,
+      items: [...current.items.filter((existing) => !existing.crmPlayMemberId ||
+        (currentCrmContext?.benefitSelectionMode === "multiple" && existing.crmPlayBenefitId !== item.crmPlayBenefitId)), item],
+    } : current);
+  }
+
+  function addCrmBenefit(benefitId: number, upgradeId: number | null = null) {
+    if (!form || !currentCrmContext || !crmAdvisorMatches || hasPersistedCrmBenefit) return;
+    if (!crmPurchaseEligible) { setError(`Completa la compra mínima de ${money(crmMinimum)} para aplicar el beneficio.`); return; }
+    try {
+      const choice = resolveCrmOrderBenefit(currentCrmContext, benefitId, upgradeId);
+      const product = catalogById.get(choice.productId);
+      if (!product?.isActive) throw new Error("El producto del beneficio no está disponible.");
+      const item: MasterOpsEditOrderItem = {
+        ...choice,
+        localId: `crm-${choice.crmPlayMemberId}-${benefitId}`,
+        orderItemId: null,
+        skuSnapshot: product.sku,
+        productNameSnapshot: product.name,
+        editableDetailLines: buildComponentDetailLines(componentsByParentId.get(product.id) ?? [], { totalMultiplier: choice.qty }),
+        adminPriceOverrideUsd: null,
+        adminPriceOverrideCurrency: null,
+        adminPriceOverrideReason: null,
+        adminPriceOverrideByUserId: null,
+        adminPriceOverrideAt: null,
+      };
+      setError(null);
+      if (product.isDetailEditable) openConfig(product, null, item);
+      else appendCrmItem(item);
+    } catch (err) { setError(err instanceof Error ? err.message : "No se pudo agregar el beneficio."); }
   }
 
   function addProduct() {
@@ -824,8 +905,9 @@ export default function MasterOpsOrderEditor({
       ? form.items.find((item) => item.localId === configState.editingLocalId) ?? null
       : null;
     const nextItem: MasterOpsEditOrderItem = {
+      ...(configState.pendingCrmItem ?? {}),
       orderItemId: existingItem?.orderItemId ?? null,
-      localId: configState.editingLocalId ?? `${Date.now()}-${Math.random()}`,
+      localId: configState.editingLocalId ?? configState.pendingCrmItem?.localId ?? `${Date.now()}-${Math.random()}`,
       productId: configState.productId,
       skuSnapshot: configState.sku,
       productNameSnapshot: configState.productName,
@@ -848,9 +930,20 @@ export default function MasterOpsOrderEditor({
       adminPriceOverrideReason: existingItem?.adminPriceOverrideReason ?? null,
       adminPriceOverrideByUserId: existingItem?.adminPriceOverrideByUserId ?? null,
       adminPriceOverrideAt: existingItem?.adminPriceOverrideAt ?? null,
+      crmPlayMemberId: existingItem?.crmPlayMemberId ?? configState.pendingCrmItem?.crmPlayMemberId ?? null,
+      crmPlayBenefitId: existingItem?.crmPlayBenefitId ?? configState.pendingCrmItem?.crmPlayBenefitId ?? null,
+      crmPlayBenefitUpgradeId: existingItem?.crmPlayBenefitUpgradeId ?? configState.pendingCrmItem?.crmPlayBenefitUpgradeId ?? null,
+      crmRedemptionStatus: existingItem?.crmRedemptionStatus ?? null,
+      crmPlayName: existingItem?.crmPlayName ?? configState.pendingCrmItem?.crmPlayName ?? null,
     };
 
-    patchForm({
+    if (configState.pendingCrmItem) {
+      if (!currentCrmContext || currentCrmContext.playMemberId !== nextItem.crmPlayMemberId || !crmAdvisorMatches || !crmPurchaseEligible) {
+        setError("Las condiciones de la jugada cambiaron. Revisa el cliente y la compra mínima.");
+        return;
+      }
+      appendCrmItem(nextItem);
+    } else patchForm({
       items: configState.editingLocalId
         ? form.items.map((item) => (item.localId === configState.editingLocalId ? nextItem : item))
         : [...form.items, nextItem],
@@ -884,6 +977,10 @@ export default function MasterOpsOrderEditor({
   async function saveOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!form) return;
+    if (form.items.some((item) => !item.orderItemId && item.crmPlayMemberId) && (!crmAdvisorMatches || !crmPurchaseEligible || crmLoading)) {
+      setError("Revisa el asesor y la compra mínima de la jugada antes de guardar.");
+      return;
+    }
     if (!canSave) {
       setError(validationIssues[0]?.message ?? "Faltan datos obligatorios para guardar.");
       return;
@@ -898,7 +995,7 @@ export default function MasterOpsOrderEditor({
       const orderPayload = {
         source: form.source,
         attributedAdvisorUserId:
-          form.source === "advisor" || form.source === "walk_in"
+          form.source === "advisor" || form.source === "walk_in" || form.items.some((item) => item.crmPlayMemberId)
             ? form.attributedAdvisorUserId
             : null,
         fulfillment: form.fulfillment,
@@ -960,6 +1057,9 @@ export default function MasterOpsOrderEditor({
           adminPriceOverrideUsd: item.adminPriceOverrideUsd,
           adminPriceOverrideCurrency: item.adminPriceOverrideCurrency,
           adminPriceOverrideReason: item.adminPriceOverrideReason,
+          crmPlayMemberId: item.crmPlayMemberId ?? null,
+          crmPlayBenefitId: item.crmPlayBenefitId ?? null,
+          crmPlayBenefitUpgradeId: item.crmPlayBenefitUpgradeId ?? null,
         })),
       };
       const result = isCreateMode
@@ -1178,6 +1278,63 @@ export default function MasterOpsOrderEditor({
                       ) : null}
                     </div>
                   </Section>
+
+                  {form.selectedClientId ? (
+                    <Section title={currentCrmContext ? `Jugada · ${currentCrmContext.playName}` : "Jugada del cliente"}>
+                      {crmLoading ? <p role="status" className="text-xs text-[#B7B7C2]">Consultando beneficios disponibles…</p> : null}
+                      {crmError ? (
+                        <div className="text-xs text-amber-200">
+                          {crmError}
+                          <button type="button" className="ml-2 underline" onClick={() => setCrmReload((value) => value + 1)}>Reintentar</button>
+                        </div>
+                      ) : null}
+                      {!crmLoading && !crmError && !currentCrmContext ? (
+                        <p className="text-xs text-[#B7B7C2]">{hasPersistedCrmBenefit ? "El beneficio de este pedido ya está reservado. Puedes revisar su composición en el pedido." : "Sin jugada disponible para agregar."}</p>
+                      ) : null}
+                      {currentCrmContext ? (
+                        <div className="space-y-2 text-xs">
+                          <p className="text-[#B7B7C2]">
+                            {crmMinimum > 0 ? `Compra mínima: ${money(crmMinimum)}. Faltan ${money(Math.max(0, crmMinimum - crmCommercialSubtotal))}.` : "Sin compra requerida."}
+                            {currentCrmContext.benefitSelectionMode === "single" ? " Elige un beneficio." : " Puedes combinar beneficios distintos."}
+                          </p>
+                          {!crmAdvisorMatches ? (
+                            <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-2 text-amber-100">
+                              La jugada está a cargo de {crmAdvisor?.fullName || "otro asesor"}. La orden debe tener ese mismo asesor para aplicar el beneficio.
+                              {crmAdvisor && !hasPersistedCrmBenefit ? (
+                                <button type="button" className="mt-2 block rounded-lg border border-amber-200/40 px-2 py-1 font-semibold"
+                                  onClick={() => patchForm({ attributedAdvisorUserId: crmAdvisor.id })}>
+                                  Usar a {crmAdvisor.fullName} como responsable
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {hasPersistedCrmBenefit ? <p className="text-amber-100">Ya hay un beneficio reservado en el pedido. Retíralo y guarda si necesitas cambiarlo.</p> : null}
+                          {currentCrmContext.benefits.map((benefit) => {
+                            const selected = form.items.find((item) => item.crmPlayMemberId === currentCrmContext.playMemberId && item.crmPlayBenefitId === benefit.playBenefitId);
+                            const disabled = !crmAdvisorMatches || !crmPurchaseEligible || hasPersistedCrmBenefit || saving;
+                            return (
+                              <div key={benefit.playBenefitId} className="rounded-lg border border-[#34301B] bg-[#171506] p-2">
+                                <div className="font-semibold">{benefit.quantity} × {benefit.name}</div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button type="button" disabled={disabled} onClick={() => addCrmBenefit(benefit.playBenefitId)}
+                                    className="rounded-lg border border-emerald-300/40 px-2 py-1.5 text-emerald-200 disabled:opacity-40">
+                                    {selected && !selected.crmPlayBenefitUpgradeId ? "Seleccionado · gratis" : "Elegir obsequio · gratis"}
+                                  </button>
+                                  {benefit.upgrades.map((upgrade) => (
+                                    <button key={upgrade.id} type="button" disabled={disabled} onClick={() => addCrmBenefit(benefit.playBenefitId, upgrade.id)}
+                                      className="rounded-lg border border-[#FEEF00]/40 px-2 py-1.5 text-[#FFF7A6] disabled:opacity-40">
+                                      {selected?.crmPlayBenefitUpgradeId === upgrade.id ? "Seleccionado · " : "Ampliar · "}{upgrade.name} · +{money(upgrade.customerDifferenceUsd)}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <p className="text-[#8A8A96]">El beneficio es opcional. Al elegir un pack se abre su composición; se reserva al guardar y se registra como entregado al completar el pedido.</p>
+                        </div>
+                      ) : null}
+                    </Section>
+                  ) : null}
 
                   <Section title="Entrega">
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -1518,6 +1675,7 @@ export default function MasterOpsOrderEditor({
                                 <div className="mt-1 text-xs text-[#8A8A96]">
                                   Unit. {money(item.unitPriceUsdSnapshot)} / {bs(itemUnitBs)}
                                 </div>
+                                {isCrmBenefit ? <div className="mt-1 text-xs text-emerald-200">Jugada: {item.crmPlayName || "Beneficio CRM"} · {item.lineTotalUsd > 0 ? `Diferencia del cliente ${money(item.lineTotalUsd)}` : "Precio exonerado"}</div> : null}
                                 {visibleDetailLines.length > 0 ? (
                                   <div className="mt-2 space-y-1 border-l border-[#242433] pl-3 text-sm text-[#D8D8DE]">
                                     {visibleDetailLines.map((line) => (
