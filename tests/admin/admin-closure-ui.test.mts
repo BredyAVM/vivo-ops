@@ -83,41 +83,40 @@ test('uncertain errors retain ambiguity and definitive rejections remain editabl
   reset('cash'); state.error = { code: '22023', message: 'Diferencia no permitida' }; assert.equal((await createAdminAccountClosure(input)).status, 'rejected');
   reset('cash'); state.cacheFails = true; assert.equal((await createAdminAccountClosure(input)).status, 'confirmed');
 });
-test('daily native closures pause until cutoff policy is unified; an existing receipt can still be verified', async () => {
-  reset(); assert.equal((await createAdminAccountClosure(input)).status, 'rejected'); assert.equal(state.calls.length, 0);
-  reset(); state.tables.account_closure_operations = [{ request_id: input.requestId }]; state.data = { ...receipt, replayed: true };
-  assert.equal((await createAdminAccountClosure(input)).status, 'confirmed'); assert.equal(state.calls.length, 1);
-  reset('cash'); state.tables.money_accounts[0].is_active = false; assert.equal((await createAdminAccountClosure(input)).status, 'rejected'); assert.equal(state.calls.length, 0);
+test('banks are enabled; inactive accounts reject new attempts but allow receipt replay', async () => {
+  reset(); assert.equal((await createAdminAccountClosure(input)).status, 'confirmed'); assert.equal(state.calls.length, 1);
+  reset(); state.tables.money_accounts[0].is_active = false;
+  assert.equal((await createAdminAccountClosure(input)).status, 'rejected'); assert.equal(state.calls.length, 0);
+  state.tables.account_closure_operations = [{ request_id: input.requestId }]; state.data = { ...receipt, replayed: true };
+  assert.equal((await createAdminAccountClosure(input)).status, 'confirmed');
 });
-test('bank preview uses entire day; cash respects intraday cut', async () => {
-  reset(); state.tables.money_movements.push(movement(2, 7, '2026-09-12', '13:00'));
-  let r = await previewAdminAccountClosure(input); assert.equal(r.status, 'ready'); if (r.status === 'ready') assert.equal(r.preview.expectedAmount, 17);
-  reset('cash'); state.tables.money_movements.push(movement(2, 7, '2026-09-12', '13:00'));
-  r = await previewAdminAccountClosure(input); if (r.status === 'ready') assert.equal(r.preview.expectedAmount, 10); else assert.fail(r.message);
+const previewReceipt = { moneyAccountId: 1, closureDate: '2026-09-12', closureAt: '2026-09-12T16:00:00Z',
+  currencyCode: 'USD', expectedAmount: 10, expectedAmountUsd: 10 };
+test('bank and cash preview use a single readonly canonical RPC at the exact observed time', async () => {
+  for (const kind of ['bank', 'wallet', 'cash', 'pos']) {
+    reset(kind); state.data = previewReceipt;
+    const r = await previewAdminAccountClosure(input);
+    assert.equal(r.status, 'ready'); if (r.status === 'ready') assert.equal(r.preview.expectedAmount, 10);
+    assert.deepEqual(state.calls, [{ name: 'preview_account_closure_v2', params: { p_account_id: 1, p_at: '2026-09-12T16:00:00.000Z' } }]);
+    assert.equal(state.reads, 0);
+  }
 });
-test('preview preserves prior count, baseline and historical VES valuation', async () => {
-  reset(); state.tables.money_account_closure_baselines = [{ money_account_id: 1, status: 'active', baseline_date: '2026-09-11', counted_amount: 100, counted_amount_usd: 1 }];
-  state.tables.money_accounts[0].currency_code = 'VES'; state.tables.money_movements[0].amount_usd_equivalent = 0.1;
-  state.tables.money_movements.push(movement(2, 99, '2026-09-11'));
-  const r = await previewAdminAccountClosure(input); if (r.status !== 'ready') assert.fail(r.message);
-  assert.equal(r.preview.expectedAmount, 110); assert.equal(r.preview.expectedAmountUsd, 1.1);
-  state.tables.money_account_closures = [{ id: 11, money_account_id: 1, status: 'recorded', closure_date: '2026-09-11', closure_at: '2026-09-11T23:59:00-04:00', counted_amount: 105, counted_amount_usd: 1.05, created_at: '2026-09-11' }];
-  const prior = await previewAdminAccountClosure(input); if (prior.status === 'ready') assert.equal(prior.preview.expectedAmount, 115); else assert.fail(prior.message);
+test('seconds are preserved; malformed precision and wrong account/cut receipts are rejected', async () => {
+  assert.equal(validClosureInput({ ...input, closureTime: '12:00:53' }), true);
+  assert.equal(validClosureInput({ ...input, closureTime: '12:00:60' }), false);
+  reset(); state.data = { ...previewReceipt, closureAt: '2026-09-12T16:00:53Z' };
+  assert.equal((await previewAdminAccountClosure({ ...input, closureTime: '12:00:53' })).status, 'ready');
+  assert.equal((state.calls[0].params as { p_at: string }).p_at, '2026-09-12T16:00:53.000Z');
+  for (const patch of [{ moneyAccountId: 2 }, { closureAt: '2026-09-12T16:00:54Z' }, { expectedAmount: null }, { expectedAmountUsd: ' ' }, { currencyCode: 'EUR' }]) {
+    reset(); state.data = { ...previewReceipt, ...patch }; assert.equal((await previewAdminAccountClosure(input)).status, 'error');
+  }
 });
-test('POS starts at zero and excludes only linked prior settlement withdrawals', async () => {
-  reset('pos'); state.tables.money_account_closures = [{ id: 11, money_account_id: 1, status: 'recorded', closure_date: '2026-09-11', closure_at: '2026-09-11T23:59:00-04:00', counted_amount: 100, counted_amount_usd: 100, created_at: '2026-09-11' }];
-  state.tables.money_movements.push({ ...movement(2, 100), direction: 'outflow', movement_type: 'withdrawal', reference_code: 'closure-11' });
-  const r = await previewAdminAccountClosure(input); if (r.status === 'ready') assert.equal(r.preview.expectedAmount, 10); else assert.fail(r.message);
+test('failed preview never becomes zero; invalid dates never call the database', async () => {
+  reset(); state.error = { code: '42501', message: 'denied' }; assert.equal((await previewAdminAccountClosure(input)).status, 'error');
+  reset(); state.data = null; assert.equal((await previewAdminAccountClosure(input)).status, 'error');
+  reset(); assert.equal((await previewAdminAccountClosure({ ...input, closureDate: '2026-02-30' })).status, 'error'); assert.equal(state.calls.length, 0);
 });
-test('preview loads beyond the API first page and never writes', async () => {
-  reset(); state.tables.money_movements = Array.from({ length: 1001 }, (_, i) => movement(i + 1, 1));
-  const r = await previewAdminAccountClosure(input); if (r.status === 'ready') assert.equal(r.preview.expectedAmount, 1001); else assert.fail(r.message);
-  assert.equal(state.calls.length, 0);
-});
-test('failed preview is not a zero balance and invalid dates never read', async () => {
-  reset(); state.readError = true; assert.equal((await previewAdminAccountClosure(input)).status, 'error');
-  reset(); assert.equal((await previewAdminAccountClosure({ ...input, closureDate: '2026-02-30' })).status, 'error'); assert.equal(state.reads, 0);
-});
+
 test('legacy and Admin share preview while native form freezes uncertain attempts', () => {
   const src = (file: string) => readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
   const legacy = src('src/app/app/master/dashboard/actions.ts');
@@ -126,4 +125,26 @@ test('legacy and Admin share preview while native form freezes uncertain attempt
   const form = src('src/app/app/admin/finanzas/cuentas/cierre/ClosureForm.tsx');
   assert.match(form, /busy.current = true/); assert.match(form, /fieldset disabled=\{pending \|\| uncertain\}/);
   assert.match(form, /if \(!attempt.current\)/); assert.match(form, /createAdminAccountClosure\(attempt.current\)/); assert.match(form, /if \(!cancelled\) setReview/);
+});
+
+test('Master never prefills observed money or falls back to a second closure formula', () => {
+  const legacy = readFileSync(new URL('../../src/app/app/master/dashboard/MasterDashboardClient.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(legacy, /getExpectedAccountBalanceNativeAt|syncCountedAmount/);
+  assert.match(legacy, /setClosureCountedAmount\(''\)/);
+  assert.match(legacy, /disabled=\{closureSaving \|\| !closureComparisonReady\}/);
+});
+
+test('Master current balances use canonical RPC; malformed results and unexpected failures are not zero', async () => {
+  const { loadMoneyAccountBalanceSnapshots } = await import('../../src/lib/finance/account-balances.ts');
+  let returned: unknown = [{ moneyAccountId: 1, currencyCode: 'USD', balanceNative: '113', balanceUsd: '113',
+    anchorKind: 'closure', anchorDate: '2026-09-02', anchorAt: '2026-09-02T14:01:00Z', anchorAmount: '113', calculatedAt: '2026-09-02T15:00:00Z' }];
+  const calls: unknown[] = [];
+  const client = { async rpc(name: string, params: unknown) { calls.push({ name, params }); return { data: returned, error: null }; } };
+  const balances = await loadMoneyAccountBalanceSnapshots(client as never, { moneyAccountIds: [1, 1] });
+  assert.equal(balances[0].balanceNative, 113);
+  assert.deepEqual(calls, [{ name: 'account_balance_snapshots_v2', params: { p_account_ids: [1] } }]);
+  assert.deepEqual(await loadMoneyAccountBalanceSnapshots(client as never, { moneyAccountIds: [] }), []);
+  returned = null;
+  await assert.rejects(loadMoneyAccountBalanceSnapshots(client as never));
+  await assert.rejects(loadMoneyAccountBalanceSnapshots(client as never, { moneyAccountIds: [-1] }));
 });

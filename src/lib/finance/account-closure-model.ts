@@ -12,7 +12,7 @@ export function validClosureCut(input: Pick<AccountClosureInput, 'moneyAccountId
   return Number.isSafeInteger(input?.moneyAccountId) && input.moneyAccountId > 0
     && /^\d{4}-\d{2}-\d{2}$/.test(input.closureDate) && Number.isFinite(Date.parse(`${input.closureDate}T00:00:00Z`))
     && new Date(`${input.closureDate}T00:00:00Z`).toISOString().slice(0, 10) === input.closureDate
-    && /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(input.closureTime);
+    && /^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/.test(input.closureTime);
 }
 export function validClosureInput(input: AccountClosureInput) {
   return validClosureCut(input) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.requestId)

@@ -1732,12 +1732,6 @@ function getCaracasCurrentTimeString() {
   }).format(new Date());
 }
 
-function buildCaracasClosureAt(date: string, time: string) {
-  const normalizedTime = /^\d{2}:\d{2}$/.test(time) ? time : '23:59';
-  const parsed = new Date(`${date}T${normalizedTime}:00-04:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 function normalizeClientTags(tags: unknown[]) {
   return Array.from(
     new Set(
@@ -8532,104 +8526,12 @@ const handleSaveQuickCatalog = async () => {
     ]
   );
 
-  const getExpectedAccountBalanceNativeAt = useCallback(
-    (accountId: number, cutoffDate: string, cutoffTime: string) => {
-      const cutoffAt = buildCaracasClosureAt(cutoffDate, cutoffTime);
-      const cutoffAtMs = cutoffAt?.getTime() ?? null;
-      const account = moneyAccounts.find((item) => item.id === accountId) ?? null;
-      const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === accountId) ?? null;
-      const usesDailyCutoff = accountUsesDailyBalanceCutoff(account, profile);
-      const isPosClosure = account?.accountKind === 'pos' || profile?.closureKind === 'pos';
-      const latestClosure =
-        moneyAccountClosures
-          .filter((closure) => {
-            if (closure.moneyAccountId !== accountId || closure.status === 'rejected') {
-              return false;
-            }
-            if (usesDailyCutoff) return closure.closureDate < cutoffDate;
-            if (cutoffAtMs == null || !closure.closureAt) return true;
-            return new Date(closure.closureAt).getTime() < cutoffAtMs;
-          })
-          .sort(compareAccountClosuresDesc)[0] ?? null;
-      const activeBaseline =
-        latestClosure == null
-          ? moneyAccountBaselines.find(
-              (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
-            ) ?? null
-          : null;
-      const anchor: AccountBalanceAnchor = latestClosure
-        ? {
-            kind: 'closure',
-            date: latestClosure.closureDate,
-            at: latestClosure.closureAt || latestClosure.createdAt,
-            amount: isPosClosure ? 0 : Number(latestClosure.countedAmount || 0),
-            usesDailyCutoff,
-            closure: latestClosure,
-            baseline: null,
-          }
-        : activeBaseline
-          ? {
-              kind: 'baseline',
-              date: activeBaseline.baselineDate,
-              at: activeBaseline.baselineAt,
-              amount: isPosClosure ? 0 : Number(activeBaseline.countedAmount || 0),
-              usesDailyCutoff: true,
-              closure: null,
-              baseline: activeBaseline,
-            }
-          : {
-              kind: 'none',
-              date: null,
-              at: null,
-              amount: 0,
-              usesDailyCutoff,
-              closure: null,
-              baseline: null,
-            };
-
-      const movementDelta = moneyMovements.reduce((sum, movement) => {
-        if (movement.moneyAccountId !== accountId) return sum;
-        if (movement.status !== 'confirmed') return sum;
-        if (movement.movementDate > cutoffDate) return sum;
-
-        const movementRecordedAt = movement.confirmedAt || movement.createdAt;
-        const movementRecordedAtMs = movementRecordedAt ? new Date(movementRecordedAt).getTime() : null;
-
-        if (
-          !usesDailyCutoff &&
-          movement.movementDate === cutoffDate &&
-          cutoffAtMs != null &&
-          movementRecordedAtMs != null &&
-          movementRecordedAtMs > cutoffAtMs
-        ) {
-          return sum;
-        }
-
-        if (!movementAffectsBalanceAfterAnchor(movement, anchor)) return sum;
-        if (
-          isPosClosureSettlementMovement({
-            movement,
-            account,
-            profile,
-            closures: moneyAccountClosures,
-          })
-        ) {
-          return sum;
-        }
-
-        return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
-      }, 0);
-
-      return Number((anchor.amount + movementDelta).toFixed(2));
-    },
-    [moneyAccountBaselines, moneyAccountClosureProfiles, moneyAccountClosures, moneyAccounts, moneyMovements]
-  );
 
   const getClosurePreviewKey = (accountId: number, date: string, time: string) =>
     `${accountId}:${date}:${time}`;
 
   const refreshClosureExpectedPreview = useCallback(
-    async (accountId: number, date: string, time: string, syncCountedAmount = false) => {
+    async (accountId: number, date: string, time: string) => {
       if (!Number.isFinite(accountId) || accountId <= 0 || !date) return;
 
       try {
@@ -8643,9 +8545,6 @@ const handleSaveQuickCatalog = async () => {
           key,
           amount: Number(preview.expectedAmount || 0),
         });
-        if (syncCountedAmount) {
-          setClosureCountedAmount(String(Number(preview.expectedAmount || 0)));
-        }
       } catch (err) {
         showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar el saldo sistema.');
       }
@@ -8670,10 +8569,10 @@ const handleSaveQuickCatalog = async () => {
     setClosureExpectedPreview(null);
     const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === account.id) ?? null;
     setClosureTargetAccountId(profile?.defaultTargetMoneyAccountId ? String(profile.defaultTargetMoneyAccountId) : '');
-    setClosureCountedAmount(String(getExpectedAccountBalanceNativeAt(account.id, nextClosureDate, nextClosureTime)));
+    setClosureCountedAmount('');
     setAccountDetailOpen(false);
     setClosureOpen(true);
-    void refreshClosureExpectedPreview(account.id, nextClosureDate, nextClosureTime, true);
+    void refreshClosureExpectedPreview(account.id, nextClosureDate, nextClosureTime);
   };
 
   const openAccountBaselineDrawer = (account: MoneyAccountOption) => {
@@ -9426,6 +9325,10 @@ const handleSaveQuickCatalog = async () => {
 
   const handleCreateMoneyAccountClosure = async () => {
     if (!selectedAccount || closureBusyRef.current) return;
+    if (closureExpectedPreview?.key !== getClosurePreviewKey(selectedAccount.id, closureDate, closureTime) || !closureCountedAmount.trim()) {
+      showToast('error', 'Espera el saldo esperado e indica el saldo real observado o contado.');
+      return;
+    }
 
     const countedAmount = Number(String(closureCountedAmount || '').replace(',', '.'));
     const exchangeRate =
@@ -12738,7 +12641,7 @@ const selectedCreateOrderClientAddresses = useMemo(
     if (closureExpectedPreview?.key === previewKey) return;
 
     const timeout = window.setTimeout(() => {
-      void refreshClosureExpectedPreview(selectedAccount.id, nextClosureDate, closureTime, false);
+      void refreshClosureExpectedPreview(selectedAccount.id, nextClosureDate, closureTime);
     }, 250);
 
     return () => window.clearTimeout(timeout);
@@ -13202,7 +13105,7 @@ const selectedCreateOrderClientAddresses = useMemo(
   }, [orders]);
 
   const selectedAccountExpectedAmount = useMemo(() => {
-    if (!selectedAccount) return 0;
+    if (!selectedAccount) return null;
 
     const cutoffDate = closureDate || getCaracasTodayString();
     const previewKey = getClosurePreviewKey(selectedAccount.id, cutoffDate, closureTime);
@@ -13210,11 +13113,12 @@ const selectedCreateOrderClientAddresses = useMemo(
       return closureExpectedPreview.amount;
     }
 
-    return getExpectedAccountBalanceNativeAt(selectedAccount.id, cutoffDate, closureTime);
-  }, [closureDate, closureExpectedPreview, closureTime, getExpectedAccountBalanceNativeAt, selectedAccount]);
+    return null;
+  }, [closureDate, closureExpectedPreview, closureTime, selectedAccount]);
 
-  const closureCountedNumber = Number(String(closureCountedAmount || '0').replace(',', '.')) || 0;
-  const closureDifferenceAmount = Number((closureCountedNumber - selectedAccountExpectedAmount).toFixed(2));
+  const closureCountedNumber = Number(String(closureCountedAmount || '').replace(',', '.'));
+  const closureComparisonReady = selectedAccountExpectedAmount !== null && closureCountedAmount.trim() !== '' && Number.isFinite(closureCountedNumber);
+  const closureDifferenceAmount = closureComparisonReady ? Number((closureCountedNumber - selectedAccountExpectedAmount!).toFixed(2)) : 0;
 
   const clientStats = useMemo(() => {
     const hasClientSearch = clientSearch.trim().length > 0;
@@ -23919,11 +23823,11 @@ deliveryAssignMode === 'external' ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <InfoCell
                   label={selectedAccountFinanceVocabulary?.expectedLabel ?? 'Esperado'}
-                  value={fmtMoneyByCurrency(selectedAccountExpectedAmount, selectedAccount.currencyCode)}
+                  value={selectedAccountExpectedAmount === null ? 'Consultando…' : fmtMoneyByCurrency(selectedAccountExpectedAmount, selectedAccount.currencyCode)}
                 />
                 <InfoCell
                   label={selectedAccountFinanceVocabulary?.differenceLabel ?? 'Diferencia'}
-                  value={`${closureDifferenceAmount > 0 ? '+' : ''}${fmtMoneyByCurrency(
+                  value={!closureComparisonReady ? '—' : `${closureDifferenceAmount > 0 ? '+' : ''}${fmtMoneyByCurrency(
                     closureDifferenceAmount,
                     selectedAccount.currencyCode
                   )}`}
@@ -23967,7 +23871,7 @@ deliveryAssignMode === 'external' ? (
                       Clasificar diferencia
                     </div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      {Math.abs(closureDifferenceAmount) <= 0.01
+                      {!closureComparisonReady ? 'Introduce el saldo real observado o contado a la hora indicada.' : Math.abs(closureDifferenceAmount) <= 0.01
                         ? selectedAccountFinanceVocabulary?.zeroDifferenceMessage ??
                           'Si el saldo real coincide con el esperado, puedes dejarlo como cierre diario.'
                         : closureDifferenceAmount > 0
@@ -23984,8 +23888,8 @@ deliveryAssignMode === 'external' ? (
                           : 'text-sm font-semibold text-red-300'
                     }
                   >
-                    {closureDifferenceAmount > 0 ? '+' : ''}
-                    {fmtMoneyByCurrency(closureDifferenceAmount, selectedAccount.currencyCode)}
+                    {closureComparisonReady && closureDifferenceAmount > 0 ? '+' : ''}
+                    {closureComparisonReady ? fmtMoneyByCurrency(closureDifferenceAmount, selectedAccount.currencyCode) : '—'}
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -24038,7 +23942,7 @@ deliveryAssignMode === 'external' ? (
               <button
                 className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
                 onClick={handleCreateMoneyAccountClosure}
-                disabled={closureSaving}
+                disabled={closureSaving || !closureComparisonReady}
               >
                 {closureSaving
                   ? 'Guardando...'

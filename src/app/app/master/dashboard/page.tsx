@@ -2309,7 +2309,7 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
         .eq('status', 'open')
         .order('created_at', { ascending: false })
         .limit(300),
-      loadMoneyAccountBalanceSnapshots(financialSnapshotClient),
+      loadMoneyAccountBalanceSnapshots(supabase),
     ]);
 
     if (closuresResult.error) throw new Error(closuresResult.error.message);

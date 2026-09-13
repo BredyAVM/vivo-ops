@@ -44,7 +44,7 @@ begin
   r:=public.create_account_closure_v1(k,req);
   first_id:=(r->>'closureId')::bigint; item_id:=(r->>'reconciliationItemId')::bigint;
   assert (r->>'expectedAmount')::numeric=10 and (r->>'differenceAmount')::numeric=-2 and item_id is not null, 'bank daily calculation and linked shortage';
-  assert (select snapshot->>'daily'='true' and jsonb_array_length(snapshot->'movements')=1 from public.account_closure_operations where request_id=k), 'snapshot identifies included movements';
+  assert (select snapshot->>'daily'='false' and snapshot->>'version'='2' and jsonb_array_length(snapshot->'movements')=1 from public.account_closure_operations where request_id=k), 'observed-moment snapshot identifies included movements';
   r2:=public.create_account_closure_v1(k,req);
   assert r2->>'replayed'='true' and (r2->>'closureId')::bigint=first_id, 'closure retry';
   assert (select count(*)=1 from public.money_account_reconciliation_items where source_kind='closure' and source_id=first_id), 'one pending difference';
