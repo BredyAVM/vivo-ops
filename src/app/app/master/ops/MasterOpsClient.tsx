@@ -110,6 +110,7 @@ export type PaymentVerify = MasterOrderPaymentVerify;
 export type MasterOpsOrder = MasterOrderDetailOrder & {
   clientFundUsedUsd: number;
   financialActivity?: OrderFinancialActivity[];
+  integrityStatus?: MasterOpsOrderDetailPayload["integrityStatus"];
   changes?: MasterOpsOrderChangeEvent[];
   inventory?: MasterOpsOrderInventoryPreview;
   pendingBs: number | null;
@@ -1296,15 +1297,22 @@ function OrderDetailPanel({
   paymentAccounts: MasterOpsPaymentAccountOption[];
 }) {
   const isAdmin = roles.includes("admin");
-  const actionLabel = getNextPrimaryActionLabel(order);
+  const isIncompleteOrder = order.integrityStatus === "missing_items";
+  const actionLabel = isIncompleteOrder
+    ? "Orden incompleta: debe cancelarse con un motivo"
+    : getNextPrimaryActionLabel(order);
   const paidTone = masterOrderPaymentTone(order);
-  const paymentLabel = masterOrderPaymentLabel(order);
-  const paymentToneClass = paidTone === "green" ? "text-emerald-400" : "text-orange-400";
+  const paymentLabel = isIncompleteOrder ? "Incompleta" : masterOrderPaymentLabel(order);
+  const paymentToneClass = isIncompleteOrder
+    ? "text-red-300"
+    : paidTone === "green"
+      ? "text-emerald-400"
+      : "text-orange-400";
   const clientPortfolioLabel = masterOpsClientPortfolioLabel(order.clientType);
   const receiverName = order.receiverName?.trim() || "";
   const receiverPhone = order.receiverPhone?.trim() || "";
-  const directActions = directActionsForOrder(order);
-  const advancedLinks = advancedOperationalLinks(order);
+  const directActions = isIncompleteOrder ? [] : directActionsForOrder(order);
+  const advancedLinks = isIncompleteOrder ? [] : advancedOperationalLinks(order);
   const [returnBoxOpen, setReturnBoxOpen] = useState(false);
   const [returnReason, setReturnReason] = useState("");
   const [returnRecalculate, setReturnRecalculate] = useState(false);
@@ -1359,13 +1367,13 @@ function OrderDetailPanel({
   const [operationalNote, setOperationalNote] = useState("");
   const [pickupChangeReviewNotes, setPickupChangeReviewNotes] = useState("");
   const [whatsAppCopyStatus, setWhatsAppCopyStatus] = useState<"copied" | "error" | null>(null);
-  const canReturn = canReturnMasterOpsOrderToAdvisor(order);
-  const canKitchenTake = canKitchenTakeOrder(order);
+  const canReturn = !isIncompleteOrder && canReturnMasterOpsOrderToAdvisor(order);
+  const canKitchenTake = !isIncompleteOrder && canKitchenTakeOrder(order);
   const canCorrectDeliveredDelivery =
-    isAdmin && order.fulfillment === "delivery" && order.status === "delivered";
-  const canAssign = canAssignMasterOpsDelivery(order) || canCorrectDeliveredDelivery;
-  const canOutForDelivery = canStartMasterOpsDelivery(order);
-  const canClearDelivery = canClearMasterOpsDeliveryAssignment(order);
+    !isIncompleteOrder && isAdmin && order.fulfillment === "delivery" && order.status === "delivered";
+  const canAssign = !isIncompleteOrder && (canAssignMasterOpsDelivery(order) || canCorrectDeliveredDelivery);
+  const canOutForDelivery = !isIncompleteOrder && canStartMasterOpsDelivery(order);
+  const canClearDelivery = !isIncompleteOrder && canClearMasterOpsDeliveryAssignment(order);
   const busy = Boolean(runningAction);
   const pendingPickupChange =
     order.pickupChangeRequests?.find((request) => request.status === "pending") ?? null;
@@ -1387,19 +1395,22 @@ function OrderDetailPanel({
   const suggestedFundApplyUsd = Math.min(order.balanceUsd, clientFundAvailableUsd);
   const priceProtected = isOrderPriceProtected(order);
   const canProtectPrice =
-    isAdmin && !priceProtected && !["delivered", "cancelled"].includes(order.status);
-  const canReturnQueue = canReturnOrderFromKitchenToQueue(order);
+    !isIncompleteOrder && isAdmin && !priceProtected && !["delivered", "cancelled"].includes(order.status);
+  const canReturnQueue = !isIncompleteOrder && canReturnOrderFromKitchenToQueue(order);
   const canApplyClientFund =
+    !isIncompleteOrder &&
     activeTab === "pagos" &&
     order.clientId != null &&
     order.balanceUsd > 0.005 &&
     clientFundAvailableUsd > 0.005;
   const canPayoutClientFund =
+    !isIncompleteOrder &&
     activeTab === "pagos" &&
     order.clientId != null &&
     clientFundAvailableUsd > 0.005 &&
     moneyPayoutOptions.length > 0;
   const canCloseRounding =
+    !isIncompleteOrder &&
     isAdmin &&
     activeTab === "pagos" &&
     order.balanceUsd > 0.005 &&
@@ -1439,8 +1450,9 @@ function OrderDetailPanel({
       : loadedPaymentSuggestion;
   const paymentCollectionMode = effectivePaymentSuggestion.collectionMode;
   const paymentReportRequirements = getPaymentReportRequirements(selectedPaymentAccount?.paymentMethodCode ?? "");
-  const canOpenPaymentReport = activeTab === "pagos" && order.balanceUsd > 0.005 && normalPaymentOptions.length > 0;
-  const canOpenRetentionReport = activeTab === "pagos" && retentionPaymentOptions.length > 0;
+  const canOpenPaymentReport =
+    !isIncompleteOrder && activeTab === "pagos" && order.balanceUsd > 0.005 && normalPaymentOptions.length > 0;
+  const canOpenRetentionReport = !isIncompleteOrder && activeTab === "pagos" && retentionPaymentOptions.length > 0;
   const operationalNotes = order.events.filter((event) => event.title.trim().toLowerCase() === "nota operativa");
   const canCopyWhatsApp = !detailLoading && !detailError && order.lines.length > 0;
 
@@ -2171,6 +2183,23 @@ function OrderDetailPanel({
               </div>
             </div>
           ) : (
+          <>
+          {isIncompleteOrder ? (
+            <div className="mb-4 rounded-2xl border border-red-400/45 bg-red-500/10 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="max-w-2xl">
+                  <div className="text-sm font-semibold text-red-100">Orden incompleta detectada</div>
+                  <div className="mt-1 text-xs leading-relaxed text-red-100/80">
+                    El encabezado existe, pero nunca se guardaron productos. No debe aprobarse, modificarse ni enviarse a cocina.
+                    Usa <span className="font-semibold text-red-50">Cancelar</span> y deja el motivo para conservar la trazabilidad.
+                  </div>
+                </div>
+                <span className="rounded-full border border-red-300/40 bg-red-300/10 px-2.5 py-1 text-[10px] font-semibold text-red-100">
+                  REQUIERE CANCELACIÓN
+                </span>
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
             <div className="min-w-0">
               {activeTab === "inventario" ? (
@@ -3796,6 +3825,7 @@ function OrderDetailPanel({
               </div>
             </aside>
           </div>
+          </>
           )}
         </div>
       </section>

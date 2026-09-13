@@ -63,10 +63,12 @@ test('all advisor persistence paths preserve metadata; display filters are not s
   const composer = readFileSync(new URL('../../src/app/app/advisor/new/AdvisorOrderComposer.tsx', import.meta.url), 'utf8');
   assert.match(composer, /persistableOrderDetailLines\(row.editable_detail_lines\)/);
   assert.match(composer, /persistableOrderDetailLines\(item.notes.split/);
-  assert.match(composer, /notes: validatedDetails\[idx\].join/);
-  assert.match(composer, /editableDetailLines: validatedDetails\[idx\]/);
-  assert.ok(composer.indexOf('const validatedDetails = await validateAdvisorOrderDetailsAction') < composer.indexOf('const clientId = await ensureClientId();', composer.indexOf('const validatedDetails =')));
+  assert.match(composer, /editableDetailLines: isEditingOrder[\s\S]*validatedDetails\[idx\][\s\S]*persistableOrderDetailLines\(item.editable_detail_lines\)/);
+  assert.ok(composer.indexOf('const validatedDetails = isEditingOrder') < composer.indexOf('const clientId = await ensureClientId();', composer.indexOf('const validatedDetails =')));
   const actions = readFileSync(new URL('../../src/app/app/advisor/new/actions.ts', import.meta.url), 'utf8');
+  const creation = actions.slice(actions.indexOf('export async function createAdvisorOrderAction'), actions.indexOf('export async function replaceAdvisorOrderItemsAction'));
+  assert.match(creation, /normalizeAdvisorItemDetails\(/);
+  assert.match(creation, /notes: details\[index\].join/);
   const replacement = actions.slice(actions.indexOf('export async function replaceAdvisorOrderItemsAction'));
   assert.match(replacement, /normalizeAdvisorItemDetails\(ctx.supabase, input.items\)/);
   assert.match(replacement, /notes: details\[index\].join/);

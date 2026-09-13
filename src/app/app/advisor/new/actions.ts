@@ -62,6 +62,13 @@ type AdvisorOrderHeaderInput = {
   };
 };
 
+type CreateAdvisorOrderInput = {
+  requestId: string;
+  draftId?: number | null;
+  payload: AdvisorOrderHeaderInput['payload'];
+  items: ReplaceAdvisorOrderItemInput[];
+};
+
 type AdvisorOrderDraftStatus = 'draft' | 'quoted';
 
 type SaveAdvisorOrderDraftInput = {
@@ -1020,6 +1027,139 @@ async function normalizeAdvisorItemDetails(
 export async function validateAdvisorOrderDetailsAction(items: AdvisorDetailInput[]) {
   const ctx = await requireAuthContext();
   return normalizeAdvisorItemDetails(ctx.supabase, items);
+}
+
+export async function createAdvisorOrderAction(input: CreateAdvisorOrderInput) {
+  try {
+    const ctx = await requireAuthContext();
+    const requestId = String(input.requestId || '').trim();
+    const payload = input.payload;
+    const draftId = input.draftId == null ? null : Math.trunc(Number(input.draftId));
+
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+      throw new Error('No se pudo identificar este intento de creación. Actualiza la página e inténtalo nuevamente.');
+    }
+    if (!payload || Number(payload.client_id) <= 0) {
+      throw new Error('Falta seleccionar el cliente de la orden.');
+    }
+    if (payload.attributed_advisor_id !== ctx.user.id || payload.source !== 'advisor') {
+      throw new Error('No puedes crear una orden a nombre de otro asesor.');
+    }
+    if (payload.status !== 'created') {
+      throw new Error('La orden nueva debe iniciar pendiente de aprobación.');
+    }
+    if (draftId != null && (!Number.isSafeInteger(draftId) || draftId <= 0)) {
+      throw new Error('El borrador seleccionado no es válido.');
+    }
+    if (!Array.isArray(input.items) || input.items.length === 0 || input.items.length > 200) {
+      throw new Error('La orden debe contener entre 1 y 200 ítems.');
+    }
+
+    const details = await normalizeAdvisorItemDetails(
+      ctx.supabase,
+      input.items.map((item) => ({
+        productId: Number(item.productId),
+        qty: Number(item.qty),
+        editableDetailLines: item.editableDetailLines,
+      })),
+    );
+    const itemsPayload = input.items.map((item, index) => {
+      const productId = Math.trunc(Number(item.productId));
+      const qty = toFiniteNumber(item.qty, -1);
+      const sourcePriceAmount = toFiniteNumber(item.sourcePriceAmount, -1);
+      const unitPriceUsdSnapshot = toFiniteNumber(item.unitPriceUsdSnapshot, -1);
+      const lineTotalUsd = toFiniteNumber(item.lineTotalUsd, -1);
+      const unitPriceBsSnapshot = toFiniteNumber(item.unitPriceBsSnapshot, -1);
+      const lineTotalBsSnapshot = toFiniteNumber(item.lineTotalBsSnapshot, -1);
+      const crmPlayMemberId = toFiniteNumber(item.crmPlayMemberId, 0) > 0
+        ? Math.trunc(toFiniteNumber(item.crmPlayMemberId))
+        : null;
+      const crmPlayBenefitId = toFiniteNumber(item.crmPlayBenefitId, 0) > 0
+        ? Math.trunc(toFiniteNumber(item.crmPlayBenefitId))
+        : null;
+      const crmPlayBenefitUpgradeId = toFiniteNumber(item.crmPlayBenefitUpgradeId, 0) > 0
+        ? Math.trunc(toFiniteNumber(item.crmPlayBenefitUpgradeId))
+        : null;
+
+      if (!Number.isSafeInteger(productId) || productId <= 0 || qty <= 0) {
+        throw new Error(`Ítem ${index + 1}: producto o cantidad inválidos.`);
+      }
+      if ([sourcePriceAmount, unitPriceUsdSnapshot, lineTotalUsd, unitPriceBsSnapshot, lineTotalBsSnapshot]
+        .some((value) => value < 0)) {
+        throw new Error(`Ítem ${index + 1}: los precios no son válidos.`);
+      }
+      if ((crmPlayMemberId == null) !== (crmPlayBenefitId == null)) {
+        throw new Error(`Ítem ${index + 1}: el beneficio seleccionado está incompleto.`);
+      }
+
+      return {
+        product_id: productId,
+        qty,
+        pricing_origin_currency: item.sourcePriceCurrency === 'VES' ? 'VES' : 'USD',
+        pricing_origin_amount: sourcePriceAmount,
+        unit_price_usd_snapshot: unitPriceUsdSnapshot,
+        line_total_usd: lineTotalUsd,
+        unit_price_bs_snapshot: unitPriceBsSnapshot,
+        line_total_bs_snapshot: lineTotalBsSnapshot,
+        sku_snapshot: item.skuSnapshot || null,
+        product_name_snapshot: String(item.productNameSnapshot || '').trim() || 'Ítem',
+        notes: details[index].join('\n') || null,
+        crm_play_member_id: crmPlayMemberId,
+        crm_play_benefit_id: crmPlayBenefitId,
+        crm_play_benefit_upgrade_id: crmPlayBenefitUpgradeId,
+      };
+    });
+
+    const { data, error } = await ctx.supabase.rpc('advisor_create_order_atomic_v1', {
+      p_request_id: requestId,
+      p_client_id: Math.trunc(Number(payload.client_id)),
+      p_fulfillment: payload.fulfillment,
+      p_total_usd: toFiniteNumber(payload.total_usd),
+      p_total_bs_snapshot: toFiniteNumber(payload.total_bs_snapshot),
+      p_delivery_address: payload.delivery_address,
+      p_receiver_name: payload.receiver_name,
+      p_receiver_phone: payload.receiver_phone,
+      p_notes: payload.notes,
+      p_extra_fields: sanitizePlainObject(payload.extra_fields),
+      p_items: itemsPayload,
+      p_draft_id: draftId,
+    });
+
+    if (error) {
+      const message = String(error.message || '').trim();
+      if (message.includes('Este beneficio ya está reservado o entregado en otra orden')) {
+        throw new Error(
+          'No se creó una orden duplicada: este beneficio ya quedó reservado en otra orden. Actualiza la pantalla y abre la orden existente.',
+        );
+      }
+      throw new Error(message || 'No se pudo crear la orden completa. Intenta nuevamente.');
+    }
+
+    const result = sanitizePlainObject(data);
+    const orderId = Math.trunc(toFiniteNumber(result.orderId));
+    if (orderId <= 0) {
+      throw new Error('La creación terminó sin identificar la orden. Actualiza la pantalla antes de intentarlo nuevamente.');
+    }
+
+    revalidatePath(`/app/advisor/orders/${orderId}`);
+    revalidatePath('/app/advisor/orders');
+    revalidatePath('/app/advisor/inbox');
+    revalidatePath('/app/advisor/drafts');
+    revalidatePath('/app/master/ops');
+    revalidatePath('/app/master/dashboard');
+
+    return {
+      ok: true as const,
+      orderId,
+      orderNumber: String(result.orderNumber || ''),
+      replayed: Boolean(result.replayed),
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'No se pudo crear la orden completa. Intenta nuevamente.',
+    };
+  }
 }
 
 export async function replaceAdvisorOrderItemsAction(input: {

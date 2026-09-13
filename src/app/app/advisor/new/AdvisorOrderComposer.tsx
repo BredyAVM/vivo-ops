@@ -24,9 +24,8 @@ import {
   getWhatsAppLineUnits,
 } from '@/lib/orders/whatsapp-summary';
 import {
-  ensureAdvisorOrderCreatedEventAction,
+  createAdvisorOrderAction,
   loadAdvisorExistingOrderCrmContextAction,
-  markAdvisorOrderDraftConvertedAction,
   prepareAdvisorCrmPlayBenefitsAction,
   replaceAdvisorOrderItemsAction,
   saveAdvisorOrderDraftAction,
@@ -436,15 +435,6 @@ type AdvisorCatalogCache = {
 
 function pad2(n: number) {
   return String(n).padStart(2, '0');
-}
-
-function pad4(n: number) {
-  return String(n).padStart(4, '0');
-}
-
-function todayKey() {
-  const now = new Date();
-  return `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
 }
 
 function getTodayInputValue() {
@@ -1573,6 +1563,7 @@ export default function AdvisorOrderComposer({
   const creatingClientRef = useRef(false);
   const copyingQuoteRef = useRef(false);
   const savingOrderRef = useRef(false);
+  const orderCreationRequestRef = useRef<string | null>(null);
   const savingDraftRef = useRef(false);
   const crmLookupRequestRef = useRef(0);
   const [itemJustAdded, setItemJustAdded] = useState(false);
@@ -3752,11 +3743,6 @@ export default function AdvisorOrderComposer({
     return createClientNow();
   }
 
-  async function generateOrderNumber() {
-    const randomNumber = Math.floor(Math.random() * 10000);
-    return `VO-${todayKey()}-${pad4(randomNumber)}`;
-  }
-
   function buildExtraFields() {
     const normalizedDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
     const normalizedDeliveryHour12 = deliveryHour12.trim() || (isAsap ? rounded.hour12 : '');
@@ -4012,11 +3998,13 @@ export default function AdvisorOrderComposer({
     setSaving(true);
 
     try {
-      const validatedDetails = await validateAdvisorOrderDetailsAction(draftItems.map(item => ({
-        productId: item.product_id,
-        qty: item.qty,
-        editableDetailLines: persistableOrderDetailLines(item.editable_detail_lines),
-      })));
+      const validatedDetails = isEditingOrder
+        ? await validateAdvisorOrderDetailsAction(draftItems.map(item => ({
+            productId: item.product_id,
+            qty: item.qty,
+            editableDetailLines: persistableOrderDetailLines(item.editable_detail_lines),
+          })))
+        : [];
       const clientId = await ensureClientId();
       if (crmContext && crmPurchaseEligible && crmFulfillments.length > 0) {
         const preparation = await prepareAdvisorCrmPlayBenefitsAction({
@@ -4074,49 +4062,34 @@ export default function AdvisorOrderComposer({
       };
 
       let targetOrderId = Number(existingOrderId || 0);
-
-      if (!isEditingOrder) {
-        const orderNumber = await generateOrderNumber();
-        const { data: order, error: orderError } = await supabase
-          .from('orders')
-          .insert({
-            ...payload,
-            order_number: orderNumber,
-            created_by_user_id: authUserId,
-          })
-          .select('id')
-          .single();
-
-        if (orderError) throw new Error(orderError.message);
-        targetOrderId = Number(order.id);
-      }
-
-      const itemsPayload = draftItems.map((item, idx) => {
+      const orderItemsInput = draftItems.map((item, idx) => {
         const snapshot = draftItemSnapshots[idx];
         const effectivePricing = effectiveDraftPricing[idx];
 
         return {
-        order_id: targetOrderId,
-        product_id: item.product_id,
-        qty: item.qty,
-        pricing_origin_currency: effectivePricing?.sourceCurrency ?? item.source_price_currency,
-        pricing_origin_amount: effectivePricing?.sourceAmount ?? item.source_price_amount,
-        unit_price_usd_snapshot: snapshot.unitUsd,
-        line_total_usd: snapshot.lineUsd,
-        unit_price_bs_snapshot: snapshot.unitBs,
-        line_total_bs_snapshot: snapshot.lineBs,
-        sku_snapshot: item.sku_snapshot,
-        product_name_snapshot: item.product_name_snapshot,
-        notes: validatedDetails[idx].join('\n') || null,
-        crm_play_member_id: item.crm_benefit && crmPurchaseEligible
-          ? item.crm_benefit.playMemberId
-          : null,
-        crm_play_benefit_id: item.crm_benefit && crmPurchaseEligible
-          ? item.crm_benefit.playBenefitId
-          : null,
-        crm_play_benefit_upgrade_id: item.crm_benefit && crmPurchaseEligible
-          ? item.crm_benefit.playBenefitUpgradeId
-          : null,
+          orderItemId: item.persistedOrderItemId ?? null,
+          productId: Number(item.product_id),
+          qty: Number(item.qty || 0),
+          sourcePriceCurrency: effectivePricing?.sourceCurrency ?? item.source_price_currency,
+          sourcePriceAmount: effectivePricing?.sourceAmount ?? Number(item.source_price_amount || 0),
+          unitPriceUsdSnapshot: snapshot.unitUsd,
+          lineTotalUsd: snapshot.lineUsd,
+          unitPriceBsSnapshot: snapshot.unitBs,
+          lineTotalBsSnapshot: snapshot.lineBs,
+          skuSnapshot: item.sku_snapshot,
+          productNameSnapshot: item.product_name_snapshot,
+          editableDetailLines: isEditingOrder
+            ? validatedDetails[idx]
+            : persistableOrderDetailLines(item.editable_detail_lines),
+          crmPlayMemberId: item.crm_benefit && (isEditingOrder || crmPurchaseEligible)
+            ? item.crm_benefit.playMemberId
+            : null,
+          crmPlayBenefitId: item.crm_benefit && (isEditingOrder || crmPurchaseEligible)
+            ? item.crm_benefit.playBenefitId
+            : null,
+          crmPlayBenefitUpgradeId: item.crm_benefit && (isEditingOrder || crmPurchaseEligible)
+            ? item.crm_benefit.playBenefitUpgradeId
+            : null,
         };
       });
 
@@ -4125,34 +4098,7 @@ export default function AdvisorOrderComposer({
           orderId: targetOrderId,
           expectedLastModifiedAt: existingOrderLastModifiedAt,
           payload,
-          items: draftItems.map((item, idx) => {
-            const snapshot = draftItemSnapshots[idx];
-            const effectivePricing = effectiveDraftPricing[idx];
-
-            return {
-              orderItemId: item.persistedOrderItemId ?? null,
-              productId: Number(item.product_id),
-              qty: Number(item.qty || 0),
-              sourcePriceCurrency: effectivePricing?.sourceCurrency ?? item.source_price_currency,
-              sourcePriceAmount: effectivePricing?.sourceAmount ?? Number(item.source_price_amount || 0),
-              unitPriceUsdSnapshot: snapshot.unitUsd,
-              lineTotalUsd: snapshot.lineUsd,
-              unitPriceBsSnapshot: snapshot.unitBs,
-              lineTotalBsSnapshot: snapshot.lineBs,
-              skuSnapshot: item.sku_snapshot,
-              productNameSnapshot: item.product_name_snapshot,
-              editableDetailLines: validatedDetails[idx],
-              crmPlayMemberId: item.crm_benefit
-                ? item.crm_benefit.playMemberId
-                : null,
-              crmPlayBenefitId: item.crm_benefit
-                ? item.crm_benefit.playBenefitId
-                : null,
-              crmPlayBenefitUpgradeId: item.crm_benefit
-                ? item.crm_benefit.playBenefitUpgradeId
-                : null,
-            };
-          }),
+          items: orderItemsInput,
         });
         if (!updateResult.ok) {
           throw new Error(updateResult.message);
@@ -4163,32 +4109,20 @@ export default function AdvisorOrderComposer({
           changeSummary: advisorEditChangeMeta,
         });
       } else {
-        const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
-        if (itemsError) throw new Error(itemsError.message);
-
-        try {
-          await ensureAdvisorOrderCreatedEventAction({ orderId: targetOrderId });
-        } catch (timelineError) {
-          console.warn(
-            'No se pudo registrar el evento de creación.',
-            timelineError instanceof Error ? timelineError.message : timelineError
-          );
+        if (!orderCreationRequestRef.current) {
+          orderCreationRequestRef.current = crypto.randomUUID();
         }
-
-      }
-
-      if (!isEditingOrder && activeDraftId) {
-        try {
-          await markAdvisorOrderDraftConvertedAction({
-            draftId: activeDraftId,
-            orderId: targetOrderId,
-          });
-        } catch (draftError) {
-          console.warn(
-            'No se pudo marcar el borrador como convertido.',
-            draftError instanceof Error ? draftError.message : draftError
-          );
+        const createResult = await createAdvisorOrderAction({
+          requestId: orderCreationRequestRef.current,
+          draftId: activeDraftId,
+          payload,
+          items: orderItemsInput,
+        });
+        if (!createResult.ok) {
+          throw new Error(createResult.message);
         }
+        targetOrderId = createResult.orderId;
+        orderCreationRequestRef.current = null;
       }
 
       router.push(`/app/advisor/orders/${targetOrderId}`);

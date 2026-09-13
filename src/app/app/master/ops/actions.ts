@@ -65,6 +65,7 @@ export type MasterOpsOrderSearchResult = {
 };
 
 export type MasterOpsOrderDetailPayload = {
+  integrityStatus: "complete" | "missing_items";
   lines: MasterOrderDetailLine[];
   paymentReports: MasterOrderPaymentReport[];
   financialActivity: OrderFinancialActivity[];
@@ -462,16 +463,11 @@ export async function loadMasterOpsOrderDetailAction(input: {
     }
 
     if (orderItemsResult.error) throw new Error(orderItemsResult.error.message);
-    if (
-      (orderItemsResult.data?.length ?? 0) === 0 &&
-      orderResult.data.status !== "cancelled"
-    ) {
-      throw new Error(
-        "No se pudieron confirmar los productos de la orden. Presiona Reintentar para consultar nuevamente."
-      );
-    }
-
     const orderItems = (orderItemsResult.data ?? []) as MasterOpsDetailItemRow[];
+    const integrityStatus: MasterOpsOrderDetailPayload["integrityStatus"] =
+      orderItems.length === 0 && orderResult.data.status !== "cancelled"
+        ? "missing_items"
+        : "complete";
     const crmRedemptions = (crmRedemptionsResult.data ?? []) as MasterOpsCrmRedemptionRow[];
     const paymentReports = (paymentReportsResult.data ?? []) as MasterOpsDetailPaymentRow[];
     const orderEvents = (orderEventsResult.data ?? []) as MasterOpsDetailEventRow[];
@@ -699,6 +695,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
     return {
       ok: true,
       detail: {
+        integrityStatus,
         lines,
         paymentReports: mappedPaymentReports,
         financialActivity,
