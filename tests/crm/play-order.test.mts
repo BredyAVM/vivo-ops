@@ -38,3 +38,18 @@ test('keeps regular products searchable and reserves Gambit products for CRM', (
   );
   assert.equal(isCrmOnlyCatalogProduct({ type: 'combo', extra_fields: {} }), false);
 });
+
+test('offers explicitly discretionary advisor gifts without a play', () => {
+  assert.equal(isCrmOnlyCatalogProduct({
+    type: 'gambit', extra_fields: { catalog_access_scope: 'advisor_gift', advisor_gift_cost_usd: 0.5 },
+  }), false);
+});
+
+test('does not open unclassified, unknown-scope or campaign-only gifts', () => {
+  for (const scope of [undefined, null, '', 'unknown', 'crm_only']) {
+    assert.equal(isCrmOnlyCatalogProduct({
+      type: 'gambit', extra_fields: { catalog_access_scope: scope },
+    }), true);
+  }
+  assert.equal(isCrmOnlyCatalogProduct({ type: 'gambit', extra_fields: null }), true);
+});

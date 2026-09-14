@@ -42,6 +42,7 @@ export function isCrmOnlyCatalogProduct(product: {
   type?: string | null;
   extra_fields?: Record<string, unknown> | null;
 }) {
-  return product.type === 'gambit'
-    || product.extra_fields?.catalog_access_scope === 'crm_only';
+  const scope = product.extra_fields?.catalog_access_scope;
+  return scope === 'crm_only'
+    || (product.type === 'gambit' && scope !== 'advisor_gift');
 }
