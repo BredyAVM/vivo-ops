@@ -19,10 +19,10 @@ export default async function AdminDeliveryPage({ searchParams }: { searchParams
     return <AdminReadError title="Delivery no disponible" message={error instanceof Error ? error.message : 'No se pudo consultar el período. No se registró ningún pago.'} />;
   }
   const { accounts, payments } = loaded;
-  return <div className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-xl font-semibold">Delivery · servicios y pagos</h1>
-        <Link id="liquidaciones" href="/app/admin/finanzas/delivery/custodia" prefetch={false} className="inline-flex min-h-11 items-center text-xs underline">Cobros y cambios en custodia →</Link></header>
-      <DeliveryServicesClient key={`${filters.from}-${filters.to}`} rows={rows} accounts={accounts} payments={payments} from={filters.from} to={filters.to}
+  return <div className="max-w-5xl space-y-3">
+      <header className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-base font-semibold">Delivery · liquidación semanal</h1>
+        <Link id="liquidaciones" href="/app/admin/finanzas/delivery/custodia" prefetch={false} className="inline-flex min-h-9 items-center text-xs underline">Cobros y cambios en custodia →</Link></header>
+      <DeliveryServicesClient key={`${filters.from}-${filters.to}-${filters.mode}-${typeof values.responsible === 'string' ? values.responsible : ''}-${filters.q}`} rows={rows} accounts={accounts} payments={payments} from={filters.from} to={filters.to}
         today={getCaracasDateKey(new Date())} initialMode={filters.mode} initialQuery={filters.q}
         initialResponsible={typeof values.responsible === 'string' ? values.responsible : ''} />
     </div>;

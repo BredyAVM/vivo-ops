@@ -2,9 +2,59 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { deliveryCostEstimate, estimateInternalDeliveryCost } from '../../src/lib/domain/delivery-cost.ts';
-import { deliveryServiceTotals, parseDeliveryServices, servicePayable, deliveryServicesCsv, type DeliveryService } from '../../src/lib/admin-finance/delivery-services.ts';
+import { deliveryPaymentBatch, deliveryServiceTotals, parseDeliveryServices, servicePayable, deliveryServicesCsv, type DeliveryService } from '../../src/lib/admin-finance/delivery-services.ts';
 import { deliveryPeriodHref, deliveryServiceFilters, deliveryWeekContaining, deliveryWeekShortcuts } from '../../src/lib/admin-finance/delivery-period.ts';
 const row: DeliveryService = { id: 1, orderNumber: 'TEST-1', client: 'Cliente', date: '2026-09-10', mode: 'internal', responsible: 'Driver', responsibleKey: 'internal:test', cost: { stored: null, proposed: 2.5, fingerprint: 'a'.repeat(32), reason: null }, payment: null, legacyPaid: false };
+test('one-click period payment covers all pages for the exact responsible, excluding already paid services', () => {
+  const fixtures = Array.from({ length: 39 }, (_, i) => ({ ...row, id: i + 1 }));
+  fixtures.push({ ...row, id: 90, responsibleKey: 'internal:other' }, { ...row, id: 91, legacyPaid: true });
+  const batch = deliveryPaymentBatch(fixtures, 'internal:test');
+  assert.equal(batch.error, '');
+  assert.equal(batch.rows.length, 39);
+  assert.equal(batch.total, 97.5);
+  assert.equal(batch.rows.at(-1)?.id, 39);
+  assert.equal(deliveryPaymentBatch(fixtures, '').rows.length, 0);
+  assert.ok(deliveryPaymentBatch(fixtures, '').error);
+});
+test('whole-period payment does not silently omit unknown costs or truncate more than 500 orders', () => {
+  const missing = { ...row, id: 2, cost: { ...row.cost, proposed: null } };
+  assert.match(deliveryPaymentBatch([row, missing], row.responsibleKey).error, /costos faltantes/);
+  assert.equal(deliveryPaymentBatch([row, missing], row.responsibleKey, [1]).error, '');
+  const large = deliveryPaymentBatch(Array.from({ length: 501 }, (_, i) => ({ ...row, id: i + 1 })), row.responsibleKey);
+  assert.equal(large.rows.length, 501);
+  assert.match(large.error, /500/);
+});
+test('optional partial selection cannot include paid, foreign, duplicate or unknown orders', () => {
+  const paid = { ...row, id: 2, payment: { id: 'test', movementId: 12, amountUsd: 2.5, date: '2026-09-14', status: 'confirmed' } };
+  const other = { ...row, id: 3, responsibleKey: 'external:other', mode: 'external' as const };
+  for (const ids of [[2], [3], [4], [1, 1], []]) {
+    assert.ok(deliveryPaymentBatch([row, paid, other], row.responsibleKey, ids).error);
+  }
+  assert.deepEqual(deliveryPaymentBatch([row, paid, other], row.responsibleKey).rows.map(r => r.id), [1]);
+  assert.ok(deliveryPaymentBatch([{ ...row, cost: { ...row.cost, stored: 0 } }], row.responsibleKey).error);
+  assert.equal(deliveryPaymentBatch([other], other.responsibleKey).error, '');
+});
+test('compact UI keeps period payment independent of search and the confirmation above the table', () => {
+  const source = readFileSync(new URL('../../src/app/app/admin/finanzas/delivery/DeliveryServicesClient.tsx', import.meta.url), 'utf8');
+  assert.match(source, /deliveryPaymentBatch\(modeRows, responsible\)/);
+  assert.doesNotMatch(source, /deliveryPaymentBatch\(visible/);
+  assert.match(source, /useState\(false\)/);
+  assert.match(source, /Pagar período/);
+  assert.match(source, /\{partial \? <th/);
+  assert.ok(source.indexOf('<DeliveryPaymentForm') < source.indexOf('<table'));
+  assert.doesNotMatch(source, /Seleccionar entregas sin pago vinculado|Propuesto|<AdminKpi/);
+});
+test('payment form retains retry identity, explicit tariff consent and the existing authenticated action', () => {
+  const source = readFileSync(new URL('../../src/app/app/admin/finanzas/delivery/DeliveryPaymentForm.tsx', import.meta.url), 'utf8');
+  assert.match(source, /attempt\.current\.payload !== payload/);
+  assert.match(source, /submitting\.current = true/);
+  assert.match(source, /recordDeliveryPayment\(requestId, input\)/);
+  assert.match(source, /name="confirmTariffs" type="checkbox" required/);
+  assert.match(source, /name="confirmedUnpaid" type="checkbox" required/);
+  assert.match(source, /items: rows\.map/);
+  assert.match(source, /No se pudo confirmar la respuesta/);
+  assert.doesNotMatch(source, /\.from\(|service_role/);
+});
 test('weekly service view defaults to the last complete Monday-Sunday cycle in Caracas', () => {
   const filters = deliveryServiceFilters({}, new Date('2026-09-14T16:00:00Z'));
   assert.equal(filters.from, '2026-09-07');

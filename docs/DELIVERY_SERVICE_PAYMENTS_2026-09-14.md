@@ -18,7 +18,11 @@ La consulta de servicios sin fechas abre la última semana completa (lunes a dom
 
 Fecha: último evento `delivered` de una orden actualmente entregada; las regularizaciones con fecha expresamente confirmada usan esa fecha sin inventar una hora. Órdenes sin ninguna de estas evidencias no entran en períodos.
 
-Selección de hasta 500 entregas de un responsable:
+Flujo principal: elegir período y responsable → **Pagar período** → cuenta/fecha/referencia → confirmar. Relaciona automáticamente hasta 500 entregas pendientes de ese responsable, incluidas las de otras páginas y las ocultas por la búsqueda de la tabla. Una entrega sin costo o más de 500 bloquean el pago completo, sin exclusión ni truncamiento silenciosos. Para abonar solo algunas entregas se activa la opción secundaria **Pagar algunas entregas**; la vista normal no muestra casillas.
+
+La pantalla se limita a un ancho útil, usa indicadores compactos y filas de una línea, sin repetir responsable/tipo cuando ya se filtró. «Propuesto» se sustituye por un asterisco y una sola explicación: tarifa actual del tabulador pendiente de confirmar. La confirmación de tarifas continúa siendo explícita; no se convierte una estimación en costo histórico al consultar. El formulario se muestra antes de la tabla, mantiene fija la selección mientras está abierto y ofrece vincular un egreso anterior. «Por registrar» no certifica una deuda nueva: pagos externos o desde otra pantalla deben relacionarse antes de repetirlos.
+
+Registro de hasta 500 entregas de un responsable:
 
 1. Confirmar propuestas históricas solo si corresponden al período.
 2. Registrar un egreso nuevo en cuenta USD/VES, con monto nativo, tasa explícita si aplica, fecha y referencia; o vincular un egreso independiente existente confirmado cuyo total USD coincida exactamente.

@@ -35,6 +35,22 @@ export function parseDeliveryServices(value: unknown, from: string, to: string):
 }
 export const serviceAmount = (row: DeliveryService) => row.payment?.amountUsd ?? row.cost.stored ?? row.cost.proposed;
 export const servicePayable = (row: DeliveryService) => !row.payment && !row.legacyPaid && row.mode !== 'unassigned' && serviceAmount(row) !== null;
+// The whole-period payment is independent of table search and pagination.
+export function deliveryPaymentBatch(rows: DeliveryService[], responsible: string, selectedIds?: number[]) {
+  const scoped = rows.filter(row => row.responsibleKey === responsible && row.mode !== 'unassigned');
+  const unpaid = scoped.filter(row => !row.payment && !row.legacyPaid);
+  const selected = selectedIds === undefined ? unpaid : unpaid.filter(row => selectedIds.includes(row.id));
+  const total = deliveryServiceTotals(selected).amount;
+  let error = '';
+  if (!responsible) error = 'Elige un motorizado o una empresa para pagar.';
+  else if (selectedIds && (new Set(selectedIds).size !== selectedIds.length || selected.length !== selectedIds.length))
+    error = 'La selección contiene entregas pagadas o de otro responsable. Vuelve a revisarla.';
+  else if (!selected.length) error = selectedIds ? 'Elige las entregas que quieres pagar.' : 'No hay entregas pendientes de registrar para este responsable.';
+  else if (selected.some(row => serviceAmount(row) === null)) error = 'Completa los costos faltantes antes de pagar todo el período.';
+  else if (selected.length > 500) error = 'Hay más de 500 entregas. Usa «Pagar algunas entregas» para dividir el pago.';
+  else if (total <= 0) error = 'Estas entregas no tienen un importe positivo que pagar.';
+  return { rows: selected, total, error };
+}
 export function deliveryServiceTotals(rows: DeliveryService[]) {
   const cents = (n: number) => Math.round(n * 100);
   return {
@@ -54,7 +70,7 @@ export function deliveryServicesCsv(rows: DeliveryService[]) {
   return '\uFEFF' + [
     ['Fecha', 'Orden', 'Cliente', 'Tipo', 'Responsable', 'Costo USD', 'Origen', 'Pago', 'Egreso'],
     ...rows.map(row => [row.date, formatOrderDisplayNumber(row.id), row.client, row.mode === 'internal' ? 'Interno' : row.mode === 'external' ? 'Externo' : 'Sin asignar', row.responsible,
-      serviceAmount(row)?.toFixed(2) ?? '', row.payment ? 'Confirmado al pagar' : row.cost.stored !== null ? 'Guardado' : row.cost.proposed !== null ? 'Tarifa propuesta' : 'Pendiente',
-      row.payment ? 'Pago vinculado' : row.legacyPaid ? 'Pago histórico' : 'Sin pago vinculado', row.payment?.movementId ?? '']),
+      serviceAmount(row)?.toFixed(2) ?? '', row.payment ? 'Confirmado al pagar' : row.cost.stored !== null ? 'Guardado' : row.cost.proposed !== null ? 'Tarifa actual (por confirmar)' : 'Costo pendiente',
+      row.payment ? 'Pago registrado' : row.legacyPaid ? 'Pago histórico' : 'Sin registro de pago', row.payment?.movementId ?? '']),
   ].map(line => line.map(cell).join(';')).join('\r\n');
 }

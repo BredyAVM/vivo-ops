@@ -1,140 +1,135 @@
 'use client';
+
 import { useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { deliveryServiceTotals, deliveryServicesCsv, serviceAmount, servicePayable, type DeliveryService } from '@/lib/admin-finance/delivery-services';
+import { deliveryPaymentBatch, deliveryServiceTotals, deliveryServicesCsv, serviceAmount, servicePayable, type DeliveryService } from '@/lib/admin-finance/delivery-services';
 import { deliveryPeriodHref, deliveryWeekShortcuts, type DeliveryWeek } from '@/lib/admin-finance/delivery-period';
-import { recordDeliveryPayment, type DeliveryPaymentInput } from './actions';
-import { adminInput, adminPanel, AdminKpi } from '../../_components/AdminReadUi';
+import DeliveryPaymentForm, { deliveryButton, deliveryInput, deliveryPrimaryButton, type DeliveryMoneyAccount, type DeliveryPaymentAttempt } from './DeliveryPaymentForm';
 
-type Account = { id: number; name: string; currency_code: string };
 const usd = (n: number) => `$${n.toFixed(2)}`;
+const shortDate = (date: string) => `${date.slice(8)}/${date.slice(5, 7)}`;
+const panel = 'min-w-0 overflow-hidden rounded-lg border border-[#292937] bg-[#111117]';
+const orderHref = (row: DeliveryService) => `/app/master/ops?openOrder=${row.id}&focusDate=${row.date}&tab=entrega`;
+
 export default function DeliveryServicesClient({ rows, accounts, payments, from, to, today, initialMode, initialQuery, initialResponsible }: {
-  rows: DeliveryService[]; accounts: Account[]; from: string; to: string; today: string;
+  rows: DeliveryService[]; accounts: DeliveryMoneyAccount[]; from: string; to: string; today: string;
   payments: { request_id: string; responsible_name: string; responsible_key: string; total_usd: number; period_from: string; period_to: string; voided_at: string | null }[];
   initialMode: string; initialQuery: string; initialResponsible: string;
 }) {
   const router = useRouter();
-  const [mode, setMode] = useState(initialMode), [responsible, setResponsible] = useState(initialResponsible);
-  const [query, setQuery] = useState(initialQuery), [page, setPage] = useState(1), [selected, setSelected] = useState<number[]>([]);
-  const [accountId, setAccountId] = useState(''), [rate, setRate] = useState(''), [method, setMethod] = useState('new');
-  const [message, setMessage] = useState(''), [pending, startTransition] = useTransition();
-  const attempt = useRef<{ id: string; payload: string } | null>(null);
-  const submitting = useRef(false);
+  const [mode, setMode] = useState(initialMode);
+  const [responsible, setResponsible] = useState(initialResponsible);
+  const [query, setQuery] = useState(initialQuery);
+  const [page, setPage] = useState(1);
+  const [partial, setPartial] = useState(false);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [paymentRows, setPaymentRows] = useState<DeliveryService[] | null>(null);
+  const [receipt, setReceipt] = useState<{ id: string; movementId: number; total: number; orderIds: number[] } | null>(null);
+  const [pending, startTransition] = useTransition();
+  const attempt = useRef<DeliveryPaymentAttempt>(null);
   const modeRows = rows.filter(row => mode === 'all' || row.mode === mode);
   const options = Array.from(new Map(modeRows.filter(row => row.mode !== 'unassigned').map(row => [row.responsibleKey, row.responsible])).entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  const visible = modeRows.filter(row => (!responsible || row.responsibleKey === responsible)
-    && `${row.orderNumber} ${row.id} ${row.client} ${row.responsible}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  const totals = deliveryServiceTotals(visible);
-  const selectedRows = visible.filter(row => selected.includes(row.id) && servicePayable(row));
-  const selectedTotal = deliveryServiceTotals(selectedRows).amount;
-  const proposed = selectedRows.some(row => row.cost.stored === null);
-  const sameResponsible = new Set(selectedRows.map(row => row.responsibleKey)).size === 1;
-  const account = accounts.find(row => String(row.id) === accountId);
-  const native = account?.currency_code === 'VES' ? selectedTotal * Number(rate || 0) : selectedTotal;
+  const scoped = modeRows.filter(row => !responsible || row.responsibleKey === responsible);
+  const visible = scoped.filter(row => `${row.orderNumber} ${row.client} ${row.responsible}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const totals = deliveryServiceTotals(scoped);
+  const periodBatch = deliveryPaymentBatch(modeRows, responsible);
+  const batch = partial ? deliveryPaymentBatch(modeRows, responsible, selected) : periodBatch;
+  const recentlyPaid = batch.rows.some(row => receipt?.orderIds.includes(row.id));
+  const locked = pending || paymentRows !== null;
   const pages = Math.max(1, Math.ceil(visible.length / 30));
   const currentPage = Math.min(page, pages);
   const weeks = deliveryWeekShortcuts(today, from, to);
+  const paymentHistory = payments.filter(p => (!responsible || p.responsible_key === responsible) && (mode === 'all' || p.responsible_key.startsWith(`${mode}:`)));
+  const selectedIds = new Set(selected);
+
+  function resetSelection() { setPage(1); setSelected([]); }
   function openWeek(week: DeliveryWeek) {
     startTransition(() => router.push(deliveryPeriodHref(week, { mode, responsible, query })));
   }
-  function resetSelection() { setPage(1); setSelected([]); }
   function exportCsv() {
     const url = URL.createObjectURL(new Blob([deliveryServicesCsv(visible)], { type: 'text/csv;charset=utf-8;' }));
-    const anchor = document.createElement('a'); anchor.href = url; anchor.download = `delivery-${from}-${to}.csv`; anchor.click(); URL.revokeObjectURL(url);
+    const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = `delivery-${from}-${to}.csv`; anchor.click(); URL.revokeObjectURL(url);
   }
-  function submit(form: FormData) {
-    if (submitting.current || !selectedRows.length || !sameResponsible) return;
-    const input: DeliveryPaymentInput = { from, to, paymentDate: String(form.get('paymentDate')), items: selectedRows.map(row => ({ id: row.id, fingerprint: row.cost.fingerprint })),
-      accountId: method === 'new' ? Number(accountId) : null, amount: method === 'new' ? Number(form.get('amount')) : null,
-      rate: method === 'new' && account?.currency_code === 'VES' ? Number(rate) : null,
-      existingMovementId: method === 'existing' ? Number(form.get('existingMovementId')) : null,
-      reference: String(form.get('reference') || ''), notes: String(form.get('notes') || ''),
-      confirmedUnpaid: form.get('confirmedUnpaid') === 'on', confirmTariffs: form.get('confirmTariffs') === 'on' };
-    const payload = JSON.stringify(input);
-    if (!attempt.current || attempt.current.payload !== payload) attempt.current = { id: crypto.randomUUID(), payload };
-    const requestId = attempt.current.id;
-    submitting.current = true; setMessage('');
-    startTransition(async () => {
-      try {
-        const result = await recordDeliveryPayment(requestId, input);
-        if (!result.ok) { setMessage(result.message); return; }
-        setMessage(`Pago vinculado al egreso #${result.movementId} por ${usd(result.totalUsd)}.`);
-        setSelected([]); attempt.current = null; router.refresh();
-      } catch { setMessage('No se pudo confirmar la respuesta. Reintenta sin cambiar los datos para verificar el mismo envío.'); }
-      finally { submitting.current = false; }
-    });
+  function beginPayment() {
+    if (!locked && !batch.error && !recentlyPaid) setPaymentRows(batch.rows);
   }
-  return <div className="space-y-4">
-    <nav aria-label="Semanas de delivery" className="flex flex-wrap items-center gap-2 text-xs">
-      <span className="mr-2 text-[#B9B9C4]">{weeks.isWeekly ? 'Lunes a domingo' : 'Período personalizado'}</span>
-      {weeks.isWeekly ? <button type="button" disabled={pending} onClick={() => openWeek(weeks.previous)} className={adminInput}>← Semana anterior</button> : null}
-      <button type="button" disabled={pending || (from === weeks.lastComplete.from && to === weeks.lastComplete.to)} onClick={() => openWeek(weeks.lastComplete)} className={`${adminInput} disabled:opacity-50`}>Última semana completa</button>
-      <button type="button" disabled={pending || (from === weeks.current.from && to === weeks.current.to)} onClick={() => openWeek(weeks.current)} className={`${adminInput} disabled:opacity-50`}>Esta semana</button>
-      {weeks.isWeekly && from < weeks.current.from ? <button type="button" disabled={pending} onClick={() => openWeek(weeks.next)} className={adminInput}>Semana siguiente →</button> : null}
-    </nav>
-    <form className="flex flex-wrap items-end gap-3">
-      <label className="grid gap-1 text-xs">Desde<input type="date" name="from" required defaultValue={from} className={adminInput} /></label>
-      <label className="grid gap-1 text-xs">Hasta<input type="date" name="to" required defaultValue={to} className={adminInput} /></label>
-      <input type="hidden" name="mode" value={mode} /><input type="hidden" name="responsible" value={responsible} />
-      <input type="hidden" name="q" value={query} />
-      <button className={adminInput} disabled={pending}>Consultar período</button>
-    </form>
-    <fieldset disabled={pending} className="flex flex-wrap gap-3">
-      <label className="grid gap-1 text-xs">Tipo<select value={mode} onChange={e => { setMode(e.target.value); setResponsible(''); resetSelection(); }} className={adminInput}>
-        <option value="all">Todos</option><option value="internal">Internos</option><option value="external">Externos</option><option value="unassigned">Sin asignar</option></select></label>
-      <label className="grid min-w-48 gap-1 text-xs">Motorizado o empresa<select value={responsible} onChange={e => { setResponsible(e.target.value); resetSelection(); }} className={adminInput}>
-        <option value="">Todos los responsables</option>{options.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
-      <label className="grid flex-1 gap-1 text-xs">Buscar orden o cliente<input value={query} maxLength={80} onChange={e => { setQuery(e.target.value); resetSelection(); }} className={adminInput} /></label>
+
+  return <div className="space-y-3">
+    <fieldset disabled={locked} className={`${panel} space-y-2 p-3`}>
+      <nav aria-label="Semanas de delivery" className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="mr-auto font-medium">{shortDate(from)} – {shortDate(to)} · {weeks.isWeekly ? 'Lun–dom' : 'Personalizado'}</span>
+        {weeks.isWeekly ? <button type="button" aria-label="Semana anterior" onClick={() => openWeek(weeks.previous)} className={deliveryButton}>←</button> : null}
+        <button type="button" disabled={from === weeks.lastComplete.from && to === weeks.lastComplete.to} onClick={() => openWeek(weeks.lastComplete)} className={deliveryButton}>Última semana</button>
+        <button type="button" disabled={from === weeks.current.from && to === weeks.current.to} onClick={() => openWeek(weeks.current)} className={deliveryButton}>Esta semana</button>
+        {weeks.isWeekly && from < weeks.current.from ? <button type="button" aria-label="Semana siguiente" onClick={() => openWeek(weeks.next)} className={deliveryButton}>→</button> : null}
+      </nav>
+      <form className="grid grid-cols-2 items-end gap-2 md:grid-cols-[140px_140px_auto_110px_minmax(160px,1fr)]">
+        <label className="grid gap-1 text-xs">Desde<input type="date" name="from" required defaultValue={from} className={deliveryInput} /></label>
+        <label className="grid gap-1 text-xs">Hasta<input type="date" name="to" required defaultValue={to} className={deliveryInput} /></label>
+        <button className={deliveryButton}>Consultar período</button>
+        <label className="grid gap-1 text-xs">Tipo<select name="mode" value={mode} onChange={e => { setMode(e.target.value); setResponsible(''); setQuery(''); setPartial(false); resetSelection(); }} className={deliveryInput}>
+          <option value="all">Todos</option><option value="internal">Internos</option><option value="external">Externos</option><option value="unassigned">Sin asignar</option></select></label>
+        <label className="col-span-2 grid gap-1 text-xs md:col-span-1">Motorizado o empresa<select name="responsible" value={responsible} onChange={e => { setResponsible(e.target.value); setQuery(''); setPartial(false); resetSelection(); }} className={deliveryInput}>
+          <option value="">Todos los responsables</option>{options.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
+        <input type="hidden" name="q" value={query} />
+      </form>
     </fieldset>
-    <section className="grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="Resumen del período">
-      <AdminKpi label="Entregas" value={totals.deliveries} hint={`${from} al ${to}`} />
-      <AdminKpi label="Costo de servicios" value={usd(totals.amount)} hint={totals.missing ? `Parcial · ${totals.missing} sin costo` : `${totals.proposed} con tarifa por confirmar`} />
-      <AdminKpi label="Pagos vinculados" value={usd(totals.paid)} hint="Registrados en este módulo" />
-      <AdminKpi label="Sin pago vinculado" value={usd(totals.unlinked)} hint="Revisar pagos anteriores antes de pagar" />
-    </section>
-    <section className={adminPanel}>
-      <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-sm font-semibold">Relación de servicios</h2><button type="button" onClick={exportCsv} className="min-h-11 text-xs underline">Descargar relación CSV</button></div>
-      <p className="mb-3 text-xs text-[#B9B9C4]">«Propuesto» usa el tabulador actual. Selecciona un responsable y las entregas que vas a pagar.</p>
-      <button type="button" disabled={pending || !responsible} onClick={() => setSelected(visible.filter(servicePayable).slice(0, 500).map(row => row.id))} className="mb-2 min-h-11 text-xs underline disabled:opacity-40">Seleccionar entregas sin pago vinculado (máx. 500)</button>
-      {selectedRows.length ? <a href="#registrar-pago" className="ml-3 inline-flex min-h-11 items-center text-sm text-[#FEEF00] underline">{selectedRows.length} seleccionadas · {usd(selectedTotal)} · Revisar pago ↓</a> : null}
-      <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-[#B9B9C4]"><tr>{['Elegir', 'Fecha', 'Orden / cliente', 'Responsable', 'Costo USD', 'Pago'].map(label => <th key={label} className="px-2 py-3">{label}</th>)}</tr></thead>
-        <tbody>{visible.slice((currentPage - 1) * 30, currentPage * 30).map(row => <tr key={row.id} className="border-t border-[#292937]">
-          <td className="px-2"><label className="flex min-h-11 min-w-11 items-center justify-center"><input type="checkbox" aria-label={`Seleccionar orden ${row.orderNumber}`} disabled={pending || !servicePayable(row)} checked={selectedRows.some(x => x.id === row.id)} onChange={e => setSelected(prev => e.target.checked ? [...prev, row.id] : prev.filter(id => id !== row.id))} /></label></td>
-          <td className="whitespace-nowrap px-2 py-3">{row.date.slice(8)}/{row.date.slice(5, 7)}</td>
-          <td className="px-2 py-3"><Link href={`/app/master/ops?openOrder=${row.id}&focusDate=${row.date}&tab=entrega`} prefetch={false} className="inline-flex min-h-11 items-center underline">#{row.orderNumber}</Link><p>{row.client}</p></td>
-          <td className="px-2 py-3">{row.responsible}<p className="text-[#9B9BA7]">{row.mode === 'internal' ? 'Interno' : row.mode === 'external' ? 'Externo' : 'Sin asignar'}</p></td>
-          <td className="px-2 py-3 tabular-nums">{serviceAmount(row) === null ? 'Pendiente' : usd(serviceAmount(row)!)}<p className="mt-1 text-[#9B9BA7]">{row.payment ? 'Confirmado al pagar' : row.cost.stored !== null ? 'Guardado' : row.cost.proposed !== null ? 'Propuesto' : row.cost.reason}</p>
-            {serviceAmount(row) === null ? <Link href={`/app/master/ops?openOrder=${row.id}&focusDate=${row.date}&tab=entrega`} prefetch={false} className="inline-flex min-h-11 items-center underline">Completar costo</Link> : null}</td>
-          <td className="px-2 py-3">{row.payment ? <Link href={`/app/admin/finanzas/delivery/pagos/${row.payment.id}`} prefetch={false} className="underline">Egreso #{row.payment.movementId}<span className="block text-[#9B9BA7]">{row.payment.date}</span></Link> : row.legacyPaid ? 'Pagado · registro anterior' : 'Sin vínculo'}</td>
-        </tr>)}</tbody></table></div>
-      {!visible.length ? <p className="py-6 text-sm">No hay entregas con estos filtros.</p> : null}
-      <nav className="mt-3 flex items-center justify-between text-xs" aria-label="Páginas de entregas"><button className="min-h-11" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>← Anterior</button><span>{currentPage} / {pages} · {visible.length} entregas</span><button className="min-h-11" disabled={currentPage === pages} onClick={() => setPage(currentPage + 1)}>Siguiente →</button></nav>
-    </section>
-    {message ? <p role="status" className={`${adminPanel} text-sm`}>{message}</p> : null}
-    {selectedRows.length ? <form id="registrar-pago" action={submit} className={adminPanel}>
-      <fieldset disabled={pending} className="space-y-4"><h2 className="text-sm font-semibold">Registrar pago · {selectedRows.length} entregas · {usd(selectedTotal)}</h2>
-        {!sameResponsible ? <p role="alert" className="text-sm text-orange-200">Selecciona un solo motorizado o empresa por pago.</p> : <p className="text-sm">{selectedRows[0].responsible}</p>}
-        <label className="grid max-w-md gap-1 text-xs">Operación<select value={method} onChange={e => setMethod(e.target.value)} className={adminInput}><option value="new">Registrar nuevo egreso</option><option value="existing">Vincular un egreso ya registrado (no sacar dinero otra vez)</option></select></label>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="grid gap-1 text-xs">Fecha del pago<input name="paymentDate" type="date" defaultValue={today} max={today} required className={adminInput} /></label>
-          {method === 'existing' ? <label className="grid gap-1 text-xs">Número del egreso existente<input name="existingMovementId" type="number" min="1" step="1" required className={adminInput} /></label> : <>
-            <label className="grid gap-1 text-xs">Cuenta de salida<select value={accountId} onChange={e => setAccountId(e.target.value)} required className={adminInput}><option value="">Seleccionar cuenta</option>{accounts.map(a => <option value={a.id} key={a.id}>{a.name} · {a.currency_code}</option>)}</select></label>
-            {account?.currency_code === 'VES' ? <label className="grid gap-1 text-xs">Tasa de este pago (Bs/USD)<input value={rate} onChange={e => setRate(e.target.value)} type="number" min="0.000001" step="any" required className={adminInput} /></label> : null}
-            <label className="grid gap-1 text-xs">Monto a registrar · {account?.currency_code || 'USD'}<input key={`${accountId}-${rate}-${selectedTotal}`} name="amount" type="number" min="0.01" max="1000000000" step="0.01" defaultValue={native.toFixed(2)} required className={adminInput} /></label>
-          </>}
-          <label className="grid gap-1 text-xs">Referencia<input name="reference" maxLength={120} className={adminInput} /></label>
-          <label className="grid gap-1 text-xs">Nota (opcional)<input name="notes" maxLength={500} className={adminInput} /></label>
+
+    <section aria-label="Resumen del período" className={`${panel} p-3`}>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+        {[['Entregas', totals.deliveries], ['Total servicios', `${usd(totals.amount)}${totals.proposed ? '*' : ''}`], ['Pagos registrados', usd(totals.paid)], ['Por registrar', `${usd(totals.unlinked)}${totals.proposed ? '*' : ''}`]].map(([label, value]) => <div key={label}><dt className="text-[11px] text-[#B9B9C4]">{label}</dt><dd className="mt-0.5 text-lg font-semibold tabular-nums">{value}</dd></div>)}
+      </dl>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-[#292937] pt-2">
+        <div className="text-xs"><span className="font-medium">{responsible ? options.find(([key]) => key === responsible)?.[1] || 'Responsable seleccionado' : 'Selecciona un motorizado o empresa'}</span>
+          {totals.missing ? <p className="mt-1 text-amber-200">Total parcial: {totals.missing} entregas sin costo.</p> : null}
+          {batch.error && responsible ? <p className="mt-1 text-[#B9B9C4]">{batch.error}</p> : null}</div>
+        <div className="flex flex-wrap items-center gap-2">
+          {!partial && responsible ? <button type="button" disabled={locked} onClick={() => { setPartial(true); resetSelection(); }} className={deliveryButton}>Pagar algunas entregas</button> : null}
+          {partial ? <button type="button" disabled={locked} onClick={() => { setPartial(false); resetSelection(); }} className={deliveryButton}>Volver al período completo</button> : null}
+          <button type="button" disabled={locked || !!batch.error || recentlyPaid} onClick={beginPayment} className={deliveryPrimaryButton}>{partial ? `Pagar selección${selected.length ? ` · ${usd(batch.total)}` : ''}` : `Pagar período${!periodBatch.error ? ` · ${usd(periodBatch.total)}` : ''}`}</button>
         </div>
-        {proposed ? <label className="flex min-h-11 items-center gap-3 text-xs"><input name="confirmTariffs" type="checkbox" required />Confirmo que las tarifas propuestas corresponden a este período.</label> : null}
-        <label className="flex min-h-11 items-center gap-3 text-xs"><input name="confirmedUnpaid" type="checkbox" required />Revisé los pagos anteriores: esta selección no duplica un pago.</label>
-        <p className="text-xs text-[#9B9BA7]">{method === 'new' ? 'Registra el pago realizado fuera de la aplicación y su egreso en la cuenta. No envía una transferencia bancaria.' : 'El egreso debe coincidir exactamente con el total USD. No se crea otro movimiento de dinero.'}</p>
-        <button disabled={!sameResponsible || selectedRows.length > 500 || selectedTotal <= 0} className={`${adminInput} font-semibold`}>{pending ? 'Registrando…' : method === 'new' ? `Confirmar egreso de ${usd(selectedTotal)}` : 'Vincular egreso existente'}</button>
-      </fieldset>
-    </form> : null}
-    <section className={adminPanel}><h2 className="text-sm font-semibold">Registros recientes · máximo 30</h2>
-      {payments.filter(p => (!responsible || p.responsible_key === responsible) && (mode === 'all' || p.responsible_key.startsWith(`${mode}:`))).map(p => <Link key={p.request_id} href={`/app/admin/finanzas/delivery/pagos/${p.request_id}`} prefetch={false} className="flex min-h-14 items-center justify-between gap-3 border-b border-[#292937] py-3 text-xs"><span>{p.responsible_name} · {p.period_from} al {p.period_to}</span><span>{usd(Number(p.total_usd))} · {p.voided_at ? 'Anulado' : 'Vinculado'} →</span></Link>)}
-      {!payments.length ? <p className="mt-3 text-xs text-[#9B9BA7]">Todavía no hay pagos vinculados a este período desde este módulo.</p> : null}
+      </div>
+      {totals.proposed ? <p className="mt-2 text-[11px] text-amber-100">* {totals.proposed} entregas usan la tarifa actual del tabulador porque no tenían costo guardado. La confirmarás al registrar el pago.</p> : null}
     </section>
+
+    {receipt ? <div role="status" className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-200">Pago registrado: {usd(receipt.total)} · {receipt.orderIds.length} entregas. <Link href={`/app/admin/finanzas/delivery/pagos/${receipt.id}`} prefetch={false} className="underline">Ver comprobante · egreso #{receipt.movementId} →</Link></div> : null}
+    {paymentRows ? <DeliveryPaymentForm rows={paymentRows} accounts={accounts} from={from} to={to} today={today} partial={partial} attempt={attempt}
+      onClose={() => setPaymentRows(null)} onPaid={result => { setReceipt({ ...result, orderIds: paymentRows.map(row => row.id) }); setPaymentRows(null); setSelected([]); setPartial(false); router.refresh(); }} /> : null}
+
+    <section className={panel}>
+      <div className="flex flex-wrap items-center gap-2 border-b border-[#292937] px-3 py-2">
+        <h2 className="mr-auto text-sm font-semibold">Entregas · {visible.length}{visible.length !== scoped.length ? ` de ${scoped.length}` : ''}</h2>
+        <input aria-label="Buscar orden o cliente" placeholder="Orden o cliente" value={query} maxLength={80} disabled={locked} onChange={e => { setQuery(e.target.value); resetSelection(); }} className={`${deliveryInput} w-44`} />
+        {query ? <button type="button" disabled={locked} onClick={() => { setQuery(''); resetSelection(); }} className={deliveryButton}>Limpiar búsqueda</button> : null}
+        <button type="button" onClick={exportCsv} className={deliveryButton}>Descargar CSV</button>
+      </div>
+      {visible.length !== scoped.length ? <p className="px-3 py-2 text-[11px] text-[#B9B9C4]">La búsqueda solo filtra esta tabla. «Pagar período» incluye todas las entregas pendientes del responsable en estas fechas.</p> : null}
+      {partial ? <div className="flex flex-wrap items-center gap-3 px-3 py-2 text-xs"><span>{selected.length} entregas elegidas · {usd(batch.total)}</span><button type="button" disabled={locked || !responsible} onClick={() => setSelected(visible.filter(servicePayable).slice(0, 500).map(row => row.id))} className="min-h-9 underline">Elegir las visibles (máx. 500)</button><button type="button" disabled={locked} onClick={() => setSelected([])} className="min-h-9 underline">Quitar selección</button></div> : null}
+      <div role="region" aria-label="Detalle de entregas" tabIndex={0} className="max-h-[560px] overflow-auto focus-visible:outline-2 focus-visible:outline-[#FEEF00]">
+        <table className="w-full min-w-[470px] text-left text-xs"><thead className="sticky top-0 z-10 bg-[#191920] text-[11px] text-[#B9B9C4]"><tr>
+          {partial ? <th scope="col" className="w-10 px-2 py-2">Elegir</th> : null}
+          <th scope="col" className="px-3 py-2">Fecha</th><th scope="col" className="px-3 py-2">Orden</th><th scope="col" className="px-3 py-2">Cliente</th>
+          {!responsible ? <th scope="col" className="px-3 py-2">Responsable</th> : null}<th scope="col" className="px-3 py-2 text-right">Pago USD</th><th scope="col" className="px-3 py-2">Estado</th>
+        </tr></thead><tbody>{visible.slice((currentPage - 1) * 30, currentPage * 30).map(row => <tr key={row.id} className="border-t border-[#24242E] even:bg-white/[0.02] hover:bg-white/[0.04]">
+          {partial ? <td className="px-2"><label className="flex min-h-11 min-w-8 items-center justify-center md:min-h-8"><input type="checkbox" aria-label={`Incluir orden ${row.orderNumber} en el pago`} disabled={locked || !servicePayable(row) || row.responsibleKey !== responsible} checked={selectedIds.has(row.id)} onChange={e => setSelected(prev => e.target.checked ? [...prev, row.id] : prev.filter(id => id !== row.id))} /></label></td> : null}
+          <td className="whitespace-nowrap px-3 py-1.5 text-[#B9B9C4]">{shortDate(row.date)}</td>
+          <td className="px-3 py-1.5"><Link href={orderHref(row)} prefetch={false} className="inline-flex min-h-8 items-center underline md:min-h-5">#{row.orderNumber}</Link></td>
+          <td title={row.client} className="max-w-60 truncate px-3 py-1.5">{row.client}</td>
+          {!responsible ? <td className="px-3 py-1.5">{row.responsible}</td> : null}
+          <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{serviceAmount(row) === null ? <Link href={orderHref(row)} prefetch={false} className="text-amber-200 underline">Definir costo</Link> : <>{usd(serviceAmount(row)!)}{!row.payment && row.cost.stored === null ? <span className="text-amber-100" title="Tarifa actual del tabulador; pendiente de confirmar">*</span> : null}</>}</td>
+          <td className="whitespace-nowrap px-3 py-1.5">{row.payment ? <Link href={`/app/admin/finanzas/delivery/pagos/${row.payment.id}`} prefetch={false} className="text-emerald-300 underline">Pagado · #{row.payment.movementId}</Link> : row.legacyPaid ? <span className="text-emerald-300">Pago anterior</span> : <span className="text-[#A7A7B2]">Sin registro</span>}</td>
+        </tr>)}</tbody></table>
+        {!visible.length ? <p className="px-3 py-5 text-xs text-[#B9B9C4]">No hay entregas con estos filtros.</p> : null}
+      </div>
+      <nav className="flex items-center justify-between gap-2 border-t border-[#292937] px-3 py-1 text-xs" aria-label="Páginas de entregas"><button className="min-h-9" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>← Anterior</button><span>{currentPage} / {pages} · {visible.length} entregas</span><button className="min-h-9" disabled={currentPage === pages} onClick={() => setPage(currentPage + 1)}>Siguiente →</button></nav>
+    </section>
+    <details className={`${panel} px-3 py-2`}>
+      <summary className="cursor-pointer text-xs font-medium">Pagos del período · {paymentHistory.length} registros recientes</summary>
+      <p className="mt-2 text-[11px] text-[#B9B9C4]">Máximo 30 registros recientes. Si pagaste desde otra pantalla, usa «Ya registré el egreso» al pagar el período para no duplicarlo.</p>
+      {paymentHistory.map(p => <Link key={p.request_id} href={`/app/admin/finanzas/delivery/pagos/${p.request_id}`} prefetch={false} className="mt-1 flex min-h-9 items-center justify-between gap-3 border-b border-[#292937] text-xs"><span>{p.responsible_name} · {shortDate(p.period_from)}–{shortDate(p.period_to)}</span><span>{usd(Number(p.total_usd))} · {p.voided_at ? 'Anulado' : 'Registrado'} →</span></Link>)}
+      {!paymentHistory.length ? <p className="mt-2 text-xs text-[#9B9BA7]">Sin pagos registrados aquí para este período y responsable.</p> : null}
+    </details>
   </div>;
 }
