@@ -479,7 +479,6 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
     readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config)
   );
   const orderedGoalBands = [...goalScoring.bands].sort((left, right) => left.minPoints - right.minPoints);
-  const topGoalBandPoints = orderedGoalBands.at(-1)?.minPoints ?? 1;
   const activeDetail = getCommissionDetail(params.detail);
   const returnTo = selectedPeriod
     ? commissionHref(selectedPeriod.id, activeDetail || undefined)
@@ -657,11 +656,25 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
       })
     : [];
   const achievedGoalMetrics = goalMetricRows.filter(({ metric }) => metric.target > 0 && metric.actual >= metric.target).length;
-  const nextGoalBand = liveGoalScore && visibleGoal?.status !== 'final'
+  const nextGoalBand = liveGoalScore
     ? orderedGoalBands.find((band) => band.minPoints > liveGoalScore.points) ?? null
     : null;
   const pointsToNextGoalBand = nextGoalBand && liveGoalScore
     ? Math.max(0, nextGoalBand.minPoints - liveGoalScore.points)
+    : 0;
+  const currentGoalBandIndex = liveGoalScore
+    ? Math.max(0, orderedGoalBands.findIndex((band) => band.key === liveGoalScore.band.key))
+    : -1;
+  const currentGoalBandFloor = currentGoalBandIndex >= 0
+    ? orderedGoalBands[currentGoalBandIndex]?.minPoints ?? 0
+    : 0;
+  const pointsAcrossCurrentBand = nextGoalBand
+    ? Math.max(1, nextGoalBand.minPoints - currentGoalBandFloor)
+    : 1;
+  const currentGoalBandProgress = liveGoalScore
+    ? nextGoalBand
+      ? Math.max(0, Math.min(100, ((liveGoalScore.points - currentGoalBandFloor) / pointsAcrossCurrentBand) * 100))
+      : 100
     : 0;
   const incompleteGoalMetrics = goalMetricRows.filter(({ metric }) => metric.target > 0 && metric.actual < metric.target);
   const focusGoalMetric = goalPeriodProgress?.phase === 'ended'
@@ -846,52 +859,112 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
               subtitle={visibleGoal.publicationMessage || 'Tu avance se compara con tu propia capacidad, la temporada, la campaña y el desafío de este período.'}
               action={<StatusBadge label={visibleGoal.status === 'final' ? 'Resultado final' : 'Publicada'} tone={visibleGoal.status === 'final' ? 'success' : 'neutral'} />}
             >
-              <div className="rounded-[18px] border border-[#4C4315] bg-[#1A180B] p-3.5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#A59A62]">Puntaje actual</div>
-                    <div className="mt-1 flex items-baseline gap-2">
-                      <span className="text-[30px] font-semibold tracking-[-0.05em] text-[#F7DA66]">{liveGoalScore.points.toFixed(1)}</span>
-                      <span className="text-xs text-[#AFA679]">puntos</span>
+              <div className="relative overflow-hidden rounded-[20px] border border-[#5C5012] bg-[linear-gradient(145deg,#201D0C_0%,#17160D_58%,#10131B_100%)] p-4 shadow-[0_18px_45px_rgba(0,0,0,0.22)]">
+                <div className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-[#F0D000]/10 blur-2xl" />
+                <div className="pointer-events-none absolute -bottom-12 -left-10 h-28 w-28 rounded-full bg-sky-400/10 blur-2xl" />
+
+                <div className="relative">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="grid h-12 w-12 shrink-0 place-items-center rounded-[16px] border border-[#F0D000]/35 bg-[#F0D000]/10 text-2xl shadow-[inset_0_0_18px_rgba(240,208,0,0.08)]" aria-hidden="true">
+                        {{ yuca: '🌱', bronze: '🥉', silver: '🥈', gold: '🥇', platinum: '💎' }[liveGoalScore.band.key] ?? '⭐'}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#AFA679]">Nivel actual</div>
+                        <div className="mt-0.5 truncate text-xl font-bold text-[#FFF4A8]">{liveGoalScore.band.label}</div>
+                        <div className="mt-0.5 text-[11px] text-[#C8C19B]">{liveGoalScore.points.toFixed(1)} puntos acumulados</div>
+                      </div>
                     </div>
-                    <div className="mt-1 text-xs font-medium text-[#E9E3C1]">Nivel {liveGoalScore.band.label}</div>
+                    <div className="shrink-0 rounded-[14px] border border-[#F0D000]/35 bg-[#F0D000]/10 px-3 py-2 text-right">
+                      <div className="text-[9px] uppercase tracking-[0.12em] text-[#AFA679]">{visibleGoal.status === 'final' ? 'Comisión final' : 'Si cerrara hoy'}</div>
+                      <div className="mt-0.5 text-xl font-bold text-[#F7DA66]">{(visibleGoal.status === 'final' ? visibleGoal.appliedCommissionPct : liveGoalScore.calculatedCommissionPct).toFixed(2)}%</div>
+                    </div>
                   </div>
-                  <div className="rounded-[14px] border border-[#F0D000]/35 bg-[#F0D000]/10 px-3 py-2 text-right">
-                    <div className="text-[10px] uppercase tracking-[0.12em] text-[#AFA679]">{visibleGoal.status === 'final' ? 'Comisión final' : 'Si cerrara hoy'}</div>
-                    <div className="mt-0.5 text-xl font-bold text-[#F7DA66]">{(visibleGoal.status === 'final' ? visibleGoal.appliedCommissionPct : liveGoalScore.calculatedCommissionPct).toFixed(2)}%</div>
+
+                  <div className="mt-4 rounded-[15px] border border-white/[0.06] bg-black/15 px-3 py-3">
+                    <div className="flex items-end justify-between gap-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#D1C78C]">
+                        {nextGoalBand ? `Camino a ${nextGoalBand.label}` : 'Nivel máximo alcanzado'}
+                      </div>
+                      <div className="text-[10px] font-semibold text-[#FFF4A8]">
+                        {nextGoalBand ? `${liveGoalScore.points.toFixed(1)} / ${nextGoalBand.minPoints} pts` : `${liveGoalScore.points.toFixed(1)} pts`}
+                      </div>
+                    </div>
+                    <div
+                      aria-label={nextGoalBand
+                        ? `${currentGoalBandProgress.toFixed(0)}% del camino desde ${liveGoalScore.band.label} hasta ${nextGoalBand.label}`
+                        : 'Nivel máximo alcanzado'}
+                      className="mt-2 h-3 overflow-hidden rounded-full border border-[#5A501D]/70 bg-[#302C16]"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(currentGoalBandProgress)}
+                    >
+                      <div
+                        className="relative h-full rounded-full bg-[linear-gradient(90deg,#D8B800,#F0D000,#FFF08A)] shadow-[0_0_14px_rgba(240,208,0,0.35)] motion-safe:transition-[width] motion-safe:duration-700"
+                        style={{ width: `${currentGoalBandProgress}%` }}
+                      >
+                        <span className="absolute inset-y-0 right-0 w-5 bg-white/30 blur-[3px]" />
+                      </div>
+                    </div>
+                    <div className="mt-2 text-[10px] leading-4 text-[#C8C19B]">
+                      {nextGoalBand
+                        ? visibleGoal.status === 'final'
+                          ? `Cerraste a ${pointsToNextGoalBand.toFixed(1)} puntos de ${nextGoalBand.label} (${nextGoalBand.commissionPct.toFixed(2)}%).`
+                          : `Te faltan ${pointsToNextGoalBand.toFixed(1)} puntos para desbloquear ${nextGoalBand.commissionPct.toFixed(2)}%.`
+                        : `Llegaste a ${liveGoalScore.band.label}, la banda más alta de este período.`}
+                    </div>
                   </div>
-                </div>
-                <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#302C16]">
-                  <div className="h-full rounded-full bg-[#F0D000]" style={{ width: `${Math.max(0, Math.min(100, liveGoalScore.points / topGoalBandPoints * 100))}%` }} />
-                </div>
-                <div className="mt-2 grid grid-cols-5 gap-1 text-center text-[9px] leading-3 text-[#9F966A]">
-                  {orderedGoalBands.map((band) => (
-                    <span key={band.key}>
-                      <span className="block">{band.label}</span>
-                      <span className="block">{band.minPoints}</span>
-                    </span>
-                  ))}
+
+                  <div className="mt-4" aria-label="Ruta de niveles">
+                    <div className="relative grid grid-cols-5">
+                      <div className="absolute left-[10%] right-[10%] top-[13px] h-px bg-[#4A462A]" />
+                      <div
+                        className="absolute left-[10%] top-[13px] h-px bg-[#F0D000] motion-safe:transition-[width] motion-safe:duration-700"
+                        style={{ width: `${orderedGoalBands.length > 1 ? (Math.max(0, currentGoalBandIndex) / (orderedGoalBands.length - 1)) * 80 : 0}%` }}
+                      />
+                      {orderedGoalBands.map((band, bandIndex) => {
+                        const isCurrentBand = band.key === liveGoalScore.band.key;
+                        const isCompletedBand = bandIndex < currentGoalBandIndex;
+                        const isNextBand = bandIndex === currentGoalBandIndex + 1;
+                        return (
+                          <div className="relative z-10 flex min-w-0 flex-col items-center text-center" key={band.key}>
+                            <div
+                              className={isCurrentBand
+                                ? 'grid h-[27px] w-[27px] place-items-center rounded-full border-2 border-[#FFF08A] bg-[#F0D000] text-[11px] font-black text-[#17191E] shadow-[0_0_16px_rgba(240,208,0,0.45)]'
+                                : isCompletedBand
+                                  ? 'grid h-[27px] w-[27px] place-items-center rounded-full border border-[#F0D000] bg-[#6B5C00] text-[11px] font-bold text-[#FFF4A8]'
+                                  : isNextBand
+                                    ? 'grid h-[27px] w-[27px] place-items-center rounded-full border border-[#F0D000]/60 bg-[#27230F] text-[11px] font-bold text-[#F7DA66] motion-safe:animate-pulse'
+                                    : 'grid h-[27px] w-[27px] place-items-center rounded-full border border-[#4A4D59] bg-[#191B22] text-[11px] text-[#6F7584]'}
+                            >
+                              {isCompletedBand ? '✓' : bandIndex + 1}
+                            </div>
+                            <span className={isCurrentBand ? 'mt-1.5 truncate text-[9px] font-bold text-[#FFF4A8]' : 'mt-1.5 truncate text-[9px] font-medium text-[#8E927F]'}>{band.label}</span>
+                            <span className={isCurrentBand ? 'mt-0.5 text-[9px] text-[#F0D000]' : 'mt-0.5 text-[9px] text-[#686E7B]'}>{band.commissionPct.toFixed(0)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {visibleGoal.status !== 'final' ? (
+                    <div className="mt-3 flex items-center gap-2 rounded-[12px] border border-sky-300/15 bg-sky-300/[0.06] px-2.5 py-2 text-[10px] leading-4 text-sky-100">
+                      <span className="text-sm" aria-hidden="true">🔎</span>
+                      <span>Explora tus indicadores abajo y descubre dónde puedes ganar los próximos puntos.</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-[14px] border border-[#2A3040] bg-[#0D1017] px-3 py-2.5">
-                  <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#7F879A]">
-                    {visibleGoal.status === 'final' ? 'Metas logradas' : 'Próximo nivel'}
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-[#F5F7FB]">
-                    {visibleGoal.status === 'final'
-                      ? `${achievedGoalMetrics} de 5`
-                      : nextGoalBand
-                        ? nextGoalBand.label
-                        : 'Nivel máximo'}
-                  </div>
+                  <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#7F879A]">Objetivos en meta</div>
+                  <div className="mt-1 text-sm font-semibold text-[#F5F7FB]">{achievedGoalMetrics} de 5</div>
                   <div className="mt-0.5 text-[10px] leading-4 text-[#9FA7B9]">
                     {visibleGoal.status === 'final'
                       ? `Nivel ${liveGoalScore.band.label} confirmado`
-                      : nextGoalBand
-                        ? `Faltan ${pointsToNextGoalBand.toFixed(1)} pts · ${nextGoalBand.commissionPct.toFixed(2)}%`
-                        : `${liveGoalScore.band.label} · ${liveGoalScore.calculatedCommissionPct.toFixed(2)}%`}
+                      : 'Indicadores que ya alcanzaron su objetivo'}
                   </div>
                 </div>
                 <div className="rounded-[14px] border border-[#2A3040] bg-[#0D1017] px-3 py-2.5">
