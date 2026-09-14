@@ -2962,7 +2962,7 @@ export async function assignInternalDriverAction(input: {
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
   const normalizedCostUsd = parseDeliveryCostInput(input.costUsd);
-  const { error } = await supabase.rpc('assign_delivery_with_cost_v1', {
+  const { data, error } = await supabase.rpc('assign_delivery_with_cost_v1', {
     p_order_id: input.orderId,
     p_kind: 'internal',
     p_driver_user_id: input.driverUserId,
@@ -2984,7 +2984,7 @@ export async function assignInternalDriverAction(input: {
     actorUserId: user.id,
     payload: {
       driver_user_id: input.driverUserId,
-      cost_usd: normalizedCostUsd,
+      cost_usd: parseDeliveryCostInput(data?.cost_usd),
       assignment_kind: 'internal',
     },
     recipients: [

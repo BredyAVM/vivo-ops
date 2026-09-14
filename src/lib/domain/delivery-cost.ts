@@ -19,6 +19,8 @@ export function parseDeliveryDistanceInput(value: unknown): number | null {
 }
 
 export function deliveryCostSourceLabel(source: string | null): string {
+  if (source === 'admin_payment_tariff_confirmation_v1') return 'Tarifa confirmada al pagar';
+  if (source === 'internal_product_tariff_v1') return 'Tarifa interna al asignar';
   if (source === 'internal_assignment_input') return 'Registrado al asignar · interno';
   if (source === 'external_partner_manual_v1') return 'Registrado al asignar · externo';
   if (source === 'external_partner_tariff_v1') return 'Tabulador al asignar';
@@ -30,6 +32,25 @@ export function deliveryCostSourceLabel(source: string | null): string {
 /** Readers must not substitute a current catalog tariff for historical cost. */
 export function readStoredDeliveryCost(value: unknown): number | null {
   try { return parseDeliveryCostInput(value); } catch { return null; }
+}
+
+/** An explicitly labelled estimate for legacy reports; never replaces a snapshot. */
+export function deliveryCostEstimate(stored: unknown, mode: string, proposed: unknown) {
+  const saved = readStoredDeliveryCost(stored);
+  const estimate = mode === 'internal' ? readStoredDeliveryCost(proposed) : null;
+  return { amount: saved ?? estimate, estimated: saved === null && estimate !== null };
+}
+
+export function estimateInternalDeliveryCost(lines: { qty: number; rate: unknown; isDelivery: boolean }[]): number | null {
+  const relevant = lines.filter(line => line.isDelivery || line.rate != null);
+  if (!relevant.length) return null;
+  let total = 0;
+  for (const line of relevant) {
+    const rate = readStoredDeliveryCost(line.rate);
+    if (rate === null || !Number.isFinite(line.qty) || line.qty <= 0) return null;
+    total += rate * line.qty;
+  }
+  return total <= 999999999.99 ? Math.round((total + Number.EPSILON) * 100) / 100 : null;
 }
 
 export function readDeliveryCorrectionReceipt(value: unknown): { eventId: number; payload: Record<string, unknown> } {

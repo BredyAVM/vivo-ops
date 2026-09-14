@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { resolveLegacyAdminSection } from '@/lib/admin-finance/legacy-navigation';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { parseDecimalInput } from '@/lib/number-input';
-import { parseDeliveryCostInput, parseDeliveryDistanceInput, readStoredDeliveryCost } from '@/lib/domain/delivery-cost';
+import { parseDeliveryCostInput, parseDeliveryDistanceInput, readStoredDeliveryCost, deliveryCostEstimate, estimateInternalDeliveryCost } from '@/lib/domain/delivery-cost';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { ModulePreference } from '../../ModulePreference';
@@ -14250,7 +14250,13 @@ const selectedCreateOrderClientAddresses = useMemo(
             : ('unassigned' as const);
 
       const storedCostUsd = getEffectiveDeliveryCostUsd(order);
-      const costUsd = storedCostUsd ?? 0;
+      const proposal = estimateInternalDeliveryCost((order.draftItems ?? []).map(item => {
+        const product = catalogItemById.get(item.productId);
+        return { qty: Number(item.qty), rate: item.internalRiderPayUsd ?? product?.internalRiderPayUsd,
+          isDelivery: /delivery/i.test(item.productNameSnapshot || product?.name || '') };
+      }));
+      const estimate = deliveryCostEstimate(storedCostUsd, mode, proposal);
+      const costUsd = estimate.amount ?? 0;
 
       const distanceKm =
         order.editMeta?.deliveryDistanceKm != null
@@ -14274,6 +14280,8 @@ const selectedCreateOrderClientAddresses = useMemo(
         mode,
         costUsd: Math.max(0, Number(costUsd || 0)),
         costRecorded: storedCostUsd !== null,
+        costAvailable: estimate.amount !== null,
+        costEstimated: estimate.estimated,
         distanceKm,
         deliveryChargeLabel: getOrderDeliveryChargeLabel(order, catalogItemById),
         internalDriverName,
@@ -16731,10 +16739,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
 
               <p className="text-xs text-[#B7B7C2]" role="status">
-                Costos guardados; no son pagos realizados ni saldo a liquidar.
-                {deliveryCalculatedData.rows.some((row) => !row.costRecorded)
-                  ? ` Subtotales parciales: faltan ${deliveryCalculatedData.rows.filter((row) => !row.costRecorded).length} costos en este período.`
+                Relación de servicios; no descuenta pagos anteriores. Los importes «propuestos» usan la tarifa interna actual y deben confirmarse para el período.
+                {deliveryCalculatedData.rows.some((row) => !row.costAvailable)
+                  ? ` Subtotal parcial: faltan ${deliveryCalculatedData.rows.filter((row) => !row.costAvailable).length} costos.`
                   : ''}
+                <a href="/app/admin/finanzas/delivery" className="ml-2 underline">Revisar y registrar pagos en Administración →</a>
               </p>
               {deliveriesTab === 'overview' ? (
                 <>
@@ -16746,7 +16755,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                 <Card title="Internos" className="p-3">
                   <StatRow label="Deliveries" value={deliveryCalculatedData.internalCount} />
-                  <StatRow label="Costo guardado" value={fmtUSD(deliveryCalculatedData.internalCostUsd)} />
+                  <StatRow label="Costo calculado" value={fmtUSD(deliveryCalculatedData.internalCostUsd)} />
                 </Card>
 
                 <Card title="Externos" className="p-3">
@@ -16901,7 +16910,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             <td className="px-3 py-2 text-right">
                               {row.distanceKm != null ? row.distanceKm.toFixed(1) : '?'}
                             </td>
-                            <td className="px-3 py-2 text-right">{row.costRecorded ? fmtUSD(row.costUsd) : 'Sin costo guardado'}</td>
+                            <td className="px-3 py-2 text-right">{row.costAvailable ? `${fmtUSD(row.costUsd)}${row.costEstimated ? ' · propuesto' : ''}` : 'Costo pendiente'}</td>
                           </tr>
                         ))
                       )}
@@ -17011,7 +17020,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                   <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
                                   <td className="px-3 py-2">{row.order.clientName}</td>
                                   <td className="px-3 py-2">{row.deliveryChargeLabel}</td>
-                                  <td className="px-3 py-2 text-right">{row.costRecorded ? fmtUSD(row.costUsd) : 'Sin costo guardado'}</td>
+                                  <td className="px-3 py-2 text-right">{row.costAvailable ? `${fmtUSD(row.costUsd)}${row.costEstimated ? ' · propuesto' : ''}` : 'Costo pendiente'}</td>
                                 </tr>
                               ))
                             )}
@@ -17126,7 +17135,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                   <td className="px-3 py-2">{row.order.clientName}</td>
                                   <td className="px-3 py-2">{row.deliveryChargeLabel}</td>
                                   <td className="px-3 py-2 text-right">{row.distanceKm != null ? row.distanceKm.toFixed(1) : '?'}</td>
-                                  <td className="px-3 py-2 text-right">{row.costRecorded ? fmtUSD(row.costUsd) : 'Sin costo guardado'}</td>
+                                  <td className="px-3 py-2 text-right">{row.costAvailable ? `${fmtUSD(row.costUsd)}${row.costEstimated ? ' · propuesto' : ''}` : 'Costo pendiente'}</td>
                                 </tr>
                               ))
                             )}
