@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { loadDeliveryPayment } from '@/lib/admin-finance/delivery-service-data';
 import { AdminReadError, adminPanel } from '../../../../_components/AdminReadUi';
 import VoidDeliveryPayment from './VoidDeliveryPayment';
@@ -17,6 +18,6 @@ export default async function DeliveryPaymentPage({ params }: { params: Promise<
         <p className="mt-2 text-xs text-[#9B9BA7]">{result.linkedExisting ? 'Vinculado a un egreso anterior; no se duplicó la salida de dinero.' : 'Egreso registrado en la cuenta. No constituye una transferencia bancaria automática.'}</p>
         {p.voided_at ? <p className="mt-3 text-sm text-orange-200">Motivo de anulación: {p.void_reason}</p> : <VoidDeliveryPayment id={p.request_id} linkedExisting={result.linkedExisting} />}
       </section>
-      <section className={adminPanel}><h2 className="text-sm font-semibold">Detalle confirmado al registrar</h2>{evidence.map(e => <div key={e.id} className="flex min-h-12 items-center justify-between gap-3 border-b border-[#292937] py-2 text-xs"><span>#{e.service.orderNumber} · {e.service.client} · {e.service.date}</span><span>${Number(e.cost).toFixed(2)}</span></div>)}</section>
+      <section className={adminPanel}><h2 className="text-sm font-semibold">Detalle confirmado al registrar</h2>{evidence.map(e => <div key={e.id} className="flex min-h-12 items-center justify-between gap-3 border-b border-[#292937] py-2 text-xs"><span>#{formatOrderDisplayNumber(e.id)} · {e.service.client} · {e.service.date}</span><span>${Number(e.cost).toFixed(2)}</span></div>)}</section>
     </div>;
 }

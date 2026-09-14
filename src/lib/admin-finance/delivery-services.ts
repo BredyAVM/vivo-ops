@@ -1,5 +1,6 @@
 import { readStoredDeliveryCost } from '../domain/delivery-cost.ts';
 import { validDeliveryDate } from './delivery-model.ts';
+import { formatOrderDisplayNumber } from '../orders/order-labels.ts';
 
 export type DeliveryService = {
   id: number; orderNumber: string; client: string; date: string;
@@ -25,7 +26,7 @@ export function parseDeliveryServices(value: unknown, from: string, to: string):
     if (row.payment !== null && (!row.payment || !row.payment.id || !Number.isSafeInteger(row.payment.movementId)
       || !validDeliveryDate(row.payment.date) || readStoredDeliveryCost(row.payment.amountUsd) === null || row.payment.status !== 'confirmed'))
       throw new Error('Pago de delivery inconsistente.');
-    return { id: row.id, orderNumber: row.orderNumber, client: row.client, date: row.date, mode: row.mode,
+    return { id: row.id, orderNumber: formatOrderDisplayNumber(row.id), client: row.client, date: row.date, mode: row.mode,
       responsibleKey: row.responsibleKey, responsible: row.responsible, legacyPaid: row.legacyPaid,
       payment: row.payment, cost: { stored: row.cost.stored, proposed: row.cost.proposed, fingerprint: row.cost.fingerprint, reason: row.cost.reason } };
   });
@@ -52,7 +53,7 @@ export function deliveryServicesCsv(rows: DeliveryService[]) {
   };
   return '\uFEFF' + [
     ['Fecha', 'Orden', 'Cliente', 'Tipo', 'Responsable', 'Costo USD', 'Origen', 'Pago', 'Egreso'],
-    ...rows.map(row => [row.date, row.orderNumber, row.client, row.mode === 'internal' ? 'Interno' : row.mode === 'external' ? 'Externo' : 'Sin asignar', row.responsible,
+    ...rows.map(row => [row.date, formatOrderDisplayNumber(row.id), row.client, row.mode === 'internal' ? 'Interno' : row.mode === 'external' ? 'Externo' : 'Sin asignar', row.responsible,
       serviceAmount(row)?.toFixed(2) ?? '', row.payment ? 'Confirmado al pagar' : row.cost.stored !== null ? 'Guardado' : row.cost.proposed !== null ? 'Tarifa propuesta' : 'Pendiente',
       row.payment ? 'Pago vinculado' : row.legacyPaid ? 'Pago histórico' : 'Sin pago vinculado', row.payment?.movementId ?? '']),
   ].map(line => line.map(cell).join(';')).join('\r\n');

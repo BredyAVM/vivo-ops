@@ -4,6 +4,13 @@ import { readFileSync } from 'node:fs';
 import { deliveryCostEstimate, estimateInternalDeliveryCost } from '../../src/lib/domain/delivery-cost.ts';
 import { deliveryServiceTotals, parseDeliveryServices, servicePayable, deliveryServicesCsv, type DeliveryService } from '../../src/lib/admin-finance/delivery-services.ts';
 const row: DeliveryService = { id: 1, orderNumber: 'TEST-1', client: 'Cliente', date: '2026-09-10', mode: 'internal', responsible: 'Driver', responsibleKey: 'internal:test', cost: { stored: null, proposed: 2.5, fingerprint: 'a'.repeat(32), reason: null }, payment: null, legacyPaid: false };
+test('table and export use the canonical short order number, never the stored long reference', () => {
+  const fixture = { ...row, id: 2565, orderNumber: 'VO-LONG-REFERENCE' };
+  const parsed = parseDeliveryServices({ version: 1, from: '2026-09-07', to: '2026-09-13', rows: [fixture] }, '2026-09-07', '2026-09-13');
+  assert.equal(parsed[0].orderNumber, '2565');
+  assert.match(deliveryServicesCsv([fixture]), /"2565"/);
+  assert.doesNotMatch(deliveryServicesCsv([fixture]), /VO-LONG-REFERENCE/);
+});
 test('all three legacy delivery tables show the labelled cost proposal', () => {
   const source = readFileSync(new URL('../../src/app/app/master/dashboard/MasterDashboardClient.tsx', import.meta.url), 'utf8');
   assert.equal((source.match(/row\.costAvailable \?/g) ?? []).length, 3);

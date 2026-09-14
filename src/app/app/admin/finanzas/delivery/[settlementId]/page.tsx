@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { notFound } from 'next/navigation';
 import { requireAdminContext } from '@/lib/auth';
 import { getCaracasDateKey } from '@/lib/admin-finance/period';
@@ -18,7 +19,7 @@ export default async function DeliverySettlementPage({ params }: { params: Promi
   const data = result.data;
   const orderHref = `/app/master/ops?${new URLSearchParams({ openOrder: String(data.orderId), focusDate: getCaracasDateKey(new Date(data.dispatchedAt)), tab: 'entrega' })}`;
   return <div className="space-y-5">
-    <header><Link href="/app/admin/finanzas/delivery#liquidaciones" prefetch={false} className="inline-flex min-h-11 items-center text-xs underline">← Delivery</Link><h1 className="text-xl font-semibold">Liquidación · Orden #{data.orderNumber}</h1><p className="mt-2 text-sm text-[#B9B9C4]">{data.client} · {data.responsible} · {states[data.status]}</p></header>
+    <header><Link href="/app/admin/finanzas/delivery/custodia" prefetch={false} className="inline-flex min-h-11 items-center text-xs underline">← Custodia de delivery</Link><h1 className="text-xl font-semibold">Liquidación · Orden #{formatOrderDisplayNumber(data.orderId)}</h1><p className="mt-2 text-sm text-[#B9B9C4]">{data.client} · {data.responsible} · {states[data.status]}</p></header>
     <div className="flex flex-wrap gap-4 text-sm"><Link href={orderHref} prefetch={false} className="inline-flex min-h-11 items-center underline">Abrir orden</Link><Link href="/app/counter" prefetch={false} className="inline-flex min-h-11 items-center underline">Gestionar retorno en Mostrador →</Link></div>
     {!data.collectionFinalized && !['not_required','voided'].includes(data.status) ? <p role="status" className="text-sm text-orange-200">El cobro aún no está finalizado. Un saldo declarado de cero no confirma que todo el dinero haya retornado.</p> : null}
     <section aria-label="Importes por moneda" className="grid gap-3 lg:grid-cols-2">{data.currencies.map(row => <article key={row.currency} className={adminPanel}><h2 className="text-sm font-semibold">{row.currency === 'VES' ? 'Bolívares (VES)' : 'Dólares (USD)'}</h2><dl className="mt-3 space-y-3 text-sm">{[

@@ -10,6 +10,8 @@ El lector anterior dejó de usar el tabulador cuando faltaba un costo guardado. 
 
 ## Administración → Finanzas → Delivery
 
+Todos los números de orden visibles usan el identificador corto canónico (ID de orden), incluida la descarga, los comprobantes y la custodia. La referencia larga permanece únicamente como evidencia interna.
+
 Período inclusivo en fecha Caracas; filtros por interno/externo, responsable exacto, orden y cliente. Tabla paginada de 30, totales y CSV de toda la selección (máximo 5000 entregas por consulta; no trunca resultados). El costo interno procede de `internal_rider_pay_usd`, no del precio cobrado al cliente. Las propuestas externas usan una única tarifa activa de la empresa para la distancia registrada; huecos y superposiciones quedan pendientes.
 
 Fecha: último evento `delivered` de una orden actualmente entregada; las regularizaciones con fecha expresamente confirmada usan esa fecha sin inventar una hora. Órdenes sin ninguna de estas evidencias no entran en períodos.
