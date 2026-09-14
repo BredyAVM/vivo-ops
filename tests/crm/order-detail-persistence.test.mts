@@ -29,6 +29,20 @@ test('edit, repeat and draft JSON roundtrips preserve exact choices and quantiti
   assert.deepEqual(normalize(loaded), selected);
   assert.deepEqual(normalize(normalize(normalize(loaded))), selected);
 });
+
+test('rescheduling a legacy gift preserves the full composition despite serializer ordering', () => {
+  const reordered = ['1 Salsa Tártara 1oz', '@sel|2|1', '6 Mini Tequeños Fritos', '@sel|5|6'];
+  assert.deepEqual(normalize(reordered).sort(), [...reordered].sort());
+  const migration = readFileSync(new URL('../../supabase/migrations/20260914164904_preserve_unchanged_legacy_gifts_on_order_edit.sql', import.meta.url), 'utf8');
+  assert.match(migration, /item\.order_id = p_order_id/);
+  assert.match(migration, /v_new_client_id is not distinct from v_order\.client_id/);
+  assert.match(migration, /v_new_advisor_id is not distinct from v_order\.attributed_advisor_id/);
+  assert.match(migration, /item\.qty = \(incoming\.value ->> 'qty'\)::numeric/);
+  assert.match(migration, /item\.line_total_usd = \(incoming\.value ->> 'line_total_usd'\)::numeric/);
+  assert.match(migration, /and not \(item\.id = any\(v_preserved_legacy_ids\)\)/);
+  assert.match(migration, /continue;/);
+  assert.doesNotMatch(migration, /update public\.orders|disable trigger|session_replication_role|insert into public\.crm_play/i);
+});
 test('visible summary is generated from IDs, never overrides a different real selection', () => {
   assert.deepEqual(normalize(['6 Mini Tequeños Fritos', '@sel|8|6']), ['6 Empanadas Fritas', '@sel|8|6']);
   assert.throws(() => normalize(['6 Mini Tequeños Fritos', '@sel|5|1']), /tiene 1 de 6/);
