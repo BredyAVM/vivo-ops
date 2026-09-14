@@ -28,6 +28,7 @@ export type KitchenOrderItem = {
   name: string;
   notes: string | null;
   unitsPerService: number;
+  crmPlayName: string | null;
 };
 
 export type KitchenOrder = {
@@ -1145,6 +1146,9 @@ export default function KitchenClient({
                       return (
                         <div key={`print-${item.id}`} className="kitchen-print-line">
                           <strong>{formatQty(printQuantity)} × {item.name}</strong>
+                          {item.crmPlayName ? (
+                            <div><strong>OBSEQUIO DE JUGADA:</strong> {item.crmPlayName}</div>
+                          ) : null}
                           {presentation.detailLines.map((line, index) => (
                             <div key={`print-${item.id}-${index}`}>
                               {line.qty == null
@@ -1339,6 +1343,16 @@ export default function KitchenClient({
                                 </div>
                               ) : itemUnits > 0 ? (
                                 <div className="mt-0.5 text-xs text-[#8A8A96]">{formatQty(item.qty)} serv.</div>
+                              ) : null}
+                              {item.crmPlayName ? (
+                                <div className="mt-1.5 rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-amber-100">
+                                  <div className="text-[9px] font-black uppercase tracking-[0.12em] text-amber-300">
+                                    Obsequio de jugada
+                                  </div>
+                                  <div className="mt-0.5 text-xs font-black leading-snug">
+                                    {item.crmPlayName}
+                                  </div>
+                                </div>
                               ) : null}
                             </div>
                           </div>

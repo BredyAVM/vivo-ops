@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 import { getPublicVapidKey } from '@/lib/push';
@@ -48,6 +49,11 @@ type RawKitchenItem = {
     | null;
 };
 
+type RawKitchenCrmRedemption = {
+  order_item_id: number | string | null;
+  play_name_snapshot: string | null;
+};
+
 type RawKitchenChangeEvent = {
   id: number | string;
   order_id: number | string;
@@ -84,6 +90,19 @@ function getScheduleTime(order: RawKitchenOrder) {
   const schedule = order.extra_fields?.schedule;
   if (schedule?.asap) return 'Lo antes posible';
   return schedule?.time_12 || schedule?.time_24 || null;
+}
+
+function createKitchenCanonicalReadClient() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
 export default async function KitchenPage() {
@@ -154,8 +173,9 @@ export default async function KitchenPage() {
 
   const rawOrders = (ordersData ?? []) as unknown as RawKitchenOrder[];
   const orderIds = rawOrders.map((order) => order.id);
+  const canonicalReadClient = createKitchenCanonicalReadClient() ?? ctx.supabase;
 
-  const [itemsResult, changeEventsResult, incidentEventsResult] = await Promise.all([
+  const [itemsResult, changeEventsResult, incidentEventsResult, crmRedemptionsResult] = await Promise.all([
     orderIds.length
       ? ctx.supabase
           .from('order_items')
@@ -186,6 +206,13 @@ export default async function KitchenPage() {
           .order('created_at', { ascending: false })
           .limit(200)
       : Promise.resolve({ data: [], error: null }),
+    orderIds.length
+      ? canonicalReadClient
+          .from('crm_play_redemptions')
+          .select('order_item_id, play_name_snapshot')
+          .in('order_id', orderIds)
+          .in('status', ['reserved', 'redeemed'])
+      : Promise.resolve({ data: [], error: null }),
   ]);
   const { data: itemsData, error: itemsError } = itemsResult;
   const { data: changeEventsData, error: changeEventsError } = changeEventsResult;
@@ -199,6 +226,9 @@ export default async function KitchenPage() {
   }
   if (incidentEventsError) {
     throw new Error(incidentEventsError.message);
+  }
+  if (crmRedemptionsResult.error) {
+    console.warn('Kitchen CRM play labels unavailable', crmRedemptionsResult.error.message);
   }
 
   const rawChangeEvents = (changeEventsData ?? []) as unknown as RawKitchenChangeEvent[];
@@ -219,6 +249,15 @@ export default async function KitchenPage() {
     throw new Error(changeRecipientsError.message);
   }
 
+  const crmPlayNameByOrderItemId = new Map<number, string>();
+  for (const redemption of (crmRedemptionsResult.data ?? []) as unknown as RawKitchenCrmRedemption[]) {
+    const orderItemId = Number(redemption.order_item_id);
+    const playName = redemption.play_name_snapshot?.trim();
+    if (Number.isFinite(orderItemId) && orderItemId > 0 && playName) {
+      crmPlayNameByOrderItemId.set(orderItemId, playName);
+    }
+  }
+
   const itemsByOrder = new Map<number, KitchenOrderItem[]>();
   for (const item of (itemsData ?? []) as unknown as RawKitchenItem[]) {
     const orderItems = itemsByOrder.get(item.order_id) ?? [];
@@ -229,6 +268,7 @@ export default async function KitchenPage() {
       name: item.product_name_snapshot || 'Producto',
       notes: item.notes,
       unitsPerService: toSafeNumber(product?.units_per_service, 0),
+      crmPlayName: crmPlayNameByOrderItemId.get(item.id) ?? null,
     });
     itemsByOrder.set(item.order_id, orderItems);
   }
