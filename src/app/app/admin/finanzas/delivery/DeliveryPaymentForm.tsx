@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition, type RefObject } from 'react';
 import { deliveryServiceTotals, type DeliveryService } from '@/lib/admin-finance/delivery-services';
+import { extraTotal, type DeliveryExtra } from '@/lib/admin-finance/delivery-extras';
 import { recordDeliveryPayment, type DeliveryPaymentInput } from './actions';
 
 export type DeliveryPaymentAttempt = { id: string; payload: string } | null;
@@ -11,7 +12,8 @@ export const deliveryButton = `${deliveryInput} hover:bg-[#22222C]`;
 export const deliveryPrimaryButton = 'min-h-11 rounded-md bg-[#FEEF00] px-3 text-xs font-semibold text-black hover:bg-yellow-200 md:min-h-8 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-white';
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
-export default function DeliveryPaymentForm({ rows, accounts, from, to, today, partial, attempt, onClose, onPaid }: {
+export default function DeliveryPaymentForm({ rows, extras, accounts, from, to, today, partial, attempt, onClose, onPaid }: {
+  extras: DeliveryExtra[];
   rows: DeliveryService[]; accounts: DeliveryMoneyAccount[]; from: string; to: string; today: string; partial: boolean;
   attempt: RefObject<DeliveryPaymentAttempt>;
   onClose: () => void; onPaid: (receipt: { id: string; movementId: number; total: number }) => void;
@@ -22,7 +24,9 @@ export default function DeliveryPaymentForm({ rows, accounts, from, to, today, p
   const [message, setMessage] = useState('');
   const [pending, startTransition] = useTransition();
   const submitting = useRef(false);
-  const total = deliveryServiceTotals(rows).amount;
+  const orderTotal = deliveryServiceTotals(rows).amount;
+  const extrasTotal = extraTotal(extras);
+  const total = (Math.round(orderTotal * 100) + Math.round(extrasTotal * 100)) / 100;
   const tariffCount = rows.filter(row => row.cost.stored === null).length;
   const account = accounts.find(row => String(row.id) === accountId);
   const native = account?.currency_code === 'VES' ? total * Number(rate || 0) : total;
@@ -32,6 +36,7 @@ export default function DeliveryPaymentForm({ rows, accounts, from, to, today, p
     const input: DeliveryPaymentInput = {
       from, to, paymentDate: String(form.get('paymentDate')),
       items: rows.map(row => ({ id: row.id, fingerprint: row.cost.fingerprint })),
+      extras: extras.map(row => ({ id: row.id, fingerprint: row.fingerprint })),
       accountId: method === 'new' ? Number(accountId) : null,
       amount: method === 'new' ? Number(form.get('amount')) : null,
       rate: method === 'new' && account?.currency_code === 'VES' ? Number(rate) : null,
@@ -60,8 +65,8 @@ export default function DeliveryPaymentForm({ rows, accounts, from, to, today, p
     <form action={submit}>
       <fieldset disabled={pending} className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div><h2 id="delivery-payment-title" className="text-sm font-semibold">{partial ? 'Pagar selección' : 'Pagar período'} · {rows[0].responsible}</h2>
-            <p className="mt-1 text-xs text-[#C2C2CA]">{from} al {to} · {rows.length} entregas · <strong className="text-white">{usd(total)}</strong></p></div>
+          <div><h2 id="delivery-payment-title" className="text-sm font-semibold">{partial ? 'Pagar selección' : 'Pagar período'} · {rows[0]?.responsible ?? extras[0]?.responsible}</h2>
+            <p className="mt-1 text-xs text-[#C2C2CA]">{from} al {to} · {rows.length} entregas: {usd(orderTotal)}{extras.length ? ` + ${extras.length} servicios adicionales: ${usd(extrasTotal)}` : ''} · <strong className="text-white">{usd(total)}</strong></p></div>
           <button type="button" onClick={onClose} className={deliveryButton}>Cerrar</button>
         </div>
         <label className="grid max-w-md gap-1 text-xs">Forma de registro<select value={method} onChange={e => setMethod(e.target.value)} className={deliveryInput}>
@@ -77,7 +82,7 @@ export default function DeliveryPaymentForm({ rows, accounts, from, to, today, p
         </div>
         <details className="text-xs"><summary className="cursor-pointer py-1 text-[#B9B9C4]">Agregar nota</summary><input aria-label="Nota del pago" name="notes" maxLength={500} className={`${deliveryInput} mt-1 w-full`} /></details>
         {tariffCount > 0 ? <label className="flex min-h-9 items-start gap-2 text-xs"><input className="mt-0.5" name="confirmTariffs" type="checkbox" required /><span>{tariffCount} entregas no tenían costo guardado. Confirmo que el tabulador actual corresponde a este período; se guardarán estos importes al registrar el pago.</span></label> : null}
-        <label className="flex min-h-9 items-center gap-2 text-xs"><input name="confirmedUnpaid" type="checkbox" required />Confirmo que estas entregas no tienen otro pago registrado.</label>
+        <label className="flex min-h-9 items-center gap-2 text-xs"><input name="confirmedUnpaid" type="checkbox" required />Confirmo que estas entregas y servicios no tienen otro pago registrado.</label>
         {message ? <p role="alert" className="text-xs text-orange-200">{message}</p> : null}
         <div className="flex flex-wrap items-center gap-3">
           <button className={deliveryPrimaryButton}>{pending ? 'Registrando…' : `Confirmar pago · ${usd(total)}`}</button>

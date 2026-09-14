@@ -4,6 +4,37 @@ import { readFileSync } from 'node:fs';
 import { deliveryCostEstimate, estimateInternalDeliveryCost } from '../../src/lib/domain/delivery-cost.ts';
 import { deliveryPaymentBatch, deliveryServiceTotals, parseDeliveryServices, servicePayable, deliveryServicesCsv, type DeliveryService } from '../../src/lib/admin-finance/delivery-services.ts';
 import { deliveryPeriodHref, deliveryServiceFilters, deliveryWeekContaining, deliveryWeekShortcuts } from '../../src/lib/admin-finance/delivery-period.ts';
+import { deliveryCombinedBatch, parseDeliveryExtras, deliveryExtrasCsv, type DeliveryExtra } from '../../src/lib/admin-finance/delivery-extras.ts';
+const extra: DeliveryExtra = { id: '00000000-0000-4000-8000-000000000091', responsibleKey: 'external:91', responsible: 'Test company', date: '2026-09-10', concept: 'Test errand', amount: 10, paymentId: null, voided: false, voidReason: null, fingerprint: 'a'.repeat(32) };
+test('extra-only and mixed settlements include exact responsible and unpaid services', () => {
+  assert.equal(deliveryCombinedBatch([], [extra], extra.responsibleKey).total, 10);
+  assert.equal(deliveryCombinedBatch([], [extra], extra.responsibleKey).error, '');
+  const delivery = { ...row, mode: 'external' as const, responsibleKey: extra.responsibleKey };
+  const batch = deliveryCombinedBatch([delivery], [extra, { ...extra, id: 'other', responsibleKey: 'external:92' }], extra.responsibleKey);
+  assert.equal(batch.total, 12.5);
+  assert.equal(batch.extras.length, 1);
+  assert.equal(batch.error, '');
+  assert.ok(deliveryCombinedBatch([], [{ ...extra, voided: true }], extra.responsibleKey).error);
+  assert.ok(deliveryCombinedBatch([], [{ ...extra, paymentId: extra.id }], extra.responsibleKey).error);
+  assert.ok(deliveryCombinedBatch([], [extra], '').error);
+});
+test('extra selection is explicit and cannot conceal invalid or missing order costs', () => {
+  assert.equal(deliveryCombinedBatch([], [extra], extra.responsibleKey, [], [extra.id]).error, '');
+  for (const ids of [[extra.id, extra.id], ['missing']]) assert.ok(deliveryCombinedBatch([], [extra], extra.responsibleKey, [], ids).error);
+  assert.ok(deliveryCombinedBatch([], [extra], extra.responsibleKey, [999], [extra.id]).error);
+  assert.ok(deliveryCombinedBatch([{ ...row, responsibleKey: extra.responsibleKey, cost: { ...row.cost, proposed: null } }], [extra], extra.responsibleKey).error);
+  assert.equal(deliveryCombinedBatch([row], [extra], row.responsibleKey, [row.id], []).extras.length, 0);
+  assert.match(deliveryCombinedBatch([], Array.from({ length: 501 }, (_, i) => ({ ...extra, id: String(i) })), extra.responsibleKey).error, /500/);
+});
+test('extra report fails closed on malformed amounts, dates, duplicates and unsafe state', () => {
+  const envelope = { version: 1, from: '2026-09-07', to: '2026-09-13', rows: [extra], payees: [{ key: extra.responsibleKey, name: extra.responsible }] };
+  assert.equal(parseDeliveryExtras(envelope, envelope.from, envelope.to).rows.length, 1);
+  for (const invalid of [{ amount: NaN }, { amount: -1 }, { amount: 0.001 }, { date: '2026-09-14' }, { paymentId: 'bad' }, { paymentId: extra.id, voided: true }])
+    assert.throws(() => parseDeliveryExtras({ ...envelope, rows: [{ ...extra, ...invalid }] }, envelope.from, envelope.to));
+  assert.throws(() => parseDeliveryExtras({ ...envelope, rows: [extra, extra] }, envelope.from, envelope.to));
+  assert.throws(() => parseDeliveryExtras(envelope, '2026-09-08', envelope.to));
+  assert.match(deliveryExtrasCsv([{ ...extra, concept: '=SUM(1,2)' }]), /'\=SUM/);
+});
 const row: DeliveryService = { id: 1, orderNumber: 'TEST-1', client: 'Cliente', date: '2026-09-10', mode: 'internal', responsible: 'Driver', responsibleKey: 'internal:test', cost: { stored: null, proposed: 2.5, fingerprint: 'a'.repeat(32), reason: null }, payment: null, legacyPaid: false };
 test('one-click period payment covers all pages for the exact responsible, excluding already paid services', () => {
   const fixtures = Array.from({ length: 39 }, (_, i) => ({ ...row, id: i + 1 }));
@@ -36,8 +67,8 @@ test('optional partial selection cannot include paid, foreign, duplicate or unkn
 });
 test('compact UI keeps period payment independent of search and the confirmation above the table', () => {
   const source = readFileSync(new URL('../../src/app/app/admin/finanzas/delivery/DeliveryServicesClient.tsx', import.meta.url), 'utf8');
-  assert.match(source, /deliveryPaymentBatch\(modeRows, responsible\)/);
-  assert.doesNotMatch(source, /deliveryPaymentBatch\(visible/);
+  assert.match(source, /deliveryCombinedBatch\(modeRows, modeExtras, responsible\)/);
+  assert.doesNotMatch(source, /deliveryCombinedBatch\(visible/);
   assert.match(source, /useState\(false\)/);
   assert.match(source, /Pagar período/);
   assert.match(source, /\{partial \? <th/);
