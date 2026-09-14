@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { requireAdminContext } from '@/lib/auth';
-import { deliveryFilters } from '@/lib/admin-finance/delivery-model';
+import { deliveryServiceFilters } from '@/lib/admin-finance/delivery-period';
 import { getCaracasDateKey } from '@/lib/admin-finance/period';
 import { parseDeliveryServices } from '@/lib/admin-finance/delivery-services';
 import { loadDeliveryServices } from '@/lib/admin-finance/delivery-service-data';
@@ -12,7 +12,7 @@ export default async function AdminDeliveryPage({ searchParams }: { searchParams
   const values = await searchParams;
   let filters, loaded, rows;
   try {
-    filters = deliveryFilters(values);
+    filters = deliveryServiceFilters(values);
     loaded = await loadDeliveryServices(filters.from, filters.to);
     rows = parseDeliveryServices(loaded.report, filters.from, filters.to);
   } catch (error) {

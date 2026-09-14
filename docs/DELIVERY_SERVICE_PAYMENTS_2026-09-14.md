@@ -14,6 +14,8 @@ Todos los números de orden visibles usan el identificador corto canónico (ID d
 
 Período inclusivo en fecha Caracas; filtros por interno/externo, responsable exacto, orden y cliente. Tabla paginada de 30, totales y CSV de toda la selección (máximo 5000 entregas por consulta; no trunca resultados). El costo interno procede de `internal_rider_pay_usd`, no del precio cobrado al cliente. Las propuestas externas usan una única tarifa activa de la empresa para la distancia registrada; huecos y superposiciones quedan pendientes.
 
+La consulta de servicios sin fechas abre la última semana completa (lunes a domingo, Caracas). Los accesos semanales conservan responsable y búsqueda; el rango personalizado sigue disponible. Son ciclos de consulta y pago, no cierres contables automáticos. Cambiar de semana no registra operaciones ni convierte saldos en deudas personales.
+
 Fecha: último evento `delivered` de una orden actualmente entregada; las regularizaciones con fecha expresamente confirmada usan esa fecha sin inventar una hora. Órdenes sin ninguna de estas evidencias no entran en períodos.
 
 Selección de hasta 500 entregas de un responsable:

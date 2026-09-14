@@ -3,6 +3,7 @@ import { useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { deliveryServiceTotals, deliveryServicesCsv, serviceAmount, servicePayable, type DeliveryService } from '@/lib/admin-finance/delivery-services';
+import { deliveryPeriodHref, deliveryWeekShortcuts, type DeliveryWeek } from '@/lib/admin-finance/delivery-period';
 import { recordDeliveryPayment, type DeliveryPaymentInput } from './actions';
 import { adminInput, adminPanel, AdminKpi } from '../../_components/AdminReadUi';
 
@@ -33,6 +34,10 @@ export default function DeliveryServicesClient({ rows, accounts, payments, from,
   const native = account?.currency_code === 'VES' ? selectedTotal * Number(rate || 0) : selectedTotal;
   const pages = Math.max(1, Math.ceil(visible.length / 30));
   const currentPage = Math.min(page, pages);
+  const weeks = deliveryWeekShortcuts(today, from, to);
+  function openWeek(week: DeliveryWeek) {
+    startTransition(() => router.push(deliveryPeriodHref(week, { mode, responsible, query })));
+  }
   function resetSelection() { setPage(1); setSelected([]); }
   function exportCsv() {
     const url = URL.createObjectURL(new Blob([deliveryServicesCsv(visible)], { type: 'text/csv;charset=utf-8;' }));
@@ -61,10 +66,18 @@ export default function DeliveryServicesClient({ rows, accounts, payments, from,
     });
   }
   return <div className="space-y-4">
+    <nav aria-label="Semanas de delivery" className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="mr-2 text-[#B9B9C4]">{weeks.isWeekly ? 'Lunes a domingo' : 'Período personalizado'}</span>
+      {weeks.isWeekly ? <button type="button" disabled={pending} onClick={() => openWeek(weeks.previous)} className={adminInput}>← Semana anterior</button> : null}
+      <button type="button" disabled={pending || (from === weeks.lastComplete.from && to === weeks.lastComplete.to)} onClick={() => openWeek(weeks.lastComplete)} className={`${adminInput} disabled:opacity-50`}>Última semana completa</button>
+      <button type="button" disabled={pending || (from === weeks.current.from && to === weeks.current.to)} onClick={() => openWeek(weeks.current)} className={`${adminInput} disabled:opacity-50`}>Esta semana</button>
+      {weeks.isWeekly && from < weeks.current.from ? <button type="button" disabled={pending} onClick={() => openWeek(weeks.next)} className={adminInput}>Semana siguiente →</button> : null}
+    </nav>
     <form className="flex flex-wrap items-end gap-3">
       <label className="grid gap-1 text-xs">Desde<input type="date" name="from" required defaultValue={from} className={adminInput} /></label>
       <label className="grid gap-1 text-xs">Hasta<input type="date" name="to" required defaultValue={to} className={adminInput} /></label>
       <input type="hidden" name="mode" value={mode} /><input type="hidden" name="responsible" value={responsible} />
+      <input type="hidden" name="q" value={query} />
       <button className={adminInput} disabled={pending}>Consultar período</button>
     </form>
     <fieldset disabled={pending} className="flex flex-wrap gap-3">
