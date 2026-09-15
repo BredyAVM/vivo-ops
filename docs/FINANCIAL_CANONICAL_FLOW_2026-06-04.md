@@ -107,6 +107,19 @@ saldo_pendiente_usd * tasa_de_cobranza_aplicable
 
 Esta dolarizacion posterior usa el saldo USD congelado de la orden y la tasa activa correspondiente a la fecha de operacion del pago. Aplica aunque el producto haya nacido en VES: la proteccion del monto Bs de origen termina despues del dia de entrega.
 
+### Precision de cobranza y residuos inferiores a un centavo (2026-09-14)
+
+El equivalente USD presentado con dos decimales no se reutiliza como base de conversion. Para ordenes con snapshots completos y sin historia financiera anterior, la cobranza conserva internamente la base precisa por moneda de origen. El movimiento de caja/banco conserva siempre su importe nativo real y su equivalente contable; la cobertura aplicada a la deuda se registra por separado.
+
+- Despues de un pago confirmado, un saldo positivo **estrictamente menor de USD 0,01** se cierra automaticamente. Un saldo de USD 0,01 sigue pendiente. No se perdona un importe por el mero hecho de consultar la orden.
+- Pagar el importe completo cotizado en la moneda elegida salda la deuda; solamente el dinero recibido por encima de esa cotizacion constituye excedente.
+- El residuo queda auditado y vinculado al pago. No representa dinero adicional recibido, gasto bancario ni una nueva operacion que deba registrar el usuario.
+- Los abonos VES conservan la conversion aplicable en su fecha de operacion. Cambiar la tasa posteriormente no revaloriza los abonos anteriores.
+- Al anular el pago deja de contar su cobertura precisa, incluido su cierre por redondeo. Se conserva el registro historico.
+- No se recalculan retrospectivamente ordenes con pagos, movimientos o aplicaciones de fondo anteriores a esta version. Los snapshots incompletos conservan el tratamiento anterior hasta una regularizacion explicita.
+
+Contrato tecnico y alcance: `docs/ORDER_COLLECTION_PRECISION_2026-09-14.md`.
+
 Regla critica: ninguna pantalla debe inventar su propio calculo de saldo. Master, asesor, pagos y detalle deben consumir el mismo resultado canonico.
 
 ## Flujos oficiales

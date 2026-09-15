@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:collection-precision": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/order-collection-precision.test.mts",
     "test:delivery": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/delivery-services.test.mts tests/admin/admin-completion-blocks.test.mts",
     "dev": "next dev",
     "build": "next build",
