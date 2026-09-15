@@ -8,7 +8,7 @@ import {
   kitchenOrderPriority,
   type KitchenIncidentStatus,
 } from '@/lib/kitchen/operations';
-import { getKitchenItemPresentation } from '@/lib/kitchen/order-presentation';
+import { type KitchenItemPresentation } from '@/lib/kitchen/order-presentation';
 import { ModulePreference } from '../ModulePreference';
 import {
   useKitchenLiveSync,
@@ -26,9 +26,8 @@ export type KitchenOrderItem = {
   id: number;
   qty: number;
   name: string;
-  notes: string | null;
-  unitsPerService: number;
   crmPlayName: string | null;
+  presentation: KitchenItemPresentation;
 };
 
 export type KitchenOrder = {
@@ -1095,9 +1094,10 @@ export default function KitchenClient({
                 KITCHEN_INCIDENT_REASONS[0];
               const incidentNote = incidentNoteByOrder[order.id] ?? '';
               const totalUnits = order.items.reduce(
-                (sum, item) => sum + getKitchenItemPresentation(item).preparedUnits,
+                (sum, item) => sum + item.presentation.preparedUnits,
                 0,
               );
+              const hasQuantityWarning = order.items.some(item => item.presentation.quantityWarning);
               const elapsed =
                 order.status === 'confirmed'
                   ? elapsedMinutes(order.sentToKitchenAt || order.createdAt, currentTimeMs)
@@ -1139,13 +1139,18 @@ export default function KitchenClient({
                     <div>{order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} · {scheduleLabel(order)}</div>
                     <div className="kitchen-print-divider" />
                     {order.items.map((item) => {
-                      const presentation = getKitchenItemPresentation(item);
+                      const presentation = item.presentation;
                       const printQuantity = presentation.hasCountedDetails
                         ? item.qty
                         : presentation.totalUnits;
                       return (
                         <div key={`print-${item.id}`} className="kitchen-print-line">
                           <strong>{formatQty(printQuantity)} × {item.name}</strong>
+                          {presentation.hasCountedDetails ? (
+                            <div>{formatQty(item.qty)} {item.qty === 1 ? 'presentación' : 'presentaciones'} · {presentation.quantityWarning ? 'CANTIDADES POR REVISAR' : `${formatQty(presentation.preparedUnits)} piezas en total · accesorios aparte`}</div>
+                          ) : null}
+                          {presentation.quantityWarning ? <div><strong>REVISAR CANTIDADES:</strong> {presentation.quantityWarning}</div> : null}
+                          {presentation.assemblyNote ? <div><strong>ARMADO:</strong> {presentation.assemblyNote}</div> : null}
                           {item.crmPlayName ? (
                             <div><strong>OBSEQUIO DE JUGADA:</strong> {item.crmPlayName}</div>
                           ) : null}
@@ -1203,8 +1208,8 @@ export default function KitchenClient({
                       <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusTone(order.status)}`}>
                         {activeColumn.title}
                           </span>
-                      <div className="mt-1 text-2xl font-black text-[#F5F5F7]">{formatQty(totalUnits)}</div>
-                      <div className="text-[10px] uppercase tracking-[0.12em] text-[#8A8A96]">piezas</div>
+                      <div className="mt-1 text-2xl font-black text-[#F5F5F7]">{hasQuantityWarning ? 'Revisar' : formatQty(totalUnits)}</div>
+                      <div className="text-[10px] uppercase tracking-[0.12em] text-[#8A8A96]">{hasQuantityWarning ? 'cantidades' : 'piezas'}</div>
                       <button
                         type="button"
                         onClick={() => printKitchenOrder(order.id)}
@@ -1308,7 +1313,7 @@ export default function KitchenClient({
 
                         <div className="mt-2 space-y-1.5">
                     {order.items.map((item) => {
-                      const presentation = getKitchenItemPresentation(item);
+                      const presentation = item.presentation;
                       const detailLines = presentation.detailLines;
                       const hasComponentDetails = presentation.hasCountedDetails;
                       const itemUnits = hasComponentDetails ? 0 : presentation.totalUnits;
@@ -1318,7 +1323,7 @@ export default function KitchenClient({
                       return (
                         <div key={item.id} className="rounded-lg border border-[#242433] bg-[#0B0B10] px-2.5 py-2">
                           <div className="flex items-start gap-2.5">
-                            {hasComponentDetails && item.qty > 1 ? (
+                            {hasComponentDetails ? (
                               <div className="w-[76px] shrink-0 rounded-lg border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-2 py-1 text-center">
                                 <div className="text-2xl font-black leading-none text-[#FEEF00]">{formatQty(item.qty)}</div>
                                 <div className="text-[9px] uppercase tracking-[0.1em] text-[#B7B7C2]">present.</div>
@@ -1331,11 +1336,10 @@ export default function KitchenClient({
                             ) : null}
                             <div className="min-w-0 flex-1">
                               <div className="text-sm font-black leading-snug text-[#F5F5F7]">{item.name}</div>
-                              {hasComponentDetails && item.qty > 1 ? (
+                              {hasComponentDetails ? (
                                 <div className="mt-0.5 text-xs font-semibold text-[#FEEF00]">
-                                  {presentation.repeatsSameConfiguration
-                                    ? `${formatQty(item.qty)} presentaciones iguales · ${formatQty(presentation.totalUnits)} und en total`
-                                    : `${formatQty(item.qty)} presentaciones · desglose total`}
+                                  {formatQty(item.qty)} {item.qty === 1 ? 'presentación' : 'presentaciones'}{presentation.repeatsSameConfiguration ? ' iguales' : ''}
+                                  {!presentation.quantityWarning ? ` · ${formatQty(presentation.preparedUnits)} piezas en total` : ' · cantidades por revisar'}
                                 </div>
                               ) : itemUnits > 0 && Math.abs(itemUnits - item.qty) > 0.001 ? (
                                 <div className="mt-0.5 text-xs text-[#8A8A96]">
@@ -1356,8 +1360,21 @@ export default function KitchenClient({
                               ) : null}
                             </div>
                           </div>
+                          {presentation.quantityWarning ? (
+                            <div role="alert" className="mt-2 rounded-lg border-2 border-orange-400 bg-orange-400/10 p-2 text-xs text-orange-100">
+                              <div className="font-black uppercase">Revisar cantidades con Máster</div>
+                              <div className="mt-1">{presentation.quantityWarning}</div>
+                              <div className="mt-1 font-semibold">No se han multiplicado ni corregido automáticamente.</div>
+                            </div>
+                          ) : null}
+                          {presentation.assemblyNote ? (
+                            <div className="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2 text-xs text-amber-100">
+                              {presentation.assemblyNote}
+                            </div>
+                          ) : null}
                           {detailLines.length > 0 ? (
                             <div className="mt-1.5 space-y-1 border-l-2 border-[#FEEF00]/40 pl-3">
+                              {hasComponentDetails ? <div className="text-[10px] font-bold uppercase text-[#B7B7C2]">{presentation.quantityWarning ? 'Desglose registrado · pendiente de revisión' : 'Total para armar · no multiplicar'} · salsas y accesorios aparte</div> : null}
                               {detailLines.map((line, idx) => (
                                 line.qty != null ? (
                                   <div

@@ -4,6 +4,7 @@ import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 import { getPublicVapidKey } from '@/lib/push';
 import { kitchenIncidentStatusFromLifecycle } from '@/lib/kitchen/operations';
+import { getKitchenItemPresentation } from '@/lib/kitchen/order-presentation';
 import KitchenClient, {
   type KitchenOrder,
   type KitchenOrderChangeAlert,
@@ -37,16 +38,30 @@ type RawKitchenOrder = {
     | null;
 };
 
+type RawKitchenProduct = {
+  units_per_service: number | string | null;
+  inventory_policy: string | null;
+  is_detail_editable: boolean | null;
+  detail_units_limit: number | string | null;
+  components: {
+    component_product_id: number;
+    component_mode: 'fixed' | 'selectable';
+    quantity: number | string;
+    is_required: boolean;
+    counts_toward_detail_limit: boolean;
+    sort_order: number;
+    component: { name: string; inventory_policy: string | null } | { name: string; inventory_policy: string | null }[] | null;
+  }[];
+};
+
 type RawKitchenItem = {
   id: number;
   order_id: number;
   qty: number | string;
   product_name_snapshot: string | null;
   notes: string | null;
-  product:
-    | { units_per_service: number | string | null }[]
-    | { units_per_service: number | string | null }
-    | null;
+  product: RawKitchenProduct | RawKitchenProduct[] | null;
+  snapshots: { component_product_id: number; qty: number | string; component_name_snapshot: string | null }[];
 };
 
 type RawKitchenCrmRedemption = {
@@ -179,7 +194,15 @@ export default async function KitchenPage() {
     orderIds.length
       ? ctx.supabase
           .from('order_items')
-          .select('id, order_id, qty, product_name_snapshot, notes, product:products!order_items_product_id_fkey(units_per_service)')
+          .select(`id, order_id, qty, product_name_snapshot, notes,
+            snapshots:order_item_components(component_product_id, qty, component_name_snapshot),
+            product:products!order_items_product_id_fkey(
+              units_per_service, inventory_policy, is_detail_editable, detail_units_limit,
+              components:product_components!product_components_parent_product_id_fkey(
+                component_product_id, component_mode, quantity, is_required, counts_toward_detail_limit, sort_order,
+                component:products!product_components_component_product_id_fkey(name, inventory_policy)
+              )
+            )`)
           .in('order_id', orderIds)
           .order('id', { ascending: true })
       : Promise.resolve({ data: [], error: null }),
@@ -262,12 +285,41 @@ export default async function KitchenPage() {
   for (const item of (itemsData ?? []) as unknown as RawKitchenItem[]) {
     const orderItems = itemsByOrder.get(item.order_id) ?? [];
     const product = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
-    orderItems.push({
-      id: item.id,
+    const presentationInput = {
       qty: toSafeNumber(item.qty, 0),
       name: item.product_name_snapshot || 'Producto',
       notes: item.notes,
       unitsPerService: toSafeNumber(product?.units_per_service, 0),
+      composition: product?.inventory_policy === 'components' ? {
+        editable: Boolean(product.is_detail_editable),
+        detailLimit: toSafeNumber(product.detail_units_limit),
+        components: [...(product.components ?? [])]
+          .sort((a, b) => a.sort_order - b.sort_order || a.component_product_id - b.component_product_id)
+          .map(component => {
+            const child = Array.isArray(component.component) ? component.component[0] : component.component;
+            return {
+              productId: component.component_product_id,
+              name: child?.name || `Componente #${component.component_product_id}`,
+              mode: component.component_mode,
+              quantity: toSafeNumber(component.quantity),
+              required: component.is_required,
+              countsTowardLimit: component.counts_toward_detail_limit,
+              isNested: child?.inventory_policy === 'components',
+            };
+          }),
+        snapshots: (item.snapshots ?? []).map(snapshot => ({
+          productId: snapshot.component_product_id,
+          name: snapshot.component_name_snapshot || '',
+          qty: toSafeNumber(snapshot.qty),
+        })),
+      } : product ? null : undefined,
+    };
+    orderItems.push({
+      id: item.id,
+      qty: presentationInput.qty,
+      name: presentationInput.name,
+      // Calculate once on the server; screen, total and ticket share this result.
+      presentation: getKitchenItemPresentation(presentationInput),
       crmPlayName: crmPlayNameByOrderItemId.get(item.id) ?? null,
     });
     itemsByOrder.set(item.order_id, orderItems);
