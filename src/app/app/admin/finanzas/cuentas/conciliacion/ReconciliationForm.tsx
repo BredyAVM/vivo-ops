@@ -9,7 +9,7 @@ const field='mt-1 w-full min-h-11 rounded-lg border border-[#343442] bg-[#14141c
 const button='inline-flex min-h-11 items-center justify-center rounded-lg border border-[#343442] px-3 text-sm disabled:opacity-50';
 export default function ReconciliationForm({detail,userId,query}:{detail:ReconciliationDetail;userId:string;query:string}) {
   const router=useRouter(); const item=detail.item;
-  const [mode,setMode]=useState<ReconciliationInput['mode']>('existing'),[amount,setAmount]=useState(String(item.amount)),[note,setNote]=useState(''),[rate,setRate]=useState(''),[date,setDate]=useState(item.operation_date??''),[reference,setReference]=useState(''),[movementId,setMovementId]=useState(0),[evidence,setEvidence]=useState(false);
+  const [mode,setMode]=useState<ReconciliationInput['mode']>(detail.coveredAt?'existing':'note_only'),[amount,setAmount]=useState(String(item.amount)),[note,setNote]=useState(''),[rate,setRate]=useState(''),[date,setDate]=useState(item.operation_date??''),[reference,setReference]=useState(''),[movementId,setMovementId]=useState(0),[evidence,setEvidence]=useState(false);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[result,setResult]=useState<ReconciliationResult|null>(null),[recovered,setRecovered]=useState<ReconciliationInput|null>(null),[ready,setReady]=useState(false);
   const attempt=useRef<ReconciliationInput|null>(null),guard=useRef(false);
   useEffect(()=>{try { const saved=readFinancialAttempt<ReconciliationInput>(userId,'reconciliation'); setRecovered(saved); setReady(true); } catch(e) {setError(e instanceof Error?e.message:'No se pudo recuperar el envío.');}},[userId]);

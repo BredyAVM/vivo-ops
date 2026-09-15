@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
 import {validReconciliationInput,parseReconciliationReceipt,parseReconciliationDetail,type ReconciliationInput} from '../../src/lib/admin-finance/reconciliation.ts';
 import {validCashOperation} from '../../src/lib/admin-finance/cash-operation.ts';
 import {saveFinancialAttempt,readFinancialAttempt,clearFinancialAttempt} from '../../src/lib/finance/financial-attempt-storage.ts';
 const input:ReconciliationInput={requestId:'11111111-1111-4111-8111-111111111111',itemId:1,mode:'existing',amount:1,note:'Evidencia bancaria',fingerprint:'a'.repeat(32)};
+test('a difference without a verifiable observed cut starts in explanation-only mode',()=>{
+  const form=readFileSync(new URL('../../src/app/app/admin/finanzas/cuentas/conciliacion/ReconciliationForm.tsx',import.meta.url),'utf8');
+  assert.match(form,/detail\.coveredAt\?'existing':'note_only'/);
+});
 test('reconciliation preserves native cents; rejects zero, negatives, precision and nonfinite values',()=>{
   assert.equal(validReconciliationInput({...input,amount:0.01}),true);
   for(const amount of [0,-1,NaN,Infinity,0.001])assert.equal(validReconciliationInput({...input,amount}),false);
