@@ -28,10 +28,10 @@
 - Reejecutar la suite anterior `tests/admin/delivery-services.rollback.sql` para compatibilidad USD/VES, costos y anulaciones existentes.
 - No usar operaciones reales para verificar pagos.
 
-## Siguiente bloque: deducibles (decisión confirmada, aún no implementado)
+## Deducibles: implementados en el bloque del 2026-09-15
 
 - Separar deuda total del importe elegido por administración para descontar en esa semana; admitir cero.
 - Si la deuda supera lo ganado, conservar el remanente sin generar pagos negativos.
 - Ejemplo sintético: ganado 100, deuda 60, descuento elegido 20, pago 80, deuda restante 40.
 - Las compras vinculadas a pedidos deben reducir también su deuda canónica mediante compensación, sin crear otro ingreso de efectivo ni duplicar la deuda como un préstamo manual.
-- No presentar los deducibles como disponibles hasta completar su libro de abonos, compensaciones, reversión y pruebas.
+- Libro de abonos, compensaciones, reversión y pruebas: `docs/DELIVERY_DEBTS_WEEKLY_2026-09-15.md`.

@@ -3,7 +3,7 @@ import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { voidDeliveryPayment } from '../../actions';
 import { adminInput } from '../../../../_components/AdminReadUi';
-export default function VoidDeliveryPayment({ id, linkedExisting }: { id: string; linkedExisting: boolean }) {
+export default function VoidDeliveryPayment({ id, linkedExisting, noMovement = false }: { id: string; linkedExisting: boolean; noMovement?: boolean }) {
   const [message, setMessage] = useState(''), [pending, startTransition] = useTransition();
   const busy = useRef(false); const router = useRouter();
   function submit(form: FormData) {
@@ -16,10 +16,10 @@ export default function VoidDeliveryPayment({ id, linkedExisting }: { id: string
   }
   return <details className="mt-5 text-sm"><summary className="cursor-pointer text-orange-200">Corregir un registro equivocado</summary>
     <form action={submit} className="mt-3 space-y-3"><fieldset disabled={pending} className="space-y-3">
-      <p className="text-xs">{linkedExisting ? 'Se quitará el vínculo con las entregas. El egreso anterior se conserva.' : 'Se anulará el egreso completo y se liberarán las entregas para corregir o registrar otro pago. No devuelve dinero del banco.'} El historial permanece disponible.</p>
+      <p className="text-xs">{noMovement ? 'Se anulará la liquidación sin mover dinero de caja o banco.' : linkedExisting ? 'Se quitará el vínculo con las entregas. El egreso anterior se conserva.' : 'Se anulará el egreso neto completo. No devuelve dinero del banco.'} Se liberarán las entregas y servicios y se reabrirán los descuentos aplicados a deudas o compras. El historial permanece disponible.</p>
       <label className="grid gap-1 text-xs">Motivo<input name="reason" minLength={6} maxLength={500} required className={adminInput} /></label>
       <label className="flex min-h-11 items-center gap-3 text-xs"><input type="checkbox" required />Confirmo la anulación completa de este registro.</label>
-      <button className={adminInput}>{pending ? 'Anulando…' : linkedExisting ? 'Anular vínculo' : 'Anular registro y egreso'}</button>
+      <button className={adminInput}>{pending ? 'Anulando…' : noMovement ? 'Anular liquidación' : linkedExisting ? 'Anular vínculo y descuentos' : 'Anular registro y egreso'}</button>
     </fieldset></form>{message ? <p role="status" className="mt-3">{message}</p> : null}
   </details>;
 }

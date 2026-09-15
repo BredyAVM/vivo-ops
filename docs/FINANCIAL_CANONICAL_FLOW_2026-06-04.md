@@ -124,6 +124,12 @@ Regla critica: ninguna pantalla debe inventar su propio calculo de saldo. Master
 
 ## Flujos oficiales
 
+### Compensaciones de delivery contra compras (2026-09-15)
+
+Una liquidacion de servicios puede destinar parte de lo ganado a una compra existente del responsable. El egreso real es el neto despues de los deducibles. La compensacion se registra como credito de remuneracion y aplicacion de fondo de igual importe, sin entrada ficticia de banco/caja y sin alterar el saldo neto del fondo. La aplicacion reduce el saldo canonico de la misma orden; no crea otra deuda.
+
+El residuo de conversion se conserva separado del importe descontado bajo la regla de precision vigente. Anular la liquidacion revierte exclusivamente sus compensaciones y reabre esa cobertura, conservando pagos ordinarios. Costos de servicios brutos y egresos netos no son intercambiables para rentabilidad. Contrato y limites: `docs/DELIVERY_DEBTS_WEEKLY_2026-09-15.md`.
+
 ### 1. Reportar pago
 
 Entrada:

@@ -6,7 +6,7 @@ export type DeliveryService = {
   id: number; orderNumber: string; client: string; date: string;
   mode: 'internal' | 'external' | 'unassigned'; responsibleKey: string; responsible: string;
   cost: { stored: number | null; proposed: number | null; fingerprint: string; reason: string | null };
-  payment: { id: string; movementId: number; amountUsd: number; date: string; status: string } | null;
+  payment: { id: string; movementId: number | null; amountUsd: number; date: string; status: string } | null;
   legacyPaid: boolean;
 };
 export function parseDeliveryServices(value: unknown, from: string, to: string): DeliveryService[] {
@@ -23,7 +23,7 @@ export function parseDeliveryServices(value: unknown, from: string, to: string):
     for (const amount of [row.cost.stored, row.cost.proposed]) {
       if (amount !== null && (typeof amount !== 'number' || readStoredDeliveryCost(amount) === null)) throw new Error('Costo inválido.');
     }
-    if (row.payment !== null && (!row.payment || !row.payment.id || !Number.isSafeInteger(row.payment.movementId)
+    if (row.payment !== null && (!row.payment || !row.payment.id || (row.payment.movementId !== null && !Number.isSafeInteger(row.payment.movementId))
       || !validDeliveryDate(row.payment.date) || readStoredDeliveryCost(row.payment.amountUsd) === null || row.payment.status !== 'confirmed'))
       throw new Error('Pago de delivery inconsistente.');
     return { id: row.id, orderNumber: formatOrderDisplayNumber(row.id), client: row.client, date: row.date, mode: row.mode,

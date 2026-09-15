@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { deliveryServiceTotals, deliveryServicesCsv, serviceAmount, servicePayable, type DeliveryService } from '@/lib/admin-finance/delivery-services';
 import { deliveryCombinedBatch, extraPayable, extraTotal, type DeliveryExtra, type DeliveryPayee } from '@/lib/admin-finance/delivery-extras';
 import DeliveryExtrasPanel from './DeliveryExtrasPanel';
+import DeliveryDebtsPanel from './DeliveryDebtsPanel';
+import type { DeliveryDebt } from '@/lib/admin-finance/delivery-debts';
 import { deliveryPeriodHref, deliveryWeekShortcuts, type DeliveryWeek } from '@/lib/admin-finance/delivery-period';
 import DeliveryPaymentForm, { deliveryButton, deliveryInput, deliveryPrimaryButton, type DeliveryMoneyAccount, type DeliveryPaymentAttempt } from './DeliveryPaymentForm';
 
@@ -14,7 +16,8 @@ const shortDate = (date: string) => `${date.slice(8)}/${date.slice(5, 7)}`;
 const panel = 'min-w-0 overflow-hidden rounded-lg border border-[#292937] bg-[#111117]';
 const orderHref = (row: DeliveryService) => `/app/master/ops?openOrder=${row.id}&focusDate=${row.date}&tab=entrega`;
 
-export default function DeliveryServicesClient({ rows, extras, payees, accounts, payments, from, to, today, initialMode, initialQuery, initialResponsible }: {
+export default function DeliveryServicesClient({ rows, extras, debts, payees, accounts, payments, from, to, today, initialMode, initialQuery, initialResponsible }: {
+  debts: DeliveryDebt[];
   extras: DeliveryExtra[]; payees: DeliveryPayee[];
   rows: DeliveryService[]; accounts: DeliveryMoneyAccount[]; from: string; to: string; today: string;
   payments: { request_id: string; responsible_name: string; responsible_key: string; total_usd: number; period_from: string; period_to: string; voided_at: string | null }[];
@@ -31,13 +34,15 @@ export default function DeliveryServicesClient({ rows, extras, payees, accounts,
   const [editingExtra, setEditingExtra] = useState(false);
   const [paymentExtras, setPaymentExtras] = useState<DeliveryExtra[]>([]);
   const [paymentRows, setPaymentRows] = useState<DeliveryService[] | null>(null);
-  const [receipt, setReceipt] = useState<{ id: string; movementId: number; total: number; orderIds: number[]; extraIds: string[] } | null>(null);
+  const [receipt, setReceipt] = useState<{ id: string; movementId: number | null; total: number; orderIds: number[]; extraIds: string[] } | null>(null);
   const [pending, startTransition] = useTransition();
   const attempt = useRef<DeliveryPaymentAttempt>(null);
   const modeRows = rows.filter(row => mode === 'all' || row.mode === mode);
   const modeExtras = extras.filter(row => mode === 'all' || row.responsibleKey.startsWith(`${mode}:`));
-  const options = Array.from(new Map([...payees.filter(p => mode === 'all' || p.key.startsWith(`${mode}:`)).map(p => [p.key, p.name] as const), ...modeExtras.map(r => [r.responsibleKey, r.responsible] as const), ...modeRows.filter(row => row.mode !== 'unassigned').map(row => [row.responsibleKey, row.responsible] as const)]).entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  const modeDebts = debts.filter(d => mode === 'all' || d.responsibleKey.startsWith(`${mode}:`));
+  const options = Array.from(new Map([...payees.filter(p => mode === 'all' || p.key.startsWith(`${mode}:`)).map(p => [p.key, p.name] as const), ...modeExtras.map(r => [r.responsibleKey, r.responsible] as const), ...modeDebts.map(d => [d.responsibleKey, d.responsible] as const), ...modeRows.filter(row => row.mode !== 'unassigned').map(row => [row.responsibleKey, row.responsible] as const)]).entries()).sort((a, b) => a[1].localeCompare(b[1]));
   const scopedExtras = modeExtras.filter(r => !responsible || r.responsibleKey === responsible);
+  const scopedDebts = modeDebts.filter(d => !responsible || d.responsibleKey === responsible);
   const extrasAmount = extraTotal(scopedExtras.filter(r => !r.voided));
   const extrasPaid = extraTotal(scopedExtras.filter(r => !!r.paymentId));
   const scoped = modeRows.filter(row => !responsible || row.responsibleKey === responsible);
@@ -89,7 +94,7 @@ export default function DeliveryServicesClient({ rows, extras, payees, accounts,
 
     <section aria-label="Resumen del período" className={`${panel} p-3`}>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
-        {[['Entregas', totals.deliveries], ['Total servicios', `${usd(totals.amount + extrasAmount)}${totals.proposed ? '*' : ''}`], ['Pagos registrados', usd(totals.paid + extrasPaid)], ['Por registrar', `${usd(totals.unlinked + extraTotal(scopedExtras.filter(extraPayable)))}${totals.proposed ? '*' : ''}`]].map(([label, value]) => <div key={label}><dt className="text-[11px] text-[#B9B9C4]">{label}</dt><dd className="mt-0.5 text-lg font-semibold tabular-nums">{value}</dd></div>)}
+        {[['Entregas', totals.deliveries], ['Total servicios', `${usd(totals.amount + extrasAmount)}${totals.proposed ? '*' : ''}`], ['Servicios liquidados', usd(totals.paid + extrasPaid)], ['Por liquidar (bruto)', `${usd(totals.unlinked + extraTotal(scopedExtras.filter(extraPayable)))}${totals.proposed ? '*' : ''}`]].map(([label, value]) => <div key={label}><dt className="text-[11px] text-[#B9B9C4]">{label}</dt><dd className="mt-0.5 text-lg font-semibold tabular-nums">{value}</dd></div>)}
       </dl>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-[#292937] pt-2">
         <div className="text-xs"><span className="font-medium">{responsible ? options.find(([key]) => key === responsible)?.[1] || 'Responsable seleccionado' : 'Selecciona un motorizado o empresa'}</span>
@@ -104,12 +109,14 @@ export default function DeliveryServicesClient({ rows, extras, payees, accounts,
       {totals.proposed ? <p className="mt-2 text-[11px] text-amber-100">* {totals.proposed} entregas usan la tarifa actual del tabulador porque no tenían costo guardado. La confirmarás al registrar el pago.</p> : null}
     </section>
 
-    {receipt ? <div role="status" className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-200">Pago registrado: {usd(receipt.total)} · {receipt.orderIds.length} entregas · {receipt.extraIds.length} servicios adicionales. <Link href={`/app/admin/finanzas/delivery/pagos/${receipt.id}`} prefetch={false} className="underline">Ver comprobante · egreso #{receipt.movementId} →</Link></div> : null}
-    {paymentRows ? <DeliveryPaymentForm rows={paymentRows} extras={paymentExtras} accounts={accounts} from={from} to={to} today={today} partial={partial} attempt={attempt}
+    {receipt ? <div role="status" className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-200">Liquidación registrada: neto {usd(receipt.total)} · {receipt.orderIds.length} entregas · {receipt.extraIds.length} servicios adicionales. <Link href={`/app/admin/finanzas/delivery/pagos/${receipt.id}`} prefetch={false} className="underline">Ver comprobante{receipt.movementId ? ` · egreso #${receipt.movementId}` : ' · sin egreso'} →</Link></div> : null}
+    {paymentRows ? <DeliveryPaymentForm rows={paymentRows} extras={paymentExtras} debts={scopedDebts.filter(d => !d.voided && d.balance > 0)} accounts={accounts} from={from} to={to} today={today} partial={partial} attempt={attempt}
       onClose={() => setPaymentRows(null)} onPaid={result => { setReceipt({ ...result, orderIds: paymentRows.map(row => row.id), extraIds: paymentExtras.map(row => row.id) }); setPaymentRows(null); setSelected([]); setSelectedExtras([]); setPartial(false); router.refresh(); }} /> : null}
 
     <DeliveryExtrasPanel rows={scopedExtras} payees={payees} responsible={responsible} today={today} from={from} to={to} locked={locked}
       partial={partial} selected={selectedExtras} onSelected={setSelectedExtras} onEditing={setEditingExtra} />
+
+    <DeliveryDebtsPanel rows={scopedDebts} payees={payees} responsible={responsible} today={today} to={to} locked={locked} onEditing={setEditingExtra} />
 
     <section className={panel}>
       <div className="flex flex-wrap items-center gap-2 border-b border-[#292937] px-3 py-2">
@@ -132,7 +139,7 @@ export default function DeliveryServicesClient({ rows, extras, payees, accounts,
           <td title={row.client} className="max-w-60 truncate px-3 py-1.5">{row.client}</td>
           {!responsible ? <td className="px-3 py-1.5">{row.responsible}</td> : null}
           <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{serviceAmount(row) === null ? <Link href={orderHref(row)} prefetch={false} className="text-amber-200 underline">Definir costo</Link> : <>{usd(serviceAmount(row)!)}{!row.payment && row.cost.stored === null ? <span className="text-amber-100" title="Tarifa actual del tabulador; pendiente de confirmar">*</span> : null}</>}</td>
-          <td className="whitespace-nowrap px-3 py-1.5">{row.payment ? <Link href={`/app/admin/finanzas/delivery/pagos/${row.payment.id}`} prefetch={false} className="text-emerald-300 underline">Pagado · #{row.payment.movementId}</Link> : row.legacyPaid ? <span className="text-emerald-300">Pago anterior</span> : <span className="text-[#A7A7B2]">Sin registro</span>}</td>
+          <td className="whitespace-nowrap px-3 py-1.5">{row.payment ? <Link href={`/app/admin/finanzas/delivery/pagos/${row.payment.id}`} prefetch={false} className="text-emerald-300 underline">{row.payment.movementId ? `Liquidado · egreso #${row.payment.movementId}` : 'Liquidado · compensación'}</Link> : row.legacyPaid ? <span className="text-emerald-300">Pago anterior</span> : <span className="text-[#A7A7B2]">Sin registro</span>}</td>
         </tr>)}</tbody></table>
         {!visible.length ? <p className="px-3 py-5 text-xs text-[#B9B9C4]">No hay entregas con estos filtros.</p> : null}
       </div>

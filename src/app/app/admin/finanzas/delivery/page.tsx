@@ -23,7 +23,7 @@ export default async function AdminDeliveryPage({ searchParams }: { searchParams
       <header className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-base font-semibold">Delivery · liquidación semanal</h1>
         <Link id="liquidaciones" href="/app/admin/finanzas/delivery/custodia" prefetch={false} className="inline-flex min-h-9 items-center text-xs underline">Cobros y cambios en custodia →</Link></header>
       <DeliveryServicesClient key={`${filters.from}-${filters.to}-${filters.mode}-${typeof values.responsible === 'string' ? values.responsible : ''}-${filters.q}`} rows={rows} accounts={accounts} payments={payments} from={filters.from} to={filters.to}
-        extras={loaded.extras.rows} payees={loaded.extras.payees} today={getCaracasDateKey(new Date())} initialMode={filters.mode} initialQuery={filters.q}
+        extras={loaded.extras.rows} payees={loaded.extras.payees} debts={loaded.debts} today={getCaracasDateKey(new Date())} initialMode={filters.mode} initialQuery={filters.q}
         initialResponsible={typeof values.responsible === 'string' ? values.responsible : ''} />
     </div>;
 }
