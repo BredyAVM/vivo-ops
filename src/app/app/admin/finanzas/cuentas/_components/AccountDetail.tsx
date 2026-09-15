@@ -234,6 +234,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
                   <td className="px-3 py-3 text-[#BDBDC7]">{formatDate(row.movementDate)}</td>
                   <td className="px-3 py-3">
                     <p className="truncate font-semibold text-white">{title}</p>
+                    {row.operationRequestId?<Link href={`/app/admin/finanzas/cuentas/movimiento/${row.operationRequestId}`} prefetch={false} className="inline-flex min-h-8 items-center text-xs underline">Ver comprobante</Link>:null}
                     <p className="mt-0.5 truncate text-[11px] text-[#777784]">
                       {movementTypeLabels[row.movementType] || row.movementType}
                     </p>
@@ -283,6 +284,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
               <div className="mt-2.5 flex items-end justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-white">{title}</p>
+                  {row.operationRequestId?<Link href={`/app/admin/finanzas/cuentas/movimiento/${row.operationRequestId}`} prefetch={false} className="inline-flex min-h-11 items-center text-xs underline">Ver comprobante</Link>:null}
                   <p className="mt-0.5 truncate text-[11px] text-[#777784]">
                     {row.referenceCode || movementTypeLabels[row.movementType] || row.movementType}
                   </p>
@@ -330,7 +332,7 @@ function ClosureRows({ rows }: { rows: AdminFinanceClosureRow[] }) {
           <tbody className="divide-y divide-[#252531]">
             {rows.map((row) => (
               <tr key={row.id} className="hover:bg-[#17171F]">
-                <td className="px-3 py-3 text-[#BDBDC7]">{formatDate(row.closureDate)}</td>
+                <td className="px-3 py-3 text-[#BDBDC7]"><Link prefetch={false} className="underline" href={`/app/admin/finanzas/cuentas/cierre/${row.id}`}>{formatAsOf(row.closureAt)}</Link></td>
                 <td className="px-3 py-3"><ConvertedValue native={row.expectedAmount} usd={row.expectedAmountUsd} currencyCode={row.currencyCode} /></td>
                 <td className="px-3 py-3"><ConvertedValue native={row.countedAmount} usd={row.countedAmountUsd} currencyCode={row.currencyCode} /></td>
                 <td className={`px-3 py-3 ${Math.abs(row.differenceAmount) > 0.005 ? 'text-orange-200' : 'text-emerald-200'}`}>
@@ -347,7 +349,7 @@ function ClosureRows({ rows }: { rows: AdminFinanceClosureRow[] }) {
         {rows.map((row) => (
           <article key={row.id} className="rounded-xl border border-[#292937] bg-[#111117] p-3.5">
             <div className="flex items-start justify-between gap-3">
-              <time className="text-[11px] text-[#858592]" dateTime={row.closureDate}>{formatDate(row.closureDate)}</time>
+              <Link prefetch={false} href={`/app/admin/finanzas/cuentas/cierre/${row.id}`} className="text-xs underline">{formatAsOf(row.closureAt)} · Ver cierre</Link>
               <StatusBadge status={row.status} label={closureStatusLabels[row.status]} />
             </div>
             <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-[#272734] pt-3">
@@ -392,7 +394,7 @@ function ReconciliationRows({ rows }: { rows: AdminFinanceReconciliationRow[] })
               <tr key={row.id} className="hover:bg-[#17171F]">
                 <td className="px-3 py-3 text-[#BDBDC7]">{formatDate(row.operationDate || row.createdAt)}</td>
                 <td className="px-3 py-3">
-                  <p className="truncate font-semibold text-white">{row.description}</p>
+                  <Link prefetch={false} href={`/app/admin/finanzas/cuentas/conciliacion/${row.id}`} className="block truncate font-semibold text-white underline">{row.description}</Link>
                   <p className="mt-0.5 truncate text-[11px] text-[#777784]">
                     {row.direction === 'surplus' ? 'Sobrante' : 'Faltante'} · {row.itemType}
                   </p>
@@ -402,7 +404,7 @@ function ReconciliationRows({ rows }: { rows: AdminFinanceReconciliationRow[] })
                   <p className="truncate text-[#A7A7B2]">{row.referenceCode || '—'}</p>
                   {row.orphanedSource ? <p className="mt-0.5 text-[10px] font-semibold text-orange-200">Origen faltante</p> : null}
                 </td>
-                <td className="px-3 py-3"><StatusBadge status={row.status} label={reconciliationStatusLabels[row.status]} /></td>
+                <td className="px-3 py-3"><StatusBadge status={row.status} label={reconciliationStatusLabels[row.status]} /><Link prefetch={false} href={`/app/admin/finanzas/cuentas/conciliacion/${row.id}`} className="mt-1 block py-2 text-xs underline">{row.status==='open'?'Resolver':'Ver detalle'}</Link></td>
               </tr>
             ))}
           </tbody>
@@ -420,7 +422,7 @@ function ReconciliationRows({ rows }: { rows: AdminFinanceReconciliationRow[] })
             </div>
             <div className="mt-2.5 flex items-end justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-white">{row.description}</p>
+                <Link prefetch={false} href={`/app/admin/finanzas/cuentas/conciliacion/${row.id}`} className="block py-2 text-sm font-semibold text-white underline">{row.description} · {row.status==='open'?'Resolver':'Ver detalle'}</Link>
                 <p className="mt-0.5 truncate text-[11px] text-[#777784]">
                   {row.direction === 'surplus' ? 'Sobrante' : 'Faltante'} · {row.referenceCode || row.itemType}
                 </p>
@@ -468,6 +470,7 @@ function Configuration({ detail }: { detail: AdminFinanceAccountDetail }) {
           </div>
         ))}
       </dl>
+      <div className="border-t border-[#292937] px-3 py-2"><Link prefetch={false} href="/app/master/dashboard?adminSection=accounts" className="inline-flex min-h-11 items-center text-xs underline">Administrar cuentas, reglas y líneas base</Link><p className="text-xs text-[#888]">Abre la configuración existente; no crea una segunda configuración.</p></div>
     </section>
   );
 }

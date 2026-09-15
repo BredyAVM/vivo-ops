@@ -3,8 +3,7 @@ import { requireAdminContext } from '@/lib/auth';
 import { loadAdminFinanceAccountsOverview, type AdminFinanceAccountsRpcClient } from '@/lib/admin-finance/accounts-data';
 import { resolveAdminMovementContext } from '@/lib/admin-finance/movement-navigation';
 import { getCaracasDateKey } from '@/lib/admin-finance/period';
-import MasterOpsMoneyMovementForm from '@/app/app/master/ops/finance/MasterOpsMoneyMovementForm';
-import { createAdminMoneyMovementAction } from './actions';
+import AdminMovementForm from './AdminMovementForm';
 
 export default async function AdminMoneyMovementPage({ searchParams }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -36,16 +35,14 @@ export default async function AdminMoneyMovementPage({ searchParams }: {
       <p className="mt-1 text-xs text-[#9B9BA7]">Caja chica y movimientos operativos. Los cobros de clientes se registran en su orden.</p>
     </header>
     <section className="rounded-xl border border-[#292937] bg-[#121218] p-4">
-      <MasterOpsMoneyMovementForm
+      <AdminMovementForm
         key={`${context.accountId ?? 'all'}:${context.direction}`}
         accounts={data.accounts.filter(account => account.isActive).map(account => ({ id: account.id, name: account.name, currencyCode: account.currencyCode }))}
         activeRate={data.activeRateBsPerUsd}
         defaultDate={getCaracasDateKey(new Date())}
-        isAdmin
+        userId={ctx.user.id}
         initialAccountId={context.accountId}
         initialDirection={context.direction}
-        submitAction={createAdminMoneyMovementAction}
-        showAdminHistory
       />
     </section>
   </div>;

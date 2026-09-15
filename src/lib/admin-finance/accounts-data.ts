@@ -260,6 +260,7 @@ function parseDetailRow(value: unknown): AdminFinanceAccountDetailRow {
       orderId: nullableNumber(row.orderId, 'la orden del movimiento'),
       status: movementStatus(row.status),
       approvalRequired: booleanValue(row.approvalRequired, 'la regla de aprobacion'),
+      operationRequestId: optionalString(row.operationRequestId),
     };
   }
 

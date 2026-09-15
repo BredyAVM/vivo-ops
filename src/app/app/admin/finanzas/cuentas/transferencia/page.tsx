@@ -4,6 +4,7 @@ import { loadAdminFinanceAccountsOverview, type AdminFinanceAccountsRpcClient } 
 import { resolveAdminMovementContext } from '@/lib/admin-finance/movement-navigation';
 import { getCaracasDateKey } from '@/lib/admin-finance/period';
 import TransferForm from './TransferForm';
+import AttemptRecovery from '../_components/AttemptRecovery';
 
 export default async function AdminTransferPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await requireAdminContext();
@@ -14,6 +15,6 @@ export default async function AdminTransferPage({ searchParams }: { searchParams
   if (context.invalidAccount) return <section role="alert" className="space-y-3"><h1 className="text-xl font-semibold">Cuenta de origen no disponible</h1><Link href="/app/admin/finanzas/cuentas">Seleccionar una cuenta activa</Link></section>;
   return <div className="space-y-4">
     <header><Link href={`/app/admin/finanzas/cuentas${context.accountId ? `/${context.accountId}` : ''}`} prefetch={false} className="inline-flex min-h-11 items-center text-sm text-[#9B9BA7]">← Volver a cuentas</Link><h1 className="text-xl font-semibold">Transferencia entre cuentas</h1></header>
-    <TransferForm key={context.accountId ?? 'all'} accounts={overview.data.accounts.filter(account => account.isActive).map(account => ({ id: account.id, name: account.name, currencyCode: account.currencyCode }))} initialAccountId={context.accountId} activeRate={overview.data.activeRateBsPerUsd} today={getCaracasDateKey(new Date())} />
+    <AttemptRecovery userId={ctx.user.id} scope="transfer"><TransferForm userId={ctx.user.id} key={context.accountId ?? 'all'} accounts={overview.data.accounts.filter(account => account.isActive).map(account => ({ id: account.id, name: account.name, currencyCode: account.currencyCode }))} initialAccountId={context.accountId} activeRate={overview.data.activeRateBsPerUsd} today={getCaracasDateKey(new Date())} /></AttemptRecovery>
   </div>;
 }

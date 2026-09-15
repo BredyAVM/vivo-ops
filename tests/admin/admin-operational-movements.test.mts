@@ -20,109 +20,49 @@ test('history opens the submitted account and date, not a currently selected fil
   assert.equal(adminMovementHistoryHref(1, '2026-09-12'), '/app/admin/finanzas/cuentas/1?vista=movements&desde=2026-09-12&hasta=2026-09-12');
 });
 
-const state = {
-  roles: ['admin'] as string[],
-  account: { id: 1, name: 'Caja prueba', currency_code: 'USD', is_active: true },
-  inserts: [] as Array<Array<Record<string, unknown>>>,
-  invalidations: [] as string[],
-  failInsert: false,
-};
-const supabase = {
-  from(table: string) {
-    const query = {
-      select() { return query; }, eq() { return query; }, limit() { return query; },
-      async maybeSingle() { return { data: table === 'money_accounts' ? state.account : { id: 1 }, error: null }; },
-      async insert(rows: Array<Record<string, unknown>>) {
-        if (state.failInsert) return { error: { message: 'No se pudo guardar' } };
-        state.inserts.push(rows);
-        return { error: null };
-      },
-    };
-    return query;
-  },
-};
-Reflect.set(globalThis, '__movementTest', {
-  context(admin: boolean) {
-    if (!state.roles.includes('admin') && (admin || !state.roles.includes('master'))) throw new Error('No autorizado');
-    return { supabase, user: { id: 'test-admin' }, roles: state.roles };
-  },
-  revalidate(path: string) { state.invalidations.push(path); },
+const state={roles:['admin'] as string[],calls:[] as Array<{name:string;params:Record<string,unknown>}>,invalidations:[] as string[],error:null as {code:string;message:string}|null,badReceipt:false};
+const requestId='11111111-1111-4111-8111-111111111111';
+const input={requestId,direction:'outflow' as const,moneyAccountId:1,amount:5,feeAmount:0,movementDate:'2026-09-15',exchangeRateVesPerUsd:null,referenceCode:'',counterpartyName:'',description:'Compra caja chica',notes:''};
+const supabase={async rpc(name:string,params:Record<string,unknown>){
+  state.calls.push({name,params});const p=params.p_input as typeof input;
+  return {error:state.error,data:state.badReceipt?{}:{requestId:params.p_request_id,movementId:99,feeMovementId:p.feeAmount?100:null,accountId:p.moneyAccountId,amount:p.amount,feeAmount:p.feeAmount,currency:p.exchangeRateVesPerUsd?'VES':'USD',totalUsd:10.2,replayed:false,currentStatus:'confirmed'}};
+}};
+Reflect.set(globalThis,'__cashActionTest',{context(){if(!state.roles.includes('admin'))throw new Error('No autorizado');return {supabase,user:{id:'test-admin'},roles:state.roles};},revalidate(path:string){state.invalidations.push(path);}});
+const nodeModule=await import('node:module');
+const registerHooks=Reflect.get(nodeModule,'registerHooks');
+registerHooks({resolve(specifier:string,context:unknown,next:(s:string,c:unknown)=>unknown){
+  if(specifier==='server-only')return {url:'data:text/javascript,export {};',shortCircuit:true};
+  const mocks:Record<string,string>={'@/lib/auth':'export async function requireAdminContext(){return globalThis.__cashActionTest.context();}','next/cache':'export function revalidatePath(p){globalThis.__cashActionTest.revalidate(p);}'};
+  if(mocks[specifier])return {url:'data:text/javascript,'+encodeURIComponent(mocks[specifier]),shortCircuit:true};
+  return next(specifier.startsWith('@/')?new URL('../../src/'+specifier.slice(2)+'.ts',import.meta.url).href:specifier,context);
+}});
+const {createAdminMoneyMovementAction}=await import('../../src/app/app/admin/finanzas/cuentas/movimiento/actions.ts');
+function reset(){state.roles=['admin'];state.calls=[];state.invalidations=[];state.error=null;state.badReceipt=false;}
+test('Admin sends principal and fee in one canonical operation and preserves request identity',async()=>{
+  reset();const result=await createAdminMoneyMovementAction(input);assert.equal(result.status,'confirmed');
+  assert.equal(state.calls.length,1);assert.equal(state.calls[0].name,'create_admin_cash_operation_v1');
+  assert.equal(state.calls[0].params.p_request_id,requestId);
+  assert.deepEqual(state.calls[0].params.p_input,(({requestId,...rest})=>rest)(input));
+  assert.ok(state.invalidations.includes('/app'));
 });
-const nodeModule = await import('node:module');
-const registerHooks = Reflect.get(nodeModule, 'registerHooks') as (hooks: {
-  resolve: (specifier: string, context: { parentURL?: string }, next: (specifier: string, context: { parentURL?: string }) => { url: string }) => { url: string; shortCircuit?: boolean };
-}) => void;
-registerHooks({ resolve(specifier, context, next) {
-  const modules: Record<string, string> = {
-    '@/lib/auth': 'export async function requireAdminContext(){ return globalThis.__movementTest.context(true); } export async function requireMasterOrAdminContext(){ return globalThis.__movementTest.context(false); }',
-    'next/cache': 'export function revalidatePath(path){ globalThis.__movementTest.revalidate(path); }',
-    '@/lib/push': 'export async function sendPushToRoleDevices(){}',
-  };
-  if (modules[specifier]) return { url: `data:text/javascript,${encodeURIComponent(modules[specifier])}`, shortCircuit: true };
-  if (specifier.startsWith('@/')) {
-    return next(new URL(`../../src/${specifier.slice(2)}.ts`, import.meta.url).href, context);
-  }
-  return next(specifier, context);
-} });
-const { createAdminMoneyMovementAction } = await import('../../src/app/app/admin/finanzas/cuentas/movimiento/actions.ts');
-const input = { direction: 'outflow' as const, moneyAccountId: 1, amount: 5, movementDate: '2026-09-12', description: 'Compra caja chica' };
-function reset() {
-  state.roles = ['admin']; state.account.currency_code = 'USD'; state.account.is_active = true;
-  state.inserts = []; state.invalidations = []; state.failInsert = false;
-}
-test('Admin records a petty cash expense through the existing command and refreshes Admin', async () => {
-  reset();
-  const result = await createAdminMoneyMovementAction(input);
-  assert.equal(result.status, 'confirmed');
-  assert.equal(state.inserts.length, 1);
-  const row = state.inserts[0][0];
-  assert.equal(row.amount, 5); assert.equal(row.money_account_id, 1);
-  assert.equal(row.created_by_user_id, 'test-admin'); assert.equal(row.direction, 'outflow');
-  assert.equal(row.approval_required, false);
-  assert.ok(state.invalidations.includes('/app/admin'));
+test('anonymous, advisor and Master rejected before any command',async()=>{
+  for(const roles of [[],['advisor'],['master']]){reset();state.roles=roles;await assert.rejects(createAdminMoneyMovementAction(input),/No autorizado/);assert.equal(state.calls.length,0);}
 });
-test('the Admin action rejects anonymous, advisor and Master before any write', async () => {
-  for (const roles of [[], ['advisor'], ['master']]) {
-    reset(); state.roles = roles;
-    await assert.rejects(createAdminMoneyMovementAction(input), /No autorizado/);
-    assert.equal(state.inserts.length, 0);
-  }
+test('native VES amount, fee and chosen rate are passed without converting or dropping them',async()=>{
+  reset();const result=await createAdminMoneyMovementAction({...input,amount:1000,feeAmount:20,exchangeRateVesPerUsd:100});
+  assert.equal(result.status,'confirmed');if(result.status==='confirmed')assert.equal(result.receipt.totalUsd,10.2);
+  const payload=state.calls[0].params.p_input as typeof input;assert.equal(payload.amount,1000);assert.equal(payload.feeAmount,20);assert.equal(payload.exchangeRateVesPerUsd,100);
 });
-test('VES preserves native amount, rate, fee group and equivalent valuation', async () => {
-  reset(); state.account.currency_code = 'VES';
-  const result = await createAdminMoneyMovementAction({ ...input, amount: 1000, feeAmount: 20, exchangeRateVesPerUsd: 100 });
-  assert.equal(result.totalUsd, 10.2);
-  assert.equal(state.inserts[0].length, 2);
-  const [expense, fee] = state.inserts[0];
-  assert.equal(expense.amount, 1000); assert.equal(expense.exchange_rate_ves_per_usd, 100);
-  assert.equal(expense.amount_usd_equivalent, 10); assert.equal(fee.amount_usd_equivalent, 0.2);
-  assert.equal(expense.movement_group_id, fee.movement_group_id);
+test('income cannot silently discard a supplied fee and invalid cents never reach SQL',async()=>{
+  for(const changed of [{direction:'inflow' as const,feeAmount:50},{amount:-1},{amount:0.001},{amount:NaN}]){reset();assert.equal((await createAdminMoneyMovementAction({...input,...changed})).status,'rejected');assert.equal(state.calls.length,0);}
 });
-test('income does not create an expense fee or pretend to be an order payment', async () => {
-  reset();
-  await createAdminMoneyMovementAction({ ...input, direction: 'inflow', feeAmount: 50 });
-  assert.equal(state.inserts[0].length, 1);
-  assert.equal(state.inserts[0][0].movement_type, 'other_income');
-  assert.equal(state.inserts[0][0].order_id, null);
+test('database rejections and uncertain outcomes remain distinguishable',async()=>{
+  reset();state.error={code:'22023',message:'Cuenta inactiva'};let result=await createAdminMoneyMovementAction(input);assert.equal(result.status,'rejected');
+  reset();state.error={code:'08006',message:'Connection lost'};result=await createAdminMoneyMovementAction(input);assert.equal(result.status,'uncertain');
+  reset();state.badReceipt=true;result=await createAdminMoneyMovementAction(input);assert.equal(result.status,'uncertain');assert.equal(state.invalidations.length,0);
 });
-test('inactive accounts, invalid amounts and missing rates remain blocked server-side', async () => {
-  reset(); state.account.is_active = false;
-  await assert.rejects(createAdminMoneyMovementAction(input), /inactiva/);
-  reset(); await assert.rejects(createAdminMoneyMovementAction({ ...input, amount: -1 }), /mayor a 0/);
-  state.account.currency_code = 'VES';
-  await assert.rejects(createAdminMoneyMovementAction(input), /tasa válida/);
-  assert.equal(state.inserts.length, 0);
-});
-test('save failures are not presented as confirmed transactions', async () => {
-  reset(); state.failInsert = true;
-  await assert.rejects(createAdminMoneyMovementAction(input), /No se pudo guardar/);
-  assert.equal(state.invalidations.length, 0);
-});
-test('form blocks concurrent submit and freezes fields, without claiming database idempotency', () => {
-  const form = readFileSync(new URL('../../src/app/app/master/ops/finance/MasterOpsMoneyMovementForm.tsx', import.meta.url), 'utf8');
-  assert.match(form, /if \(busyRef.current\) return/);
-  assert.match(form, /<fieldset disabled=\{isPending\}/);
-  assert.match(form, /submitAction = createMasterOpsMoneyMovementAction/);
-  assert.match(form, /showAdminHistory = false/);
-  assert.match(form, /adminMovementHistoryHref\(Number\(accountId\), movementDate\)/);
+test('Admin form persists input before sending and protects uncertain attempts',()=>{
+  const form=readFileSync(new URL('../../src/app/app/admin/finanzas/cuentas/movimiento/AdminMovementForm.tsx',import.meta.url),'utf8');
+  assert.ok(form.indexOf('saveFinancialAttempt(userId')<form.indexOf('await createAdminMoneyMovementAction(input)'));
+  assert.match(form,/saved\?\?attempt.current/);assert.match(form,/result\?\.status==='uncertain'/);
 });

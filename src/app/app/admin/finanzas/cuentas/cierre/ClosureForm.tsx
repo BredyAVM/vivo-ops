@@ -3,10 +3,11 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import type { AccountClosureInput, AccountClosureResult } from '@/lib/finance/account-closure-model';
 import { createAdminAccountClosure, previewAdminAccountClosure } from './actions';
+import {clearFinancialAttempt,saveFinancialAttempt} from '@/lib/finance/financial-attempt-storage';
 type Account = { id: number; name: string; currencyCode: 'USD' | 'VES' };
 type Preview = Awaited<ReturnType<typeof previewAdminAccountClosure>>;
 const inputClass = 'mt-1 block min-h-11 w-full rounded-lg border border-[#343442] bg-[#14141C] px-3 py-2 text-sm';
-export default function ClosureForm({ accounts, initialAccountId, activeRate, today, time }: { accounts: Account[]; initialAccountId: number | null; activeRate: number | null; today: string; time: string }) {
+export default function ClosureForm({ accounts, initialAccountId, activeRate, today, time, userId }: { accounts: Account[]; initialAccountId: number | null; activeRate: number | null; today: string; time: string; userId:string }) {
   const [accountId, setAccountId] = useState(initialAccountId ?? accounts[0]?.id ?? 0);
   const [date, setDate] = useState(today), [cutTime, setCutTime] = useState(time), [counted, setCounted] = useState('');
   const [rate, setRate] = useState(activeRate?.toString() ?? ''), [reason, setReason] = useState('Cierre diario'), [notes, setNotes] = useState('');
@@ -33,8 +34,9 @@ export default function ClosureForm({ accounts, initialAccountId, activeRate, to
       attempt.current = { requestId: crypto.randomUUID(), moneyAccountId: accountId, closureDate: date, closureTime: effectiveTime,
         countedAmount: Number(counted.replace(',', '.')), exchangeRateVesPerUsd: account.currencyCode === 'VES' ? Number(rate.replace(',', '.')) : null, reason, notes };
     }
+    try {saveFinancialAttempt(userId,'closure',attempt.current);} catch {setResult({status:'rejected',message:'Habilita el almacenamiento de sesión para proteger este envío.'});return;}
     busy.current = true; setPending(true);
-    try { const next = await createAdminAccountClosure(attempt.current); setResult(next); if (next.status === 'rejected') attempt.current = null; }
+    try { const next = await createAdminAccountClosure(attempt.current); setResult(next); if(next.status!=='uncertain')clearFinancialAttempt(userId,'closure'); if (next.status === 'rejected') attempt.current = null; }
     catch { setResult({ status: 'uncertain', message: 'La conexión se interrumpió. Reintenta este mismo cierre sin cambiar los datos.' }); }
     finally { busy.current = false; setPending(false); }
   }
@@ -58,6 +60,6 @@ export default function ClosureForm({ accounts, initialAccountId, activeRate, to
     <section aria-live="polite">{preview?.status === 'ready' ? <div className="grid grid-cols-2 gap-3"><div><h2 className="text-xs text-[#9B9BA7]">Saldo esperado</h2><p className="mt-1 text-lg font-semibold tabular-nums">{native(preview.preview.expectedAmount)}</p></div><div><h2 className="text-xs text-[#9B9BA7]">Diferencia estimada</h2><p className="mt-1 text-lg font-semibold tabular-nums">{counted.trim() && Number.isFinite(Number(counted.replace(',', '.'))) ? native(Number(counted.replace(',', '.')) - preview.preview.expectedAmount) : '—'}</p></div></div> : <p className="text-sm text-orange-200">{preview?.status === 'error' ? preview.message : 'Consultando saldo esperado…'}</p>}</section>
     <p className="text-xs text-[#9B9BA7]">Escribe el saldo que ves en el banco o el efectivo contado a esa hora. Las diferencias quedan para conciliación. El saldo esperado se recalcula al guardar; el traspaso del punto se registra por separado.</p>
     {result && <p role="alert" className="text-sm text-orange-200">{result.message}</p>}
-    {uncertain ? <div className="space-y-2"><p className="text-xs text-orange-200">No cierres ni recargues esta pantalla hasta comprobar el resultado.</p><button type="button" disabled={pending} onClick={() => void save()} className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-sm font-semibold text-black">{pending ? 'Comprobando…' : 'Comprobar el mismo cierre'}</button></div> : <div className="flex flex-wrap gap-3"><button disabled={pending || preview?.status !== 'ready'} className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-sm font-semibold text-black disabled:opacity-50">{pending ? 'Guardando…' : 'Guardar cierre'}</button><button type="button" disabled={pending} onClick={() => setRefresh(n => n + 1)} className="min-h-11 px-3 text-sm underline">Actualizar saldo</button></div>}
+    {uncertain ? <div className="space-y-2"><p className="text-xs text-orange-200">El mismo envío se conserva si recargas esta pestaña. No registres otro cierre hasta comprobarlo.</p><button type="button" disabled={pending} onClick={() => void save()} className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-sm font-semibold text-black">{pending ? 'Comprobando…' : 'Comprobar el mismo cierre'}</button></div> : <div className="flex flex-wrap gap-3"><button disabled={pending || preview?.status !== 'ready'} className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-sm font-semibold text-black disabled:opacity-50">{pending ? 'Guardando…' : 'Guardar cierre'}</button><button type="button" disabled={pending} onClick={() => setRefresh(n => n + 1)} className="min-h-11 px-3 text-sm underline">Actualizar saldo</button></div>}
   </form>;
 }

@@ -1,0 +1,57 @@
+'use client';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect,useRef,useState,type FormEvent } from 'react';
+import { reconciliationModes,type ReconciliationDetail,type ReconciliationInput,type ReconciliationResult } from '@/lib/admin-finance/reconciliation';
+import { clearFinancialAttempt,readFinancialAttempt,saveFinancialAttempt } from '@/lib/finance/financial-attempt-storage';
+import {resolveAdminReconciliation,undoAdminReconciliation} from './actions';
+const field='mt-1 w-full min-h-11 rounded-lg border border-[#343442] bg-[#14141c] px-3 py-2 text-sm';
+const button='inline-flex min-h-11 items-center justify-center rounded-lg border border-[#343442] px-3 text-sm disabled:opacity-50';
+export default function ReconciliationForm({detail,userId,query}:{detail:ReconciliationDetail;userId:string;query:string}) {
+  const router=useRouter(); const item=detail.item;
+  const [mode,setMode]=useState<ReconciliationInput['mode']>('existing'),[amount,setAmount]=useState(String(item.amount)),[note,setNote]=useState(''),[rate,setRate]=useState(''),[date,setDate]=useState(item.operation_date??''),[reference,setReference]=useState(''),[movementId,setMovementId]=useState(0),[evidence,setEvidence]=useState(false);
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[result,setResult]=useState<ReconciliationResult|null>(null),[recovered,setRecovered]=useState<ReconciliationInput|null>(null),[ready,setReady]=useState(false);
+  const attempt=useRef<ReconciliationInput|null>(null),guard=useRef(false);
+  useEffect(()=>{try { const saved=readFinancialAttempt<ReconciliationInput>(userId,'reconciliation'); setRecovered(saved); setReady(true); } catch(e) {setError(e instanceof Error?e.message:'No se pudo recuperar el envío.');}},[userId]);
+  const money=(n:number)=>new Intl.NumberFormat('es-VE',{style:'currency',currency:item.currency_code}).format(n);
+  async function submit(e?:FormEvent) {
+    e?.preventDefault(); if(guard.current) return;
+    const selected=detail.candidates.find(m=>m.id===movementId);
+    const input=recovered??attempt.current??{requestId:crypto.randomUUID(),itemId:item.id,mode,amount:mode==='note_only'?item.amount:Number(amount.replace(',','.')),note,fingerprint:detail.fingerprint,
+      movementId:mode==='existing'?movementId:null,movementFingerprint:mode==='existing'?selected?.fingerprint:null,movementDate:mode!=='existing'&&mode!=='note_only'?date:null,
+      rate:item.currency_code==='VES'?Number(rate.replace(',','.')):null,reference,evidenceConfirmed:evidence};
+    try {saveFinancialAttempt(userId,'reconciliation',input);} catch {setError('No se puede proteger este envío en el navegador. Habilita el almacenamiento de sesión antes de continuar.');return;}
+    attempt.current=input; guard.current=true;setBusy(true);setError('');
+    try {const next=await resolveAdminReconciliation(input);setResult(next);if(next.status!=='uncertain'){clearFinancialAttempt(userId,'reconciliation');setRecovered(null);attempt.current=null;} if(next.status==='confirmed'){if(input.itemId!==item.id)router.replace(`/app/admin/finanzas/cuentas/conciliacion/${input.itemId}`);else router.refresh();}}
+    catch {setResult({status:'uncertain',message:'Conexión interrumpida. Puedes recuperar el mismo envío incluso después de recargar.'});}
+    finally {guard.current=false;setBusy(false);}
+  }
+  if(!ready)return <p className="text-sm" role={error?'alert':'status'}>{error||'Comprobando envíos pendientes…'}</p>;
+  if(recovered) return <section className="space-y-3 rounded-xl border border-orange-500/30 p-4"><h2 className="font-semibold">Hay una conciliación pendiente de comprobar</h2><p className="text-sm">Diferencia #{recovered.itemId} · Importe {recovered.amount}. Se enviarán los mismos datos; no una segunda operación.</p><button type="button" className={button} disabled={busy} onClick={()=>void submit()}>Comprobar envío anterior</button>{result?.status!=='confirmed'&&result?.message?<p role="alert">{result.message}</p>:null}</section>;
+  return <div className="space-y-4">
+    <section className="grid grid-cols-2 gap-3 rounded-xl border border-[#292937] p-4"><div><p className="text-xs text-[#aaa]">{item.direction==='surplus'?'Sobrante':'Faltante'} · {item.status==='open'?'Por resolver':item.status==='resolved'?'Resuelta':'Anulada'}</p><p className="mt-1 text-xl font-semibold tabular-nums">{money(item.amount)}</p></div><div><p className="text-xs text-[#aaa]">Saldo observado</p><p className="mt-1 text-sm">{detail.coveredAt?new Date(detail.coveredAt).toLocaleString('es-VE',{timeZone:'America/Caracas'}):'Sin corte verificable'}</p></div><p className="col-span-2 text-sm text-[#aaa]">{item.description}</p></section>
+    {result?.status==='confirmed'?<section role="status" className="space-y-2 rounded-xl border border-emerald-700 p-4"><p>{result.receipt.voided?'El envío anterior fue registrado y luego anulado.':'Resolución registrada.'} {result.receipt.movementCreated?'Se registró el movimiento faltante.':'No se creó dinero nuevo.'}</p>{result.receipt.residualItemId?<Link className={button} prefetch={false} href={`/app/admin/finanzas/cuentas/conciliacion/${result.receipt.residualItemId}`}>Pendiente restante: {money(result.receipt.remaining)}</Link>:null}</section>:null}
+    {item.status==='open'&&result?.status!=='confirmed'?<>
+      <form onSubmit={submit} className="space-y-3 rounded-xl border border-[#292937] p-4"><fieldset disabled={busy||result?.status==='uncertain'} className="grid gap-3 sm:grid-cols-2">
+        <label className="text-sm sm:col-span-2">Cómo se resuelve<select className={field} value={mode} onChange={e=>{setMode(e.target.value as typeof mode);setEvidence(false);}}>{Object.entries(reconciliationModes).filter(([key])=>key==='note_only'||detail.coveredAt&&(key!=='income'||item.direction==='surplus')&&(!['expense','fee'].includes(key)||item.direction==='shortage')).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+        {mode!=='note_only'?<label className="text-sm">Importe a resolver · {item.currency_code}<input required inputMode="decimal" className={field} value={amount} onChange={e=>setAmount(e.target.value)}/></label>:null}
+        {mode==='existing'?<label className="text-sm sm:col-span-2">Movimiento confirmado<select required value={movementId||''} className={field} onChange={e=>setMovementId(Number(e.target.value))}><option value="">Selecciona el movimiento</option>{detail.candidates.filter(m=>m.available>0).slice(0,50).map(m=><option key={m.id} value={m.id}>{m.movement_date} · {m.order_id?`Pedido #${m.order_id} · `:''}{m.reference_code||m.counterparty_name||m.description||`Movimiento ${m.id}`} · disponible {money(m.available)}</option>)}</select></label>:null}
+        {!['note_only','existing'].includes(mode)?<><label className="text-sm">Fecha bancaria real<input required type="date" value={date} onChange={e=>setDate(e.target.value)} className={field}/></label>{item.currency_code==='VES'?<label className="text-sm">Tasa Bs/USD<input required inputMode="decimal" value={rate} onChange={e=>setRate(e.target.value)} className={field}/></label>:null}<label className="text-sm">Referencia bancaria<input maxLength={120} value={reference} onChange={e=>setReference(e.target.value)} className={field}/></label></>:null}
+        <label className="text-sm sm:col-span-2">Explicación / evidencia<textarea required minLength={6} maxLength={2000} value={note} onChange={e=>setNote(e.target.value)} className={field} rows={2}/></label>
+        {mode!=='note_only'?<label className="flex items-start gap-2 text-xs sm:col-span-2"><input type="checkbox" required checked={evidence} onChange={e=>setEvidence(e.target.checked)}/><span>Verifiqué en el banco que este importe ya estaba incluido en el saldo observado. No corresponde a dinero que entró o salió después.</span></label>:<p className="text-xs text-[#aaa] sm:col-span-2">Solo documenta la explicación. No registra ni vincula dinero y no cambia el saldo de la cuenta.</p>}
+      </fieldset><p className="text-xs text-[#aaa]">{mode==='existing'?'Vincula evidencia; no crea otro pago.':mode==='note_only'?'El cierre original conserva sus importes.':'Registra únicamente un movimiento que falta. Los cobros de clientes y traspasos se registran en su recorrido y luego se vinculan aquí.'}</p><button className={`${button} bg-[#feef00] text-black`} disabled={busy}>{busy?'Guardando…':result?.status==='uncertain'?'Comprobar el mismo envío':'Confirmar resolución'}</button></form>
+      {mode==='existing'&&!busy&&result?.status!=='uncertain'?<form className="flex flex-wrap gap-2" method="get"><label className="min-w-0 flex-1 text-xs">Buscar por referencia, cliente o número corto de orden<input name="q" defaultValue={query} maxLength={120} className={field}/></label><button className={`${button} self-end`}>Buscar</button><p className="w-full text-xs text-[#aaa]">{detail.candidates.length>50?'Hay más de 50 coincidencias. Acota la búsqueda.':'Solo aparecen movimientos confirmados registrados después del corte, con fecha y signo compatibles.'}</p></form>:null}
+    </>:null}
+    {error||result&&result.status!=='confirmed'?<p role="alert" className="text-sm text-orange-200">{error||(result&&result.status!=='confirmed'?result.message:'')}</p>:null}
+    {item.resolution_notes?<p className="whitespace-pre-wrap text-sm">{item.resolution_notes}</p>:null}
+    {detail.history.length?<section className="space-y-2"><h2 className="text-sm font-semibold">Historial de resolución</h2>{detail.history.map(r=><article key={r.request_id} className="space-y-2 rounded-lg border border-[#292937] p-3 text-sm">
+      <p>{reconciliationModes[r.mode as keyof typeof reconciliationModes]??r.mode} · {money(r.amount)} · {new Date(r.created_at).toLocaleString('es-VE',{timeZone:'America/Caracas'})}</p>
+      <p className="text-xs text-[#aaa]">Registró: {r.actor_name||'Usuario registrado en auditoría'}</p>
+      <p className="text-xs text-[#aaa]">{r.voided_at?`Anulada por ${r.void_actor_name||'Administración'}: ${r.void_reason}`:r.money_movement_id?`Movimiento ${r.money_movement_id}${r.movement_created?' registrado aquí':' existente'}`:'Sin movimiento financiero'}</p>
+      {!r.voided_at?<UndoResolution id={r.request_id}/>:null}</article>)}</section>:null}
+  </div>;
+}
+function UndoResolution({id}:{id:string}) {
+  const router=useRouter();const [reason,setReason]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''); const guard=useRef(false);
+  return <details><summary className="cursor-pointer py-2 text-xs underline">Deshacer resolución</summary><form className="space-y-2" onSubmit={async e=>{e.preventDefault();if(guard.current)return;guard.current=true;setBusy(true);try{await undoAdminReconciliation(id,reason);router.refresh();}catch(e){setError(e instanceof Error?e.message:'No se confirmó la reversión. Reintenta la misma resolución.');}finally{guard.current=false;setBusy(false);}}}><p className="text-xs text-[#aaa]">Reabre la diferencia. Conserva movimientos existentes y anula solo el movimiento creado por esta resolución.</p><label className="text-xs">Motivo<input required minLength={6} maxLength={1000} className={field} value={reason} onChange={e=>setReason(e.target.value)} disabled={busy}/></label><button className={button} disabled={busy}>Deshacer resolución</button>{error?<p role="alert">{error}</p>:null}</form></details>;
+}

@@ -4,6 +4,7 @@ import { loadAdminFinanceAccountsOverview, type AdminFinanceAccountsRpcClient } 
 import { resolveAdminMovementContext } from '@/lib/admin-finance/movement-navigation';
 import { getCaracasDateKey } from '@/lib/admin-finance/period';
 import ClosureForm from './ClosureForm';
+import AttemptRecovery from '../_components/AttemptRecovery';
 export default async function AdminClosurePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await requireAdminContext();
   const overview = await loadAdminFinanceAccountsOverview({ supabase: ctx.supabase as unknown as AdminFinanceAccountsRpcClient });
@@ -13,7 +14,7 @@ export default async function AdminClosurePage({ searchParams }: { searchParams:
   const now = new Date();
   const time = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now);
   return <div className="space-y-4"><header><Link href={`/app/admin/finanzas/cuentas${context.accountId ? `/${context.accountId}` : ''}`} prefetch={false} className="inline-flex min-h-11 items-center text-sm text-[#9B9BA7]">← Volver a cuentas</Link><h1 className="text-xl font-semibold">Cierre de cuenta</h1><p className="mt-1 text-xs text-[#9B9BA7]">Registra el saldo observado o contado. No genera un ingreso, egreso ni traspaso.</p></header>
-    <ClosureForm accounts={overview.data.accounts.filter(a => a.isActive).map(a => ({ id: a.id, name: a.name, currencyCode: a.currencyCode }))}
-      initialAccountId={context.accountId} activeRate={overview.data.activeRateBsPerUsd} today={getCaracasDateKey(now)} time={time} />
+    <AttemptRecovery userId={ctx.user.id} scope="closure"><ClosureForm userId={ctx.user.id} accounts={overview.data.accounts.filter(a => a.isActive).map(a => ({ id: a.id, name: a.name, currencyCode: a.currencyCode }))}
+      initialAccountId={context.accountId} activeRate={overview.data.activeRateBsPerUsd} today={getCaracasDateKey(now)} time={time} /></AttemptRecovery>
   </div>;
 }

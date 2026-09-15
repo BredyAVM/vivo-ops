@@ -102,6 +102,7 @@ export type AdminFinanceMovementRow = {
   orderId: number | null;
   status: 'pending' | 'confirmed' | 'rejected' | 'voided';
   approvalRequired: boolean;
+  operationRequestId?: string | null;
 };
 
 export type AdminFinanceClosureRow = {

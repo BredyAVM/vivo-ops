@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:accounts-operations": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/account-reconciliation.test.mts tests/admin/admin-operational-movements.test.mts tests/admin/admin-closure-ui.test.mts tests/admin/admin-transfer.test.mts",
     "test:delivery-debts": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/delivery-debts.test.mts",
     "test:collection-precision": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/order-collection-precision.test.mts",
     "test:delivery": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/delivery-services.test.mts tests/admin/admin-completion-blocks.test.mts",

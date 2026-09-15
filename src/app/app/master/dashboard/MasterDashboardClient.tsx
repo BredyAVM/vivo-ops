@@ -24001,6 +24001,7 @@ deliveryAssignMode === 'external' ? (
               <div className="mt-3 text-sm text-[#B7B7C2]">
                 {selectedReconciliationResolveItem.description}
               </div>
+              {isAdmin ? <a href={`/app/admin/finanzas/cuentas/conciliacion/${selectedReconciliationResolveItem.id}`} className="mt-3 inline-flex min-h-11 items-center text-sm text-[#FEEF00] underline">Vincular pago, registrar ajuste o resolver parcialmente →</a> : null}
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <label className="block">
                   <span className="mb-1 block text-xs text-[#8A8A96]">Forma de resolver</span>
@@ -24021,7 +24022,7 @@ deliveryAssignMode === 'external' ? (
                     }}
                     className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
                   >
-                    {RECONCILIATION_RESOLUTION_OPTIONS.map((option) => (
+                    {RECONCILIATION_RESOLUTION_OPTIONS.filter(option => option.value === 'note_only').map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>

@@ -6,14 +6,15 @@ import { parseDecimalInput } from '@/lib/number-input';
 import { adminMovementHistoryHref } from '@/lib/admin-finance/movement-navigation';
 import type { MoneyTransferInput, MoneyTransferResult } from '@/lib/finance/money-transfer-model';
 import { createAdminTransferAction } from './actions';
+import {clearFinancialAttempt,saveFinancialAttempt} from '@/lib/finance/financial-attempt-storage';
 
 type Account = { id: number; name: string; currencyCode: 'USD' | 'VES' };
-type Props = { accounts: Account[]; initialAccountId: number | null; activeRate: number | null; today: string };
+type Props = { accounts: Account[]; initialAccountId: number | null; activeRate: number | null; today: string; userId:string };
 const inputClass = 'w-full min-h-11 rounded-lg border border-[#343442] bg-[#0B0B0D] px-3 py-2 text-sm text-white';
 const buttonClass = 'inline-flex min-h-11 items-center justify-center rounded-lg border border-[#FEEF00]/50 px-4 text-sm font-semibold text-[#FEEF00] disabled:opacity-50';
 const native = (amount: number, currency: string) => `${currency === 'VES' ? 'Bs' : 'USD'} ${new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(amount)}`;
 
-export default function TransferForm({ accounts, initialAccountId, activeRate, today }: Props) {
+export default function TransferForm({ accounts, initialAccountId, activeRate, today,userId }: Props) {
   const initial = () => ({ source: initialAccountId ? String(initialAccountId) : '', target: '', amount: '', received: '', fee: '',
     sourceRate: activeRate ? String(activeRate) : '', targetRate: activeRate ? String(activeRate) : '', date: today,
     description: 'Traspaso entre cuentas', reference: '', notes: '' });
@@ -66,6 +67,7 @@ export default function TransferForm({ accounts, initialAccountId, activeRate, t
     let input: MoneyTransferInput;
     try { input = attempt.current ?? buildInput(); }
     catch (error) { setValidation(error instanceof Error ? error.message : 'Revisa los datos.'); return; }
+    try {saveFinancialAttempt(userId,'transfer',input);}catch{setValidation('Habilita el almacenamiento de sesión para proteger el envío.');return;}
     busy.current = true;
     attempt.current = input;
     setSubmitted(input);
@@ -74,6 +76,7 @@ export default function TransferForm({ accounts, initialAccountId, activeRate, t
       try {
         const outcome = await createAdminTransferAction(input);
         setResult(outcome);
+        if(outcome.status!=='uncertain')clearFinancialAttempt(userId,'transfer');
         // A rejected call can be corrected, but keeps the SAME request identity.
         // The database rejects changed input if an earlier attempt did commit.
         if (outcome.status === 'rejected') attempt.current = null;

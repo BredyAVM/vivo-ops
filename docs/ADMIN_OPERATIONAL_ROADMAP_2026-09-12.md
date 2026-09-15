@@ -1,5 +1,10 @@
 # Administración operativa: hoja de ruta vigente
 
+Actualización del 15 de septiembre: el orden vigente de los diez bloques y el
+corte de cuentas/conciliación están en `ADMIN_ACCOUNTS_RECONCILIATION_2026-09-15.md`.
+Los pendientes de este documento describen el corte del 12 y no deben usarse
+para dar por ausentes funciones entregadas después.
+
 ## Decisión del usuario
 
 Administración debe servir para consultar y para actuar. Además de ingresos,
