@@ -37,6 +37,10 @@ Se conserva la base precisa cuando corresponde al contrato `precise_collection_v
 
 ## Límites explícitos
 
+Migración aplicada: `20260915140015_delivery_debts_weekly_settlement.sql`. El archivo generado inicialmente con la CLI se alineó con la versión devuelta por el servicio remoto; no se vuelve a ejecutar la migración para renombrarla.
+
+Verificación de seguridad posterior: no se agregaron avisos de acceso anónimo ni funciones privilegiadas expuestas. El asesor informa dos tablas descubribles en el esquema GraphQL para usuarios autenticados por sus permisos de lectura; RLS restringe los registros a administración o a la cobertura financiera de la propia orden. Los avisos preexistentes del proyecto permanecen fuera de este bloque.
+
 - Hasta 100 deudas por liquidación y 500 entregas/adicionales, como control de tamaño de transacción.
 - No hay cobro de préstamos en efectivo desde este panel ni cronograma obligatorio de cuotas; se elige el descuento cada semana. Las compras sí reflejan los pagos normales del pedido.
 - Los reintentos de formularios conservan identidad en memoria. Recuperación persistente tras recargar el navegador sigue siendo un endurecimiento transversal pendiente.

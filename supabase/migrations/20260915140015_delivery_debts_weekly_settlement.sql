@@ -1,3 +1,4 @@
+-- Remote migration version: 20260915140015 (aligned after the verified deployment).
 -- Weekly deductions are non-cash offsets. Only the net payout affects an account.
 begin;
 set local lock_timeout='5s';
