@@ -57,6 +57,7 @@ type SnapshotOrder = {
   orderNumber?: string | null;
   clientName?: string | null;
   deliveryDate?: string | null;
+  billedUsd?: number | string | null;
   totalUsd?: number | string | null;
   confirmedPaidUsd?: number | string | null;
   pendingUsd?: number | string | null;
@@ -736,11 +737,12 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   );
   const settlement = readAdvisorCommissionSettlementSnapshot(closure?.snapshot);
   const settlementIsCurrent = settlement.formulaVersion !== 'legacy';
-  const punctualTotalUsd = punctualOrders.reduce((sum, order) => sum + numberValue(order.totalUsd), 0);
-  const lateTotalUsd = lateOrders.reduce((sum, order) => sum + numberValue(order.totalUsd), 0);
+  const getOrderNetBilledUsd = (order: SnapshotOrder) => numberValue(order.billedUsd ?? order.totalUsd);
+  const punctualTotalUsd = punctualOrders.reduce((sum, order) => sum + getOrderNetBilledUsd(order), 0);
+  const lateTotalUsd = lateOrders.reduce((sum, order) => sum + getOrderNetBilledUsd(order), 0);
   const orderById = new Map(orders.map((order) => [numberValue(order.orderId), order]));
   const getClientFirstOrderTotal = (client: SnapshotClient) =>
-    numberValue(orderById.get(numberValue(client.orderId))?.totalUsd ?? client.totalUsd ?? client.billedUsd);
+    numberValue(orderById.get(numberValue(client.orderId))?.billedUsd ?? client.billedUsd ?? client.totalUsd);
   const ownClientsTotalUsd = ownClients.reduce((sum, client) => sum + getClientFirstOrderTotal(client), 0);
   const assignedClientsTotalUsd = assignedClients.reduce((sum, client) => sum + getClientFirstOrderTotal(client), 0);
   const detailOrders =
@@ -1025,7 +1027,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
             <CommissionSummaryLink
               label="Ventas"
               value={money(closure.billed_usd)}
-              detail={`${closure.delivered_orders_count} órdenes entregadas`}
+              detail={`${closure.delivered_orders_count} órdenes · después de descuento y sin IVA`}
               href={commissionHref(selectedPeriod.id, 'sales')}
               active={
                 activeDetail === 'sales' ||
@@ -1100,7 +1102,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Facturación</div>
                     <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{money(closure.billed_usd)}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{closure.delivered_orders_count} órdenes</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{closure.delivered_orders_count} órdenes · sin IVA</div>
                     <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
                   </Link>
                   <Link
@@ -1277,7 +1279,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Puntuales</div>
                     <div className="mt-1.5 text-2xl font-semibold text-emerald-300">{punctualOrders.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(punctualTotalUsd)}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(punctualTotalUsd)} · sin IVA</div>
                     <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
                   </Link>
                   <Link
@@ -1286,7 +1288,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Impuntuales</div>
                     <div className="mt-1.5 text-2xl font-semibold text-orange-300">{lateOrders.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(lateTotalUsd)}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(lateTotalUsd)} · sin IVA</div>
                     <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
                   </Link>
                   <Link
@@ -1414,8 +1416,8 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                               <div className="mt-1 text-xs text-[#8B93A7]">Orden {orderLabel(order)} · {dateLabel(order.deliveryDate)}</div>
                             </div>
                             <div className="shrink-0 text-right">
-                              <div className="text-sm font-semibold text-[#F5F7FB]">{money(order.totalUsd)}</div>
-                              <div className="mt-0.5 text-[10px] text-[#8B93A7]">Comisión {money(order.commissionUsd)}</div>
+                              <div className="text-sm font-semibold text-[#F5F7FB]">{money(getOrderNetBilledUsd(order))}</div>
+                              <div className="mt-0.5 text-[10px] text-[#8B93A7]">Sin IVA · Comisión {money(order.commissionUsd)}</div>
                             </div>
                           </div>
                           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#AAB2C5]">

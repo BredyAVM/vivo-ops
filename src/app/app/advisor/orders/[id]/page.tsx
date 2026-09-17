@@ -1194,9 +1194,9 @@ export default async function AdvisorOrderDetailPage({
               <div className="mt-1 font-medium text-[#F5F7FB]">{order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</div>
             </div>
             <div className="rounded-[14px] bg-[#12151d] px-3 py-2">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B93A7]">Total</div>
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B93A7]">Neto sin IVA</div>
               <div className="mt-1 font-semibold text-[#F0D000]">
-                {formatBs(orderPricing.totalBs)} / {formatUsd(orderPricing.totalUsd)}
+                {formatBs(orderPricing.subtotalAfterDiscountBs)} / {formatUsd(orderPricing.subtotalAfterDiscountUsd)}
               </div>
             </div>
           </div>
@@ -1214,8 +1214,8 @@ export default async function AdvisorOrderDetailPage({
                 </div>
               ) : null}
               {(orderPricing.discountEnabled || orderPricing.hasInvoice) ? (
-                <div className="flex items-center justify-between gap-3">
-                  <span>Subtotal neto</span>
+                <div className="flex items-center justify-between gap-3 font-medium text-[#F5F7FB]">
+                  <span>Facturación neta · sin IVA</span>
                   <span>{formatBs(orderPricing.subtotalAfterDiscountBs)} / {formatUsd(orderPricing.subtotalAfterDiscountUsd)}</span>
                 </div>
               ) : null}
@@ -1223,6 +1223,12 @@ export default async function AdvisorOrderDetailPage({
                 <div className="flex items-center justify-between gap-3 text-sky-300">
                   <span>IVA{orderPricing.invoiceTaxPct > 0 ? ` (${orderPricing.invoiceTaxPct}%)` : ''}</span>
                   <span>+{formatBs(orderPricing.invoiceTaxAmountBs)} / +{formatUsd(orderPricing.invoiceTaxAmountUsd)}</span>
+                </div>
+              ) : null}
+              {orderPricing.hasInvoice ? (
+                <div className="mt-1 flex items-center justify-between gap-3 border-t border-[#232632] pt-1 font-semibold text-[#F7DA66]">
+                  <span>Total cliente · con IVA</span>
+                  <span>{formatBs(orderPricing.totalBs)} / {formatUsd(orderPricing.totalUsd)}</span>
                 </div>
               ) : null}
             </div>
@@ -1396,7 +1402,10 @@ export default async function AdvisorOrderDetailPage({
         )}
       </SectionCard>
 
-      <SectionCard title="Pago" subtitle="Estado de cobro y reportes.">
+      <SectionCard
+        title="Pago"
+        subtitle={orderPricing.hasInvoice ? 'Estado de cobro sobre el total del cliente, con IVA incluido.' : 'Estado de cobro y reportes.'}
+      >
         <div className="mb-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
           <div className="flex items-start justify-between gap-3">
             <div>
