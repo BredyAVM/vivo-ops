@@ -41,6 +41,7 @@ export type OrderLineMoneySource = {
   line_total_usd?: number | string | null;
   unit_price_bs_snapshot?: number | string | null;
   line_total_bs_snapshot?: number | string | null;
+  admin_price_override_usd?: number | string | null;
 };
 
 export type OrderMoneySnapshot = {
@@ -160,6 +161,18 @@ export function getOrderCommercialNetUsd(order: OrderMoneySource) {
 
 export function getOrderLineTotalUsd(item: OrderLineMoneySource) {
   const qty = toOrderMoneyNumber(item.qty, 0);
+
+  // An authorized administrative override is the effective unit price. Older
+  // custom-event lines can retain a zero USD snapshot even though the override
+  // and its Bs equivalent were stored correctly. Prefer the explicit override
+  // so commercial and commission calculations remain faithful to the order.
+  if (item.admin_price_override_usd != null && String(item.admin_price_override_usd).trim() !== '') {
+    const overrideUnitUsd = toOrderMoneyNumber(item.admin_price_override_usd, Number.NaN);
+    if (Number.isFinite(overrideUnitUsd) && overrideUnitUsd >= 0) {
+      return roundOrderMoney(overrideUnitUsd * qty);
+    }
+  }
+
   return roundOrderMoney(
     toOrderMoneyNumber(
       item.line_total_usd,

@@ -7,6 +7,7 @@ import {
   parseOrderCommissionAdjustmentPayload,
   validateOrderCommissionTerms,
 } from '../../src/lib/commissions/order-commission-terms.ts';
+import { getOrderLineTotalUsd } from '../../src/lib/orders/order-money.ts';
 
 test('interpreta un ajuste administrativo de comisión por producto', () => {
   const parsed = parseOrderCommissionAdjustmentPayload({
@@ -66,4 +67,34 @@ test('valida el porcentaje y compara términos sin depender del formato numéric
   );
   assert.throws(() => validateOrderCommissionTerms('fixed_item', null), /obligatorio/);
   assert.throws(() => validateOrderCommissionTerms('fixed_item', 101), /entre 0 y 100/);
+});
+
+test('usa el precio administrativo efectivo aunque una línea histórica conserve USD cero', () => {
+  assert.equal(
+    getOrderLineTotalUsd({
+      qty: 1,
+      unit_price_usd_snapshot: 0,
+      line_total_usd: 0,
+      admin_price_override_usd: 127.5,
+    }),
+    127.5
+  );
+});
+
+test('multiplica el precio administrativo por cantidad y respeta un override explícito en cero', () => {
+  assert.equal(
+    getOrderLineTotalUsd({ qty: 3, line_total_usd: 45, admin_price_override_usd: 9 }),
+    27
+  );
+  assert.equal(
+    getOrderLineTotalUsd({ qty: 3, line_total_usd: 45, admin_price_override_usd: 0 }),
+    0
+  );
+});
+
+test('conserva el total snapshot normal cuando no existe un ajuste administrativo', () => {
+  assert.equal(
+    getOrderLineTotalUsd({ qty: 3, unit_price_usd_snapshot: 10, line_total_usd: 29.99 }),
+    29.99
+  );
 });

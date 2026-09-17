@@ -10114,6 +10114,7 @@ type AdvisorCommissionOrderItemRow = {
   qty: number | string | null;
   unit_price_usd_snapshot: number | string | null;
   line_total_usd: number | string | null;
+  admin_price_override_usd: number | string | null;
   product_name_snapshot: string | null;
   sku_snapshot: string | null;
   notes: string | null;
@@ -10823,6 +10824,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
       qty,
       unit_price_usd_snapshot,
       line_total_usd,
+      admin_price_override_usd,
       product_name_snapshot,
       sku_snapshot,
       notes,
