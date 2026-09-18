@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { isCrmOnlyCatalogProduct } from '@/lib/crm/play-order';
 import { useOrderCancellationPreview } from '@/lib/orders/use-order-cancellation-preview';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { resolveLegacyAdminSection } from '@/lib/admin-finance/legacy-navigation';
@@ -11868,6 +11869,7 @@ const handleClearAdjustedCreateOrderItemPrice = (localId: string) => {
 
 const createOrderFilteredProducts = catalogItems
   .filter((item) => item.isActive && item.accessScope !== 'admin_internal')
+  .filter((item) => !isCrmOnlyCatalogProduct({ type: item.type, extra_fields: { catalog_access_scope: item.accessScope } }))
   .filter((item) => {
     const q = createOrderProductSearch.trim().toLowerCase();
     if (!q) return true;
@@ -27587,6 +27589,7 @@ deliveryAssignMode === 'external' ? (
 
     const firstMatch = catalogItems
       .filter((item) => item.isActive && item.accessScope !== 'admin_internal')
+      .filter((item) => !isCrmOnlyCatalogProduct({ type: item.type, extra_fields: { catalog_access_scope: item.accessScope } }))
       .find((item) => {
         const q = value.trim().toLowerCase();
         if (!q) return false;

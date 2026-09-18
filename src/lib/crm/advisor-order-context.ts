@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { isPlayOrderAvailableAt } from '@/lib/crm/play-order';
+import { isPlayOrderAvailableAt, allowsCrmCatalogProduct } from '@/lib/crm/play-order';
 import type { AdvisorCrmOrderContext, MasterCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
 
 type LoadAdvisorCrmOrderContextInput = {
@@ -81,7 +81,7 @@ async function loadCrmOrderContext({
       .from('crm_play_benefits')
       .select(`
         id, product_id, quantity, unit_benefit_value_usd, sort_order,
-        product:products!crm_play_benefits_product_id_fkey(name, sku)
+        product:products!crm_play_benefits_product_id_fkey(name, sku, is_active, extra_fields)
       `)
       .eq('play_id', activePlayId)
       .order('sort_order', { ascending: true })
@@ -103,7 +103,7 @@ async function loadCrmOrderContext({
     .select(`
       id, play_benefit_id, target_product_id, target_quantity,
       customer_difference_usd_snapshot, sort_order,
-      product:products!crm_play_benefit_upgrades_target_product_id_fkey(name, sku)
+      product:products!crm_play_benefit_upgrades_target_product_id_fkey(name, sku, is_active, extra_fields)
     `)
     .in('play_benefit_id', optionIds)
     .order('sort_order', { ascending: true })
@@ -113,6 +113,7 @@ async function loadCrmOrderContext({
   const upgradesByBenefit = new Map<number, AdvisorCrmOrderContext['benefits'][number]['upgrades']>();
   for (const row of upgradeRows ?? []) {
     const product = firstRelated(row.product as RelatedRow);
+    if (!product || product.is_active === false || !allowsCrmCatalogProduct({ extra_fields: product.extra_fields as Record<string, unknown> | null })) continue;
     const benefitId = Number(row.play_benefit_id);
     const upgrades = upgradesByBenefit.get(benefitId) ?? [];
     upgrades.push({
@@ -128,6 +129,7 @@ async function loadCrmOrderContext({
 
   const benefits = (optionRows ?? []).flatMap((option) => {
     const product = firstRelated(option.product as RelatedRow);
+    if (!product || product.is_active === false || !allowsCrmCatalogProduct({ extra_fields: product.extra_fields as Record<string, unknown> | null })) return [];
     const optionId = Number(option.id);
     const quantity = Number(option.quantity);
     if (optionId <= 0 || Number(option.product_id) <= 0 || quantity <= 0) return [];

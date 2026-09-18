@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useMemo, useState, useTransition } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';
+import GambitApplicationFields from './GambitApplicationFields';
 import {
   activateInventoryRecipeAction,
   saveInventoryRecipeDraftAction,
@@ -61,6 +62,7 @@ export type AdminProduct = {
   commission_value: number | null;
   commission_notes: string | null;
   advisor_gift_cost_usd: number | null;
+  catalog_access_scope?: string | null;
   internal_rider_pay_usd: number | null;
   inventory_policy: 'self' | 'direct' | 'components' | 'none' | null;
   inventory_configuration_status: string;
@@ -477,6 +479,7 @@ function ProductEditor({
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState(product.name);
   const [productType, setProductType] = useState<ProductCommercialType>(product.type);
+  const [catalogAccessScope, setCatalogAccessScope] = useState(product.catalog_access_scope ?? 'crm_only');
   const [sku, setSku] = useState(product.sku ?? '');
   const [unitsPerService, setUnitsPerService] = useState(String(product.units_per_service));
   const [detailUnitsLimit, setDetailUnitsLimit] = useState(String(product.detail_units_limit));
@@ -507,6 +510,7 @@ function ProductEditor({
         await updateInventoryProductIdentityAction({
           productId: product.id,
           productType,
+          catalogAccessScope: productType === 'gambit' ? catalogAccessScope : undefined,
           name,
           sku,
           unitsPerService: Number(unitsPerService),
@@ -712,6 +716,9 @@ function ProductEditor({
             </Field>
           </div>
         </div>
+        {productType === 'gambit' && product.catalog_access_scope !== 'admin_internal' ? (
+          <GambitApplicationFields value={catalogAccessScope} onChange={setCatalogAccessScope} disabled={isPending} />
+        ) : null}
         <Feedback message={message} error={error} />
         <button type="button" onClick={save} disabled={isPending || !product.is_active} className={`mt-4 ${PRIMARY_BUTTON}`}>
           {isPending ? 'Guardando…' : 'Guardar datos comerciales'}

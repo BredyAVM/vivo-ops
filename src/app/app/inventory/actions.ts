@@ -299,6 +299,7 @@ function revalidateInventoryConfigurationRoutes() {
 export async function updateInventoryProductIdentityAction(input: {
   productId: number;
   productType: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+  catalogAccessScope?: string;
   name: string;
   sku: string;
   unitsPerService: number;
@@ -380,6 +381,8 @@ export async function updateInventoryProductIdentityAction(input: {
     p_configuration: {
       product_id: productId,
       product_type: input.productType,
+      ...(input.productType === 'gambit' && input.catalogAccessScope !== undefined
+        ? { catalog_access_scope: input.catalogAccessScope } : {}),
       name,
       sku,
       units_per_service: unitsPerService,

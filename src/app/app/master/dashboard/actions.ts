@@ -9730,6 +9730,10 @@ export async function updateOrderAction(input: {
     if (String(atomicSaveError.message || '').includes('cambió mientras')) {
       return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
     }
+    const businessMessage = String(atomicSaveError.message || '');
+    if (/^(Este beneficio solo puede|Esta jugada no|El producto no permite|El obsequio debe|La vinculación CRM|El beneficio de esta jugada|La jugada no corresponde|El producto final no corresponde|El beneficio no está seleccionado)/.test(businessMessage)) {
+      return { ok: false as const, code: 'gambit_application_rejected', message: businessMessage };
+    }
     throw new Error(atomicSaveError.message);
   }
 

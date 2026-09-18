@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import MasterPlaysClient, {
   type ManualPlayClientSuggestion,
@@ -69,7 +70,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .limit(100),
     ctx.supabase
       .from('products')
-      .select('id, name, sku, type, base_price_usd, advisor_gift_cost_usd:extra_fields->>advisor_gift_cost_usd')
+      .select('id, name, sku, type, base_price_usd, extra_fields, advisor_gift_cost_usd:extra_fields->>advisor_gift_cost_usd')
       .eq('is_active', true)
       .in('type', ['product', 'combo', 'promo', 'gambit', 'service'])
       .order('name', { ascending: true })
@@ -438,7 +439,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     });
   }
 
-  const benefits: PlayBenefit[] = (productsResult.data ?? []).map((row) => {
+  const benefits: PlayBenefit[] = (productsResult.data ?? []).filter(allowsCrmCatalogProduct).map((row) => {
     const configuredGiftCost = numberValue(row.advisor_gift_cost_usd, Number.NaN);
     const basePrice = Math.max(0, numberValue(row.base_price_usd, 0));
     const advisorCost = Number.isFinite(configuredGiftCost) && configuredGiftCost >= 0

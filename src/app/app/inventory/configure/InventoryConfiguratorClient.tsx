@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';
+import GambitApplicationFields from './GambitApplicationFields';
 import { saveInventoryCatalogDraftAction } from '../actions';
 import { inventoryUnitLabel } from '../display';
 import InventoryRouteEditor, {
@@ -31,6 +32,7 @@ export type ConfiguratorProduct = {
   commissionValue: number | null;
   commissionNotes: string | null;
   advisorGiftCostUsd: number | null;
+  catalogAccessScope?: string | null;
   internalRiderPayUsd: number | null;
   unitsPerService: number;
   allowsHalfService: boolean;
@@ -154,6 +156,7 @@ export default function InventoryConfiguratorClient({
   const [commissionValue, setCommissionValue] = useState('');
   const [commissionNotes, setCommissionNotes] = useState('');
   const [advisorGiftCostUsd, setAdvisorGiftCostUsd] = useState('');
+  const [catalogAccessScope, setCatalogAccessScope] = useState('crm_only');
   const [internalRiderPayUsd, setInternalRiderPayUsd] = useState('');
   const [unitsPerService, setUnitsPerService] = useState('0');
   const [allowsHalfService, setAllowsHalfService] = useState(false);
@@ -197,6 +200,7 @@ export default function InventoryConfiguratorClient({
     setCommissionValue('');
     setCommissionNotes('');
     setAdvisorGiftCostUsd('');
+    setCatalogAccessScope('crm_only');
     setInternalRiderPayUsd('');
     setUnitsPerService('0');
     setAllowsHalfService(false);
@@ -224,6 +228,7 @@ export default function InventoryConfiguratorClient({
     setProductName(selectedProduct.name);
     setSku(selectedProduct.sku ?? '');
     setProductType(selectedProduct.type);
+    setCatalogAccessScope(selectedProduct.catalogAccessScope ?? 'crm_only');
     setSourcePriceAmount(String(selectedProduct.sourcePriceAmount));
     setSourcePriceCurrency(selectedProduct.sourcePriceCurrency);
     setCommissionMode(selectedProduct.commissionMode);
@@ -340,6 +345,7 @@ export default function InventoryConfiguratorClient({
           name: productName.trim(),
           sku: sku.trim().toUpperCase(),
           type: productType,
+          ...(productType === 'gambit' ? { catalog_access_scope: catalogAccessScope } : {}),
           source_price_amount: optionalNumber(sourcePriceAmount) ?? 0,
           source_price_currency: sourcePriceCurrency,
           commission_mode: commissionMode,
@@ -586,6 +592,9 @@ export default function InventoryConfiguratorClient({
                 </Field>
               </div>
             </div>
+            {productType === 'gambit' ? (
+              <GambitApplicationFields value={catalogAccessScope} onChange={setCatalogAccessScope} disabled={isPending} />
+            ) : null}
             <div className="mt-4 rounded-xl border border-sky-400/20 bg-sky-400/5 px-4 py-3 text-xs leading-5 text-sky-100">
               Estas condiciones alimentan los cálculos comerciales existentes. No cambian stock,
               recetas ni la forma en que el producto descuenta inventario.

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { isCrmOnlyCatalogProduct } from "@/lib/crm/play-order";
 import { inventoryUnitLabel } from "@/app/app/inventory/display";
 import { requireMasterOrAdminContext } from "@/lib/auth";
 import { loadMasterCrmOrderContext } from "@/lib/crm/advisor-order-context";
@@ -1581,6 +1582,7 @@ type RawOrderClientEditRow = {
 };
 
 type RawCatalogEditRow = {
+  extra_fields?: Record<string, unknown> | null;
   id: number | string;
   sku: string | null;
   name: string | null;
@@ -1612,6 +1614,7 @@ type RawProductComponentEditRow = {
 export type MasterOpsEditCurrency = "USD" | "VES";
 
 export type MasterOpsEditCatalogItem = {
+  discretionaryAllowed?: boolean;
   id: number;
   sku: string | null;
   name: string;
@@ -2684,6 +2687,7 @@ async function loadMasterOpsOrderComposerLookups(
 
   const catalogItems = ((productsResult.data ?? []) as RawCatalogEditRow[])
     .map((product) => ({
+      discretionaryAllowed: !isCrmOnlyCatalogProduct(product),
       id: Number(product.id),
       sku: product.sku ?? null,
       name: cleanText(product.name, `Producto #${product.id}`),
@@ -2703,7 +2707,8 @@ async function loadMasterOpsOrderComposerLookups(
       const source = ((productsResult.data ?? []) as Array<{ id: number | string; extra_fields?: unknown }>).find(
         (row) => Number(row.id) === product.id
       );
-      return asOpsRecord(source?.extra_fields).catalog_access_scope !== "admin_internal";
+      const extraFields = asOpsRecord(source?.extra_fields);
+      return extraFields.catalog_access_scope !== "admin_internal";
     })
     .filter((product) => Number.isFinite(product.id) && product.id > 0);
 
@@ -2979,6 +2984,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
 
   const catalogItems = ((productsResult.data ?? []) as RawCatalogEditRow[])
     .map((product) => ({
+      discretionaryAllowed: !isCrmOnlyCatalogProduct(product),
       id: Number(product.id),
       sku: product.sku ?? null,
       name: cleanText(product.name, `Producto #${product.id}`),
@@ -2998,7 +3004,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       const source = ((productsResult.data ?? []) as Array<{ id: number | string; extra_fields?: unknown }>).find(
         (row) => Number(row.id) === product.id
       );
-      return asOpsRecord(source?.extra_fields).catalog_access_scope !== "admin_internal";
+      const extraFields = asOpsRecord(source?.extra_fields);
+      return extraFields.catalog_access_scope !== "admin_internal";
     })
     .filter((product) => Number.isFinite(product.id) && product.id > 0);
 

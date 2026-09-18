@@ -6,6 +6,9 @@ import {
   isCrmOnlyCatalogProduct,
   isInternalOrderDetailLine,
   isPlayOrderAvailableAt,
+  gambitApplicationModes,
+  gambitApplicationScope,
+  allowsCrmCatalogProduct,
 } from '../../src/lib/crm/play-order.ts';
 
 const now = new Date('2026-09-09T16:00:00.000Z');
@@ -15,6 +18,22 @@ test('allows order benefits only while an active play is inside its window', () 
   assert.equal(isPlayOrderAvailableAt({ status: 'paused', startsAt: null, endsAt: null, now }), false);
   assert.equal(isPlayOrderAvailableAt({ status: 'active', startsAt: '2026-09-10T00:00:00Z', endsAt: null, now }), false);
   assert.equal(isPlayOrderAvailableAt({ status: 'active', startsAt: null, endsAt: '2026-09-09T16:00:00Z', now }), false);
+});
+
+test('supports four independent application choices without changing legacy defaults', () => {
+  for (const discretionary of [false, true]) {
+    for (const crm of [false, true]) {
+      const scope = gambitApplicationScope(discretionary, crm);
+      const product = { type: 'gambit', extra_fields: { catalog_access_scope: scope } };
+      assert.deepEqual(gambitApplicationModes(scope), { discretionary, crm });
+      assert.equal(isCrmOnlyCatalogProduct(product), !discretionary);
+      assert.equal(allowsCrmCatalogProduct(product), crm);
+    }
+  }
+  assert.deepEqual(gambitApplicationModes('advisor_gift'), { discretionary: true, crm: true });
+  assert.deepEqual(gambitApplicationModes(null), { discretionary: false, crm: true });
+  assert.equal(allowsCrmCatalogProduct({ type: 'product' }), true);
+  assert.equal(allowsCrmCatalogProduct({ extra_fields: { catalog_access_scope: 'admin_internal' } }), false);
 });
 
 test('recognizes configuration and CRM metadata as internal order details', () => {

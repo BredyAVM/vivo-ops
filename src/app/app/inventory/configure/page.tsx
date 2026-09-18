@@ -223,6 +223,7 @@ export default async function InventoryConfigurePage({
         commissionValue: product.commission_value == null ? null : Number(product.commission_value),
         commissionNotes: product.commission_notes,
         advisorGiftCostUsd: giftCost != null && Number.isFinite(giftCost) ? giftCost : null,
+        catalogAccessScope: typeof product.extra_fields?.catalog_access_scope === 'string' ? product.extra_fields.catalog_access_scope : null,
         internalRiderPayUsd:
           product.internal_rider_pay_usd == null ? null : Number(product.internal_rider_pay_usd),
         unitsPerService: Number(product.units_per_service),
@@ -291,6 +292,7 @@ export default async function InventoryConfigurePage({
       commission_value: commercial?.commissionValue ?? null,
       commission_notes: commercial?.commissionNotes ?? null,
       advisor_gift_cost_usd: commercial?.advisorGiftCostUsd ?? null,
+      catalog_access_scope: commercial?.catalogAccessScope ?? null,
       internal_rider_pay_usd: commercial?.internalRiderPayUsd ?? null,
       links,
       routes: mapProductRoutes(rawProduct, links, itemNameById),
@@ -327,6 +329,7 @@ export default async function InventoryConfigurePage({
         commission_value: product.commissionValue,
         commission_notes: product.commissionNotes,
         advisor_gift_cost_usd: product.advisorGiftCostUsd,
+        catalog_access_scope: product.catalogAccessScope,
         internal_rider_pay_usd: product.internalRiderPayUsd,
         inventory_policy: product.inventoryPolicy,
         inventory_configuration_status: rawProduct.inventory_configuration_status,

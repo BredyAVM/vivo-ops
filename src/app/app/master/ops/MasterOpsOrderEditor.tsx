@@ -441,7 +441,7 @@ export default function MasterOpsOrderEditor({
   const filteredProducts = useMemo(() => {
     const q = normalizeSearchValue(productSearch);
     return (data?.catalogItems ?? [])
-      .filter((item) => item.isActive)
+      .filter((item) => item.isActive && item.discretionaryAllowed !== false)
       .filter((item) => {
         if (!q) return true;
         const haystack = normalizeSearchValue(`${item.name} ${item.sku ?? ""}`);
@@ -674,7 +674,7 @@ export default function MasterOpsOrderEditor({
     }
     const firstMatch =
       (data?.catalogItems ?? [])
-        .filter((item) => item.isActive)
+        .filter((item) => item.isActive && item.discretionaryAllowed !== false)
         .find((item) => normalizeSearchValue(`${item.name} ${item.sku ?? ""}`).includes(query)) ?? null;
     setSelectedProductId(firstMatch?.id ?? "");
   }
@@ -778,6 +778,10 @@ export default function MasterOpsOrderEditor({
 
     if (!product) {
       setError("Selecciona un producto.");
+      return;
+    }
+    if (product.discretionaryAllowed === false) {
+      setError("Este producto no permite uso discrecional. Selecciona una jugada válida del cliente.");
       return;
     }
     if (!Number.isFinite(qty) || qty <= 0) {

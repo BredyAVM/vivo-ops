@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireMasterOrAdminContext } from '@/lib/auth';
+import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
 
 const PLAY_KINDS = ['anniversary', 'loyalty', 'new_client', 'reconnect', 'seasonal', 'custom'] as const;
 const FULFILLMENT_FILTERS = ['any', 'pickup', 'delivery'] as const;
@@ -399,12 +400,12 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     ])));
     const { data: products, error: productError } = await ctx.supabase
       .from('products')
-      .select('id, is_active, type')
+      .select('id, is_active, type, extra_fields')
       .in('id', allProductIds)
       .eq('is_active', true)
       .in('type', [...BENEFIT_PRODUCT_TYPES]);
     if (productError) throw new Error(productError.message);
-    if ((products ?? []).length !== allProductIds.length) {
+    if ((products ?? []).length !== allProductIds.length || (products ?? []).some((product) => !allowsCrmCatalogProduct(product))) {
       throw new Error('Uno de los beneficios o ampliaciones no está disponible para una jugada.');
     }
 
