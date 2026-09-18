@@ -14,6 +14,7 @@ import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/
 import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/play-order';
 import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persistence';
 import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
+import { shouldResolveCatalogGift } from '@/lib/crm/catalog-gift';
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
@@ -27,6 +28,7 @@ import {
   createAdvisorOrderAction,
   loadAdvisorExistingOrderCrmContextAction,
   prepareAdvisorCrmPlayBenefitsAction,
+  resolveAdvisorCatalogGiftAction,
   replaceAdvisorOrderItemsAction,
   saveAdvisorOrderDraftAction,
   submitAdvisorOrderCorrectionForReviewAction,
@@ -1516,6 +1518,15 @@ export default function AdvisorOrderComposer({
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
   const [crmContext, setCrmContext] = useState<AdvisorCrmOrderContext | null>(initialCrmContext);
   const [crmContextLoading, setCrmContextLoading] = useState(false);
+  const [catalogGiftLoading, setCatalogGiftLoading] = useState(false);
+  const [catalogGiftChoiceResult, setCatalogGiftChoiceResult] = useState<{ key: string; choices: Awaited<ReturnType<typeof resolveAdvisorCatalogGiftAction>> } | null>(null);
+  const catalogGiftKey = `${selectedClient?.id}:${selectedProductId}:${qty}`;
+  const catalogGiftChoices = catalogGiftChoiceResult?.key === catalogGiftKey ? catalogGiftChoiceResult.choices : [];
+  const catalogGiftBusyRef = useRef(false);
+  const catalogGiftSelectionRef = useRef('');
+  useEffect(() => {
+    catalogGiftSelectionRef.current = `${selectedClient?.id}:${selectedProductId}:${qty}`;
+  }, [selectedClient?.id, selectedProductId, qty]);
   const [recentClients, setRecentClients] = useState<RecentClientChip[]>([]);
   const [clientUsageById, setClientUsageById] = useState<Record<string, number>>({});
   const [isNewClientMode, setIsNewClientMode] = useState(false);
@@ -3094,9 +3105,9 @@ export default function AdvisorOrderComposer({
     );
   }
 
-  function applyCrmBenefitDraftItem(nextItem: DraftItem, editingLocalId: string | null) {
+  function applyCrmBenefitDraftItem(nextItem: DraftItem, editingLocalId: string | null, context = crmContext) {
     setDraftItems((current) => {
-      const selectionBase = crmContext?.benefitSelectionMode === 'single'
+      const selectionBase = context?.benefitSelectionMode === 'single'
         ? current.filter((item) => !item.crm_benefit || item.localId === editingLocalId)
         : current;
 
@@ -3110,14 +3121,14 @@ export default function AdvisorOrderComposer({
     });
   }
 
-  function selectCrmBenefitProduct(playBenefitId: number, playBenefitUpgradeId: number | null) {
-    if (!crmContext) return;
-    const benefit = crmContext.benefits.find((option) => option.playBenefitId === playBenefitId);
+  function selectCrmBenefitProduct(playBenefitId: number, playBenefitUpgradeId: number | null, context = crmContext) {
+    if (!context) return;
+    const benefit = context.benefits.find((option) => option.playBenefitId === playBenefitId);
     if (!benefit) return;
     const upgrade = playBenefitUpgradeId == null
       ? null
       : benefit.upgrades.find((option) => option.id === playBenefitUpgradeId) ?? null;
-    const nextItem = buildCrmBenefitDraftItem(crmContext, benefit, productById, playBenefitUpgradeId);
+    const nextItem = buildCrmBenefitDraftItem(context, benefit, productById, playBenefitUpgradeId);
     if (!nextItem) {
       setError('Ese producto ya no está disponible en el catálogo.');
       return;
@@ -3155,7 +3166,7 @@ export default function AdvisorOrderComposer({
       return;
     }
 
-    applyCrmBenefitDraftItem(nextItem, existingItem?.localId ?? null);
+    applyCrmBenefitDraftItem(nextItem, existingItem?.localId ?? null, context);
     clearMessages();
     setInfo(upgrade
       ? `${upgrade.name}: el cliente paga ${formatUsd(customerDifferenceUsd)} de diferencia si cumple la condición.`
@@ -3265,7 +3276,27 @@ export default function AdvisorOrderComposer({
     setConfigOpen(true);
   }
 
-  function addDraftItem() {
+  function applyCatalogGiftChoice(choice: Awaited<ReturnType<typeof resolveAdvisorCatalogGiftAction>>[number]) {
+    if (Number(selectedClient?.id) !== Number(choice.context.client.id)) return;
+    if (Math.abs(parseQuantityValue(qty) - choice.quantity) > 0.001) {
+      setError(`Este beneficio permite ${choice.quantity} unidad(es). Ajusta la cantidad.`);
+      return;
+    }
+    if (draftItems.some((item) => item.crm_benefit && (
+      choice.context.benefitSelectionMode !== 'multiple'
+      || item.crm_benefit.playMemberId !== choice.context.playMemberId
+      || item.crm_benefit.playBenefitId === choice.benefitId
+    ))) {
+      setError('Ya hay un beneficio en este pedido. Modifícalo desde su línea o retíralo antes de elegir otro.');
+      return;
+    }
+    setCatalogGiftChoiceResult(null);
+    setCrmContext(choice.context);
+    selectCrmBenefitProduct(choice.benefitId, choice.upgradeId, choice.context);
+  }
+
+  async function addDraftItem() {
+    if (catalogGiftBusyRef.current || crmContextLoading) return;
     clearMessages();
     if (!selectedProduct) {
       setError('Selecciona un producto.');
@@ -3298,6 +3329,36 @@ export default function AdvisorOrderComposer({
     ) {
       setError(availability.message || 'La cantidad supera el saldo protegido disponible para esa fecha.');
       return;
+    }
+
+    if (shouldResolveCatalogGift(selectedProduct)) {
+      if (!selectedClient) {
+        setError('Selecciona primero al cliente para comprobar si este obsequio pertenece a una jugada.');
+        return;
+      }
+      const selectionKey = catalogGiftSelectionRef.current;
+      const clientRequest = crmLookupRequestRef.current;
+      catalogGiftBusyRef.current = true;
+      setCatalogGiftLoading(true);
+      try {
+        const choices = await resolveAdvisorCatalogGiftAction({ clientId: Number(selectedClient.id), productId: selectedProduct.id, quantity });
+        if (selectionKey !== catalogGiftSelectionRef.current || clientRequest !== crmLookupRequestRef.current) return;
+        if (choices.length > 1) {
+          setCatalogGiftChoiceResult({ key: selectionKey, choices });
+          setInfo('Este obsequio coincide con varias jugadas. Elige cuál aplicar.');
+          return;
+        }
+        if (choices.length === 1) {
+          applyCatalogGiftChoice(choices[0]);
+          return;
+        }
+      } catch (lookupError) {
+        setError(lookupError instanceof Error ? lookupError.message : 'No se pudo comprobar el beneficio.');
+        return;
+      } finally {
+        catalogGiftBusyRef.current = false;
+        setCatalogGiftLoading(false);
+      }
     }
 
     if (productNeedsConfiguration(selectedProduct)) {
@@ -3842,6 +3903,10 @@ export default function AdvisorOrderComposer({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (catalogGiftBusyRef.current || catalogGiftChoices.length > 0) {
+      setError('Termina de seleccionar la jugada del obsequio antes de guardar.');
+      return;
+    }
     if (savingOrderRef.current) return;
 
     clearMessages();
@@ -4650,6 +4715,7 @@ export default function AdvisorOrderComposer({
           <button
             type="button"
             onClick={addDraftItem}
+            disabled={catalogGiftLoading || crmContextLoading}
             className={[
               'h-10 rounded-[14px] text-sm font-medium',
               itemJustAdded
@@ -4659,8 +4725,19 @@ export default function AdvisorOrderComposer({
                   : 'border border-[#232632] text-[#F5F7FB]',
             ].join(' ')}
           >
-            {itemJustAdded ? 'Item agregado' : 'Confirmar item'}
+            {catalogGiftLoading ? 'Comprobando jugada…' : itemJustAdded ? 'Item agregado' : 'Confirmar item'}
           </button>
+
+          {catalogGiftChoices.length > 1 ? (
+            <div className="rounded-xl border border-[#564511] p-2 text-sm" aria-label="Elegir jugada para el obsequio">
+              <p>¿A qué jugada corresponde?</p>
+              {catalogGiftChoices.map((choice) => (
+                <button key={`${choice.context.playMemberId}-${choice.benefitId}-${choice.upgradeId}`} type="button"
+                  className="m-1 rounded-lg border border-[#564511] px-3 py-2 text-[#FFF18B]"
+                  onClick={() => applyCatalogGiftChoice(choice)}>{choice.context.playName} · {choice.context.benefits.find((b) => b.playBenefitId === choice.benefitId)?.name}</button>
+              ))}
+            </div>
+          ) : null}
 
           {draftItems.length === 0 ? (
             <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">

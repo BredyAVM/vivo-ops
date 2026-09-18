@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
 import { loadAdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context';
+import { decideCatalogGift, type CatalogGiftCandidate } from '@/lib/crm/catalog-gift';
 import { readEventBudgetPayload } from '@/lib/events/event-budget';
 import {
   sanitizeOrderChangeDetails,
@@ -834,6 +835,38 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
   revalidatePath('/app/master/dashboard');
 
   return { ok: true as const, lastModifiedAt: nowIso };
+}
+
+export async function resolveAdvisorCatalogGiftAction(input: { clientId: number; productId: number; quantity: number }) {
+  const ctx = await requireAuthContext();
+  if (!Number.isSafeInteger(input.clientId) || input.clientId <= 0
+    || !Number.isSafeInteger(input.productId) || input.productId <= 0
+    || !Number.isFinite(input.quantity) || input.quantity <= 0) throw new Error('Selección inválida.');
+  const { data, error } = await ctx.supabase.rpc('crm_resolve_catalog_gift_v1', {
+    p_client_id: input.clientId, p_product_id: input.productId,
+  });
+  if (error || !Array.isArray(data)) throw new Error('No se pudo comprobar la jugada. Intenta nuevamente antes de agregar este obsequio.');
+  const candidates: CatalogGiftCandidate[] = data.map((row) => ({
+    play_member_id: Number(row.play_member_id), play_benefit_id: Number(row.play_benefit_id),
+    play_benefit_upgrade_id: row.play_benefit_upgrade_id == null ? null : Number(row.play_benefit_upgrade_id),
+    benefit_status: String(row.benefit_status), quantity: Number(row.quantity),
+  }));
+  const decision = decideCatalogGift(candidates, input.quantity);
+  if (decision.kind === 'unavailable') throw new Error('Este beneficio ya está reservado o aplicado. Revisa el pedido existente para no duplicarlo.');
+  if (decision.kind === 'invalid_quantity') throw new Error('Agrega el beneficio con la cantidad indicada por la jugada, una sola vez.');
+  if (decision.kind === 'discretionary') return [];
+  const matches = decision.kind === 'match' ? [decision.candidate] : decision.candidates;
+  return Promise.all(matches.map(async (candidate) => {
+    const context = await loadAdvisorCrmOrderContext({
+      supabase: ctx.supabase, advisorUserId: ctx.user.id, clientId: input.clientId,
+      playMemberId: candidate.play_member_id,
+    });
+    if (!context || !context.benefits.some((benefit) => benefit.playBenefitId === candidate.play_benefit_id
+      && (candidate.play_benefit_upgrade_id == null || benefit.upgrades.some((u) => u.id === candidate.play_benefit_upgrade_id)))) {
+      throw new Error('La jugada cambió. Actualiza la pantalla para revisar el beneficio disponible.');
+    }
+    return { context, benefitId: candidate.play_benefit_id, upgradeId: candidate.play_benefit_upgrade_id, quantity: candidate.quantity };
+  }));
 }
 
 export async function prepareAdvisorCrmPlayBenefitsAction(input: {
