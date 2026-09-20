@@ -31,6 +31,7 @@ import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validati
 import { MASTER_OPS_ORDER_PAYMENT_METHODS } from "./order-editor-payment";
 import type { MasterCrmOrderContext } from "@/lib/crm/advisor-order-context-types";
 import { resolveCrmOrderBenefit } from "@/lib/crm/master-order-benefit";
+import MasterOpsGiftAppend from "./MasterOpsGiftAppend";
 
 type Props = {
   mode?: "create" | "edit";
@@ -1100,7 +1101,7 @@ export default function MasterOpsOrderEditor({
               {isCreateMode
                 ? "Nuevo pedido"
                 : form
-                  ? `Modificar orden #${formatOrderDisplayNumber(form.id)}`
+                  ? `${form.status === "out_for_delivery" ? "Agregar obsequio · Orden" : "Modificar orden"} #${formatOrderDisplayNumber(form.id)}`
                   : "Modificar orden"}
             </div>
             <div className="mt-0.5 text-xs text-[#8A8A96]">
@@ -1122,9 +1123,22 @@ export default function MasterOpsOrderEditor({
           <div className="flex flex-1 items-center justify-center text-sm text-[#B7B7C2]">Cargando editor...</div>
         ) : null}
 
-        {!loading && form ? (
+        {!loading && form?.status === "out_for_delivery" && data ? (
+          <div className="overflow-y-auto px-5 py-4">
+            <MasterOpsGiftAppend key={data.order.id} order={data.order}
+              catalog={data.catalogItems} disabled={false} onSaved={onSaved} />
+          </div>
+        ) : null}
+
+        {!loading && form && form.status !== "out_for_delivery" ? (
           <form className="flex min-h-0 flex-1 flex-col" onSubmit={saveOrder}>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {!isCreateMode && data ? <MasterOpsGiftAppend key={data.order.id}
+                order={data.order} catalog={data.catalogItems} onSaved={onSaved}
+                disabled={saving || JSON.stringify(form) !== JSON.stringify({
+                  ...data.order,
+                  paymentCurrency: getPaymentReportCurrency(data.order.paymentMethod) ?? data.order.paymentCurrency,
+                })} /> : null}
               <div className="grid gap-4 xl:grid-cols-[0.95fr_1.25fr]">
                 <div className="space-y-4">
                   <Section title="Cliente y origen">

@@ -2614,6 +2614,29 @@ export async function updateMasterOpsOrderAction(input: MasterOpsOrderUpdateInpu
   return result;
 }
 
+export async function appendMasterOpsGiftAction(input: {
+  orderId: number; productId: number; qty: number; expectedLastModifiedAt: string | null;
+  operationId: string; reason: string;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const { data, error } = await ctx.supabase.rpc("master_append_zero_price_gift_v1", {
+    p_order_id: input.orderId, p_product_id: input.productId, p_qty: input.qty,
+    p_expected_last_modified_at: input.expectedLastModifiedAt,
+    p_operation_id: input.operationId, p_reason: input.reason,
+  });
+  if (error) {
+    console.warn("master append gift rejected", { code: error.code, message: error.message, orderId: input.orderId });
+    // Expected business errors are returned, not thrown/redacted by Server Actions.
+    const businessError = ["22023", "40001", "42501", "55000", "P0002", "P0001"].includes(error.code);
+    return { ok: false as const, message: businessError ? error.message :
+      "No se pudo agregar el obsequio. No se guardaron cambios; vuelve a abrir la orden e inténtalo otra vez." };
+  }
+  revalidatePath("/app/master/ops");
+  revalidatePath("/app/kitchen");
+  revalidatePath("/app/advisor");
+  return { ok: true as const, inventoryStatus: String(data?.inventory_status || "pending_dispatch") };
+}
+
 async function loadMasterOpsOrderComposerLookups(
   ctx: Awaited<ReturnType<typeof requireMasterOrAdminContext>>
 ) {
