@@ -14,6 +14,7 @@ import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicate
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
+import { searchClientSummaries } from '@/lib/search/client-search';
 import { formatOrderDisplayLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { isOrderPriceProtected } from '@/lib/domain/order-domain';
 import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
@@ -6755,7 +6756,7 @@ export async function searchMasterOrdersAction(input: { query: string; limit?: n
   const { supabase } = await requireMasterOrAdmin();
   const query = normalizeRemoteSearchValue(input.query);
 
-  if (query.length < 2) {
+  if (query.length < 2 && !/^\d+$/.test(query)) {
     return [];
   }
 
@@ -6769,7 +6770,7 @@ export async function searchMasterOrdersAction(input: { query: string; limit?: n
 
   let matchedRows = (data ?? []) as Array<Record<string, unknown>>;
 
-  if (/^\d+$/.test(query)) {
+  if (/^\d+$/.test(query) && Number.isSafeInteger(Number(query))) {
     const numericQuery = Number(query);
     const { data: directRows, error: directError } = await supabase
       .from('orders')
@@ -6873,6 +6874,15 @@ export async function searchMasterOrdersAction(input: { query: string; limit?: n
       operationalDate: getOrderOperationalDate(source),
     };
   });
+}
+
+export async function searchMasterDirectoryAction(input: { query: string; limit?: number }) {
+  const { supabase } = await requireMasterOrAdmin();
+  const [orders, clients] = await Promise.all([
+    searchMasterOrdersAction(input),
+    searchClientSummaries(supabase, input.query, 8),
+  ]);
+  return { orders, clients };
 }
 
 export async function loadClientStatsAction() {

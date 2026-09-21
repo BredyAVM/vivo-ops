@@ -2,6 +2,10 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import MasterClientSearchResults from "../_components/MasterClientSearchResults";
+import type { ClientSearchSummary } from "@/lib/search/client-search";
+import { matchesPhoneSearch } from "@/lib/search/phone-search";
+import { searchMasterDirectoryAction } from "../dashboard/actions";
 import { useOrderCancellationPreview } from "@/lib/orders/use-order-cancellation-preview";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
@@ -77,7 +81,6 @@ import {
   loadMasterOpsPaymentSuggestionAction,
   selectMasterOpsOrderInventoryRouteAction,
   settleMasterOpsClientFundPayoutAction,
-  searchMasterOpsOrdersAction,
   type MasterOpsOrderDetailPayload,
   type MasterOpsOrderChangeEvent,
   type MasterOpsOrderInventoryPreview,
@@ -3858,6 +3861,7 @@ export default function MasterOpsClient({
   const [isOrderSearchSubmitted, setIsOrderSearchSubmitted] = useState(false);
   const [orderSearchSubmissionVersion, setOrderSearchSubmissionVersion] = useState(0);
   const [remoteOrderSearchResults, setRemoteOrderSearchResults] = useState<MasterOpsOrderSearchResult[]>([]);
+  const [clientSearchResults, setClientSearchResults] = useState<ClientSearchSummary[]>([]);
   const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
   const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
@@ -4083,7 +4087,8 @@ export default function MasterOpsClient({
         order.advisorName,
         order.address,
       ].map(normalizeSearchText);
-      const matched = values.some((value) => value.includes(query));
+      const matched = values.some((value) => value.includes(query))
+        || matchesPhoneSearch(query, order.clientPhone, order.receiverPhone);
       if (!matched) return;
 
       results.push({
@@ -4229,6 +4234,7 @@ export default function MasterOpsClient({
 
     if (!shouldSearchOrders) {
       setRemoteOrderSearchResults([]);
+      setClientSearchResults([]);
       setRemoteOrderSearchLoading(false);
       setRemoteOrderSearchError(null);
       return;
@@ -4236,13 +4242,16 @@ export default function MasterOpsClient({
 
     let cancelled = false;
     setRemoteOrderSearchLoading(true);
+    setRemoteOrderSearchResults([]);
+    setClientSearchResults([]);
     setRemoteOrderSearchError(null);
 
     const timer = window.setTimeout(() => {
-      searchMasterOpsOrdersAction({ query, limit: 10 })
+      searchMasterDirectoryAction({ query, limit: 10 })
         .then((results) => {
           if (cancelled) return;
-          setRemoteOrderSearchResults(results as MasterOpsOrderSearchResult[]);
+          setRemoteOrderSearchResults(results.orders as MasterOpsOrderSearchResult[]);
+          setClientSearchResults(results.clients);
         })
         .catch((error) => {
           if (cancelled) return;
@@ -4946,7 +4955,7 @@ export default function MasterOpsClient({
               Buscar
             </button>
             {isOrderSearchSubmitted ? (
-              <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D] shadow-2xl">
+              <div className="absolute z-20 mt-2 max-h-[65dvh] w-full overflow-y-auto rounded-2xl border border-[#242433] bg-[#0B0B0D] shadow-2xl">
                 {shouldSearchOrders ? mergedOrderSearchResults.map((result) => (
                   <button
                     key={`${result.source}-${result.id}`}
@@ -4963,6 +4972,7 @@ export default function MasterOpsClient({
                     <div className="mt-0.5 text-xs text-[#B7B7C2]">{result.sub}</div>
                   </button>
                 )) : null}
+                {shouldSearchOrders ? <MasterClientSearchResults clients={clientSearchResults} /> : null}
                 {!shouldSearchOrders ? (
                   <div className="px-4 py-3 text-xs text-[#8A8A96]">
                     Escribe al menos 2 caracteres o un numero corto de orden.
@@ -4973,9 +4983,9 @@ export default function MasterOpsClient({
                     Buscando en historial...
                   </div>
                 ) : null}
-                {shouldSearchOrders && !remoteOrderSearchLoading && !remoteOrderSearchError && mergedOrderSearchResults.length === 0 ? (
+                {shouldSearchOrders && !remoteOrderSearchLoading && !remoteOrderSearchError && mergedOrderSearchResults.length === 0 && clientSearchResults.length === 0 ? (
                   <div className="border-t border-[#242433] px-4 py-3 text-xs text-[#8A8A96]">
-                    No encontramos pedidos por numero corto, cliente, telefono ni ubicador.
+                    No encontramos pedidos ni clientes por número, nombre o teléfono.
                   </div>
                 ) : null}
                 {shouldSearchOrders && remoteOrderSearchError ? (

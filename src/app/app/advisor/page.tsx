@@ -12,6 +12,8 @@ import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { isOpenOrderStatus, needsInitialOrderApproval, needsOrderReapproval } from '@/lib/domain/order-domain';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue, normalizeSearchValue } from '@/lib/search/normalize-search';
+import { matchesPhoneSearch } from '@/lib/search/phone-search';
+import { searchClientSummaries, type ClientSearchSummary } from '@/lib/search/client-search';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorCalendarStrip from './AdvisorCalendarStrip';
 import AdvisorSearchForm from './AdvisorSearchForm';
@@ -495,33 +497,20 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
 
   let searchResults: OrderRow[] = [];
+  let matchedClients: ClientSearchSummary[] = [];
+  let clientSearchError = '';
 
   if (searchCanRun) {
-    const localMatches = orders.filter((order) => orderSearchText(order).includes(normalizedSearchQuery));
+    const localMatches = orders.filter((order) => orderSearchText(order).includes(normalizedSearchQuery)
+      || matchesPhoneSearch(searchQuery, getOrderClient(order)?.phone));
     let remoteMatches: OrderRow[] = [];
-    const phoneSearchTerms = getPhoneSearchTerms(remoteSearchQuery)
-      .map((term) => term.replace(/[,%]/g, ' '))
-      .filter(Boolean)
-      .slice(0, 5);
-    const shouldSearchRemoteClients =
-      remoteSearchQuery.length >= 2 || phoneSearchTerms.some((term) => term.replace(/\D/g, '').length >= 4);
-
-    if (shouldSearchRemoteClients) {
-      const phoneFilters = phoneSearchTerms.map((term) => `phone.ilike.%${term}%`);
-      const { data: accentSafeClientMatches, error: accentSafeClientError } = await ctx.supabase.rpc('search_clients_unaccent', {
-        p_query: remoteSearchQuery,
-        p_limit: 18,
-      });
-
-      const clientMatches =
-        !accentSafeClientError && Array.isArray(accentSafeClientMatches)
-          ? accentSafeClientMatches
-          : (await ctx.supabase
-              .from('clients')
-              .select('id')
-              .or([`phone.ilike.%${remoteSearchQuery}%`, ...phoneFilters, `full_name.ilike.%${remoteSearchQuery}%`].join(','))
-              .order('id', { ascending: false })
-              .limit(18)).data;
+    if (remoteSearchQuery.length >= 2) {
+      try {
+        matchedClients = await searchClientSummaries(ctx.supabase, remoteSearchQuery, 18);
+      } catch {
+        clientSearchError = 'No se pudo consultar el directorio de clientes. Vuelve a buscar para reintentar.';
+      }
+      const clientMatches = matchedClients;
 
       const clientIds = Array.from(
         new Set(
@@ -713,7 +702,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           <div className="mt-3">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
               <span>
-                {displayedSearchResults.length} pedido{displayedSearchResults.length === 1 ? '' : 's'}
+                {displayedSearchResults.length} pedido{displayedSearchResults.length === 1 ? '' : 's'} · {matchedClients.length} cliente{matchedClients.length === 1 ? '' : 's'}
               </span>
               <Link href={`/app/advisor?day=${selectedDayKey}`} className="font-medium text-[#F7DA66]">
                 Limpiar
@@ -754,11 +743,34 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                   </Link>
                 ))}
               </div>
-            ) : searchCanRun ? (
+            ) : searchCanRun && matchedClients.length === 0 && !clientSearchError ? (
               <div className="rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#AAB2C5]">
                 Sin coincidencias.
               </div>
             ) : null}
+            {matchedClients.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs font-semibold text-[#8B93A7]">Clientes del directorio</p>
+                {matchedClients.map((client) => (
+                  <div key={client.id} className="flex items-center justify-between gap-3 rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-[#F5F7FB]">{client.full_name}</div>
+                      <div className="text-xs text-[#8B93A7]">{client.phone || 'Sin teléfono'}</div>
+                    </div>
+                    <Link className="shrink-0 text-xs font-semibold text-[#F7DA66]"
+                      href={withAdvisorReturnTo(
+                        client.primary_advisor_id === ctx.user.id
+                          ? '/app/advisor/clients/' + client.id
+                          : '/app/advisor/new?client=' + client.id,
+                        advisorHomeReturnTo
+                      )}>
+                      {client.primary_advisor_id === ctx.user.id ? 'Ver ficha' : 'Nuevo pedido'}
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {clientSearchError ? <p role="alert" className="mb-3 text-sm text-red-300">{clientSearchError}</p> : null}
           </div>
         ) : null}
       </section>

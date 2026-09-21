@@ -235,6 +235,13 @@ order by trigger_name;
 
 ## 10) Historial de decisiones
 
+* Búsqueda operativa (2026-09-21): órdenes y fichas de cliente son resultados
+  diferentes. El cliente no necesita una orden actual para aparecer; las compras
+  importadas se consultan desde su ficha bajo demanda. Teléfonos normalizados con
+  `search_phone_digits` en los RPC compartidos; número corto de orden prioritario,
+  sin ampliar RLS ni permisos del asesor. Contrato:
+  `docs/OPERATIONAL_SEARCH_CONTRACT_2026-09-21.md`.
+
 * `order_items.qty` (✅) en vez de `quantity`.
 * `orders.fulfillment` (✅) existe; no `fulfillment_type`.
 * `source` enum: `advisor | master | walk_in`.

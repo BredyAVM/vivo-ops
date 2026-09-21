@@ -2,6 +2,9 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import MasterClientSearchResults from '../_components/MasterClientSearchResults';
+import type { ClientSearchSummary } from '@/lib/search/client-search';
+import { matchesPhoneSearch } from '@/lib/search/phone-search';
 import { isCrmOnlyCatalogProduct } from '@/lib/crm/play-order';
 import { useOrderCancellationPreview } from '@/lib/orders/use-order-cancellation-preview';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -131,7 +134,7 @@ import {
   loadMasterClientCommercialProfileAction,
   loadClientStatsAction,
   searchClientsAction,
-  searchMasterOrdersAction,
+  searchMasterDirectoryAction,
   createMoneyAccountAction,
   toggleCatalogItemActiveAction,
   toggleClientActiveAction,
@@ -4925,6 +4928,7 @@ const [editIsActive, setEditIsActive] = useState(true);
   const [isOrderSearchSubmitted, setIsOrderSearchSubmitted] = useState(false);
   const [orderSearchSubmissionVersion, setOrderSearchSubmissionVersion] = useState(0);
   const [remoteOrderSearchResults, setRemoteOrderSearchResults] = useState<MasterOrderSearchResult[]>([]);
+  const [clientSearchResults, setClientSearchResults] = useState<ClientSearchSummary[]>([]);
   const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
   const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
@@ -5481,7 +5485,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           idText.startsWith(q) ||
           orderNumberText.includes(q) ||
           clientText.includes(q) ||
-          addressText.includes(q);
+          addressText.includes(q) ||
+          matchesPhoneSearch(q, o.clientPhone, o.editMeta?.receiverPhone);
 
         if (!matches) return null;
 
@@ -5546,6 +5551,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
     if (!shouldSearchOrders) {
       setRemoteOrderSearchResults([]);
+      setClientSearchResults([]);
       setRemoteOrderSearchLoading(false);
       setRemoteOrderSearchError(null);
       return;
@@ -5553,13 +5559,16 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
     let cancelled = false;
     setRemoteOrderSearchLoading(true);
+    setRemoteOrderSearchResults([]);
+    setClientSearchResults([]);
     setRemoteOrderSearchError(null);
 
     const timer = window.setTimeout(() => {
-      searchMasterOrdersAction({ query, limit: 10 })
+      searchMasterDirectoryAction({ query, limit: 10 })
         .then((results) => {
           if (cancelled) return;
-          setRemoteOrderSearchResults(results as MasterOrderSearchResult[]);
+          setRemoteOrderSearchResults(results.orders as MasterOrderSearchResult[]);
+          setClientSearchResults(results.clients);
         })
         .catch((error) => {
           if (cancelled) return;
@@ -15268,8 +15277,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   setSearch(e.target.value);
                   setIsOrderSearchSubmitted(false);
                 }}
-                placeholder="Buscar orden o cliente y presiona Enter"
-                aria-label="Buscar orden o cliente"
+                placeholder="Orden, cliente o teléfono y presiona Enter"
+                aria-label="Buscar orden, cliente o teléfono"
                 className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] py-1.5 pl-3.5 pr-24 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
               <button
@@ -15284,10 +15293,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 Buscar
               </button>
               {shouldSearchOrders && (mergedOrderSearchResults.length > 0 || remoteOrderSearchLoading || remoteOrderSearchError || isOrderSearchSubmitted) ? (
-                <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
+                <div className="absolute z-20 mt-2 max-h-[65dvh] w-full overflow-y-auto rounded-2xl border border-[#242433] bg-[#0B0B0D]">
                   {mergedOrderSearchResults.map((r) => (
                     <button
                       key={`${r.source}-${r.id}`}
+                      type="button"
                       className="w-full px-4 py-3 text-left hover:bg-[#121218]"
                       onClick={() => {
                         openSearchOrderResult(r);
@@ -15302,12 +15312,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <div className="mt-0.5 text-xs text-[#B7B7C2]">{r.sub}</div>
                     </button>
                   ))}
+                  <MasterClientSearchResults clients={clientSearchResults} />
                   {remoteOrderSearchLoading ? (
                     <div className="border-t border-[#242433] px-4 py-2 text-xs text-[#8A8A96]">
                       Buscando en historial...
                     </div>
                   ) : null}
-                  {!remoteOrderSearchLoading && !remoteOrderSearchError && mergedOrderSearchResults.length === 0 ? (
+                  {!remoteOrderSearchLoading && !remoteOrderSearchError && mergedOrderSearchResults.length === 0 && clientSearchResults.length === 0 ? (
                     <div className="border-t border-[#242433] px-4 py-3 text-xs text-[#8A8A96]">
                       Sin resultados para esta busqueda.
                     </div>
