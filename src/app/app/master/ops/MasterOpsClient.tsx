@@ -4153,6 +4153,10 @@ export default function MasterOpsClient({
 
   function openInboxOrder(item: MasterOpsInboxItem) {
     setInboxMode(null);
+    if (item.eventHref && /^\/app\/events\/\d+$/.test(item.eventHref)) {
+      router.push(item.eventHref);
+      return;
+    }
     const localOrder = orders.find((order) => order.id === item.orderId);
     if (localOrder) {
       openOrder(localOrder, item.openTab);
@@ -4763,6 +4767,7 @@ export default function MasterOpsClient({
                 </div>
 
                 <div className="contents xl:flex xl:min-w-0 xl:items-center xl:gap-2.5 xl:overflow-x-auto">
+                  <Link href="/app/events/ongoing" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Eventos</Link>
                   <Link
                     href="/app/master/ops/inventory"
                     prefetch={false}

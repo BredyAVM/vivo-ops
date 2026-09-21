@@ -2,6 +2,12 @@
 
 Fecha: 2026-08-21
 
+Actualización 2026-09-21: [ampliaciones y ficha compacta](EVENT_EXTENSIONS_IMPLEMENTATION_2026-09-21.md).
+El presupuesto inicial sigue siendo exclusivo de Administración. Las ampliaciones
+pueden ser solicitadas por el asesor asignado y aprobadas operativamente por Máster;
+precios y comisiones siempre requieren condiciones autorizadas por Administración.
+Consultar los límites pendientes de pagos conjuntos y viajes compartidos en ese documento.
+
 ## Decisión principal
 
 Un evento no es un producto comercial reutilizable del catálogo. Es una propuesta específica que solo Administración puede construir, cotizar y convertir en orden.

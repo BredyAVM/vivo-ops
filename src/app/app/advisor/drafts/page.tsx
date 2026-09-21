@@ -60,11 +60,12 @@ export default async function AdvisorDraftsPage() {
     .from('advisor_order_drafts')
     .select('id, status, title, client_id, client_snapshot, new_client_snapshot, total_usd, total_bs, fx_rate, quoted_at, updated_at, payload')
     .eq('advisor_user_id', ctx.user.id)
+    .is('payload->event_extension', null)
     .in('status', ['draft', 'quoted'])
     .order('updated_at', { ascending: false })
     .limit(80);
 
-  const drafts = (data ?? []) as DraftRow[];
+  const drafts = ((data ?? []) as DraftRow[]).filter(draft => !(draft.payload as Record<string, unknown> | null)?.event_extension);
 
   return (
     <div className="space-y-4">

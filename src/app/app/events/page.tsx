@@ -54,6 +54,8 @@ export default async function EventBudgetsPage() {
     ctx.supabase
       .from('advisor_order_drafts')
       .select('id, advisor_user_id, status, title, client_id, client_snapshot, new_client_snapshot, payload, quote_text, total_usd, total_bs, fx_rate, quoted_at, converted_order_id, converted_at, created_at, updated_at')
+      .eq('payload->event_budget->>kind', 'admin_event_budget')
+      .is('payload->event_extension', null)
       .order('updated_at', { ascending: false })
       .limit(250),
   ]);
@@ -97,6 +99,7 @@ export default async function EventBudgetsPage() {
     .filter((product) => product.id > 0);
 
   const drafts = (draftsResult.data ?? []).flatMap((draft) => {
+    if (object(draft.payload).event_extension) return [];
     const budget = readEventBudgetPayload(draft.payload);
     if (!budget) return [];
     const clientSnapshot = object(draft.client_snapshot);

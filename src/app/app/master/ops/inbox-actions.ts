@@ -23,6 +23,7 @@ export type MasterOpsInboxCategory = "approval" | "payments" | "changes" | "kitc
 export type MasterOpsInboxTab = "detalle" | "entrega" | "pagos" | "eventos" | "notas" | "ajustes" | "cambios";
 
 export type MasterOpsInboxItem = {
+  eventHref?: string;
   id: string;
   kind: MasterOpsInboxKind;
   orderId: number;
@@ -259,7 +260,7 @@ async function loadActionItems(limit: number): Promise<MasterOpsInboxPayload> {
     )
   `;
   const activeStatuses = ["created", "queued", "confirmed", "in_kitchen", "ready", "out_for_delivery"];
-  const [activeOrdersResult, pendingPaymentsResult, fundRequestsResult, modificationEventsResult] = await Promise.all([
+  const [activeOrdersResult, pendingPaymentsResult, fundRequestsResult, modificationEventsResult, eventWorkspacesResult] = await Promise.all([
     supabase
       .from("orders")
       .select(orderSelect)
@@ -284,6 +285,7 @@ async function loadActionItems(limit: number): Promise<MasterOpsInboxPayload> {
       .eq("event_type", "order_modified")
       .order("created_at", { ascending: false })
       .limit(Math.min(160, Math.max(80, limit * 4))),
+    supabase.rpc('event_workspace_read_v1', {}),
   ]);
 
   const queryError =
@@ -464,6 +466,19 @@ async function loadActionItems(limit: number): Promise<MasterOpsInboxPayload> {
     }
   }
 
+  if (!eventWorkspacesResult.error) {
+    for (const event of (eventWorkspacesResult.data ?? []) as Array<{ id: number; title: string; event_date: string; pending: number; converted_order_id: number | null }>) {
+      if (!event.converted_order_id || Number(event.pending) <= 0) continue;
+      items.push({
+        id: `event-extensions-${event.id}`, kind: 'actions', orderId: Number(event.converted_order_id),
+        eventHref: `/app/events/${event.id}`, operationalDate: event.event_date, clientName: event.title,
+        advisorName: '', deliveryLabel: event.event_date, title: 'Revisar ampliaciones del evento',
+        message: `${event.pending} solicitudes pendientes. Los precios los autoriza Administración.`,
+        badge: 'Evento', severity: 'warning', category: 'approval', openTab: 'detalle',
+        createdAt: `${event.event_date}T12:00:00-04:00`, detailLines: [], isUrgent: false, status: null,
+      });
+    }
+  }
   const priority: Record<MasterOpsInboxCategory, number> = {
     changes: 1,
     payments: 2,

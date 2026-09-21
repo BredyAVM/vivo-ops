@@ -24,6 +24,7 @@ function isTodayEvent(value: string) {
 }
 
 function actionHref(event: InboxEvent, activeFilter: InboxFilter) {
+  if (event.eventType.startsWith('event_extension_') && /^\/app\/events\/\d+$/.test(event.href ?? '')) return event.href!;
   const returnTo = `/app/advisor/inbox?filter=${activeFilter}`;
   if (event.href?.startsWith('/app/advisor/commissions')) {
     return withAdvisorReturnTo(event.href, returnTo);
@@ -40,6 +41,7 @@ function actionHref(event: InboxEvent, activeFilter: InboxFilter) {
 }
 
 function actionLabel(event: InboxEvent) {
+  if (event.eventType.startsWith('event_extension_')) return 'Ver evento';
   if (event.eventType === 'advisor_goal_finalized') return 'Ver resultado';
   if (event.eventType === 'advisor_goal_published' || event.eventType === 'advisor_goal_updated') {
     return 'Ver meta';

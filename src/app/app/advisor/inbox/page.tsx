@@ -204,6 +204,8 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         message: shortMessage(eventType, event.message, detailLines),
         eventType,
         createdAt: String(event.created_at || recipient.created_at || order.created_at),
+        href: eventType.startsWith('event_extension_') && Number(payload.event_root_id) > 0
+          ? `/app/events/${Number(payload.event_root_id)}` : undefined,
         detailLines,
         requiresAction,
         readAt: recipient.read_at,

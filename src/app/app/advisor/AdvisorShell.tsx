@@ -25,6 +25,7 @@ const navItems = [
   { href: '/app/advisor/plays', label: 'Jugadas' },
   { href: '/app/advisor/inventory', label: 'Disponibilidad' },
   { href: '/app/advisor/drafts', label: 'Borradores' },
+  { href: '/app/events/ongoing', label: 'Eventos y ampliaciones' },
   { href: '/app/advisor/payments', label: 'Pagos' },
   { href: '/app/advisor/commissions', label: 'Comisiones' },
   { href: '/app/advisor/settings', label: 'Configuración' },

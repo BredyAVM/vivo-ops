@@ -348,7 +348,7 @@ export async function saveEventBudgetAction(input: SaveEventBudgetInput) {
     }
     const { error } = await ctx.supabase
       .from('advisor_order_drafts')
-      .update(draftRow)
+      .update({ ...draftRow, payload: { ...object(existing.payload), ...payload } })
       .eq('id', draftId);
     if (error) throw new Error(error.message);
     revalidatePath('/app/events');

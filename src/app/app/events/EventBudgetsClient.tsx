@@ -322,6 +322,7 @@ export default function EventBudgetsClient({
             <p className="mt-1 max-w-3xl text-sm text-[#A7A7B3]">Arma una propuesta libre, congela su precio y comisión, asígnala al asesor y conviértela en orden cuando el cliente la acepte.</p>
           </div>
           <div className="flex gap-2">
+            <Link href="/app/events/ongoing" prefetch={false} className="rounded-xl border border-[#30303C] px-4 py-2.5 text-sm">Eventos y ampliaciones</Link>
             <button type="button" onClick={clearEditor} className="rounded-xl bg-[#FEEF00] px-4 py-2.5 text-sm font-bold text-black">Nuevo evento</button>
             <Link href="/app/master/dashboard" className="rounded-xl border border-[#30303C] px-4 py-2.5 text-sm">Volver</Link>
           </div>
