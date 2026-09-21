@@ -39,6 +39,7 @@ import {
   type OrderCommissionMode,
   type OrderCommissionTerms,
 } from '@/lib/commissions/order-commission-terms';
+import { resolveProductCommissionTerms } from '@/lib/commissions/product-commission-policy';
 import {
   getOrderCommercialNetUsd,
   getOrderLineTotalUsd,
@@ -10244,21 +10245,19 @@ function getAdvisorCommissionProduct(item: AdvisorCommissionOrderItemRow) {
 
 function getAdvisorCommissionItemTerms(
   item: AdvisorCommissionOrderItemRow,
-  overrides: Map<number, AdvisorCommissionItemTerms>
+  overrides: Map<number, AdvisorCommissionItemTerms>,
+  referenceDate?: string | null
 ): AdvisorCommissionItemTerms {
   const override = overrides.get(Number(item.id));
   if (override) return override;
 
   const product = getAdvisorCommissionProduct(item);
-  const rawMode = String(product?.commission_mode || 'default');
-  const mode: AdvisorCommissionItemTerms['mode'] =
-    rawMode === 'fixed_item' || rawMode === 'fixed_order' || rawMode === 'none'
-      ? rawMode
-      : 'default';
-  return {
-    mode,
-    value: product?.commission_value == null ? null : Math.max(0, toSafeNumber(product.commission_value, 0)),
-  };
+  return resolveProductCommissionTerms({
+    currentMode: product?.commission_mode,
+    currentValue: product?.commission_value,
+    extraFields: product?.extra_fields,
+    referenceDate,
+  });
 }
 
 function getAdvisorGiftCostUsd(product: ReturnType<typeof getAdvisorCommissionProduct>) {
@@ -10469,7 +10468,9 @@ function buildAdvisorCommissionSnapshots(params: {
     let fixedOrderBaseUsd = 0;
     let fixedOrderPct: number | null = null;
     const fixedOrderTerms = items
-      .map((item) => getAdvisorCommissionItemTerms(item, commissionTermsByOrderItemId))
+      .map((item) =>
+        getAdvisorCommissionItemTerms(item, commissionTermsByOrderItemId, deliveryDate)
+      )
       .find((terms) => terms.mode === 'fixed_order');
 
     if (fixedOrderTerms) {
@@ -10478,7 +10479,11 @@ function buildAdvisorCommissionSnapshots(params: {
     } else {
       for (const item of items) {
         const product = getAdvisorCommissionProduct(item);
-        const commissionTerms = getAdvisorCommissionItemTerms(item, commissionTermsByOrderItemId);
+        const commissionTerms = getAdvisorCommissionItemTerms(
+          item,
+          commissionTermsByOrderItemId,
+          deliveryDate
+        );
         const lineBaseUsd = Math.max(0, getOrderLineTotalUsd(item) * discountFactor);
         if (commissionTerms.mode === 'fixed_item') {
           const pct = Math.max(0, toSafeNumber(commissionTerms.value, 0));

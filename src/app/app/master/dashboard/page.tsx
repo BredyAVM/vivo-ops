@@ -14,9 +14,9 @@ import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances
 import {
   ORDER_COMMISSION_TERMS_KIND,
   EVENT_COMMISSION_TERMS_KIND,
-  normalizeOrderCommissionTerms,
   parseOrderCommissionAdjustmentPayload,
 } from '@/lib/commissions/order-commission-terms';
+import { resolveProductCommissionTerms } from '@/lib/commissions/product-commission-policy';
 import MasterDashboardClient from './MasterDashboardClient';
 
 export const dynamic = 'force-dynamic';
@@ -3083,6 +3083,9 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
   }));
 
   const catalogItemById = new Map(catalogItems.map((item) => [item.id, item]));
+  const rawProductById = new Map(
+    ((productsData ?? []) as RawProductRow[]).map((product) => [Number(product.id), product])
+  );
 
   const inventoryItems = ((inventoryItemsData ?? []) as RawInventoryItemRow[]).map((row) => ({
     id: Number(row.id),
@@ -3283,6 +3286,7 @@ const returnedToAdvisor = Boolean(row.extra_fields?.review?.returned_to_advisor)
 const draftItems = rowItems.map((item) => {
   const productId = Number(item.product_id);
   const catalogItem = catalogItemById.get(productId);
+  const rawProduct = rawProductById.get(productId);
   const qty = toNumber(item.qty, 0);
   const unitPriceUsdSnapshot = toNumber(item.unit_price_usd_snapshot, 0);
   const lineTotalUsd = toNumber(item.line_total_usd, unitPriceUsdSnapshot * qty);
@@ -3324,10 +3328,12 @@ const pricingOriginCurrency: 'VES' | 'USD' =
   const parsedEventCommissionAdjustment = parseOrderCommissionAdjustmentPayload(
     latestEventCommissionAdjustment?.payload
   );
-  const catalogCommissionTerms = normalizeOrderCommissionTerms(
-    catalogItem?.commissionMode,
-    catalogItem?.commissionValue
-  );
+  const catalogCommissionTerms = resolveProductCommissionTerms({
+    currentMode: catalogItem?.commissionMode,
+    currentValue: catalogItem?.commissionValue,
+    extraFields: rawProduct?.extra_fields,
+    referenceDate: deliveryAtISO,
+  });
   const inheritedCommissionTerms =
     parsedEventCommissionAdjustment?.terms ?? catalogCommissionTerms;
   const adminCommissionOverrideTerms =
