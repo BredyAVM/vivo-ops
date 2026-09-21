@@ -467,8 +467,17 @@ async function loadActionItems(limit: number): Promise<MasterOpsInboxPayload> {
   }
 
   if (!eventWorkspacesResult.error) {
-    for (const event of (eventWorkspacesResult.data ?? []) as Array<{ id: number; title: string; event_date: string; pending: number; converted_order_id: number | null }>) {
-      if (!event.converted_order_id || Number(event.pending) <= 0) continue;
+    for (const event of (eventWorkspacesResult.data ?? []) as Array<{ id: number; title: string; event_date: string; pending: number; payment_pending?: number; converted_order_id: number | null }>) {
+      if (!event.converted_order_id) continue;
+      if (Number(event.payment_pending) > 0) items.push({
+        id: `event-payment-${event.id}`, kind: 'actions', orderId: Number(event.converted_order_id),
+        eventHref: `/app/events/${event.id}`, operationalDate: event.event_date, clientName: event.title,
+        advisorName: '', deliveryLabel: event.event_date, title: 'Confirmar pago del evento',
+        message: 'Un solo pago distribuido entre las órdenes. Revisa el recibo completo.',
+        badge: 'Pago del evento', severity: 'warning', category: 'payments', openTab: 'detalle',
+        createdAt: `${event.event_date}T12:00:00-04:00`, detailLines: [], isUrgent: false, status: null,
+      });
+      if (Number(event.pending) <= 0) continue;
       items.push({
         id: `event-extensions-${event.id}`, kind: 'actions', orderId: Number(event.converted_order_id),
         eventHref: `/app/events/${event.id}`, operationalDate: event.event_date, clientName: event.title,

@@ -64,10 +64,11 @@ y de inventario no bloqueante, salvo protecciones manuales vigentes.
 
 Esta entrega NO completa toda la arquitectura discutida:
 
-1. **Pago único distribuido entre órdenes:** hoy hay lectura consolidada, pero el
-   registro sigue por orden. No duplicar un pago total en cada orden. Hace falta
-   incorporar asignación real, reversos, excedentes y referencias compartidas al
-   circuito financiero. El excedente de una orden no se netea automáticamente con otra.
+1. **Pago único distribuido entre órdenes: entrega posterior implementada.** Ver
+   [Pago consolidado del evento](EVENT_PAYMENTS_IMPLEMENTATION_2026-09-21.md).
+   Reporte único, confirmación y anulación completas, referencias compartidas y
+   asignación real al circuito financiero. Cambio, excedentes y retenciones siguen
+   por orden; no se netean automáticamente excedentes históricos entre órdenes.
 2. **Viajes compartidos y entregas parciales:** cada ampliación admite un delivery
    por viaje. No existe aún consolidación de varias ampliaciones en un mismo viaje;
    no cargar otro delivery si no corresponde un nuevo viaje. Retiro/transporte propio

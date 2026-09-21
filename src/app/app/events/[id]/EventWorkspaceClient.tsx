@@ -4,13 +4,15 @@ import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { eventRequestLabel, eventOrderLabel, summarizeEventOrders, type EventWorkspace, type EventTerms, type EventRate, type EventRequest } from '@/lib/events/event-workspace';
 import { eventWorkspaceCommand } from '../workspace-actions';
+import EventPayments from './EventPayments';
+import type { EventPaymentData } from '@/lib/events/event-payments';
 
 const field = 'w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm';
 const button = 'rounded-lg border border-zinc-700 px-3 py-2 text-sm disabled:opacity-40';
 const money = (value: number | null, currency = 'USD') => value == null ? 'Por definir' : `${currency === 'VES' ? 'Bs' : '$'} ${Number(value).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const emptyTerms: EventTerms = { currency: 'USD', commission_mode: 'default', commission_value: null, rates: [] };
 
-export default function EventWorkspaceClient({ data, admin, master }: { data: EventWorkspace; admin: boolean; master: boolean }) {
+export default function EventWorkspaceClient({ data, payments, paymentError, admin, master }: { data: EventWorkspace; payments: EventPaymentData | null; paymentError?: string; admin: boolean; master: boolean }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState('');
@@ -89,8 +91,9 @@ export default function EventWorkspaceClient({ data, admin, master }: { data: Ev
     </section>
     <details className="rounded-xl border border-zinc-800 p-4"><summary className="cursor-pointer font-semibold">Órdenes y cobranza · {data.orders.length}</summary>
       <div className="mt-3 space-y-2">{data.orders.map(order => <div key={order.order_id} className="flex flex-wrap justify-between gap-2 border-b border-zinc-800 py-2 text-sm"><Link href={orderHref(order.order_id)} className="text-yellow-300">{Number(order.order_id) === Number(data.root.converted_order_id) ? 'Inicial' : 'Ampliación'} · #{order.order_id}</Link><span>{eventOrderLabel[order.order_status] ?? order.order_status}</span><span>Total {money(order.total_usd)} · pendiente {money(order.pending_usd)}</span></div>)}</div>
-      <p className="mt-3 text-xs text-zinc-400">Los pagos se registran en sus órdenes. No registres el pago completo repetido en cada orden.</p>
+      <p className="mt-3 text-xs text-zinc-400">Puedes reportar un solo pago del evento abajo. No repitas ese mismo pago en cada orden.</p>
     </details>
+    {data.root.converted_order_id ? payments ? <EventPayments rootId={data.root.id} data={payments} admin={admin} master={master} /> : <p role="alert" className="text-sm text-red-300">No se pudieron cargar los pagos: {paymentError || 'Actualiza la pantalla.'}</p> : null}
     {admin ? <details className="rounded-xl border border-zinc-800 p-4"><summary className="cursor-pointer font-semibold">Condiciones de adicionales · solo Administración</summary><div className="mt-3 space-y-3">
       <CommercialFields value={terms} onChange={value => setTerms({ ...terms, ...value })} />
       <p className="text-xs text-zinc-400">La tarifa es por la unidad indicada. No se divide el presupuesto inicial para calcularla. Las solicitudes ya enviadas conservan sus condiciones.</p>
