@@ -99,8 +99,10 @@ varios reportes pendientes independientes dentro de cada orden.
 2. Productos configurables: integrar selección canónica de composición, sin
    inventar piezas ni habilitar Gambits indiscriminadamente.
 3. Conversión atómica del presupuesto inicial, preservando perfil y creación del cliente.
-4. Regularización histórica de 2667: requiere cantidades adicionales reales y
-   condiciones acordadas; no utilizar el flujo nuevo para simular una entrega pasada.
+La regularización histórica de 2667 se completó después de confirmar cantidades
+y condiciones: ampliación histórica 2782, 200 UND por US$111,20; evento consolidado
+450 UND por US$263,30, pendiente de pago. No se repitió cocina ni consumo actual.
+Detalle: [auditoría de regularización](EVENT_2667_HISTORICAL_EXTENSION_2026-09-21.md).
 
 Migraciones: `20260921145826_event_consolidated_payments_v1.sql`,
 `20260921151230_event_payment_account_rules_v1.sql` y
