@@ -11,6 +11,9 @@ export type AdvisorGoalCollectionSnapshotOrder = {
   totalUsd: number;
   confirmedPaidUsd: number;
   pendingUsd: number;
+  // Supplied only from canonical financial evidence for a settled order.
+  paymentTargetUsd?: number;
+  paymentTargetBs?: number;
 };
 
 export type AdvisorGoalCollectionOrderStatus =
@@ -33,6 +36,7 @@ export type AdvisorGoalPaymentRegistrationEntry = {
   orderId: number;
   registeredDate: string;
   amountUsd: number;
+  eligibleSnapshotBs?: number;
 };
 
 export type AdvisorGoalCollectionSummary = {
@@ -77,7 +81,8 @@ export function buildAdvisorGoalPaymentCompletionDates(params: {
   const completionDates = new Map<number, string>();
   for (const order of params.orders) {
     if (order.pendingUsd > 0.005) continue;
-    const targetUsd = Math.min(
+    const preciseTarget = order.paymentTargetUsd;
+    const targetUsd = preciseTarget ?? Math.min(
       Math.max(0, round(order.totalUsd, 2)),
       Math.max(0, round(order.confirmedPaidUsd, 2))
     );
@@ -87,12 +92,26 @@ export function buildAdvisorGoalPaymentCompletionDates(params: {
       left.registeredDate.localeCompare(right.registeredDate)
     );
     let accumulatedUsd = 0;
+    let accumulatedBs = 0;
     let completionDate: string | null = null;
+    // The indicator works by calendar day. Grouping also makes refunds/fund
+    // reversals on the same day independent of database result order.
+    const days = new Map<string, { usd: number; bs: number }>();
     for (const entry of entries) {
-      const wasComplete = accumulatedUsd >= targetUsd - 0.005;
-      accumulatedUsd = Math.max(0, round(accumulatedUsd + entry.amountUsd, 2));
-      const isComplete = accumulatedUsd >= targetUsd - 0.005;
-      if (!wasComplete && isComplete) completionDate = entry.registeredDate;
+      const day = days.get(entry.registeredDate) ?? { usd: 0, bs: 0 };
+      day.usd += entry.amountUsd;
+      day.bs += entry.eligibleSnapshotBs ?? 0;
+      days.set(entry.registeredDate, day);
+    }
+    const covered = () => accumulatedUsd >= targetUsd - (preciseTarget == null ? 0.005 : 1e-8)
+      || (order.paymentTargetBs != null && order.paymentTargetBs > 0
+        && accumulatedBs + 0.01 >= order.paymentTargetBs);
+    for (const [date, day] of days) {
+      const wasComplete = covered();
+      accumulatedUsd = round(accumulatedUsd + day.usd, 10);
+      accumulatedBs = round(accumulatedBs + day.bs, 10);
+      const isComplete = covered();
+      if (!wasComplete && isComplete) completionDate = date;
       if (wasComplete && !isComplete) completionDate = null;
     }
     if (completionDate) completionDates.set(order.orderId, completionDate);
@@ -109,7 +128,8 @@ export function calculateAdvisorGoalCollectionSummary(params: {
   const orders = params.orders.map((order) => {
     const completedPaymentRegistrationDate = completionDates.get(order.orderId) ?? null;
     const elapsed = elapsedDays(order.deliveryDate, completedPaymentRegistrationDate ?? params.asOfDate);
-    const value = calculateAdvisorCollectionOrderValue(
+    const missingRegistration = !completedPaymentRegistrationDate && order.pendingUsd <= 0.005;
+    const value = missingRegistration ? 0 : calculateAdvisorCollectionOrderValue(
       {
         deliveryDate: order.deliveryDate,
         completedPaymentRegistrationDate,
@@ -141,7 +161,7 @@ export function calculateAdvisorGoalCollectionSummary(params: {
   const ordersCount = orders.length;
   const punctualCount = orders.filter((order) => order.value === 1).length;
   const creditCount = orders.filter((order) => order.value === 0.8).length;
-  const overdueCount = ordersCount - punctualCount - creditCount;
+  const overdueCount = orders.filter((order) => order.status === 'overdue_paid' || order.status === 'overdue_open').length;
   return {
     ratio: ordersCount > 0 ? round(orders.reduce((sum, order) => sum + order.value, 0) / ordersCount) : 0,
     ordersCount,

@@ -36,7 +36,7 @@ function orderNote(order: AdvisorGoalCollectionOrderDetail) {
     return `Tiene ${Math.max(0, order.elapsedDays - 5)} día(s) fuera del plazo de cinco días.`;
   }
   if (order.status === 'missing_registration') {
-    return 'La cuenta aparece sin saldo, pero no existe una fecha de registro que permita clasificar el pago.';
+    return 'El pedido está pagado. Falta conciliar la evidencia para determinar la fecha de pago completo; no se clasifica como crédito ni como atraso.';
   }
   if (order.completedPaymentRegistrationDate) {
     return `Pago completo registrado el ${dateLabel(order.completedPaymentRegistrationDate)}.`;
@@ -121,6 +121,7 @@ export function AdvisorGoalCollectionBreakdown({
         <div className="rounded-xl border border-[#F0D000]/25 bg-[#F0D000]/5 px-3 py-3">
           <div className="text-xs font-semibold text-[#F7DA66]">
             {summary.punctualCount} puntuales × 100% + {summary.creditCount} con crédito × 80% + {summary.overdueCount} atrasados × 0%
+            {reviewOrders.length > 0 ? ` + ${reviewOrders.length} por verificar · sin puntos por ahora` : ''}
           </div>
           <div className="mt-1 text-[11px] leading-5 text-[#C9C3A0]">
             Entre {summary.ordersCount} pedidos, el resultado de cobranza es {(summary.ratio * 100).toFixed(1)}%

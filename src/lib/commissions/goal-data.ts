@@ -1,6 +1,7 @@
 import type { AuthContext } from '@/lib/auth';
 import { loadEligibleCommissionAdvisors } from './advisor-eligibility.ts';
 import {
+  buildAdvisorGoalPaymentCompletionDates,
   calculateAdvisorGoalCollectionSummary,
   type AdvisorGoalCollectionSnapshotOrder,
   type AdvisorGoalPaymentRegistrationEntry,
@@ -66,6 +67,8 @@ type MovementDbRow = {
   direction: string;
   movement_type: string;
   amount_usd_equivalent: number | string;
+  amount: number | string;
+  currency_code: string;
   movement_group_id: string | null;
   payment_report_id: number | string | null;
 };
@@ -74,12 +77,16 @@ type PaymentReportDbRow = {
   id: number | string;
   confirmed_movement_id: number | string | null;
   created_at: string;
+  operation_date: string | null;
 };
 
 type FinancialStateDbRow = {
   order_id: number | string;
   order_number: string | null;
   total_usd: number | string | null;
+  total_bs: number | string | null;
+  snapshot_rate_bs_per_usd: number | string | null;
+  confirmed_paid_bs_snapshot: number | string | null;
   confirmed_paid_usd: number | string | null;
   pending_usd: number | string | null;
   delivery_reference_date: string | null;
@@ -209,16 +216,17 @@ async function loadCollectionByAdvisorId(params: {
 
   for (let index = 0; index < uniqueOrderIds.length; index += 250) {
     const chunk = uniqueOrderIds.slice(index, index + 250);
-    const [movementsResult, reportsResult, fundResult, refundReceiptsResult, financialStatesResult] = await Promise.all([
+    const [movementsResult, reportsResult, fundResult, refundReceiptsResult, financialStatesResult, allocationsResult] = await Promise.all([
       params.supabase
         .from('money_movements')
-        .select('id, order_id, created_at, direction, movement_type, amount_usd_equivalent, movement_group_id, payment_report_id')
+        .select('id, order_id, created_at, direction, movement_type, amount_usd_equivalent, amount, currency_code, movement_group_id, payment_report_id')
         .in('order_id', chunk)
         .eq('status', 'confirmed'),
       params.supabase
         .from('payment_reports')
-        .select('id, confirmed_movement_id, created_at')
+        .select('id, confirmed_movement_id, created_at, operation_date')
         .in('order_id', chunk)
+        .eq('status', 'confirmed')
         .not('confirmed_movement_id', 'is', null),
       params.supabase
         .from('client_fund_movements')
@@ -234,12 +242,16 @@ async function loadCollectionByAdvisorId(params: {
         p_operation_date: null,
         p_active_bs_rate: null,
       }),
+      params.supabase.from('order_payment_precision_allocations')
+        .select('movement_id, applied_usd')
+        .in('order_id', chunk),
     ]);
     if (movementsResult.error) throw new Error(movementsResult.error.message);
     if (reportsResult.error) throw new Error(reportsResult.error.message);
     if (fundResult.error) throw new Error(fundResult.error.message);
     if (refundReceiptsResult.error) throw new Error(refundReceiptsResult.error.message);
     if (financialStatesResult.error) throw new Error(financialStatesResult.error.message);
+    if (allocationsResult.error) throw new Error(allocationsResult.error.message);
 
     for (const state of (financialStatesResult.data ?? []) as FinancialStateDbRow[]) {
       const orderId = Number(state.order_id);
@@ -247,6 +259,10 @@ async function loadCollectionByAdvisorId(params: {
     }
 
     const reports = (reportsResult.data ?? []) as PaymentReportDbRow[];
+    const reportByMovementId = new Map(reports.map((report) => [Number(report.confirmed_movement_id), report]));
+    const appliedUsdByMovementId = new Map(
+      (allocationsResult.data ?? []).map((allocation) => [Number(allocation.movement_id), numberValue(allocation.applied_usd)])
+    );
     const reportDateById = new Map(
       reports.map((report) => [Number(report.id), caracasDate(report.created_at)])
     );
@@ -263,8 +279,10 @@ async function loadCollectionByAdvisorId(params: {
 
     for (const movement of (movementsResult.data ?? []) as MovementDbRow[]) {
       const orderId = Number(movement.order_id);
-      const amountUsd = Math.max(0, numberValue(movement.amount_usd_equivalent));
       const isInflow = movement.direction === 'inflow';
+      const amountUsd = Math.max(0, isInflow
+        ? appliedUsdByMovementId.get(Number(movement.id)) ?? numberValue(movement.amount_usd_equivalent)
+        : numberValue(movement.amount_usd_equivalent));
       const isReduction = movement.direction === 'outflow' && (
         movement.movement_type === 'change_given'
         || (
@@ -279,7 +297,19 @@ async function loadCollectionByAdvisorId(params: {
           : reportDateById.get(Number(movement.payment_report_id))
       ) ?? reportDateByMovementId.get(Number(movement.id)) ?? caracasDate(movement.created_at);
       if (!registeredDate || amountUsd <= 0.005) continue;
-      entries.push({ orderId, registeredDate, amountUsd: isInflow ? amountUsd : -amountUsd });
+      const state = financialStateByOrderId.get(orderId);
+      const report = reportByMovementId.get(Number(movement.id));
+      const snapshotRate = numberValue(state?.snapshot_rate_bs_per_usd);
+      const operationDate = report?.operation_date || (report ? caracasDate(report.created_at) : '');
+      const eligibleReport = isInflow && report && operationDate
+        && (!state?.delivery_reference_date || operationDate <= state.delivery_reference_date);
+      // Native coverage uses the validated movement, never an uncorrected
+      // reported amount. Registration time still belongs to the linked report.
+      const nativeBs = movement.currency_code === 'VES' ? numberValue(movement.amount)
+        : numberValue(movement.amount_usd_equivalent) * snapshotRate;
+      const eligibleSnapshotBs = eligibleReport
+        ? nativeBs : isReduction ? -nativeBs : 0;
+      entries.push({ orderId, registeredDate, amountUsd: isInflow ? amountUsd : -amountUsd, eligibleSnapshotBs });
     }
 
     for (const movement of fundResult.data ?? []) {
@@ -296,23 +326,54 @@ async function loadCollectionByAdvisorId(params: {
     }
   }
 
+  const currentOrdersByAdvisorId = new Map(Array.from(ordersByAdvisorId, ([advisorId, orders]) => [
+    advisorId,
+    orders.map((order) => {
+      const state = financialStateByOrderId.get(order.orderId);
+      return state ? {
+        ...order,
+        orderNumber: state.order_number ?? order.orderNumber,
+        deliveryDate: state.delivery_reference_date || order.deliveryDate,
+        totalUsd: numberValue(state.total_usd) || order.totalUsd,
+        confirmedPaidUsd: numberValue(state.confirmed_paid_usd),
+        pendingUsd: numberValue(state.pending_usd),
+      } : order;
+    }),
+  ]));
+  const currentOrders = Array.from(currentOrdersByAdvisorId.values()).flat();
+  const completed = buildAdvisorGoalPaymentCompletionDates({ orders: currentOrders, entries });
+  const ordersWithEntries = new Set(entries.filter((entry) => entry.amountUsd > 0).map((entry) => entry.orderId));
+  const unresolved = currentOrders.filter((order) => order.pendingUsd <= 0.005
+    && order.confirmedPaidUsd > 0 && !completed.has(order.orderId) && ordersWithEntries.has(order.orderId));
+  // Fetch the existing canonical precision basis only for settled orders whose
+  // dated ledger does not cover the displayed (rounded) invoice. Never invent a
+  // payment date or increase a generic money tolerance to hide missing evidence.
+  for (let index = 0; index < unresolved.length; index += 10) {
+    await Promise.all(unresolved.slice(index, index + 10).map(async (order) => {
+      const result = await params.supabase.rpc('order_collection_precision_basis_v1', { p_order_id: order.orderId });
+      if (result.error) throw new Error(result.error.message);
+      const basis = result.data?.[0];
+      if (basis?.total_precise_usd != null && numberValue(basis.total_precise_usd) > 0) {
+        order.paymentTargetUsd = numberValue(basis.total_precise_usd);
+      } else {
+        const state = financialStateByOrderId.get(order.orderId);
+        // Legacy invoices can be fully covered by their native VES quote even
+        // when the cash equivalent is a cent below their displayed USD total.
+        if (state && numberValue(state.total_bs) > 0
+          && numberValue(state.confirmed_paid_usd) >= order.totalUsd
+          && numberValue(state.confirmed_paid_bs_snapshot) + 0.01 >= numberValue(state.total_bs)) {
+          order.paymentTargetBs = numberValue(state.total_bs);
+        }
+      }
+    }));
+  }
+
   const asOfDate = [caracasDate(new Date()), params.cutoffDate].sort()[0];
   return new Map(
-    Array.from(ordersByAdvisorId.entries()).map(([advisorUserId, orders]) => [
+    Array.from(currentOrdersByAdvisorId.entries()).map(([advisorUserId, orders]) => [
       advisorUserId,
       calculateAdvisorGoalCollectionSummary({
-        orders: orders.map((order) => {
-          const state = financialStateByOrderId.get(order.orderId);
-          if (!state) return order;
-          return {
-            ...order,
-            orderNumber: state.order_number ?? order.orderNumber,
-            deliveryDate: state.delivery_reference_date || order.deliveryDate,
-            totalUsd: numberValue(state.total_usd) || order.totalUsd,
-            confirmedPaidUsd: numberValue(state.confirmed_paid_usd),
-            pendingUsd: numberValue(state.pending_usd),
-          };
-        }),
+        orders,
         entries,
         asOfDate,
       }),
