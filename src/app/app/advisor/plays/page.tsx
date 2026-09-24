@@ -733,6 +733,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
               <Link
                 key={String(member.id)}
                 href={detailHref}
+                prefetch={false}
                 aria-label={`${clientName}. ${presentation.label}. ${purchaseCount} cierres. ${daysSincePurchase == null ? 'Sin compra registrada' : `${daysSincePurchase} días desde la última compra`}.`}
                 title={timingTitle}
                 className={[

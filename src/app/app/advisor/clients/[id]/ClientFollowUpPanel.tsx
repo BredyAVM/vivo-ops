@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import {
   recordClientPlayFollowUpAction,
@@ -25,7 +24,6 @@ type ManualAction = {
 };
 
 export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
-  const router = useRouter();
   const [note, setNote] = useState('');
   const [followUpAt, setFollowUpAt] = useState('');
   const [pendingAction, setPendingAction] = useState<PlayFollowUpAction | null>(null);
@@ -71,7 +69,6 @@ export default function ClientFollowUpPanel(props: ClientFollowUpPanelProps) {
       setNote('');
       if (action === 'follow_up') setFollowUpAt('');
       setPendingAction(null);
-      router.refresh();
     });
   }
 

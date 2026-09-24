@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
 import { renderPlayMessage } from '@/lib/crm/play-message';
 import { recordClientPlayFollowUpAction } from './actions';
@@ -20,7 +19,6 @@ type Props = {
 };
 
 export default function PlayMessageCard(props: Props) {
-  const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [resultMessage, setResultMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -59,7 +57,6 @@ export default function PlayMessageCard(props: Props) {
       });
 
       setResultMessage({ tone: result.ok ? 'success' : 'danger', text: result.message });
-      if (result.ok) router.refresh();
     });
   }
 

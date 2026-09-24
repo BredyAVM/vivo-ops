@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { recordClientPlayFollowUpAction } from './actions';
 
@@ -12,7 +11,6 @@ type Props = {
 };
 
 export default function WhatsAppContactButton(props: Props) {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -31,8 +29,6 @@ export default function WhatsAppContactButton(props: Props) {
         setError(result.message);
         return;
       }
-
-      router.refresh();
     });
   }
 

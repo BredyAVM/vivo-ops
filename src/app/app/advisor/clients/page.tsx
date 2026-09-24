@@ -385,6 +385,7 @@ export default async function AdvisorClientsPage({ searchParams }: { searchParam
                   <div className="min-w-0">
                     <Link
                       href={`/app/advisor/clients/${row.client_id}?returnTo=${encodeURIComponent(portfolioHref(routeState, {}))}`}
+                      prefetch={false}
                       className="block truncate text-[15px] font-semibold text-[#F5F7FB] underline decoration-[#4C5260] underline-offset-4"
                     >
                       {row.client_name?.trim() || 'Cliente sin nombre'}
