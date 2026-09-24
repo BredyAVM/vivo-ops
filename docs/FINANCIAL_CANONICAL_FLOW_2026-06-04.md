@@ -86,6 +86,7 @@ Invariante tecnica obligatoria:
 - antes o durante el dia de entrega, la pantalla de cobro en VES consume directamente el `pending_bs` del estado financiero canonico;
 - si existe un abono parcial en USD, su cobertura en Bs se valora con la tasa snapshot almacenada, nunca con el cociente entre totales;
 - si existe un abono parcial en VES, se descuenta su monto VES confirmado de forma directa;
+- si una edicion del pedido cambia la tasa snapshot despues de un abono VES, su cobertura nativa sigue siendo el importe Bs realmente confirmado. Antes o durante el dia de entrega no se reconstruye ese abono multiplicando su cobertura USD historica por la nueva tasa; la coincidencia entre tasa activa y tasa snapshot tampoco habilita esa reconversion;
 - un pago VES por el `pending_bs` exacto aplica el `pending_usd` canonico completo para que el redondeo contable no deje un residuo artificial, sin importar si el pago fue registrado por Counter, asesor, Master o Administración;
 - si la suma confirmada y elegible en Bs cubrió el snapshot VES antes o durante el día de entrega, `pending_bs` y `pending_usd` deben cerrar juntos; el equivalente USD redondeado de los movimientos no puede reabrir un centavo ficticio después.
 
@@ -119,6 +120,15 @@ El equivalente USD presentado con dos decimales no se reutiliza como base de con
 - No se recalculan retrospectivamente ordenes con pagos, movimientos o aplicaciones de fondo anteriores a esta version. Los snapshots incompletos conservan el tratamiento anterior hasta una regularizacion explicita.
 
 Contrato tecnico y alcance: `docs/ORDER_COLLECTION_PRECISION_2026-09-14.md`.
+
+La cotizacion VES del periodo snapshot y la cobertura USD certificada conservan
+sus propias bases: un abono VES de Bs 12.650 a tasa 853,50, seguido de una
+ampliacion a Bs 14.950 con snapshot 854,46, deja Bs 2.300 para cobrar por Punto
+o efectivo VES. El equivalente USD historico del abono no se reescribe; por eso
+el saldo USD mostrado no tiene que reconstruir ese saldo Bs al multiplicarlo
+por la nueva tasa. Cobrar los Bs 2.300 cotizados aplica la cobertura canonica
+completa, sin fondo ficticio ni diferencia pendiente. Regresion verificable:
+`tests/admin/snapshot-native-ves-balance.rollback.sql`.
 
 Regla critica: ninguna pantalla debe inventar su propio calculo de saldo. Master, asesor, pagos y detalle deben consumir el mismo resultado canonico.
 

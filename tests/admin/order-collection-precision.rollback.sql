@@ -14,6 +14,11 @@ insert into public.orders(id,order_number,source,fulfillment,status,client_id,to
 select id,'ROLLBACK-PRECISION-'||id,'master','pickup','ready',9000010001,2.61,2200,
   '{"pricing":{"total_usd":2.61,"total_bs":2200,"fx_rate":842.21},"schedule":{"date":"2026-09-01"}}'
 from generate_series(9000010001::bigint,9000010015::bigint) id;
+-- Creation uses the live catalog FX. Establish these historical fixtures
+-- explicitly so the regression remains deterministic as today's rate changes.
+update public.orders set extra_fields=jsonb_set(extra_fields,'{pricing}',
+  '{"total_usd":2.61,"total_bs":2200,"fx_rate":842.21}')
+where id between 9000010001 and 9000010015;
 -- A payment predating usable item evidence is grandfathered, not revalued.
 insert into public.money_movements(id,movement_date,created_by_user_id,confirmed_at,confirmed_by_user_id,
   direction,movement_type,money_account_id,currency_code,amount,amount_usd_equivalent,order_id,status)
@@ -22,6 +27,8 @@ insert into public.order_items(id,order_id,product_id,qty,unit_price_usd_snapsho
   product_name_snapshot,pricing_origin_currency,pricing_origin_amount,unit_price_bs_snapshot,line_total_bs_snapshot)
 select id,id,9000010001,1,2.61,2.61,'ROLLBACK VES source','VES',2200,2200,2200
 from generate_series(9000010001::bigint,9000010015::bigint) id;
+update public.order_items set unit_price_usd_snapshot=2.61,line_total_usd=2.61
+where id between 9000010001 and 9000010015;
 update public.orders set total_usd=2.01,total_bs_snapshot=201,
   extra_fields='{"pricing":{"total_usd":2.01,"total_bs":201,"fx_rate":100},"schedule":{"date":"2026-09-01"}}'
 where id=9000010003;

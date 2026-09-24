@@ -423,6 +423,13 @@ USD. Una diferencia creada exclusivamente porque el total USD y el equivalente
 USD del pago se redondearon por separado no constituye deuda, no requiere un
 pago adicional y no puede reaparecer al consultar la orden en días posteriores.
 
+Si se agrega un producto despues de un pago VES y cambia la tasa snapshot del
+pedido, el abono previo conserva su importe nativo para cotizar el cobro VES.
+Ejemplo: Bs 14.950 de total menos Bs 12.650 confirmados deja Bs 2.300, aunque
+las tasas del abono y del pedido difieran. La cobertura USD historica se
+conserva por separado; Counter no convierte el saldo USD visible para llenar
+el monto del Punto. Esto tambien aplica a abonos parciales y ordenes mixtas.
+
 ### 10.2 Efectivo y punto
 
 Efectivo y punto pueden confirmarse automáticamente solo cuando:

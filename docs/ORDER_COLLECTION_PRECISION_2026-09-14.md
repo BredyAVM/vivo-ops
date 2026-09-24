@@ -19,6 +19,17 @@ La tasa proviene de `extra_fields.pricing.fx_rate`, nunca del cociente de totale
 
 Para ordenes totalmente VES se usa el total Bs, incluidos descuento e impuesto Bs, dividido por la tasa. En ordenes USD/mixtas se conservan los descuentos e impuestos USD ya autorizados del encabezado. A la misma tasa se respeta la cotizacion Bs por linea y se descuenta la cobertura confirmada. Una orden cuyo encabezado total es cero en ambas monedas no genera deuda por diferencias de redondeo.
 
+Precision de la regla VES (2026-09-24): antes o durante el dia de entrega, la
+cotizacion usa el saldo nativo snapshot incluso cuando la tasa activa coincide
+con la tasa del pedido. La optimizacion de precision que reconvierte cobertura
+USD solo puede intervenir en la cobranza posterior al dia de entrega. Esto
+evita revalorizar un abono VES anterior cuando una ampliacion actualizo la tasa
+del pedido. Se conservan los importes, tasas y asignaciones USD ya certificados.
+La prueba `tests/admin/snapshot-native-ves-balance.rollback.sql` cubre ampliacion,
+tasas diferentes, cobro completo, dos abonos, anulacion, Counter, monedas mixtas
+y el cambio de regla al dia siguiente. No requiere nuevas tablas ni datos
+correctivos sobre ordenes reales.
+
 Se exige coherencia entre encabezado y lineas. Los casos sin evidencia suficiente, con historia financiera previa no certificada o con ajustes administrativos de encabezado no conciliables con las lineas conservan el calculo anterior: no se adivina ni se migra su saldo. El uso previo de fondo tambien queda fuera de la incorporacion automatica. La incorporacion de esos historicos requiere otra revision expresa.
 
 La precision usa `numeric` de PostgreSQL, no flotantes del navegador. No se cambia la moneda contable ni la tasa de los movimientos. Dos medios pagos VES no producen un fondo ficticio por la suma de sus equivalentes contables redondeados.
