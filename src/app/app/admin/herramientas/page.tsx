@@ -10,6 +10,7 @@ const sections = [
     ['Crear, editar y consultar clientes', legacyAdminHref('clients')], ['Órdenes', '/app/master/ops'], ['Presupuestos de eventos', '/app/events'], ['Jugadas comerciales', '/app/master/plays'], ['Metas de asesores', '/app/commissions/goals'],
   ] },
   { title: 'Cuentas y reglas financieras', links: [
+    ['Cobranzas por período y vendedor', '/app/admin/finanzas/cobranzas'],
     ['Autorizar egresos, órdenes y pagos', '/app/admin/autorizaciones'],
     ['Registrar ingreso o egreso', '/app/admin/finanzas/cuentas/movimiento'],
     ['Transferir entre cuentas', '/app/admin/finanzas/cuentas/transferencia'],

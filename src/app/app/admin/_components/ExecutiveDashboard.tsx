@@ -21,7 +21,7 @@ const shortcuts: Shortcut[] = [
   { label: 'Reportes', marker: 'RE', href: '/app/admin/reportes' },
   { label: 'Herramientas', marker: 'HE', href: '/app/admin/herramientas' },
   { label: 'Cuentas', marker: 'CU', href: '/app/admin/finanzas/cuentas' },
-  { label: 'Cartera', marker: 'CA', href: '/app/admin/finanzas/cartera' },
+  { label: 'Cobranzas', marker: 'CA', href: '/app/admin/finanzas/cobranzas' },
   { label: 'Por entregar', marker: 'PE', href: '/app/admin/finanzas/pedidos' },
   { label: 'Órdenes', marker: 'OR', href: '/app/master/ops' },
   { label: 'Pagos', marker: 'PA', href: '/app/master/ops/finance?status=pending' },

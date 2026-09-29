@@ -127,6 +127,7 @@ export default function ReceivablesOverview({ overview, filters, basePath }: Pro
           <p className="mt-1 text-xs text-[#81818E]">{overview.portfolio.openOrders} órdenes por cobrar</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-[#898996]">
+          <Link href="/app/admin/finanzas/cobranzas" prefetch={false} className="rounded-lg px-2 py-1 font-semibold text-yellow-200">Abrir Cobranzas</Link>
           <Link href="/app/admin/finanzas" prefetch={false} className="rounded-lg px-2 py-1 font-semibold text-[#CFCFD7] hover:text-white">Finanzas</Link>
           <time dateTime={overview.asOf}>{dateTimeFormatter.format(new Date(overview.asOf))}</time>
         </div>
