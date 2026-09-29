@@ -114,6 +114,8 @@ test('preset buttons only edit local fields, and financial query links disable p
   assert.match(form, /type="button" onClick/);
   assert.match(form, /setFrom\(period.from\); setTo\(period.to\)/);
   assert.match(form, /name="action" value="query"/);
+  assert.match(form, /<form action=\{COLLECTIONS_PATH\} method="get"/);
+  assert.doesNotMatch(form, /from 'next\/form'/);
   assert.doesNotMatch(form, /useEffect|router\.push|router\.refresh|setInterval/);
   assert.match(form, /disabled=\{people.length === 0 && !filters.person\}/);
   assert.match(form, /selectedPersonMissing && <option value=\{filters.person\}/);

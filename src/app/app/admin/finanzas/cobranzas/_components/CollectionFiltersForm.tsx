@@ -1,9 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import Form from 'next/form';
 import { useState, type ReactNode } from 'react';
-import { useFormStatus } from 'react-dom';
 import {
   COLLECTIONS_PATH, collectionPeriod, collectionSources, collectionStages, collectionStatuses, type CollectionFilters,
 } from '@/lib/admin-finance/collections-model';
@@ -17,11 +15,6 @@ function Options({ values }: { values: Record<string, string> }) {
   return Object.entries(values).map(([value, label]) => <option key={value} value={value}>{label}</option>);
 }
 
-function QueryButton() {
-  const { pending } = useFormStatus();
-  return <button className="min-h-10 self-end rounded-lg bg-yellow-300 px-4 text-xs font-semibold text-black disabled:opacity-50"
-    type="submit" name="action" value="query" disabled={pending}>{pending ? 'Consultando…' : 'Consultar'}</button>;
-}
 export default function CollectionFiltersForm({ filters, people, todayIso }: {
   filters: CollectionFilters; people: { id: string; name: string }[]; todayIso: string;
 }) {
@@ -29,7 +22,9 @@ export default function CollectionFiltersForm({ filters, people, todayIso }: {
   const [to, setTo] = useState(filters.to);
   const [history, setHistory] = useState(filters.scope === 'history');
   const selectedPersonMissing = filters.person && !people.some(person => person.id === filters.person);
-  return <Form action={COLLECTIONS_PATH} prefetch={false} data-collection-filters className="space-y-2 rounded-xl border border-zinc-800 bg-[#111117] p-3" key={JSON.stringify(filters)}>
+  // Native GET preserves the submitter's name/value (query vs people).
+  // Next Form's string-action navigation omits that submitter in this runtime.
+  return <form action={COLLECTIONS_PATH} method="get" data-collection-filters className="space-y-2 rounded-xl border border-zinc-800 bg-[#111117] p-3" key={JSON.stringify(filters)}>
       <div className="flex flex-wrap items-center gap-1.5">
         {([['today', 'Hoy'], ['week', 'Esta semana'], ['month', 'Este mes']] as const).map(([key, label]) =>
           <button className={action} key={key} type="button" onClick={() => {
@@ -54,7 +49,7 @@ export default function CollectionFiltersForm({ filters, people, todayIso }: {
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]">
         <Field label="Buscar orden corta, cliente, teléfono o vendedor"><input className={control} type="search" name="q" maxLength={80} defaultValue={filters.q} placeholder="Ej. 2784 o nombre del cliente" /></Field>
-        <QueryButton />
+        <button className="min-h-10 self-end rounded-lg bg-yellow-300 px-4 text-xs font-semibold text-black" type="submit" name="action" value="query">Consultar</button>
         <Link className={`${action} self-end justify-center`} prefetch={false} href={COLLECTIONS_PATH}>Limpiar</Link>
       </div>
       {people.length === 0 && <button className={action} type="submit" name="action" value="people" formNoValidate>Cargar vendedores (sin consultar saldos)</button>}
@@ -66,5 +61,5 @@ export default function CollectionFiltersForm({ filters, people, todayIso }: {
           <Field label="Ordenar"><select className={control} name="sort" defaultValue={filters.sort}><option value="pending">Mayor pendiente</option><option value="oldest">Más antiguas</option><option value="newest">Más recientes</option></select></Field>
         </div>
       </details>
-    </Form>;
+    </form>;
 }
