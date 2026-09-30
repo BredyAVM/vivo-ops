@@ -690,7 +690,7 @@ function normalizeCounterDeliveryCashLines(
 
 export async function dispatchCounterDeliveryAction(
   input: CounterDeliveryDispatchIntent
-): Promise<CounterDeliveryDispatchResult> {
+): Promise<CounterDeliveryDispatchResult | { status: 'rejected'; message: string }> {
   const ctx = await requireCounterOperatorContext();
   const orderId = Math.trunc(Number(input.orderId || 0));
   const idempotencyKey = String(input.idempotencyKey || '').trim();
@@ -752,6 +752,9 @@ export async function dispatchCounterDeliveryAction(
   });
 
   if (error) {
+    if (error.code === '23514' && error.message.startsWith('El beneficio de esta jugada')) {
+      return { status: 'rejected', message: error.message };
+    }
     if (error.message.includes('counter_delivery_expected_collection_required')) {
       throw new Error('La orden prescribe efectivo o cambio. Debes conservar el cobro esperado para abrir su liquidacion.');
     }
@@ -1122,7 +1125,7 @@ export async function updateCounterPickupScheduleAction(
 
 export async function changeCounterPickupItemsAction(
   input: CounterPickupItemChangeIntent
-): Promise<CounterPickupItemChangeResult> {
+): Promise<CounterPickupItemChangeResult | { status: 'rejected'; message: string }> {
   const ctx = await requireCounterOperatorContext();
   const idempotencyKey = String(input.idempotencyKey || '').trim();
   const orderId = Number(input.orderId || 0);
@@ -1160,6 +1163,9 @@ export async function changeCounterPickupItemsAction(
     p_added_items: addedItems,
     p_reason: String(input.reason || '').trim() || null,
   });
+  if (error?.code === '23514' && error.message.startsWith('El beneficio de esta jugada')) {
+    return { status: 'rejected', message: error.message };
+  }
   if (error) throw new Error(directSaleErrorMessage(error.message));
   const result = asRecord(data);
 
@@ -1183,7 +1189,7 @@ export async function completeCounterPickupAction(input: {
   idempotencyKey: string;
   orderId: number;
   notes?: string | null;
-}): Promise<CounterPickupCompletionResult> {
+}): Promise<CounterPickupCompletionResult | { status: 'rejected'; message: string }> {
   const ctx = await requireCounterOperatorContext();
   const idempotencyKey = String(input.idempotencyKey || '').trim();
   const orderId = Math.trunc(Number(input.orderId || 0));
@@ -1196,6 +1202,9 @@ export async function completeCounterPickupAction(input: {
     p_order_id: orderId,
     p_notes: String(input.notes || '').trim() || null,
   });
+  if (error?.code === '23514' && error.message.startsWith('El beneficio de esta jugada')) {
+    return { status: 'rejected', message: error.message };
+  }
   if (error) throw new Error(error.message);
   const result = asRecord(data);
 

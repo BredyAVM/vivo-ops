@@ -1586,6 +1586,7 @@ export default function CounterClient({
           throw new Error('Completa los datos de salida y custodia del delivery.');
         }
         const result = await dispatchCounterDeliveryAction(dispatchIntent);
+        if ('message' in result) throw new Error(result.message);
         updateLocalOrderStatus(order.id, 'out_for_delivery');
         setMessage({
           tone: 'success',
@@ -1604,10 +1605,11 @@ export default function CounterClient({
         const idempotencyKey =
           pickupCompletionKeysRef.current.get(order.id) ?? crypto.randomUUID();
         pickupCompletionKeysRef.current.set(order.id, idempotencyKey);
-        await completeCounterPickupAction({
+        const completion = await completeCounterPickupAction({
           idempotencyKey,
           orderId: order.id,
         });
+        if (completion.status === 'rejected') throw new Error(completion.message);
         pickupCompletionKeysRef.current.delete(order.id);
         completeLocalOrder(order.id);
         setMessage({
@@ -1826,6 +1828,7 @@ export default function CounterClient({
     setWorkingOrderId(order.id);
     try {
       const result = await changeCounterPickupItemsAction(input);
+      if (result.status === 'rejected') throw new Error(result.message);
       setMessage({
         tone: 'success',
         text:

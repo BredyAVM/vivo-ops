@@ -48,6 +48,18 @@ Una jugada es una intervención comercial planificada. El administrador define a
 - La orden y el inventario registran únicamente el producto final, nunca base más ampliación.
 - Los Gambits históricos permanecen para auditoría, pero no deben duplicar productos normales en jugadas nuevas.
 
+### Compra mínima durante toda la vida del pedido (2026-09-30)
+
+- La condición se verifica sobre la compra comercial después de descuentos, sin incluir beneficios ni ampliaciones CRM; alcanzar exactamente el mínimo es suficiente.
+- Crear, editar, aprobar, enviar a cocina, despachar y entregar deben respetar la misma validación de base de datos. La aprobación ordinaria de Master no exonera condiciones comerciales.
+- Reducir cantidades, retirar productos pagados o agregar descuentos obliga a revalidar los beneficios que ya estaban reservados. Un regalo guardado no adquiere un derecho permanente independiente del consumo.
+- Si el resultado no cumple, se rechaza el guardado completo con un mensaje en español. Se puede completar el consumo, retirar el regalo reservado en la misma edición o quitarlo y volver a agregar el producto como venta normal con confirmación del operador. Nunca se cobra automáticamente un obsequio.
+- La comprobación se realiza sobre el resultado final de la transacción: reconstruir líneas temporalmente o retirar regalo y compra en un solo guardado no genera falsos bloqueos.
+- Solo un administrador autenticado puede autorizar un mínimo excepcional para una orden con beneficio reservado. Requiere motivo, usuario, fecha, mínimo original y mínimo autorizado; queda en el historial de la orden. Master, asesor y Counter no pueden concederlo.
+- La autorización queda vinculada al cliente, asesor, beneficio concreto y mínimo original. Cambiar esa identidad la invalida; bajar del mínimo excepcional vuelve a bloquear. No cambia precios, pagos, costos del obsequio ni marca la orden entregada.
+- El administrador autoriza desde Modificar orden → Jugada → Autorizar mínimo excepcional. Puede autorizar antes de una reducción prevista. No se concede una excepción automática a órdenes históricas como la #2921.
+- La migración no reescribe pedidos anteriores. Permite consultar, cobrar, cancelar o devolver a revisión una orden antigua inválida, pero impide su avance operativo hasta corregirla o autorizarla.
+
 ## Moneda y fotografía financiera
 
 - El catálogo conserva la moneda de origen del producto.

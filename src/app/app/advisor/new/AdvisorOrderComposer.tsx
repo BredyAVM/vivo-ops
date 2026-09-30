@@ -4263,7 +4263,9 @@ export default function AdvisorOrderComposer({
                       : 'Elige uno o varios beneficios para armar la combinación del cliente.'
                     : crmPurchaseEligible
                     ? 'Beneficio activo: el producto base queda incluido y una ampliación cobra solo la diferencia.'
-                    : `Faltan ${formatUsd(Math.max(0, Number(crmContext.minimumOrderAmountUsd ?? 0) - commercialSubtotalAfterDiscountUsd))} en otros productos. Mientras tanto, el producto conserva su precio normal.`}
+                    : isEditingOrder && draftItems.some((item) => item.crm_benefit && item.persistedOrderItemId)
+                      ? `La compra quedó por debajo del mínimo de ${formatUsd(Number(crmContext.minimumOrderAmountUsd ?? 0))}. Completa el consumo o retira el obsequio antes de guardar. Conservarlo requiere una excepción del administrador.`
+                      : `Faltan ${formatUsd(Math.max(0, Number(crmContext.minimumOrderAmountUsd ?? 0) - commercialSubtotalAfterDiscountUsd))} en otros productos. Mientras tanto, el producto conserva su precio normal.`}
                 </p>
               </div>
               {crmFulfillments.length > 0 ? (

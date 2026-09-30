@@ -310,7 +310,17 @@ El asesor canaliza la solicitud y Master decide el cambio.
 
 Counter tampoco cambia la modalidad pickup/delivery de una orden existente.
 
-### 8.4 Órdenes entregadas
+### 8.4 Obsequios CRM con compra mínima
+
+Los obsequios CRM condicionados a compra mínima se rigen por la validación central
+de `product-specs/crm-plays-functional-spec.md`. Modificar productos o entregar
+desde Counter no exime esa condición. Si se reduce la compra por debajo del
+mínimo, se debe completar el consumo, retirar el obsequio reservado o contar
+con una excepción expresa del administrador para esa orden y ese beneficio.
+Counter no puede autorizar esa excepción. El rechazo debe conservar el pedido
+sin cambios y mostrar su motivo en español, no un error técnico en inglés.
+
+### 8.5 Órdenes entregadas
 
 Una orden entregada es de solo lectura operativa para Counter, salvo el registro
 de pagos pendientes.
