@@ -2,6 +2,8 @@
 
 import { useMemo, useRef, useState, useTransition, type ReactNode } from 'react';
 import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { CounterAmountReview } from './CounterAmountReview';
+import { COUNTER_AMOUNT_HINT, formatCounterAmount, parseCounterAmount } from './amount-review';
 import {
   getPaymentReportRequirements,
   validatePaymentReportDetails,
@@ -210,6 +212,10 @@ export function CounterPaymentEngine({
   const firstCashChangeAccount = cashChangeAccounts[0] ?? null;
 
   const paymentKeyRef = useRef<string | null>(null);
+  const submitBusyRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [reviewedPayment, setReviewedPayment] = useState<CounterPaymentIntent | null>(null);
+  const [reviewedChange, setReviewedChange] = useState<CounterGiveChangeIntent | null>(null);
   const changeKeyRef = useRef<string | null>(null);
   const waiveKeyRef = useRef<string | null>(null);
   const paymentQuoteRequestId = useRef(0);
@@ -254,7 +260,7 @@ export function CounterPaymentEngine({
     (account) => account.paymentMethodCode === selectedMethod
   );
   const paymentRequirements = getPaymentReportRequirements(selectedMethod);
-  const paymentAmount = decimal(paymentDraft?.amount ?? '');
+  const paymentAmount = parseCounterAmount(paymentDraft?.amount ?? '') ?? NaN;
   const canonicalValueRate = paymentValueRate(paymentQuote);
   const paymentAmountUsd = paymentAccount
     ? (
@@ -285,7 +291,7 @@ export function CounterPaymentEngine({
     (account) => paymentAccountKey(account) === changeAccountKey
   ) ?? null;
   const changeRate = paymentQuote.exchangeRate;
-  const changeAmountNumber = decimal(changeAmount);
+  const changeAmountNumber = parseCounterAmount(changeAmount) ?? NaN;
   const changeAmountUsd = changeAccount
     ? amountUsd(
         changeAmountNumber,
@@ -303,6 +309,8 @@ export function CounterPaymentEngine({
   );
 
   function invalidatePayment() {
+    setReviewedPayment(null);
+    setPaymentStage('input');
     paymentKeyRef.current = null;
     setPaymentReceipt(null);
     setError(null);
@@ -362,8 +370,8 @@ export function CounterPaymentEngine({
   }
 
   function buildPaymentIntent(): CounterPaymentIntent | null {
-    if (!paymentDraft || !paymentAccount || paymentAmount <= 0) {
-      setError('Revisa la cuenta y el monto recibido.');
+    if (!paymentDraft || !paymentAccount || !Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      setError(`Revisa la cuenta y el monto recibido. ${COUNTER_AMOUNT_HINT}`);
       return null;
     }
     if (
@@ -417,8 +425,10 @@ export function CounterPaymentEngine({
   }
 
   async function confirmPayment() {
-    const intent = buildPaymentIntent();
-    if (!intent) return;
+    if (submitBusyRef.current || isWorking || quoteLoading || paymentStage !== 'review' || !reviewedPayment) return;
+    const intent = reviewedPayment;
+    submitBusyRef.current = true;
+    setSubmitting(true);
     if (!paymentKeyRef.current) paymentKeyRef.current = crypto.randomUUID();
     try {
       const result = await onSubmit({
@@ -431,6 +441,9 @@ export function CounterPaymentEngine({
       setError(null);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'No se pudo registrar el cobro.');
+    } finally {
+      submitBusyRef.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -476,7 +489,7 @@ export function CounterPaymentEngine({
 
   function reviewChange() {
     if (!changeAccount || !Number.isFinite(changeAmountNumber) || changeAmountNumber <= 0) {
-      setError('Selecciona la caja e indica el monto que vas a entregar.');
+      setError(`Selecciona la caja e indica el monto que vas a entregar. ${COUNTER_AMOUNT_HINT}`);
       return;
     }
     if (changeAccount.currencyCode === 'VES' && changeRate <= 0) {
@@ -484,20 +497,26 @@ export function CounterPaymentEngine({
       return;
     }
     setError(null);
+    setReviewedChange({
+      idempotencyKey: changeKeyRef.current ?? '',
+      orderId: order.id,
+      moneyAccountId: changeAccount.accountId,
+      amount: changeAmountNumber,
+      operationDate: todayCaracas(),
+      notes: changeNotes.trim() || null,
+    });
     setChangeStage('review');
   }
 
   async function confirmChange() {
-    if (!changeAccount) return;
+    if (submitBusyRef.current || isWorking || changeStage !== 'review' || !reviewedChange) return;
+    submitBusyRef.current = true;
+    setSubmitting(true);
     if (!changeKeyRef.current) changeKeyRef.current = crypto.randomUUID();
     try {
       const result = await onGiveChange({
+        ...reviewedChange,
         idempotencyKey: changeKeyRef.current,
-        orderId: order.id,
-        moneyAccountId: changeAccount.accountId,
-        amount: roundMoney(changeAmountNumber),
-        operationDate: todayCaracas(),
-        notes: changeNotes.trim() || null,
       });
       setChangeReceipt(result);
       setChangeAvailableUsd(result.remainingChangeUsd);
@@ -509,6 +528,9 @@ export function CounterPaymentEngine({
           ? submitError.message
           : 'No se pudo registrar esta entrega de cambio.'
       );
+    } finally {
+      submitBusyRef.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -673,6 +695,9 @@ export function CounterPaymentEngine({
                           inputMode="decimal"
                           className="counter-field text-lg font-semibold"
                         />
+                        <span className="mt-1 block text-xs text-[#C7C8D1]">
+                          {Number.isFinite(paymentAmount) ? `Se registrará: ${formatCounterAmount(paymentAmount, paymentAccount.currencyCode)}` : COUNTER_AMOUNT_HINT}
+                        </span>
                       </Field>
                       {paymentAccount.currencyCode === 'VES' ? (
                         <Field label="Tasa Bs (canonica)">
@@ -750,7 +775,10 @@ export function CounterPaymentEngine({
                     ) : <span />}
                     <button
                       type="button"
-                      onClick={() => { if (buildPaymentIntent()) setPaymentStage('review'); }}
+                      onClick={() => {
+                        const intent = buildPaymentIntent();
+                        if (intent) { setReviewedPayment(intent); setPaymentStage('review'); }
+                      }}
                       disabled={isWorking || quoteLoading}
                       className="min-h-12 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black disabled:opacity-60"
                     >
@@ -762,37 +790,35 @@ export function CounterPaymentEngine({
             </>
           ) : null}
 
-          {paymentStage === 'review' ? (
-            <div>
-              <div className="rounded-[10px] border border-[#FEEF00]/35 bg-[#FEEF00]/5 p-4">
-                <div className="text-center text-sm font-semibold text-[#FEEF00]">Confirma solo este ingreso</div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <ReceiptMetric label="Cliente entrega" value={moneyUsd(paymentAmountUsd)} />
-                  <ReceiptMetric label="Aplicado a la orden" value={moneyUsd(projectedAppliedUsd)} />
-                  <ReceiptMetric label="Saldo pendiente" value={moneyUsd(projectedPendingUsd)} />
-                  <ReceiptMetric label="Excedente a fondo" value={moneyUsd(projectedFundUsd)} />
-                </div>
-                {paymentAccount?.currencyCode === 'VES' ? (
-                  <div className="mt-2 text-xs text-[#C7C8D1]">Recibes {moneyBs(paymentAmount)} en {paymentAccount.accountName}.</div>
-                ) : null}
-                {!paymentConfirmsNow ? (
-                  <div className="mt-2 rounded-[8px] border border-orange-400/30 bg-orange-400/10 px-3 py-2 text-xs text-orange-100">
-                    Master debe confirmar este pago. Hasta entonces no produce saldo disponible para cambio.
-                  </div>
-                ) : null}
-              </div>
-              <div className="mt-4 flex items-center justify-between gap-2">
-                <button type="button" onClick={() => setPaymentStage('input')} className="min-h-11 rounded-[8px] border border-[#303044] px-4 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
-                <button
-                  type="button"
-                  onClick={() => void confirmPayment()}
-                  disabled={isWorking}
-                  className="min-h-12 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black disabled:opacity-60"
-                >
-                  {isWorking ? 'Registrando...' : 'Confirmar ingreso'}
-                </button>
-              </div>
-            </div>
+          {paymentStage === 'review' && reviewedPayment && paymentAccount ? (
+            <CounterAmountReview
+              title="¿Es correcto este pago?"
+              amount={reviewedPayment.paymentLines[0].amount}
+              currency={reviewedPayment.paymentLines[0].currencyCode}
+              orderId={order.id}
+              clientName={order.clientName}
+              method={getPaymentMethodLabel(reviewedPayment.paymentLines[0].paymentMethod)}
+              accountLabel={paymentDestinationLabel(reviewedPayment.paymentLines[0].paymentMethod)}
+              accountName={paymentAccount.accountName}
+              operationDate={reviewedPayment.paymentLines[0].operationDate}
+              reference={reviewedPayment.paymentLines[0].referenceCode}
+              bankName={reviewedPayment.paymentLines[0].bankName}
+              payerName={reviewedPayment.paymentLines[0].payerName}
+              notes={reviewedPayment.paymentLines[0].notes}
+              exchangeRate={reviewedPayment.paymentLines[0].exchangeRateVesPerUsd}
+              immediate={paymentConfirmsNow}
+              busy={isWorking || submitting || quoteLoading}
+              onCorrect={() => { setReviewedPayment(null); setPaymentStage('input'); setError(null); }}
+              onConfirm={() => void confirmPayment()}
+            >
+              {projectedFundUsd > 0.005 ? (
+                <p className="rounded-lg border border-orange-400/40 bg-orange-400/10 p-3 text-sm text-orange-100">
+                  El monto supera lo pendiente. Excedente estimado: {formatCounterAmount(projectedFundUsd, 'USD')}. Se guardará en fondo y luego podrás entregar cambio.
+                </p>
+              ) : paymentConfirmsNow && projectedPendingUsd > 0.005 ? (
+                <p className="text-sm text-[#C7C8D1]">Es un abono parcial. Quedará por cobrar aproximadamente {formatCounterAmount(projectedPendingUsd, 'USD')}.</p>
+              ) : null}
+            </CounterAmountReview>
           ) : null}
 
           {paymentStage === 'receipt' && paymentReceipt ? (
@@ -832,11 +858,13 @@ export function CounterPaymentEngine({
 
       {view === 'change' ? (
         <div>
+          {changeStage !== 'review' ? (
           <div className="rounded-[10px] border border-sky-300/35 bg-sky-300/[0.07] p-4 text-center">
             <div className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-100/70">Saldo a favor del cliente</div>
             <div className="mt-1 text-3xl font-bold text-sky-100">{moneyUsd(changeAvailableUsd)}</div>
             <div className="mt-1 text-xs text-sky-100/70">Elige una sola acción para continuar.</div>
           </div>
+          ) : null}
 
           {changeStage === 'choice' ? (
             <div className="mt-4 rounded-[10px] border border-[#303044] bg-[#111118] p-4">
@@ -911,6 +939,9 @@ export function CounterPaymentEngine({
                         inputMode="decimal"
                         className="counter-field text-lg font-semibold"
                       />
+                      <span className="mt-1 block text-xs text-[#C7C8D1]">
+                        {Number.isFinite(changeAmountNumber) ? `Se entregará: ${formatCounterAmount(changeAmountNumber, changeAccount.currencyCode)}` : COUNTER_AMOUNT_HINT}
+                      </span>
                     </Field>
                     {changeAccount.currencyCode === 'VES' ? (
                       <Field label="Tasa activa">
@@ -957,36 +988,32 @@ export function CounterPaymentEngine({
             </div>
           ) : null}
 
-          {changeStage === 'review' && changeAccount ? (
-            <div className="mt-4">
-              <div className="rounded-[10px] border border-[#FEEF00]/35 bg-[#FEEF00]/5 p-4">
-                <div className="text-center text-sm font-semibold text-[#FEEF00]">Confirma esta entrega de cambio</div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <ReceiptMetric label="Sale de" value={changeAccount.accountName} />
-                  <ReceiptMetric label="Entregas" value={changeAccount.currencyCode === 'VES' ? moneyBs(changeAmountNumber) : moneyUsd(changeAmountNumber)} />
-                  <ReceiptMetric label="Equivale a" value={moneyUsd(changeAmountUsd)} />
-                  {changeAdvanceUsd > 0.005 ? (
-                    <>
-                      <ReceiptMetric label="Cubierto por saldo a favor" value={moneyUsd(changeAvailableUsd)} />
-                      <ReceiptMetric label="Quedara por cobrar" value={moneyUsd(projectedPendingAfterChange)} />
-                    </>
-                  ) : (
-                    <ReceiptMetric label="Quedara en fondo" value={moneyUsd(Math.max(0, changeAvailableUsd - changeAmountUsd))} />
-                  )}
-                </div>
-              </div>
-              <div className="mt-4 flex items-center justify-between gap-2">
-                <button type="button" onClick={() => setChangeStage('input')} className="min-h-11 rounded-[8px] border border-[#303044] px-4 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
-                <button
-                  type="button"
-                  onClick={() => void confirmChange()}
-                  disabled={isWorking}
-                  className="min-h-12 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black disabled:opacity-60"
-                >
-                  {isWorking ? 'Registrando...' : 'Confirmar entrega'}
-                </button>
-              </div>
-            </div>
+          {changeStage === 'review' && changeAccount && reviewedChange ? (
+            <CounterAmountReview
+              title="¿Es correcto este cambio?"
+              amount={reviewedChange.amount}
+              currency={changeAccount.currencyCode}
+              orderId={order.id}
+              clientName={order.clientName}
+              method="Entrega de efectivo al cliente"
+              accountLabel="Sale de"
+              accountName={changeAccount.accountName}
+              operationDate={reviewedChange.operationDate}
+              notes={reviewedChange.notes}
+              exchangeRate={changeAccount.currencyCode === 'VES' ? changeRate : null}
+              immediate
+              busy={isWorking || submitting}
+              onCorrect={() => { setReviewedChange(null); setChangeStage('input'); setError(null); }}
+              onConfirm={() => void confirmChange()}
+            >
+              {changeAdvanceUsd > 0.005 ? (
+                <p className="rounded-lg border border-orange-400/40 bg-orange-400/10 p-3 text-sm text-orange-100">
+                  Entregas más que el saldo a favor. Quedará por cobrar aproximadamente {formatCounterAmount(projectedPendingAfterChange, 'USD')} en esta orden.
+                </p>
+              ) : (
+                <p className="text-sm text-[#C7C8D1]">Quedará en fondo aproximadamente {formatCounterAmount(Math.max(0, changeAvailableUsd - changeAmountUsd), 'USD')}.</p>
+              )}
+            </CounterAmountReview>
           ) : null}
 
           {changeStage === 'receipt' && changeReceipt ? (

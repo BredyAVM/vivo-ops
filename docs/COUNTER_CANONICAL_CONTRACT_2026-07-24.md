@@ -440,6 +440,29 @@ las tasas del abono y del pedido difieran. La cobertura USD historica se
 conserva por separado; Counter no convierte el saldo USD visible para llenar
 el monto del Punto. Esto tambien aplica a abonos parciales y ordenes mixtas.
 
+### 10.1.1 Verificación explícita antes de registrar (2026-09-30)
+
+Cada ingreso del flujo de cobro, sea efectivo, punto o reporte digital, y cada
+entrega de cambio debe pasar por una pantalla separada de revisión antes de
+enviar la operación. Muestra orden y cliente, importe nativo destacado, moneda,
+cuenta/caja/punto, fecha, referencia y demás datos capturados. Los importes se
+presentan con punto de miles y coma decimal, siempre con dos decimales; el
+equivalente USD nunca reemplaza el monto VES que se está registrando.
+
+El operador debe verificar expresamente los datos y puede volver a corregirlos
+sin generar movimiento alguno. Cada nueva operación o corrección exige otra
+comprobación; una confirmación anterior no se reutiliza. Entradas ambiguas,
+no finitas o con más de dos decimales se rechazan con ayuda en español, sin
+adivinar separadores ni redondear silenciosamente. El formulario solicita
+importes sin separadores de miles y acepta coma o punto decimal.
+
+La pantalla distingue un ingreso directo de un reporte pendiente de Master.
+Conserva las reglas de pagos parciales, excedente, cambio y moneda de origen,
+así como la continuidad de la orden. La segunda comprobación no cambia la
+contabilidad, no agrega consultas y no sustituye las validaciones del servidor.
+El envío conserva el importe revisado, bloquea doble clic y reutiliza la misma
+identidad de operación en un reintento sin modificaciones.
+
 ### 10.2 Efectivo y punto
 
 Efectivo y punto pueden confirmarse automáticamente solo cuando:
