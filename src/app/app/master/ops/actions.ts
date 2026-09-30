@@ -17,6 +17,7 @@ import {
 } from "@/lib/orders/order-change-detail";
 import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
+import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from "@/lib/orders/approved-price-preservation";
 import {
   cancelOrderAction,
   confirmPaymentReportAction,
@@ -1387,6 +1388,8 @@ type RawOrderItemEditRow = {
   pricing_origin_amount: number | string | null;
   unit_price_usd_snapshot: number | string | null;
   line_total_usd: number | string | null;
+  unit_price_bs_snapshot: number | string | null;
+  line_total_bs_snapshot: number | string | null;
   admin_price_override_usd: number | string | null;
   admin_price_override_reason: string | null;
   admin_price_override_by_user_id: string | null;
@@ -1521,6 +1524,8 @@ export type MasterOpsEditOrderItem = {
   sourcePriceAmount: number;
   unitPriceUsdSnapshot: number;
   lineTotalUsd: number;
+  unitPriceBsSnapshot?: number | null;
+  lineTotalBsSnapshot?: number | null;
   editableDetailLines: string[];
   adminPriceOverrideUsd: number | null;
   adminPriceOverrideCurrency: MasterOpsEditCurrency | null;
@@ -1776,6 +1781,8 @@ type MasterOpsExistingSaveItemRow = {
   pricing_origin_amount: number | string | null;
   unit_price_usd_snapshot: number | string | null;
   line_total_usd: number | string | null;
+  unit_price_bs_snapshot: number | string | null;
+  line_total_bs_snapshot: number | string | null;
   admin_price_override_usd: number | string | null;
   admin_price_override_reason: string | null;
   product_name_snapshot: string | null;
@@ -1963,7 +1970,7 @@ async function prepareMasterOpsOrderSave(
         ? ctx.supabase
             .from("order_items")
             .select(
-              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id"
+              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id"
             )
             .eq("order_id", Number(orderId))
         : Promise.resolve({ data: [], error: null }),
@@ -2244,8 +2251,13 @@ async function prepareMasterOpsOrderSave(
     }
   }
 
+  const approvedPricesById = new Map(existingItems.map((row) => [Number(row.id), storedApprovedPriceLine(row)]));
+  if (!isAdmin && hasUnauthorizedPriceChange(preparedItems, [...approvedPricesById.values()])) {
+    throw new Error(APPROVED_PRICE_CHANGE_MESSAGE);
+  }
   const recalculatedItems = preparedItems.map((item) => {
-    const snapshot = calculateOrderLineSnapshot({
+    const preserved = !isAdmin ? preservedApprovedPriceSnapshot(item, approvedPricesById.get(Number(item.orderItemId))) : null;
+    const snapshot = preserved ?? calculateOrderLineSnapshot({
       sourceCurrency: item.sourcePriceCurrency,
       sourceAmount: item.sourcePriceAmount,
       quantity: item.qty,
@@ -2256,12 +2268,13 @@ async function prepareMasterOpsOrderSave(
     return {
       ...item,
       unitPriceUsdSnapshot:
-        item.adminPriceOverrideUsd == null ? snapshot.unitUsd : item.unitPriceUsdSnapshot,
+        preserved ? preserved.unitUsd : item.adminPriceOverrideUsd == null ? snapshot.unitUsd : item.unitPriceUsdSnapshot,
       lineTotalUsd: snapshot.lineUsd,
+      lineTotalBsSnapshot: snapshot.lineBs,
     };
   });
   const subtotalUsd = recalculatedItems.reduce((sum, item) => sum + item.lineTotalUsd, 0);
-  const subtotalBs = recalculatedItems.reduce((sum, item) => sum + item.lineTotalUsd * effectiveFxRate, 0);
+  const subtotalBs = recalculatedItems.reduce((sum, item) => sum + item.lineTotalBsSnapshot, 0);
   const totals = calculateOrderTotalsSnapshot({
     subtotalUsd,
     subtotalBs,
@@ -2351,7 +2364,15 @@ export async function createMasterOpsOrderAction(input: MasterOpsOrderCreateInpu
 }
 
 export async function updateMasterOpsOrderAction(input: MasterOpsOrderUpdateInput) {
-  const prepared = await prepareMasterOpsOrderSave("edit", input);
+  let prepared: Awaited<ReturnType<typeof prepareMasterOpsOrderSave>>;
+  try {
+    prepared = await prepareMasterOpsOrderSave("edit", input);
+  } catch (error) {
+    if (error instanceof Error && error.message === APPROVED_PRICE_CHANGE_MESSAGE) {
+      return { ok: false as const, code: "approved_price_changed", message: APPROVED_PRICE_CHANGE_MESSAGE };
+    }
+    throw error;
+  }
   const ctx = await requireMasterOrAdminContext();
   const orderId = Number(input.orderId);
   const { data: beforeOrder, error: beforeOrderError } = await ctx.supabase
@@ -2741,6 +2762,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         pricing_origin_amount,
         unit_price_usd_snapshot,
         line_total_usd,
+        unit_price_bs_snapshot,
+        line_total_bs_snapshot,
         admin_price_override_usd,
         admin_price_override_reason,
         admin_price_override_by_user_id,
@@ -2988,6 +3011,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       sourcePriceAmount,
       unitPriceUsdSnapshot: toNumber(item.unit_price_usd_snapshot, 0),
       lineTotalUsd: toNumber(item.line_total_usd, 0),
+      unitPriceBsSnapshot: item.unit_price_bs_snapshot == null ? null : Number(item.unit_price_bs_snapshot),
+      lineTotalBsSnapshot: item.line_total_bs_snapshot == null ? null : Number(item.line_total_bs_snapshot),
       editableDetailLines: String(item.notes || "")
         .split("\n")
         .map((line) => line.trim())

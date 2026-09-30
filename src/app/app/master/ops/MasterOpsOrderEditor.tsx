@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { parseDecimalInput } from "@/lib/number-input";
 import CrmOrderMinimumPanel from "./CrmOrderMinimumPanel";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
+import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot } from "@/lib/orders/approved-price-preservation";
 import {
   buildComponentDetailLines,
   getVisibleEditableDetailLines,
@@ -256,6 +257,8 @@ function recalculateItem(item: MasterOpsEditOrderItem, fxRate: number): MasterOp
         ? item.unitPriceUsdSnapshot
         : snapshot.unitUsd,
     lineTotalUsd: snapshot.lineUsd,
+    unitPriceBsSnapshot: snapshot.unitBs,
+    lineTotalBsSnapshot: snapshot.lineBs,
   };
 }
 
@@ -455,8 +458,13 @@ export default function MasterOpsOrderEditor({
   const selectedProduct = selectedProductId ? catalogById.get(Number(selectedProductId)) ?? null : null;
 
   const calculatedItems = useMemo(
-    () => (form?.items ?? []).map((item) => recalculateItem(item, fxRate)),
-    [form?.items, fxRate]
+    () => (form?.items ?? []).map((item) => {
+      const original = data?.order.items.find((row) => row.orderItemId === item.orderItemId);
+      const preserved = !isAdmin ? preservedApprovedPriceSnapshot(item, original) : null;
+      return preserved ? { ...item, unitPriceUsdSnapshot: preserved.unitUsd, lineTotalUsd: preserved.lineUsd,
+        unitPriceBsSnapshot: preserved.unitBs, lineTotalBsSnapshot: preserved.lineBs } : recalculateItem(item, fxRate);
+    }),
+    [form?.items, fxRate, data?.order.items, isAdmin]
   );
 
   const currentCrmContext = crmContext?.client.id === crmClientId ? crmContext : null;
@@ -476,16 +484,9 @@ export default function MasterOpsOrderEditor({
   );
 
   const totals = useMemo(() => {
-    const lineSnapshots = calculatedItems.map((item) =>
-      calculateOrderLineSnapshot({
-        sourceCurrency: item.sourcePriceCurrency,
-        sourceAmount: item.sourcePriceAmount,
-        quantity: item.qty,
-        fxRate,
-        overrideUnitUsd: item.adminPriceOverrideCurrency ? null : item.adminPriceOverrideUsd,
-        fallbackUnitUsd: item.unitPriceUsdSnapshot,
-      })
-    );
+    const lineSnapshots = calculatedItems.map((item) => ({
+      lineUsd: item.lineTotalUsd, lineBs: item.lineTotalBsSnapshot ?? 0,
+    }));
     const subtotalUsd = lineSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0);
     const subtotalBs = lineSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0);
     return calculateOrderTotalsSnapshot({
@@ -568,6 +569,9 @@ export default function MasterOpsOrderEditor({
         adminEditReason,
       })
     : [];
+  if (!isAdmin && form && hasUnauthorizedPriceChange(form.items, data?.order.items ?? [])) {
+    validationIssues.push({ code: "price_override", message: APPROVED_PRICE_CHANGE_MESSAGE });
+  }
   const canSave = Boolean(form) && validationIssues.length === 0;
   const requiredPaymentCurrency = getPaymentReportCurrency(form?.paymentMethod);
 
@@ -997,7 +1001,7 @@ export default function MasterOpsOrderEditor({
     setSuccess(null);
 
     try {
-      const itemsPayload = orderedItems.map((item) => recalculateItem(item, fxRate));
+      const itemsPayload = orderedItems;
       const orderPayload = {
         source: form.source,
         attributedAdvisorUserId:
@@ -1686,7 +1690,7 @@ export default function MasterOpsOrderEditor({
                         const isDeliveredCrmBenefit = isCrmBenefit && item.crmRedemptionStatus === 'redeemed';
                         const isReservedCrmBenefit = isCrmBenefit && item.crmRedemptionStatus === 'reserved';
                         const visibleDetailLines = getVisibleEditableDetailLines(item.editableDetailLines);
-                        const itemUnitBs = fxRate > 0 ? item.unitPriceUsdSnapshot * fxRate : 0;
+                        const itemUnitBs = item.unitPriceBsSnapshot ?? 0;
                         return (
                           <div key={itemKey(item.localId)} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
                             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_82px_120px_auto] md:items-start">
@@ -1716,7 +1720,7 @@ export default function MasterOpsOrderEditor({
                               />
                               <div className="text-sm font-semibold text-[#F5F5F7]">
                                 {money(item.lineTotalUsd)}
-                                <div className="mt-1 text-xs font-normal text-[#8A8A96]">{bs(item.lineTotalUsd * fxRate)}</div>
+                                <div className="mt-1 text-xs font-normal text-[#8A8A96]">{bs(item.lineTotalBsSnapshot ?? 0)}</div>
                               </div>
                               <div className="flex flex-wrap gap-2 md:justify-end">
                                 {product?.isDetailEditable && !isDeliveredCrmBenefit ? (

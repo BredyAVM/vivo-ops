@@ -12,6 +12,7 @@ import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicates';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from '@/lib/orders/approved-price-preservation';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { searchClientSummaries } from '@/lib/search/client-search';
@@ -9270,12 +9271,6 @@ export async function updateOrderAction(input: {
   }
 
   const isAdmin = getMasterDashboardPermissions(roles).isAdmin;
-  if (
-    input.items.some((item) => item.adminPriceOverrideUsd != null) &&
-    !isAdmin
-  ) {
-    throw new Error('Solo admin puede ajustar precios manualmente.');
-  }
   validateOrderCommissionAdjustmentItems(input.items, isAdmin);
 
   if (source === 'advisor' && !input.attributedAdvisorUserId) {
@@ -9327,6 +9322,48 @@ export async function updateOrderAction(input: {
   if (isAdvancedOrderEdit && !String(input.adminEditReason || '').trim()) {
     throw new Error('Debes indicar el motivo de la modificación.');
   }
+
+  const { data: previousOrderItems, error: previousOrderItemsError } = await supabase
+    .from('order_items')
+    .select(`
+      id,
+      product_id,
+      product_name_snapshot,
+      pricing_origin_currency,
+      pricing_origin_amount,
+      unit_price_usd_snapshot,
+      unit_price_bs_snapshot,
+      line_total_bs_snapshot,
+      notes,
+      sku_snapshot,
+      admin_price_override_by_user_id,
+      admin_price_override_at,
+      admin_price_override_usd,
+      admin_price_override_reason,
+      qty,
+      line_total_usd,
+      crm_play_member_id,
+      crm_play_benefit_id,
+      crm_play_benefit_upgrade_id
+    `)
+    .eq('order_id', orderId);
+
+  if (previousOrderItemsError) {
+    throw new Error(previousOrderItemsError.message);
+  }
+
+  const approvedPricesById = new Map((previousOrderItems ?? []).map((row) => [Number(row.id), storedApprovedPriceLine(row)]));
+  const hasApprovedPrices = (previousOrderItems ?? []).some((row) => row.admin_price_override_usd != null);
+  if (!isAdmin && (hasUnauthorizedPriceChange(input.items, [...approvedPricesById.values()]) ||
+    (hasApprovedPrices && (Number(input.selectedClientId) !== Number(currentOrder.client_id) ||
+      source !== currentOrder.source ||
+      (input.attributedAdvisorUserId ?? null) !== (currentOrder.attributed_advisor_id ?? null))))) {
+    return { ok: false as const, code: 'approved_price_changed', message: APPROVED_PRICE_CHANGE_MESSAGE };
+  }
+  const preservedPriceById = new Map(input.items.flatMap((item) => {
+    const snapshot = !isAdmin ? preservedApprovedPriceSnapshot(item, approvedPricesById.get(Number(item.orderItemId))) : null;
+    return snapshot ? [[Number(item.orderItemId), snapshot] as const] : [];
+  }));
 
   const deliveryTime24 = from12hTo24h(
     input.deliveryHour12,
@@ -9473,7 +9510,7 @@ export async function updateOrderAction(input: {
   const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
 
   const itemSnapshots = input.items.map((item) =>
-    calculateOrderLineSnapshot({
+    preservedPriceById.get(Number(item.orderItemId)) ?? calculateOrderLineSnapshot({
       sourceCurrency: item.sourcePriceCurrency,
       sourceAmount: Number(item.sourcePriceAmount || 0),
       quantity: Number(item.qty || 0),
@@ -9646,30 +9683,6 @@ export async function updateOrderAction(input: {
     orderUpdatePayload.queued_last_modified_by = null;
   }
 
-  const { data: previousOrderItems, error: previousOrderItemsError } = await supabase
-    .from('order_items')
-    .select(`
-      id,
-      product_id,
-      product_name_snapshot,
-      pricing_origin_currency,
-      pricing_origin_amount,
-      unit_price_usd_snapshot,
-      unit_price_bs_snapshot,
-      admin_price_override_usd,
-      admin_price_override_reason,
-      qty,
-      line_total_usd,
-      crm_play_member_id,
-      crm_play_benefit_id,
-      crm_play_benefit_upgrade_id
-    `)
-    .eq('order_id', orderId);
-
-  if (previousOrderItemsError) {
-    throw new Error(previousOrderItemsError.message);
-  }
-
   const previousOrderItemIds = (previousOrderItems ?? [])
     .map((item) => Number(item.id))
     .filter((id) => Number.isFinite(id) && id > 0);
@@ -9742,6 +9755,9 @@ export async function updateOrderAction(input: {
       return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
     }
     const businessMessage = String(atomicSaveError.message || '');
+    if (businessMessage.startsWith('Solo Administración puede cambiar una línea con precio especial.')) {
+      return { ok: false as const, code: 'approved_price_changed', message: APPROVED_PRICE_CHANGE_MESSAGE };
+    }
     if (/^(Este beneficio solo puede|Esta jugada no|El producto no permite|El obsequio debe|La vinculación CRM|El beneficio de esta jugada|La jugada no corresponde|El producto final no corresponde|El beneficio no está seleccionado)/.test(businessMessage)) {
       return { ok: false as const, code: 'gambit_application_rejected', message: businessMessage };
     }
@@ -9792,7 +9808,7 @@ export async function updateOrderAction(input: {
 
   const updateAdjustmentRows = input.items
     .map((item, idx) => {
-      if (item.adminPriceOverrideUsd == null) return null;
+      if (item.adminPriceOverrideUsd == null || preservedPriceById.has(Number(item.orderItemId))) return null;
 
       const signature = buildOrderItemOverrideAuditSignature(item);
       const previousCount = previousOverrideSignatureCounts.get(signature) ?? 0;
