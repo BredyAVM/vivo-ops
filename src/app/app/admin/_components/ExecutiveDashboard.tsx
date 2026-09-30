@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { AdminExecutiveKpiDomain } from '@/lib/admin-finance/executive-data';
 import type { AdminFinancialOverview } from '@/lib/admin-finance/model';
 import ExecutiveTrendChart from './ExecutiveTrendChart';
+import { adminMovementHref } from '@/lib/admin-finance/movement-navigation';
 
 type ExecutiveDashboardProps = {
   executive: AdminExecutiveKpiDomain;
@@ -98,11 +99,11 @@ function KpiTile({
 }) {
   return (
     <article
-      className="min-w-0 rounded-2xl border border-[#292937] bg-[#111117] p-3.5 sm:p-4"
+      className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] p-3"
       title={help}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#A3A3AE]">{label}</p>
+        <p className="text-xs font-medium text-[#BDBDC7]">{label}</p>
         {warning ? (
           <span
             className="h-2 w-2 shrink-0 rounded-full bg-orange-300"
@@ -111,10 +112,10 @@ function KpiTile({
           />
         ) : null}
       </div>
-      <p className="mt-2 whitespace-nowrap text-[clamp(1.25rem,4.5vw,2rem)] font-semibold leading-none tracking-[-0.035em] text-white tabular-nums">
+      <p className="mt-1 break-words text-lg font-semibold leading-tight text-white tabular-nums sm:text-xl">
         {today}
       </p>
-      <div className="mt-3 flex flex-col gap-1 border-t border-[#272734] pt-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+      <div className="mt-2 flex flex-col gap-1 border-t border-[#272734] pt-2">
         <p className="text-xs tabular-nums text-[#CFCFD7]">Semana <strong className="font-semibold text-white">{week}</strong></p>
         <p className={`text-[11px] font-semibold ${signalClass}`}>{signal}</p>
       </div>
@@ -122,7 +123,7 @@ function KpiTile({
   );
 }
 
-function AttentionItem({ label, value, href, urgent = false }: { label: string; value: number; href: string; urgent?: boolean }) {
+function AttentionItem({ label, value, href, urgent = false }: { label: string; value: number | null; href: string; urgent?: boolean }) {
   return (
     <Link
       href={href}
@@ -130,8 +131,8 @@ function AttentionItem({ label, value, href, urgent = false }: { label: string; 
       className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-[#2B2B38] bg-[#17171F] px-3 transition hover:border-[#FEEF00]/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
     >
       <span className="text-xs font-semibold text-[#BDBDC7]">{label}</span>
-      <span className={`text-sm font-bold tabular-nums ${urgent && value > 0 ? 'text-orange-200' : 'text-white'}`}>
-        {value}
+      <span title={value === null ? 'No disponible' : undefined} className={`text-sm font-bold tabular-nums ${urgent && value !== null && value > 0 ? 'text-orange-200' : 'text-white'}`}>
+        {value ?? '—'}
       </span>
     </Link>
   );
@@ -139,20 +140,20 @@ function AttentionItem({ label, value, href, urgent = false }: { label: string; 
 
 function Shortcuts() {
   return (
-    <section id="centros" className="scroll-mt-24">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-white">Accesos rápidos</h2>
+    <details id="centros" className="scroll-mt-24 rounded-xl border border-[#292937] bg-[#111117] px-3">
+      <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-[#FEEF00]">Todos los módulos</summary>
+      <div className="mb-2 flex justify-end">
         <Link href="/app/master/dashboard" prefetch={false} className="text-xs font-semibold text-[#9B9BA7] hover:text-white">
           Panel anterior →
         </Link>
       </div>
-      <div className="grid auto-cols-[minmax(132px,1fr)] grid-flow-col gap-2 overflow-x-auto pb-1 sm:grid-flow-row sm:grid-cols-4 sm:overflow-visible sm:pb-0 xl:grid-cols-6">
+      <nav aria-label="Todos los módulos administrativos" className="grid grid-cols-2 gap-2 pb-3 sm:grid-cols-3 xl:grid-cols-4">
         {shortcuts.map((shortcut) => (
           <Link
             key={shortcut.label}
             href={shortcut.href}
             prefetch={false}
-            className="group flex min-h-14 items-center gap-2.5 rounded-xl border border-[#292937] bg-[#111117] px-3 transition hover:border-[#FEEF00]/45 hover:bg-[#15151D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+            className="group flex min-h-11 items-center gap-2 rounded-lg border border-[#292937] px-2 transition hover:border-[#FEEF00]/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
           >
             <span className="flex h-7 min-w-7 items-center justify-center rounded-lg bg-[#FEEF00]/10 px-1 text-[9px] font-black text-[#FEEF00] group-hover:bg-[#FEEF00] group-hover:text-[#0B0B0D]">
               {shortcut.marker}
@@ -160,8 +161,8 @@ function Shortcuts() {
             <span className="min-w-0 text-xs font-semibold text-[#D8D8DF]">{shortcut.label}</span>
           </Link>
         ))}
-      </div>
-    </section>
+      </nav>
+    </details>
   );
 }
 
@@ -189,11 +190,11 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
     data.quality.deliveryRowsTruncated || !data.quality.financialStatesComplete;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs font-semibold capitalize text-[#90909C]">{dateFormatter.format(new Date(data.asOf))}</p>
-          <h1 className="mt-0.5 text-xl font-semibold tracking-tight text-white sm:text-2xl">Visión general</h1>
+          <h1 className="mt-0.5 text-lg font-semibold text-white">Visión general</h1>
         </div>
         <div className="flex items-center gap-2">
           {position?.activeRateBsPerUsd ? (
@@ -201,7 +202,8 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
               Tasa {numberFormatter.format(position.activeRateBsPerUsd)} Bs
             </span>
           ) : null}
-          <span className="text-xs text-[#777784]">{timeFormatter.format(new Date(data.asOf))}</span>
+          <span className="text-xs text-[#9B9BA7]">Al corte {timeFormatter.format(new Date(data.asOf))}</span>
+          <a href="/app/admin" className="inline-flex min-h-11 items-center px-2 text-xs font-semibold text-[#CFCFD7] underline focus-visible:outline-2 focus-visible:outline-[#FEEF00]">Actualizar</a>
           <Link
             href="/app/admin/finanzas"
             prefetch={false}
@@ -212,7 +214,7 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
         </div>
       </header>
 
-      <section aria-label="Indicadores principales" className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+      <section aria-label="Indicadores principales" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <KpiTile
           label="Facturado hoy"
           help="Total contractual de las órdenes entregadas hoy, incluido el impuesto cuando aplica."
@@ -249,13 +251,11 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
         />
       </section>
 
-      <Shortcuts />
-
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(280px,0.8fr)]">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
         <ExecutiveTrendChart points={data.trend} todayKey={data.todayKey} />
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-          <section className="rounded-2xl border border-[#292937] bg-[#111117] p-4">
+          <section className="rounded-xl border border-[#292937] bg-[#111117] p-3">
             <div className="flex items-center justify-between gap-3">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
                 Deliveries hoy
@@ -267,44 +267,44 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
                   />
                 ) : null}
               </h2>
-              <span className="text-2xl font-semibold tabular-nums text-white">{data.today.deliveries}</span>
+              <span className="text-lg font-semibold tabular-nums text-white">{data.today.deliveries}</span>
             </div>
             <p className="mt-1 text-xs tabular-nums text-[#8E8E9A]">Semana {data.week.deliveries}</p>
-            <dl className="mt-4 grid grid-cols-2 gap-2">
-              <div className="rounded-xl bg-emerald-400/8 px-3 py-2.5">
-                <dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald-100/70">Entregados</dt>
-                <dd className="mt-1 text-xl font-semibold tabular-nums text-emerald-200">{data.today.deliveriesCompleted}</dd>
+            <dl className="mt-2 grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-emerald-400/8 px-2 py-1.5">
+                <dt className="text-xs text-emerald-100/70">Entregados</dt>
+                <dd className="text-base font-semibold tabular-nums text-emerald-200">{data.today.deliveriesCompleted}</dd>
               </div>
-              <div className="rounded-xl bg-orange-400/8 px-3 py-2.5">
+              <div className="rounded-lg bg-orange-400/8 px-2 py-1.5">
                 <dt
-                  className="text-[10px] font-semibold uppercase tracking-[0.1em] text-orange-100/70"
+                  className="text-xs text-orange-100/70"
                   title="Deliveries programados que todavía no figuran como entregados"
                 >
                   Por completar
                 </dt>
-                <dd className="mt-1 text-xl font-semibold tabular-nums text-orange-200">{data.today.deliveriesPending}</dd>
+                <dd className="text-base font-semibold tabular-nums text-orange-200">{data.today.deliveriesPending}</dd>
               </div>
             </dl>
           </section>
 
-          <section className="rounded-2xl border border-[#292937] bg-[#111117] p-4">
+          <section className="rounded-xl border border-[#292937] bg-[#111117] p-3">
             <h2 className="text-sm font-semibold text-white">Por atender</h2>
-            <div className="mt-3 grid gap-2">
+            <div className="mt-2 grid gap-1.5">
               <AttentionItem
                 label="Pagos por revisar"
-                value={treasury?.pendingPaymentReports ?? 0}
+                value={treasury?.pendingPaymentReports ?? null}
                 href="/app/master/ops/finance?status=pending"
                 urgent
               />
               <AttentionItem
                 label="Movimientos"
-                value={treasury?.pendingMovementOperations ?? 0}
+                value={treasury?.pendingMovementOperations ?? null}
                 href="/app/admin/finanzas/cuentas?state=pending_movements"
                 urgent
               />
               <AttentionItem
                 label="Conciliaciones"
-                value={position?.openReconciliations ?? 0}
+                value={position?.openReconciliations ?? null}
                 href="/app/admin/finanzas/cuentas?state=open_reconciliation"
                 urgent
               />
@@ -312,6 +312,38 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
           </section>
         </div>
       </section>
+
+      <section aria-label="Flujo de caja semanal" className="rounded-xl border border-[#292937] bg-[#111117] p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-white">Flujo de esta semana</h2>
+          <span className="text-xs text-[#9B9BA7]">USD equivalente · sin traspasos internos</span>
+        </div>
+        <dl className="mt-2 grid grid-cols-3 gap-2 text-xs text-[#BDBDC7]">
+          <div><dt>Entradas</dt><dd className="mt-1 break-words text-base font-semibold tabular-nums text-white">{money(treasury ? treasury.confirmedCollectionsUsd + treasury.otherExternalIncomeUsd : null)}</dd></div>
+          <div><dt>Salidas</dt><dd className="mt-1 break-words text-base font-semibold tabular-nums text-white">{money(treasury?.externalOutflowsUsd ?? null)}</dd></div>
+          <div><dt>Movimiento neto</dt><dd className="mt-1 break-words text-base font-semibold tabular-nums text-white">{money(treasury?.netExternalCashFlowUsd ?? null)}</dd></div>
+        </dl>
+        {!treasury || treasury.outflowQuality === 'Q3_incomplete' || treasury.netCashFlowQuality === 'Q4_blocked' ? (
+          <p className="mt-2 text-xs text-orange-200">{treasury ? 'Flujo parcial: hay movimientos por aclarar.' : 'Flujo no disponible.'}</p>
+        ) : null}
+      </section>
+
+      <nav aria-label="Operaciones frecuentes" className="flex flex-wrap gap-2">
+        {[
+          { label: '+ Ingreso', href: adminMovementHref('inflow') },
+          { label: '− Egreso', href: adminMovementHref('outflow') },
+          { label: 'Cierre de caja', href: '/app/admin/finanzas/cuentas/cierre' },
+          { label: 'Cobranzas', href: '/app/admin/finanzas/cobranzas' },
+          { label: 'Cuentas y saldos', href: '/app/admin/finanzas/cuentas' },
+          { label: 'Jugadas / CRM', href: '/app/master/plays' },
+        ].map((action) => (
+          <Link key={action.href} href={action.href} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs font-semibold text-[#E0E0E7] hover:border-[#FEEF00]/50 focus-visible:outline-2 focus-visible:outline-[#FEEF00]">
+            {action.label}
+          </Link>
+        ))}
+      </nav>
+
+      <Shortcuts />
 
       {hasCoverageWarning ? (
         <p className="rounded-xl border border-orange-300/20 bg-orange-300/5 px-3 py-2 text-xs text-orange-100/80">
