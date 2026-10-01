@@ -10,6 +10,14 @@ const metricKeys = {
   newAssignedClients: 'new_assigned_clients',
 } as const;
 
+// JSONB can return object keys in a different order without changing their
+// values. Only actual result changes should create another audit revision.
+function comparableJson(value: unknown) {
+  return JSON.stringify(value, (_key, entry) => entry && typeof entry === 'object' && !Array.isArray(entry)
+    ? Object.fromEntries(Object.entries(entry).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
+    : entry);
+}
+
 // Applying a result must use the targets the advisor received, even if a
 // historical import or correction has changed today's capacity suggestion.
 export function withPublishedAdvisorGoalTargets(
@@ -115,8 +123,8 @@ export function buildAdvisorGoalResultApplication(params: {
   if (params.intent === 'automatic' && params.previous.status === status
     && params.previous.appliedCommissionPct === appliedCommissionPct
     && params.previous.rateOverrideReason === rateOverrideReason
-    && JSON.stringify(params.previous.score) === JSON.stringify(score)
-    && JSON.stringify(params.previous.metrics) === JSON.stringify(metrics)) return params.previous;
+    && comparableJson(params.previous.score) === comparableJson(score)
+    && comparableJson(params.previous.metrics) === comparableJson(metrics)) return params.previous;
   const revision = params.previous.revision + 1;
   const publication: AdvisorGoalPublicationSnapshot = {
     ...params.previous,

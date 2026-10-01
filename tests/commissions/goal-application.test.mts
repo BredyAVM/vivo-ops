@@ -32,6 +32,18 @@ test('un preliminar toma el porcentaje actual y conserva los objetivos publicado
   assert.equal(buildAdvisorGoalResultApplication({ ...params, previous: result }), result);
 });
 
+test('la lectura JSONB no agrega revisiones cuando solo cambia el orden de las claves', () => {
+  const applied = buildAdvisorGoalResultApplication(params)!;
+  const databaseResult: typeof applied = JSON.parse(JSON.stringify(applied, (_key, value) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? 1 : left > right ? -1 : 0))
+      : value));
+  assert.equal(buildAdvisorGoalResultApplication({ ...params, previous: databaseResult }), databaseResult);
+  const changed = buildAdvisorGoalResultApplication({ ...params, previous: databaseResult,
+    advisor: { ...advisor, score: { ...advisor.score, points: advisor.score.points + 1 } } })!;
+  assert.equal(changed.revision, applied.revision + 1);
+});
+
 test('no altera cierres confirmados o pagados ni porcentajes finales', () => {
   assert.equal(buildAdvisorGoalResultApplication({ ...params, closureStatus: 'closed' }), null);
   assert.equal(buildAdvisorGoalResultApplication({ ...params, closureStatus: 'paid' }), null);
