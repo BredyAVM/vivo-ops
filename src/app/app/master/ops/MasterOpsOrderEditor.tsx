@@ -1112,8 +1112,8 @@ export default function MasterOpsOrderEditor({
             </div>
             <div className="mt-0.5 text-xs text-[#8A8A96]">
               {isCreateMode
-                ? "Crea una orden desde el modulo master con la logica canonica."
-                : "Editor operativo del modulo master. Carga datos solo para esta orden."}
+                ? "Crea una orden con las reglas vigentes del negocio."
+                : "Carga datos solo para esta orden."}
             </div>
           </div>
           <button

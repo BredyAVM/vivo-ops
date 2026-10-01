@@ -4703,7 +4703,7 @@ export default function OrdersWorkspaceClient({
     <div className={`${isAdminSurface ? "min-w-0" : "min-h-screen"} bg-[#0B0B0D] text-[#F5F5F7]`}>
       <div className={`${isAdminSurface ? "" : "sticky top-0 z-50"} border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur`}>
         <div className={`mx-auto max-w-[1400px] py-2.5 ${isAdminSurface ? "" : "px-3 sm:px-5"}`}>
-          <div className="flex flex-col gap-2.5 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center xl:gap-x-4 xl:gap-y-2.5">
+          <div className={isAdminSurface ? "flex flex-col gap-2.5" : "flex flex-col gap-2.5 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center xl:gap-x-4 xl:gap-y-2.5"}>
             <div className="contents">
               <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-base font-semibold leading-none">{isAdminSurface ? "Órdenes" : "B. Master 3.0"}</h1>
@@ -4770,11 +4770,11 @@ export default function OrdersWorkspaceClient({
                 <MasterOpsAlerts publicVapidKey={publicVapidKey} onRefresh={requestOpsRefresh} />
               </div>
 
-              <div className="flex min-w-0 flex-wrap items-center gap-2.5 xl:col-span-2 xl:row-start-2 xl:flex-nowrap xl:justify-between">
+              <div className={isAdminSurface ? "flex min-w-0 flex-wrap items-center gap-2.5" : "flex min-w-0 flex-wrap items-center gap-2.5 xl:col-span-2 xl:row-start-2 xl:flex-nowrap xl:justify-between"}>
                 {searchParams.get("returnTo") === "/app/admin/autorizaciones" && roles.includes("admin") ? (
                   <Link href="/app/admin/autorizaciones" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FEEF00] underline">← Autorizaciones</Link>
                 ) : null}
-                <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-2xl border border-[#242433] bg-[#0F0F14] p-1">
+                <div className={`${isAdminSurface ? "flex flex-wrap" : "flex max-w-full overflow-x-auto"} items-center gap-1.5 rounded-2xl border border-[#242433] bg-[#0F0F14] p-1`}>
                   <TopNavButton label="Operacion" active={inboxMode == null} onClick={closeInbox} />
                   <TopNavButton
                     label="Acciones"
@@ -4790,7 +4790,7 @@ export default function OrdersWorkspaceClient({
                   />
                 </div>
 
-                <div className="contents xl:flex xl:min-w-0 xl:items-center xl:gap-2.5 xl:overflow-x-auto">
+                <div className={isAdminSurface ? "flex min-w-0 flex-wrap items-center gap-2" : "contents xl:flex xl:min-w-0 xl:items-center xl:gap-2.5 xl:overflow-x-auto"}>
                   <Link href="/app/events/ongoing" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Eventos</Link>
                   <Link
                     href={navigation.inventory}
@@ -4882,8 +4882,8 @@ export default function OrdersWorkspaceClient({
       </div>
 
       <section aria-label="Operación de órdenes" className={`mx-auto max-w-[1400px] py-3 ${isAdminSurface ? "" : "px-3 sm:px-5"}`}>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1.35fr_0.9fr_0.9fr_0.9fr_0.9fr]">
-          <Card title="Estado">
+        <div className={`${isAdminSurface ? "grid-cols-2" : "grid-cols-1 md:grid-cols-2"} grid gap-3 xl:grid-cols-[1.35fr_0.9fr_0.9fr_0.9fr_0.9fr]`}>
+          <Card title="Estado" className={isAdminSurface ? "col-span-2 xl:col-span-1" : ""}>
             <div className="grid grid-cols-[1fr_0.55fr_0.55fr] gap-x-2 gap-y-1 text-[11px]">
               <div />
               <div className="text-center text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Hoy</div>
