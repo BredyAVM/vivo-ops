@@ -9896,7 +9896,14 @@ export async function updateOrderAction(input: {
       ? latestAdminCommissionAdjustmentByOldItemId.get(oldOrderItemId) ?? null
       : null;
 
-    if (
+    if (!item.adminCommissionOverrideChanged &&
+      !Object.hasOwn(item, 'adminCommissionOverrideMode') && previousAdminAdjustment) {
+      // Operational edits that omit commission controls must not erase audited
+      // admin overrides (or revive an older override after a clear).
+      commissionAdjustmentRebinds.push({
+        adjustmentId: previousAdminAdjustment.id, orderItemId: newOrderItemId,
+      });
+    } else if (
       !item.adminCommissionOverrideChanged &&
       currentOverrideTerms &&
       previousAdminAdjustment?.action === 'set' &&

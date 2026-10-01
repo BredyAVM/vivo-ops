@@ -87,7 +87,7 @@ test('SQL is admin-only and read-only; pagination follows canonical filtering', 
 });
 test('UI uses short order IDs, contact links, protected data and no commission snapshot', () => {
   const ui = readFileSync(new URL('../../src/app/app/admin/finanzas/cobranzas/_components/CollectionsOverview.tsx', import.meta.url), 'utf8');
-  assert.match(ui, /#\{o.id\}/); assert.doesNotMatch(ui, /orderNumber|order_number/);
+  assert.match(ui, /#\{formatOrderDisplayNumber\(o.id\)\}/); assert.doesNotMatch(ui, /orderNumber|order_number/);
   assert.match(ui, /normalizePhone\(order.clientPhone\)/); assert.match(ui, /rel="noopener noreferrer"/);
   const refresh = readFileSync(new URL('../../src/app/app/admin/finanzas/cobranzas/_components/CollectionRefresh.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(refresh, /useEffect|setInterval|visibilitychange|addEventListener/);

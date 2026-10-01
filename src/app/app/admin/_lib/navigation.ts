@@ -122,6 +122,12 @@ function navigationItem(key: string) {
   return item;
 }
 
+export const desktopAdminNavigationGroups = [
+  { label: 'Operación', keys: ['home', 'orders', 'tasks', 'authorizations', 'active-orders'] },
+  { label: 'Finanzas', keys: ['finance', 'accounts', 'receivables', 'commissions', 'delivery-finance', 'projections', 'reports'] },
+  { label: 'Negocio', keys: ['inventory', 'events', 'plays', 'tools', 'legacy'] },
+].map((group) => ({ label: group.label, items: group.keys.map(navigationItem) }));
+
 export const mobileAdminNavigation: AdminNavigationItem[] = [
   navigationItem('home'),
   navigationItem('finance'),

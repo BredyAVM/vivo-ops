@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { adminNavigation, mobileAdminNavigation } from '../_lib/navigation';
+import { adminNavigation, desktopAdminNavigationGroups, mobileAdminNavigation } from '../_lib/navigation';
 
 type AdminNavigationProps = {
   variant: 'desktop' | 'mobile';
@@ -64,8 +64,12 @@ export default function AdminNavigation({ variant }: AdminNavigationProps) {
   }
 
   return (
-    <nav aria-label="Navegación de Administración" className="grid w-full min-w-0 grid-cols-1 gap-1.5">
-      {adminNavigation.map((item) => {
+    <nav aria-label="Navegación de Administración" className="grid w-full min-w-0 grid-cols-1 gap-3">
+      {desktopAdminNavigationGroups.map((group) => (
+        <div key={group.label} className="min-w-0">
+          <p className="mb-1 px-2 text-[10px] font-medium uppercase tracking-wider text-[#777786]">{group.label}</p>
+          <div className="grid min-w-0 gap-0.5">
+      {group.items.map((item) => {
         const active = isActive(item.href);
         return (
           <Link
@@ -75,7 +79,7 @@ export default function AdminNavigation({ variant }: AdminNavigationProps) {
             aria-current={active ? 'page' : undefined}
             title={item.label}
             className={[
-              'group flex min-h-11 w-full min-w-0 items-center gap-2.5 rounded-xl border px-2.5 py-2 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
+              'group flex min-h-8 w-full min-w-0 items-center gap-2 rounded-lg border px-2 py-1.5 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
               active
                 ? 'border-[#FEEF00]/35 bg-[#FEEF00]/10 text-white'
                 : 'border-transparent text-[#C8C8D1] hover:border-[#2D2D3B] hover:bg-[#17171F] hover:text-white',
@@ -84,19 +88,22 @@ export default function AdminNavigation({ variant }: AdminNavigationProps) {
             <span
               aria-hidden="true"
               className={[
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-[9px] font-black tracking-tight',
+                'flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold tracking-tight',
                 active
-                  ? 'border-[#FEEF00]/50 bg-[#FEEF00] text-[#0B0B0D]'
-                  : 'border-[#333342] bg-[#181820] text-[#FEEF00] group-hover:border-[#4A4A5E]',
+                  ? 'bg-[#FEEF00] text-[#0B0B0D]'
+                  : 'bg-[#181820] text-[#8A8A96] group-hover:text-[#FEEF00]',
               ].join(' ')}
             >
               {item.marker}
             </span>
-            <span className="min-w-0 truncate text-sm font-semibold">{item.label}</span>
+            <span className="min-w-0 truncate text-xs font-medium">{item.key === 'events' ? item.shortLabel : item.label}</span>
             <span className="sr-only">{item.description}</span>
           </Link>
         );
       })}
+          </div>
+        </div>
+      ))}
     </nav>
   );
 }

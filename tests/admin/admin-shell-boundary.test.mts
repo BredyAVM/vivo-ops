@@ -60,7 +60,7 @@ test('desktop menu has a bounded grid track so long labels cannot widen the side
   const navigation = read('src/app/app/admin/_components/AdminNavigation.tsx');
   const shell = read('src/app/app/admin/_components/AdminShell.tsx');
   assert.match(navigation, /grid w-full min-w-0 grid-cols-1/);
-  assert.match(navigation, /group flex min-h-11 w-full min-w-0/);
+  assert.match(navigation, /group flex min-h-8 w-full min-w-0/);
   assert.match(navigation, /title=\{item.label\}/);
   assert.match(shell, /h-dvh min-w-0 flex-col/);
 });

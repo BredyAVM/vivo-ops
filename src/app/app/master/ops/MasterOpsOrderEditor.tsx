@@ -35,8 +35,11 @@ import { MASTER_OPS_ORDER_PAYMENT_METHODS } from "./order-editor-payment";
 import type { MasterCrmOrderContext } from "@/lib/crm/advisor-order-context-types";
 import { resolveCrmOrderBenefit } from "@/lib/crm/master-order-benefit";
 import MasterOpsGiftAppend from "./MasterOpsGiftAppend";
+import { prepareEditorCommissionFields } from "./order-editor-commission";
+import { formatOrderCommissionTerms, type OrderCommissionMode } from "@/lib/commissions/order-commission-terms";
 
 type Props = {
+  intent?: "general" | "commercial";
   mode?: "create" | "edit";
   orderId?: number | null;
   open?: boolean;
@@ -281,6 +284,7 @@ function initialNewClientFromOrder(order: MasterOpsEditOrder | null) {
 }
 
 export default function MasterOpsOrderEditor({
+  intent = "general",
   mode = "edit",
   orderId = null,
   open = false,
@@ -293,6 +297,7 @@ export default function MasterOpsOrderEditor({
   const isCreateMode = mode === "create";
   const isOpen = isCreateMode ? open : Boolean(orderId);
   const isAdmin = roles.includes("admin");
+  const commercialSectionRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<MasterOpsEditData | null>(null);
   const [form, setForm] = useState<MasterOpsEditOrder | null>(null);
   const [loading, setLoading] = useState(false);
@@ -573,6 +578,21 @@ export default function MasterOpsOrderEditor({
   if (!isAdmin && form && hasUnauthorizedPriceChange(form.items, data?.order.items ?? [])) {
     validationIssues.push({ code: "price_override", message: APPROVED_PRICE_CHANGE_MESSAGE });
   }
+  if (isAdmin && form) {
+    for (const item of form.items) {
+      try {
+        prepareEditorCommissionFields(item, originalItemsById.get(Number(item.orderItemId)) ?? {}, true);
+      } catch (error) {
+        validationIssues.push({ code: "commission_override", message: `${item.productNameSnapshot}: ${error instanceof Error ? error.message : "Revisa la comisión."}` });
+      }
+    }
+  }
+  const hasLoadedForm = Boolean(form);
+  useEffect(() => {
+    if (intent === "commercial" && isAdmin && hasLoadedForm && !loading) {
+      commercialSectionRef.current?.scrollIntoView({ block: "start" });
+    }
+  }, [intent, isAdmin, hasLoadedForm, loading]);
   const canSave = Boolean(form) && validationIssues.length === 0;
   const requiredPaymentCurrency = getPaymentReportCurrency(form?.paymentMethod);
 
@@ -917,6 +937,7 @@ export default function MasterOpsOrderEditor({
       : null;
     const nextItem: MasterOpsEditOrderItem = {
       ...(configState.pendingCrmItem ?? {}),
+      ...(existingItem ?? {}),
       orderItemId: existingItem?.orderItemId ?? null,
       localId: configState.editingLocalId ?? configState.pendingCrmItem?.localId ?? `${Date.now()}-${Math.random()}`,
       productId: configState.productId,
@@ -1055,6 +1076,7 @@ export default function MasterOpsOrderEditor({
         deliveryNoteAddress: form.deliveryNoteAddress,
         deliveryNotePhone: form.deliveryNotePhone,
         items: itemsPayload.map((item) => ({
+          ...prepareEditorCommissionFields(item, originalItemsById.get(Number(item.orderItemId)) ?? {}, isAdmin),
           orderItemId: item.orderItemId,
           productId: item.productId,
           skuSnapshot: item.skuSnapshot,
@@ -1606,8 +1628,9 @@ export default function MasterOpsOrderEditor({
                 </div>
 
                 <div className="space-y-4">
+                  <div ref={commercialSectionRef} className="scroll-mt-4">
                   <Section
-                    title="Pedido"
+                    title={intent === "commercial" && isAdmin ? "Precios y comisiones" : "Pedido"}
                     aside={
                       <div className="text-right text-xs text-[#B7B7C2]">
                         <div>{orderedItems.length} item(s)</div>
@@ -1759,11 +1782,12 @@ export default function MasterOpsOrderEditor({
                               </div>
                             </div>
 
-                            {isAdmin && !isCrmBenefit ? (
-                              <details className="mt-3 rounded-lg border border-[#242433] bg-[#121218] p-2">
+                            {isAdmin ? (
+                              <details open={intent === "commercial" ? true : undefined} className="mt-3 rounded-lg border border-[#242433] bg-[#121218] p-2">
                                 <summary className="cursor-pointer text-xs font-semibold text-[#B7B7C2]">
-                                  Ajuste admin de precio
+                                  Precio / comisión
                                 </summary>
+                                {!isCrmBenefit ? (
                                 <div className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_minmax(0,1.3fr)_auto]">
                                   <input
                                     className={fieldClass()}
@@ -1771,6 +1795,7 @@ export default function MasterOpsOrderEditor({
                                     onChange={(event) => updateItemOverride(item, "USD", event.target.value)}
                                     inputMode="decimal"
                                     placeholder="USD unit."
+                                    aria-label={`Precio unitario USD: ${item.productNameSnapshot}`}
                                   />
                                   <input
                                     className={fieldClass()}
@@ -1778,12 +1803,14 @@ export default function MasterOpsOrderEditor({
                                     onChange={(event) => updateItemOverride(item, "VES", event.target.value)}
                                     inputMode="decimal"
                                     placeholder="Bs unit."
+                                    aria-label={`Precio unitario Bs: ${item.productNameSnapshot}`}
                                   />
                                   <input
                                     className={fieldClass()}
                                     value={item.adminPriceOverrideReason ?? ""}
                                     onChange={(event) => patchItem(item.localId, { adminPriceOverrideReason: event.target.value })}
                                     placeholder="Motivo"
+                                    aria-label={`Motivo del precio: ${item.productNameSnapshot}`}
                                   />
                                   <button
                                     className="rounded-xl border border-[#242433] px-3 py-2 text-xs text-[#B7B7C2]"
@@ -1812,6 +1839,48 @@ export default function MasterOpsOrderEditor({
                                     Limpiar
                                   </button>
                                 </div>
+                                ) : null}
+                                <div className="mt-3 grid gap-2 border-t border-[#242433] pt-2 sm:grid-cols-2">
+                                  <Field label="Comisión">
+                                    <select className={fieldClass()} aria-label={`Comisión: ${item.productNameSnapshot}`}
+                                      value={item.adminCommissionOverrideMode ?? "inherit"}
+                                      onChange={(event) => patchItem(item.localId, {
+                                        adminCommissionOverrideMode: event.target.value === "inherit" ? null : event.target.value as OrderCommissionMode,
+                                        adminCommissionOverrideValue: null, adminCommissionOverrideChanged: true,
+                                        adminCommissionOverrideReason: "",
+                                      })}>
+                                      <option value="inherit">Heredada del catálogo / evento</option>
+                                      <option value="default">General del asesor</option>
+                                      <option value="fixed_item">% de este producto</option>
+                                      <option value="fixed_order">% de toda la orden</option>
+                                      <option value="none">Sin comisión</option>
+                                    </select>
+                                    <span className="mt-1 block text-[10px] text-[#8A8A96]">Heredada: {formatOrderCommissionTerms({
+                                      mode: item.commissionInheritedMode ?? product?.commissionInheritedMode ?? "default",
+                                      value: item.commissionInheritedValue ?? product?.commissionInheritedValue ?? null,
+                                    })}</span>
+                                  </Field>
+                                  {item.adminCommissionOverrideMode === "fixed_item" || item.adminCommissionOverrideMode === "fixed_order" ? (
+                                    <Field label="Porcentaje">
+                                      <input className={fieldClass()} inputMode="decimal" aria-label={`Porcentaje de comisión: ${item.productNameSnapshot}`}
+                                        value={item.adminCommissionOverrideValue ?? ""}
+                                        onChange={(event) => patchItem(item.localId, {
+                                          adminCommissionOverrideValue: event.target.value.trim() ? toNumber(event.target.value, NaN) : null,
+                                          adminCommissionOverrideChanged: true,
+                                        })} />
+                                    </Field>
+                                  ) : null}
+                                  {item.adminCommissionOverrideMode != null || item.adminCommissionOverrideChanged ? (
+                                    <Field label="Motivo de la comisión">
+                                      <input className={fieldClass()} maxLength={500} aria-label={`Motivo de comisión: ${item.productNameSnapshot}`}
+                                        value={item.adminCommissionOverrideReason ?? ""}
+                                        onChange={(event) => patchItem(item.localId, { adminCommissionOverrideReason: event.target.value })} />
+                                    </Field>
+                                  ) : null}
+                                  {item.adminCommissionOverrideMode === "fixed_order" ? (
+                                    <span className="text-[11px] text-amber-200 sm:col-span-2">Este porcentaje se aplica a toda la orden, no se suma a la comisión de cada producto.</span>
+                                  ) : null}
+                                </div>
                               </details>
                             ) : null}
                           </div>
@@ -1819,7 +1888,7 @@ export default function MasterOpsOrderEditor({
                       })}
                     </div>
                   </Section>
-
+                  </div>
                   <Section title="Totales">
                     <div className="grid gap-3 sm:grid-cols-3">
                       <Field label={pricingChanged ? "Tasa vigente para recalcular" : "Tasa snapshot"}>

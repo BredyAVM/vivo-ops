@@ -39,6 +39,7 @@ import {
   normalizeMasterOpsOrderPaymentMethod,
 } from "./order-editor-payment";
 import { canEditMasterOpsOrder } from "./operational-rules";
+import { prepareEditorCommissionFields, readEditorCommissionFields, type EditorCommissionFields, type EditorCommissionProduct } from "./order-editor-commission";
 import type {
   CounterPickupChangeDecisionResult,
   CounterPickupChangePreviewItem,
@@ -1384,6 +1385,7 @@ type RawOrderEditRow = {
 };
 
 type RawOrderItemEditRow = {
+  product?: EditorCommissionProduct | EditorCommissionProduct[] | null;
   id: number | string;
   order_id: number | string;
   product_id: number | string | null;
@@ -1425,6 +1427,8 @@ type RawOrderClientEditRow = {
 };
 
 type RawCatalogEditRow = {
+  commission_mode?: string | null;
+  commission_value?: number | string | null;
   extra_fields?: Record<string, unknown> | null;
   id: number | string;
   sku: string | null;
@@ -1457,6 +1461,8 @@ type RawProductComponentEditRow = {
 export type MasterOpsEditCurrency = "USD" | "VES";
 
 export type MasterOpsEditCatalogItem = {
+  commissionInheritedMode?: EditorCommissionFields['commissionInheritedMode'];
+  commissionInheritedValue?: number | null;
   discretionaryAllowed?: boolean;
   id: number;
   sku: string | null;
@@ -1517,7 +1523,7 @@ export type MasterOpsAdvisorSuggestion = {
   isActive: boolean;
 };
 
-export type MasterOpsEditOrderItem = {
+export type MasterOpsEditOrderItem = EditorCommissionFields & {
   orderItemId: number | null;
   localId: string;
   productId: number;
@@ -1752,7 +1758,7 @@ function getDefaultScheduleFields(focusDateInput?: string | null) {
   };
 }
 
-type MasterOpsSaveCatalogRow = {
+type MasterOpsSaveCatalogRow = EditorCommissionProduct & {
   id: number | string;
   sku: string | null;
   name: string | null;
@@ -1867,6 +1873,15 @@ function stripMasterOpsOrderItem(item: MasterOpsOrderSaveItem): MasterOpsOrderSa
     crmPlayMemberId: item.crmPlayMemberId ?? null,
     crmPlayBenefitId: item.crmPlayBenefitId ?? null,
     crmPlayBenefitUpgradeId: item.crmPlayBenefitUpgradeId ?? null,
+    ...(Object.hasOwn(item, 'adminCommissionOverrideMode') ? {
+      commissionInheritedMode: item.commissionInheritedMode,
+      commissionInheritedValue: item.commissionInheritedValue,
+      commissionInheritedSource: item.commissionInheritedSource,
+      adminCommissionOverrideMode: item.adminCommissionOverrideMode,
+      adminCommissionOverrideValue: item.adminCommissionOverrideValue,
+      adminCommissionOverrideReason: item.adminCommissionOverrideReason,
+      adminCommissionOverrideChanged: item.adminCommissionOverrideChanged,
+    } : {}),
   };
 }
 
@@ -1937,7 +1952,7 @@ async function prepareMasterOpsOrderSave(
       ctx.supabase
         .from("products")
         .select(
-          "id, sku, name, is_active, source_price_amount, source_price_currency, base_price_usd, is_detail_editable, detail_units_limit, internal_rider_pay_usd"
+          "id, sku, name, is_active, source_price_amount, source_price_currency, base_price_usd, is_detail_editable, detail_units_limit, internal_rider_pay_usd, commission_mode, commission_value, extra_fields"
         )
         .in("id", productIds),
       ctx.supabase
@@ -2042,6 +2057,12 @@ async function prepareMasterOpsOrderSave(
   );
   const existingItems = (orderItemsResult.data ?? []) as MasterOpsExistingSaveItemRow[];
   const existingItemsById = new Map(existingItems.map((item) => [Number(item.id), item] as const));
+  const commissionAudits = isAdmin && currentOrder
+    ? await ctx.supabase.from("order_admin_adjustments").select("order_item_id, payload, reason")
+        .eq("order_id", Number(currentOrder.id)).eq("adjustment_type", "other")
+        .order("created_at", { ascending: false }).order("id", { ascending: false })
+    : { data: [], error: null };
+  if (commissionAudits.error) throw new Error(commissionAudits.error.message);
   const newCrmItems = input.items.filter((item) => !item.orderItemId && item.crmPlayMemberId != null);
   const newCrmContext = newCrmItems.length
     ? await loadMasterCrmOrderContext({
@@ -2185,6 +2206,9 @@ async function prepareMasterOpsOrderSave(
       adminPriceOverrideUsd,
       adminPriceOverrideCurrency: adminPriceOverrideUsd == null ? null : sourcePriceCurrency,
       adminPriceOverrideReason,
+      ...prepareEditorCommissionFields(item, readEditorCommissionFields(
+        liveProduct, input.deliveryDate, commissionAudits.data ?? [], orderItemId,
+      ), isAdmin),
       editableDetailLines: normalizedDetailLines(item.editableDetailLines),
       validateConfiguration: isNewLine || productChanged || detailsChanged,
       allowInactiveCatalog: Boolean(existingItem) && !linePricingChanged,
@@ -2521,6 +2545,8 @@ async function loadMasterOpsOrderComposerLookups(
         is_detail_editable,
         detail_units_limit,
         internal_rider_pay_usd,
+        commission_mode,
+        commission_value,
         extra_fields
       `
       )
@@ -2573,6 +2599,8 @@ async function loadMasterOpsOrderComposerLookups(
 
   const catalogItems = ((productsResult.data ?? []) as RawCatalogEditRow[])
     .map((product) => ({
+      commissionInheritedMode: readEditorCommissionFields(product, getCaracasDateKey(new Date().toISOString())).commissionInheritedMode,
+      commissionInheritedValue: readEditorCommissionFields(product, getCaracasDateKey(new Date().toISOString())).commissionInheritedValue,
       discretionaryAllowed: !isCrmOnlyCatalogProduct(product),
       id: Number(product.id),
       sku: product.sku ?? null,
@@ -2779,7 +2807,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         notes,
         crm_play_member_id,
         crm_play_benefit_id,
-        crm_play_benefit_upgrade_id
+        crm_play_benefit_upgrade_id,
+        product:products!order_items_product_id_fkey(commission_mode, commission_value, extra_fields)
       `
       )
       .eq("order_id", orderId)
@@ -2806,6 +2835,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         is_detail_editable,
         detail_units_limit,
         internal_rider_pay_usd,
+        commission_mode,
+        commission_value,
         extra_fields
       `
       )
@@ -2863,6 +2894,12 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
   const clientRow = one(orderRow.client);
   const client = clientRow ? mapClient(clientRow as any) : null;
   const schedule = splitScheduleFields(orderRow.extra_fields, orderRow.created_at);
+  const commissionAudits = ctx.roles.includes("admin")
+    ? await ctx.supabase.from("order_admin_adjustments").select("order_item_id, payload, reason")
+        .eq("order_id", orderId).eq("adjustment_type", "other")
+        .order("created_at", { ascending: false }).order("id", { ascending: false })
+    : { data: [], error: null };
+  if (commissionAudits.error) throw new Error(commissionAudits.error.message);
   const extraFields = orderRow.extra_fields ?? {};
   const pricing = extraFields.pricing ?? {};
   const payment = extraFields.payment ?? {};
@@ -2872,6 +2909,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
 
   const catalogItems = ((productsResult.data ?? []) as RawCatalogEditRow[])
     .map((product) => ({
+      commissionInheritedMode: readEditorCommissionFields(product, schedule.deliveryDate).commissionInheritedMode,
+      commissionInheritedValue: readEditorCommissionFields(product, schedule.deliveryDate).commissionInheritedValue,
       discretionaryAllowed: !isCrmOnlyCatalogProduct(product),
       id: Number(product.id),
       sku: product.sku ?? null,
@@ -3009,6 +3048,9 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
     return {
       orderItemId: Number(item.id),
       localId: `db-${item.id}`,
+      ...(ctx.roles.includes("admin") ? readEditorCommissionFields(
+        one(item.product ?? null), schedule.deliveryDate, commissionAudits.data ?? [], Number(item.id),
+      ) : {}),
       productId: Number(item.product_id || 0),
       skuSnapshot: item.sku_snapshot ?? null,
       productNameSnapshot: cleanText(item.product_name_snapshot, "Producto"),

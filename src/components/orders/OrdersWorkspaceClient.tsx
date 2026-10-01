@@ -1300,7 +1300,7 @@ function OrderDetailPanel({
   onTabChange: (tab: DetailTab) => void;
   onRetryDetail: () => void;
   onClose: () => void;
-  onEditOrder: (order: MasterOpsOrder) => void;
+  onEditOrder: (order: MasterOpsOrder, intent?: "general" | "commercial") => void;
   onDirectAction: (order: MasterOpsOrder, action: DirectActionKey, payload?: DirectActionPayload) => Promise<boolean>;
   onCreatePaymentReport: (order: MasterOpsOrder, payload: PaymentReportDraft) => Promise<boolean>;
   drivers: DriverOption[];
@@ -3825,6 +3825,13 @@ function OrderDetailPanel({
                       {link.label}
                     </button>
                   ))}
+                  {isAdmin && canEditMasterOpsOrder(order) ? (
+                    <button type="button" disabled={busy}
+                      className="rounded-xl border border-[#FEEF00]/35 bg-[#FEEF00]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FEEF00] hover:border-[#FEEF00]"
+                      onClick={() => onEditOrder(order, "commercial")}>
+                      Precios y comisiones
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -3886,6 +3893,7 @@ export default function OrdersWorkspaceClient({
   const detailRequestTokenRef = useRef(0);
   const appliedOpenOrderRouteRef = useRef<string | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
+  const [editingIntent, setEditingIntent] = useState<"general" | "commercial">("general");
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [rateEditorOpen, setRateEditorOpen] = useState(false);
   const [exchangeRateInput, setExchangeRateInput] = useState(activeRate ? String(activeRate) : "");
@@ -5254,7 +5262,7 @@ export default function OrdersWorkspaceClient({
           onTabChange={setSelectedDetailTab}
           onRetryDetail={refreshSelectedOrderDetail}
           onClose={closeOrderDetail}
-          onEditOrder={(order) => setEditingOrderId(order.id)}
+          onEditOrder={(order, intent = "general") => { setEditingIntent(intent); setEditingOrderId(order.id); }}
           onDirectAction={runDirectOrderAction}
           onCreatePaymentReport={runCreatePaymentReport}
           drivers={drivers}
@@ -5277,6 +5285,7 @@ export default function OrdersWorkspaceClient({
       {editingOrderId !== null ? <MasterOpsOrderEditor
         mode="edit"
         orderId={editingOrderId}
+        intent={editingIntent}
         roles={roles}
         fallbackActiveRate={activeRate}
         onClose={() => setEditingOrderId(null)}

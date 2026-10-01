@@ -21,6 +21,7 @@ export type MasterOpsOrderEditorValidationIssue = {
     | "payment_change"
     | "client_fund"
     | "price_override"
+    | "commission_override"
     | "price_protection"
     | "edit_reason";
   message: string;
