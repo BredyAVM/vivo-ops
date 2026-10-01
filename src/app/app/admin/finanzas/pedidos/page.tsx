@@ -14,7 +14,7 @@ export default async function AdminActiveOrdersPage({ searchParams }: {
     return <section className="rounded-2xl border border-red-400/20 bg-red-400/5 p-5">
       <h1 className="text-lg font-semibold text-white">Pedidos no disponibles</h1>
       <p className="mt-2 text-sm text-red-100">{result.message}</p>
-      <Link href="/app/master/ops" prefetch={false} className="mt-4 inline-flex min-h-11 items-center text-sm text-white underline">Abrir órdenes</Link>
+      <Link href="/app/admin/ordenes" prefetch={false} className="mt-4 inline-flex min-h-11 items-center text-sm text-white underline">Abrir órdenes</Link>
     </section>;
   }
   return <ActiveOrdersOverview overview={result.data} filters={filters} />;

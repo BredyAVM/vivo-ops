@@ -28,7 +28,7 @@ export default async function AdminFinanceReceivablesPage({
         <h1 className="text-lg font-semibold text-white">Cartera no disponible</h1>
         <p className="mt-1 text-sm text-red-100/75">{overview.message}</p>
         <Link
-          href="/app/master/ops"
+          href="/app/admin/ordenes"
           prefetch={false}
           className="mt-4 inline-flex min-h-10 items-center rounded-xl border border-red-200/25 px-3 text-xs font-semibold text-red-100"
         >

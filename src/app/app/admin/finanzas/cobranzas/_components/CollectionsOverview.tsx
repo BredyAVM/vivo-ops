@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { normalizePhone } from '@/lib/phone/normalize-phone';
 import {
   collectionHref, collectionSources, collectionStages,
@@ -14,8 +15,8 @@ const action = 'inline-flex min-h-10 items-center rounded-lg border border-zinc-
 function OrderActions({ order }: { order: CollectionOrder }) {
   const phone = normalizePhone(order.clientPhone);
   return <div className="flex flex-wrap gap-1.5">
-    <Link className={action} prefetch={false} href={`/app/master/ops?openOrder=${order.id}&tab=pagos`}>Ver pagos</Link>
-    {phone ? <a className={action} href={`https://wa.me/${phone.slice(1)}`} target="_blank" rel="noopener noreferrer" aria-label={`Contactar al cliente de la orden ${order.id}`}>WhatsApp</a>
+    <Link className={action} prefetch={false} href={`/app/admin/ordenes?openOrder=${order.id}&tab=pagos`}>Ver pagos</Link>
+    {phone ? <a className={action} href={`https://wa.me/${phone.slice(1)}`} target="_blank" rel="noopener noreferrer" aria-label={`Contactar al cliente de la orden ${formatOrderDisplayNumber(order.id)}`}>WhatsApp</a>
       : <span className="self-center text-[11px] text-zinc-500">Sin teléfono</span>}
   </div>;
 }
@@ -51,7 +52,7 @@ export default function CollectionsOverview({ data, filters }: { data: Overview;
         <table className="w-full text-left text-xs"><caption className="sr-only">Órdenes y saldos actuales. Los totales superiores abarcan todas las páginas.</caption>
           <thead className="bg-[#19191f] text-zinc-400"><tr>{['Orden / fecha', 'Cliente', 'Creada por / asesor', 'Total', 'Cubierto', 'Pendiente', 'Acciones'].map(h => <th key={h} scope="col" className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
           <tbody>{data.orders.map(o => <tr key={o.id} className="border-t border-zinc-800 align-top">
-            <td className="px-3 py-3"><Link href={`/app/master/ops?openOrder=${o.id}&tab=pagos`} prefetch={false} className="font-semibold text-yellow-200">#{o.id}</Link><div className="mt-1 text-zinc-400">{date(filters.basis === 'created' ? o.createdDate : o.deliveredDate)}</div><div className="mt-1 text-[11px] text-zinc-500">{collectionStages[o.stage as keyof typeof collectionStages] ?? o.stage}</div></td>
+            <td className="px-3 py-3"><Link href={`/app/admin/ordenes?openOrder=${o.id}&tab=pagos`} prefetch={false} className="font-semibold text-yellow-200">#{formatOrderDisplayNumber(o.id)}</Link><div className="mt-1 text-zinc-400">{date(filters.basis === 'created' ? o.createdDate : o.deliveredDate)}</div><div className="mt-1 text-[11px] text-zinc-500">{collectionStages[o.stage as keyof typeof collectionStages] ?? o.stage}</div></td>
             <td className="max-w-52 px-3 py-3"><div className="font-medium text-white">{o.clientName}</div><div className="mt-1 text-[11px] text-zinc-400">{o.fulfillment === 'pickup' ? 'Pickup' : 'Delivery'} · {collectionSources[o.source as keyof typeof collectionSources] ?? o.source}</div></td>
             <td className="max-w-44 px-3 py-3"><People order={o} /></td>
             <td className="whitespace-nowrap px-3 py-3 tabular-nums">{money(o.totalUsd)}</td><td className="whitespace-nowrap px-3 py-3 tabular-nums">{money(o.coveredUsd)}</td>
@@ -61,7 +62,7 @@ export default function CollectionsOverview({ data, filters }: { data: Overview;
         </table>
       </div>
       <div className="grid gap-2 md:grid-cols-2 xl:hidden">{data.orders.map(o => <article key={o.id} className="min-w-0 rounded-xl border border-zinc-800 bg-[#111117] p-3 text-xs">
-        <div className="flex items-start justify-between gap-2"><div><Link href={`/app/master/ops?openOrder=${o.id}&tab=pagos`} prefetch={false} className="font-semibold text-yellow-200">#{o.id}</Link> <span className="text-white">{o.clientName}</span></div><span className="whitespace-nowrap font-semibold text-yellow-200">{o.stage === 'cancelled' ? 'Cancelada' : money(o.pendingUsd)}</span></div>
+        <div className="flex items-start justify-between gap-2"><div><Link href={`/app/admin/ordenes?openOrder=${o.id}&tab=pagos`} prefetch={false} className="font-semibold text-yellow-200">#{formatOrderDisplayNumber(o.id)}</Link> <span className="text-white">{o.clientName}</span></div><span className="whitespace-nowrap font-semibold text-yellow-200">{o.stage === 'cancelled' ? 'Cancelada' : money(o.pendingUsd)}</span></div>
         <div className="my-2 text-[11px] text-zinc-400">{date(filters.basis === 'created' ? o.createdDate : o.deliveredDate)} · {o.fulfillment === 'pickup' ? 'Pickup' : 'Delivery'} · {collectionStages[o.stage as keyof typeof collectionStages] ?? o.stage}</div>
         <People order={o} /><div className="my-2 flex flex-wrap gap-x-4 gap-y-1 text-zinc-400"><span>Total {money(o.totalUsd)}</span><span>Cubierto {money(o.coveredUsd)}</span><span>Pendiente {money(o.pendingUsd)}</span></div><Review order={o} /><div className="mt-2"><OrderActions order={o} /></div>
       </article>)}</div>

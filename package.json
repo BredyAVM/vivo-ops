@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:orders-workspace": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/admin-orders-workspace.test.mts tests/search/operational-search.test.mts tests/crm/advisor-order-atomic-create.test.mts",
     "test:delivered-commissions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/commissions/delivered-order-commission.test.mts",
     "test:executive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/admin-executive-kpi.test.mts tests/admin/admin-executive-compact.test.mts tests/admin/admin-executive-loader.test.mts",
     "test:collections": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/admin-collections.test.mts",

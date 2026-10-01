@@ -64,6 +64,7 @@ function revalidateMasterDashboardFinancialReferences() {
   updateTag(MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG);
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/ordenes');
 }
 
 async function requireMasterOrAdmin() {
@@ -2149,6 +2150,7 @@ export async function createPaymentReportAction(input: {
   });
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/ordenes');
   revalidatePath('/app/counter');
 
   return {
@@ -2998,6 +3000,7 @@ export async function assignInternalDriverAction(input: {
   });
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/ordenes');
   revalidatePath('/app/admin/finanzas/delivery');
 }
 
@@ -3050,6 +3053,7 @@ export async function assignExternalPartnerAction(input: {
   });
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/ordenes');
   revalidatePath('/app/admin/finanzas/delivery');
   return { ok: true as const, costUsd, costSource };
 }
@@ -3104,6 +3108,7 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
       console.warn('Delivery correction notification skipped', notificationError);
     }
     revalidatePath('/app/master/ops');
+    revalidatePath('/app/admin/ordenes');
     revalidatePath('/app/admin/finanzas/delivery');
 
     revalidatePath('/app/master/dashboard');
@@ -3792,6 +3797,7 @@ export async function updateExchangeRateAction(input: {
 
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/ordenes');
 }
 
 export async function updateCatalogPricesQuickAction(input: {
@@ -8885,6 +8891,7 @@ export async function createOrderAction(input: {
 
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/ordenes');
 
   return { id: orderId, orderNumber };
 }
@@ -9168,6 +9175,7 @@ export async function updateDeliveredOrderPaymentIntentAction(input: {
 
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/ordenes');
 
   return { ok: true as const, id: orderId };
 }
@@ -10135,6 +10143,7 @@ export async function updateOrderAction(input: {
 
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
+  revalidatePath('/app/admin/ordenes');
 
   return { ok: true as const, id: orderId };
 }

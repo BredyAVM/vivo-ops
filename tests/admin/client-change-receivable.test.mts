@@ -7,7 +7,7 @@ const read = (path: string) => readFileSync(new URL('../../' + path, import.meta
 const actions = read('src/app/app/master/dashboard/actions.ts');
 const ops = read('src/app/app/master/ops/actions.ts');
 const ui = read('src/app/app/master/dashboard/MasterDashboardClient.tsx');
-const opsUi = read('src/app/app/master/ops/MasterOpsClient.tsx');
+const opsUi = read('src/components/orders/OrdersWorkspaceClient.tsx');
 
 test('fund payouts use one session-authorized transaction with a stable request and explicit difference', () => {
   const body = actions.slice(actions.indexOf('export async function settleClientFundPayoutAction'), actions.indexOf('export async function rejectPaymentReportAction'));

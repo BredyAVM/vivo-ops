@@ -14,7 +14,7 @@ import DeliveryPaymentForm, { deliveryButton, deliveryInput, deliveryPrimaryButt
 const usd = (n: number) => `$${n.toFixed(2)}`;
 const shortDate = (date: string) => `${date.slice(8)}/${date.slice(5, 7)}`;
 const panel = 'min-w-0 overflow-hidden rounded-lg border border-[#292937] bg-[#111117]';
-const orderHref = (row: DeliveryService) => `/app/master/ops?openOrder=${row.id}&focusDate=${row.date}&tab=entrega`;
+const orderHref = (row: DeliveryService) => `/app/admin/ordenes?openOrder=${row.id}&focusDate=${row.date}&tab=entrega`;
 
 export default function DeliveryServicesClient({ rows, extras, debts, payees, accounts, payments, from, to, today, initialMode, initialQuery, initialResponsible }: {
   debts: DeliveryDebt[];

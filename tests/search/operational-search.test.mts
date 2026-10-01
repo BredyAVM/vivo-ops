@@ -22,7 +22,7 @@ test('partial phones, short numbers, empty values and unrelated phones', () => {
 });
 const source = (path: string) => readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
 test('both master surfaces use the same directory search and a distinct client profile', () => {
-  for (const path of ['src/app/app/master/ops/MasterOpsClient.tsx', 'src/app/app/master/dashboard/MasterDashboardClient.tsx']) {
+  for (const path of ['src/components/orders/OrdersWorkspaceClient.tsx', 'src/app/app/master/dashboard/MasterDashboardClient.tsx']) {
     const text = source(path);
     assert.match(text, /searchMasterDirectoryAction\(\{ query, limit: 10 \}\)/);
     assert.match(text, /MasterClientSearchResults clients=\{clientSearchResults\}/);

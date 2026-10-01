@@ -243,7 +243,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
                     <p className="truncate">{row.referenceCode || '—'}</p>
                     {row.orderId ? (
                       <Link
-                        href={`/app/master/ops?openOrder=${row.orderId}&tab=pagos`}
+                        href={`/app/admin/ordenes?openOrder=${row.orderId}&tab=pagos`}
                         prefetch={false}
                         className="mt-0.5 inline-flex text-[10px] font-semibold text-[#A6A6B0] hover:text-white"
                       >
@@ -290,7 +290,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
                   </p>
                   {row.orderId ? (
                     <Link
-                      href={`/app/master/ops?openOrder=${row.orderId}&tab=pagos`}
+                      href={`/app/admin/ordenes?openOrder=${row.orderId}&tab=pagos`}
                       prefetch={false}
                       className="mt-1 inline-flex text-[10px] font-semibold text-[#A6A6B0]"
                     >

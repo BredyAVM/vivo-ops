@@ -62,7 +62,7 @@ export const adminNavigation: AdminNavigationItem[] = [
     label: 'Órdenes',
     shortLabel: 'Órdenes',
     description: 'Operación, pagos y entregas',
-    href: '/app/master/ops',
+    href: '/app/admin/ordenes',
     prefetch: false,
     marker: 'OR',
   },

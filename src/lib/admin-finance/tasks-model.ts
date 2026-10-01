@@ -15,7 +15,7 @@ export function buildAdminTaskGroups(input: { accounts: AdminFinanceAccountSnaps
     // One group per order, even when more than one condition is present.
     const reasons = [o.needsReview ? 'Revisión de orden' : '', o.scheduledDate === null ? 'Sin fecha' : o.scheduledDate < input.today ? 'Entrega pendiente de fecha anterior' : '', o.pendingReportsCount > 0 ? `${o.pendingReportsCount} reportes de pago por revisar` : ''].filter(Boolean);
     if (reasons.length) result.push({ key: `pedidos:revision:${o.id}`, domain: 'pedidos', title: reasons[0], entity: `#${o.id} · ${o.clientName}`, count: 1,
-      href: `/app/master/ops?${new URLSearchParams({ openOrder: String(o.id), ...(o.scheduledDate ? { focusDate: o.scheduledDate } : {}) })}`, attention: o.needsReview || (o.scheduledDate !== null && o.scheduledDate < input.today), amount: o.pendingUsd, currency: 'USD', note: reasons.slice(1).join(' · ') || 'Saldo de esta orden; no se suma a diferencias de cuenta' });
+      href: `/app/admin/ordenes?${new URLSearchParams({ openOrder: String(o.id), ...(o.scheduledDate ? { focusDate: o.scheduledDate } : {}) })}`, attention: o.needsReview || (o.scheduledDate !== null && o.scheduledDate < input.today), amount: o.pendingUsd, currency: 'USD', note: reasons.slice(1).join(' · ') || 'Saldo de esta orden; no se suma a diferencias de cuenta' });
   }
   for (const c of input.commissions) {
     const currentPreliminary = c.status === 'preliminary' && c.eligibleNow && c.periodId === input.currentPeriodId;

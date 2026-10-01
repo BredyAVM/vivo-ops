@@ -753,6 +753,7 @@ export async function selectMasterOpsOrderInventoryRouteAction(input: {
     if (protectionError) throw new Error(protectionError.message);
 
     revalidatePath("/app/master/ops");
+    revalidatePath("/app/admin/ordenes");
     revalidatePath(`/orders/${orderId}`);
     return {
       ok: true,
@@ -798,6 +799,7 @@ export async function decideCounterPickupChangeAction(input: {
   revalidatePath("/app/counter");
   revalidatePath("/app/kitchen");
   revalidatePath("/app/master/ops");
+  revalidatePath("/app/admin/ordenes");
   revalidatePath("/app/advisor");
   revalidatePath("/app/advisor/inbox");
 
@@ -861,6 +863,7 @@ export async function addMasterOpsOrderNoteAction(input: {
     if (eventError) throw new Error(eventError.message);
 
     revalidatePath("/app/master/ops");
+    revalidatePath("/app/admin/ordenes");
     return {
       ok: true as const,
       eventId: Number(event.id),
@@ -1275,6 +1278,7 @@ export async function closeMasterOpsRoundingBalanceAction(input: {
       });
 
     revalidatePath("/app/master/ops");
+    revalidatePath("/app/admin/ordenes");
     return {
       ok: true as const,
       id: orderId,
@@ -2465,6 +2469,7 @@ export async function updateMasterOpsOrderAction(input: MasterOpsOrderUpdateInpu
   }
 
   revalidatePath("/app/master/ops");
+  revalidatePath("/app/admin/ordenes");
   revalidatePath("/app/advisor");
   revalidatePath("/app/advisor/orders");
   revalidatePath("/app/advisor/inbox");
@@ -2489,6 +2494,7 @@ export async function appendMasterOpsGiftAction(input: {
       "No se pudo agregar el obsequio. No se guardaron cambios; vuelve a abrir la orden e inténtalo otra vez." };
   }
   revalidatePath("/app/master/ops");
+  revalidatePath("/app/admin/ordenes");
   revalidatePath("/app/kitchen");
   revalidatePath("/app/advisor");
   return { ok: true as const, inventoryStatus: String(data?.inventory_status || "pending_dispatch") };

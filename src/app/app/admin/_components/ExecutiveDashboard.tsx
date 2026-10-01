@@ -24,7 +24,7 @@ const shortcuts: Shortcut[] = [
   { label: 'Cuentas', marker: 'CU', href: '/app/admin/finanzas/cuentas' },
   { label: 'Cobranzas', marker: 'CA', href: '/app/admin/finanzas/cobranzas' },
   { label: 'Por entregar', marker: 'PE', href: '/app/admin/finanzas/pedidos' },
-  { label: 'Órdenes', marker: 'OR', href: '/app/master/ops' },
+  { label: 'Órdenes', marker: 'OR', href: '/app/admin/ordenes' },
   { label: 'Pagos', marker: 'PA', href: '/app/master/ops/finance?status=pending' },
   { label: 'Inventario', marker: 'IV', href: '/app/inventory' },
   { label: 'Productos', marker: 'PR', href: '/app/inventory/configure?view=edit' },
@@ -251,6 +251,7 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
 
       <nav aria-label="Operaciones frecuentes" className="flex flex-wrap gap-2">
         {[
+          { label: 'Órdenes', href: '/app/admin/ordenes' },
           { label: '+ Ingreso', href: adminMovementHref('inflow') },
           { label: '− Egreso', href: adminMovementHref('outflow') },
           { label: 'Cierre de caja', href: '/app/admin/finanzas/cuentas/cierre' },

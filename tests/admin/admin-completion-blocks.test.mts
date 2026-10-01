@@ -35,7 +35,7 @@ test('assignment uses the committed tariff cost in its visible history', () => {
 });
 
 test('both Master forms allow pending cost on new assignments', () => {
-  const ops = readFileSync(new URL('../../src/app/app/master/ops/MasterOpsClient.tsx', import.meta.url), 'utf8');
+  const ops = readFileSync(new URL('../../src/components/orders/OrdersWorkspaceClient.tsx', import.meta.url), 'utf8');
   const branch = ops.slice(ops.indexOf('} else if (action === "assign-external")'), ops.indexOf('} else if (action === "correct-delivered-internal")'));
   assert.match(branch, /parseDeliveryDistanceInput/);
   assert.doesNotMatch(branch, /if \(costUsd === null\)|Debes indicar la distancia/);

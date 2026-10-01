@@ -23,7 +23,7 @@ function schedule(order: ActiveOrder) {
   return order.scheduledDate ? `${dayFormat.format(new Date(`${order.scheduledDate}T12:00:00Z`))}${order.scheduledTime ? ` · ${order.scheduledTime}` : ''}` : 'Sin fecha';
 }
 function orderHref(order: ActiveOrder) {
-  return `/app/master/ops?openOrder=${order.id}&tab=pagos`;
+  return `/app/admin/ordenes?openOrder=${order.id}&tab=pagos`;
 }
 function OrderAlerts({ order, today }: { order: ActiveOrder; today: string }) {
   const labels = [

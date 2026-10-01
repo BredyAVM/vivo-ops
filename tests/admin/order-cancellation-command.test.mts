@@ -65,7 +65,7 @@ test('Dashboard and Ops use one authorized cancellation command without multiste
 
 test('both forms load a fresh cancellation preview and guard synchronous double clicks', () => {
   for (const path of ['dashboard', 'ops']) {
-    const source = read(`src/app/app/master/${path}/${path === 'ops' ? 'MasterOpsClient' : 'MasterDashboardClient'}.tsx`);
+    const source = read(path === 'ops' ? 'src/components/orders/OrdersWorkspaceClient.tsx' : 'src/app/app/master/dashboard/MasterDashboardClient.tsx');
     assert.match(source, /useOrderCancellationPreview\(/);
     assert.match(source, /cancellationBusyRef.current \|\| !cancellation.data/);
     assert.match(source, /cancellation.getRequestId\(\)/);

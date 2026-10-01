@@ -236,7 +236,7 @@ export default function ReceivablesOverview({ overview, filters, basePath }: Pro
                   const overdue = order.collectionStatus === 'overdue_open';
                   return (
                     <tr key={order.id} className="transition hover:bg-[#17171F]">
-                      <td className="px-3 py-3"><Link href={`/app/master/ops?openOrder=${order.id}&tab=pagos`} prefetch={false} className="font-semibold text-white hover:text-[#FEEF00]">{order.orderNumber}</Link></td>
+                      <td className="px-3 py-3"><Link href={`/app/admin/ordenes?openOrder=${order.id}&tab=pagos`} prefetch={false} className="font-semibold text-white hover:text-[#FEEF00]">{order.orderNumber}</Link></td>
                       <td className="px-3 py-3"><p className="truncate font-semibold text-[#E3E3E9]">{order.clientName}</p><p className="mt-0.5 truncate text-[11px] text-[#777784]">{order.advisorName}</p></td>
                       <td className="px-3 py-3"><StatusBadge overdue={overdue} /><p className="mt-1 text-[11px] text-[#8D8D99]">{date(order.deliveryDate)} · {order.ageDays} días</p></td>
                       <td className="px-3 py-3 font-semibold text-white tabular-nums">{money(order.totalUsd)}</td>
@@ -253,7 +253,7 @@ export default function ReceivablesOverview({ overview, filters, basePath }: Pro
             {result.orders.map((order) => {
               const overdue = order.collectionStatus === 'overdue_open';
               return (
-                <Link key={order.id} href={`/app/master/ops?openOrder=${order.id}&tab=pagos`} prefetch={false} className="rounded-xl border border-[#292937] bg-[#111117] p-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]">
+                <Link key={order.id} href={`/app/admin/ordenes?openOrder=${order.id}&tab=pagos`} prefetch={false} className="rounded-xl border border-[#292937] bg-[#111117] p-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]">
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-white">{order.orderNumber}</p><p className="mt-0.5 truncate text-xs text-[#A1A1AC]">{order.clientName}</p></div><StatusBadge overdue={overdue} /></div>
                   <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[#272734] pt-2.5 text-xs"><div><p className="text-[10px] uppercase text-[#777784]">Pendiente</p><p className={`mt-0.5 font-semibold tabular-nums ${overdue ? 'text-red-200' : 'text-orange-200'}`}>{money(order.pendingUsd)}</p></div><div><p className="text-[10px] uppercase text-[#777784]">Abonado</p><p className="mt-0.5 font-semibold text-emerald-200 tabular-nums">{money(order.confirmedPaidUsd)}</p></div><div><p className="text-[10px] uppercase text-[#777784]">Antigüedad</p><p className="mt-0.5 font-semibold text-white tabular-nums">{order.ageDays} días</p></div></div>
                 </Link>

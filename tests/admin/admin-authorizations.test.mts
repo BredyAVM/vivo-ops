@@ -106,6 +106,6 @@ test('UI blocks simultaneous submissions and discards stale snapshot only on fre
   const form = source('src/app/app/admin/autorizaciones/egresos/[movementId]/ExpenseDecisionForm.tsx');
   assert.match(form, /busy.current = true/); assert.match(form, /fieldset disabled=\{pending\}/);
   assert.match(form, /result.status !== 'error'/); assert.match(form, /Actualizar revisión y estado/);
-  const ops = source('src/app/app/master/ops/MasterOpsClient.tsx');
+  const ops = source('src/components/orders/OrdersWorkspaceClient.tsx');
   assert.match(ops, /searchParams.get\("returnTo"\) === "\/app\/admin\/autorizaciones" && roles.includes\("admin"\)/);
 });

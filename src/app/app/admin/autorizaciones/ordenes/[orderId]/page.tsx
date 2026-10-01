@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { notFound } from 'next/navigation';
 import { requireAdminContext } from '@/lib/auth';
 import { loadAdminOrderReview } from '@/lib/admin-finance/order-review-data';
@@ -11,9 +12,9 @@ export default async function AdminOrderReviewPage({ params }: { params: Promise
   let r;
   try { r = await loadAdminOrderReview(orderId); } catch { return <AdminReadError title="Revisar orden" message="No se pudo cargar la revisión completa. No se ha aprobado la orden." />; }
   const usd = (value: number) => new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' }).format(value);
-  const editHref = `/app/master/ops?${new URLSearchParams({ openOrder: String(orderId), returnTo: '/app/admin/autorizaciones', ...(r.date ? { focusDate: r.date } : {}) })}`;
+  const editHref = `/app/admin/ordenes?${new URLSearchParams({ openOrder: String(orderId), returnTo: '/app/admin/autorizaciones', ...(r.date ? { focusDate: r.date } : {}) })}`;
   return <div className="space-y-4">
-    <header className="flex flex-wrap justify-between gap-3"><div><h1 className="text-xl font-semibold">Orden #{r.id} · {r.client}</h1><p className="mt-1 text-xs text-[#B9B9C4]">{r.advisor} · {r.date || 'Sin fecha'} {r.time} · {r.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</p></div><Link href="/app/admin/autorizaciones" prefetch={false} className="inline-flex min-h-11 items-center text-sm underline">← Autorizaciones</Link></header>
+    <header className="flex flex-wrap justify-between gap-3"><div><h1 className="text-xl font-semibold">Orden #{formatOrderDisplayNumber(r.id)} · {r.client}</h1><p className="mt-1 text-xs text-[#B9B9C4]">{r.advisor} · {r.date || 'Sin fecha'} {r.time} · {r.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</p></div><Link href="/app/admin/autorizaciones" prefetch={false} className="inline-flex min-h-11 items-center text-sm underline">← Autorizaciones</Link></header>
     <section aria-label="Estado financiero actual" className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[['Total', r.totalUsd], ['Abonado confirmado', r.confirmedUsd], ['Fondo aplicado', r.fundUsedUsd], ['Pendiente', r.pendingUsd]].map(([label, value]) => <article key={String(label)} className={adminPanel}><h2 className="text-xs text-[#9B9BA7]">{label}</h2><p className="mt-1 text-lg font-semibold tabular-nums">{usd(Number(value))}</p></article>)}</section>
     {r.reportedUsd > 0 || r.overpaidUsd > 0 ? <p className="text-xs text-orange-200">{r.reportedUsd > 0 ? `${usd(r.reportedUsd)} reportados sin confirmar. ` : ''}{r.overpaidUsd > 0 ? `${usd(r.overpaidUsd)} a favor en la orden.` : ''} Aprobar la orden no confirma pagos.</p> : null}
     <section className={adminPanel}><h2 className="text-sm font-semibold">Pedido vigente</h2><ul className="mt-2 divide-y divide-[#292937]">{r.items.map(i => <li key={i.id} className="flex justify-between gap-3 py-3"><div><p className="text-sm">{i.qty} × {i.name}</p>{i.notes ? <p className="mt-1 whitespace-pre-line text-xs text-[#9B9BA7]">{i.notes}</p> : null}</div><p className="text-sm tabular-nums">{usd(i.totalUsd)}</p></li>)}</ul>{r.address ? <p className="mt-3 text-sm">Entrega: {r.address}</p> : null}{r.notes ? <p className="mt-2 whitespace-pre-line text-sm text-[#B9B9C4]">{r.notes}</p> : null}</section>

@@ -70,7 +70,7 @@ export function authorizationHref(row: AuthorizationRow) {
   if (row.kind === 'order' || row.kind === 'reapproval') return `/app/admin/autorizaciones/ordenes/${row.orderId ?? row.id}`;
   const p = new URLSearchParams({ openOrder: String(row.orderId ?? row.id), returnTo: '/app/admin/autorizaciones',
     ...(row.focusDate ? { focusDate: row.focusDate } : {}), ...(row.kind === 'payment' ? { tab: 'pagos' } : {}) });
-  return `/app/master/ops?${p}`;
+  return `/app/admin/ordenes?${p}`;
 }
 export type ExpenseDecisionResult = { status: 'decided'; decision: 'approve' | 'reject'; movementIds: number[]; reviewedAt: string }
   | { status: 'stale' | 'error' | 'uncertain'; message: string };

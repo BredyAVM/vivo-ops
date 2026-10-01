@@ -58,7 +58,7 @@ test('Master exposes a safe cancellation path for an active order without items'
     actions.indexOf('export async function loadMasterOpsOrderDetailAction'),
     actions.indexOf('export async function selectMasterOpsOrderInventoryRouteAction'),
   );
-  const client = read('src/app/app/master/ops/MasterOpsClient.tsx');
+  const client = read('src/components/orders/OrdersWorkspaceClient.tsx');
 
   assert.match(loader, /integrityStatus[\s\S]*"missing_items"/);
   assert.doesNotMatch(loader, /No se pudieron confirmar los productos de la orden/);

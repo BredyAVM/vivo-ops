@@ -7,7 +7,7 @@ const sections = [
     ['Existencias y disponibilidad', '/app/inventory'], ['Crear o modificar productos', '/app/inventory/configure'], ['Productos físicos', '/app/inventory/products'], ['Recetas y producción', '/app/inventory/recipes'], ['Recepciones y operaciones', '/app/inventory/operations'], ['Conteos', '/app/inventory/counts'], ['Ajustes', '/app/inventory/adjustments'], ['Alertas', '/app/inventory/alerts'], ['Incidentes', '/app/inventory/incidents'], ['Reportes y kardex', '/app/inventory/reports'],
   ] },
   { title: 'Clientes y ventas', links: [
-    ['Crear, editar y consultar clientes', legacyAdminHref('clients')], ['Órdenes', '/app/master/ops'], ['Presupuestos de eventos', '/app/events'], ['Jugadas comerciales', '/app/master/plays'], ['Metas de asesores', '/app/commissions/goals'],
+    ['Crear, editar y consultar clientes', legacyAdminHref('clients')], ['Órdenes', '/app/admin/ordenes'], ['Presupuestos de eventos', '/app/events'], ['Jugadas comerciales', '/app/master/plays'], ['Metas de asesores', '/app/commissions/goals'],
   ] },
   { title: 'Cuentas y reglas financieras', links: [
     ['Cobranzas por período y vendedor', '/app/admin/finanzas/cobranzas'],
