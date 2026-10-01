@@ -191,5 +191,63 @@ await check('ledger and helpers cannot be invoked or written by clients',async()
  has_function_privilege('anon','public.crm_authorize_order_validity_v1(uuid,bigint,bigint,text,date,text)','EXECUTE') anonymous`);
  assert.deepEqual(p,{writable:false,helper:false,anonymous:false});
 });
-console.log(`${passed} validity exception checks passed`);
+// Regression: the real delivery event has a second trigger which projects the
+// contact funnel. The original fixture missed both that trigger and the frozen
+// member guard, so a passing delivery test did not cover production's full path.
+const memberGuard = extract(lifecycle,'app_private.crm_play_member_guard_v1');
+const memberColumns = (await rows("select column_name from information_schema.columns where table_name='crm_play_members'")).map(r=>r.column_name);
+const referenced = [...new Set([...memberGuard.matchAll(/(?:new|old)\.(\w+)/g)].map(m=>m[1]))];
+for(const column of referenced.filter(c=>!memberColumns.includes(c))) {
+ await db.exec(`alter table crm_play_members add column ${column} text`);
+}
+await db.exec(`alter table crm_play_members add column contacted_at timestamptz,
+ add column responded_at timestamptz, add column play_launched_at timestamptz,
+ add column last_contact_at timestamptz, add column last_event_at timestamptz,
+ add column contact_attempt_count integer default 0;
+ alter table crm_play_member_events add column id bigint generated always as identity primary key;
+ ${memberGuard}
+ create trigger member_guard before insert or update or delete on crm_play_members
+ for each row execute function app_private.crm_play_member_guard_v1();
+ ${extract('20260910221551_crm_play_flexible_funnel_v3.sql','app_private.crm_infer_play_funnel_from_redemption_v1')}
+ create trigger funnel after insert on crm_play_member_events for each row
+ when(new.event_type='benefit_redeemed') execute function app_private.crm_infer_play_funnel_from_redemption_v1();`);
+await check('reproduces closed-campaign delivery failure with the actual funnel trigger',async()=>{
+ await role('counter');
+ await rejected("update orders set status='delivered' where id=106",/CRM play members cannot change while the play is closed/);
+ assert.equal((await rows('select status from crm_play_redemptions where order_id=106'))[0].status,'reserved');
+});
+await db.exec(read('20261001154928_crm_closed_play_delivery_funnel_fix.sql'));
+await check('closed campaign delivery and inferred follow-up succeed atomically',async()=>{
+ const before=(await rows('select * from crm_play_members where id=106'))[0];
+ const costs=(await rows('select advisor_charge_usd,company_cost_usd from crm_play_redemptions where order_id=106'))[0];
+ await db.exec("update orders set status='delivered' where id=106");
+ const after=(await rows('select * from crm_play_members where id=106'))[0];
+ assert.equal(after.benefit_status,'redeemed');
+ assert.ok(after.contacted_at && after.responded_at && after.play_launched_at);
+ assert.equal(after.contact_attempt_count,1);
+ for(const field of ['play_id','client_id','advisor_id_snapshot','workflow_status','decision_snapshot','net_revenue_usd']) assert.deepEqual(after[field],before[field]);
+ assert.deepEqual((await rows('select advisor_charge_usd,company_cost_usd from crm_play_redemptions where order_id=106'))[0],costs);
+ assert.equal((await rows('select status from crm_plays where id=1'))[0].status,'closed');
+ assert.equal((await rows("select current_setting('app.crm_redemption_funnel_event',true) value"))[0].value,'');
+});
+await check('ordinary closed-member edits and forged funnel contexts remain blocked',async()=>{
+ await rejected("update crm_play_members set workflow_status='contacted' where id=106",/cannot change/);
+ const event=(await rows("select id from crm_play_member_events where play_member_id=106 and event_type='benefit_redeemed'"))[0];
+ await rejected(`select set_config('app.crm_redemption_funnel_event','${event.id}',true); update crm_play_members set client_id=999 where id=106`,/entrega CRM comprobada/);
+ await rejected("insert into crm_play_member_events(play_member_id,event_type,actor_user_id,created_at) values(107,'benefit_redeemed','00000000-0000-0000-0000-000000000002',now())",/entrega CRM comprobada/);
+});
+await check('fix does not grant an exception or permit a second redemption',async()=>{
+ await rejected("update orders set status='delivered' where id=107",/no está habilitado/);
+ await db.exec("update orders set status='delivered' where id=106");
+ assert.equal((await rows("select count(*) n from crm_play_member_events where play_member_id=106 and event_type='benefit_redeemed'"))[0].n,1);
+});
+await check('active campaign delivery preserves previously recorded contact and attempts',async()=>{
+ await db.exec("update crm_plays set status='active',ends_at=now()+interval '10 days' where id=1");
+ await db.exec("update crm_play_members set benefit_status='reserved',contacted_at=now()-interval '5 days',responded_at=now()-interval '4 days',play_launched_at=now()-interval '3 days',contact_attempt_count=3 where id=102");
+ const before=(await rows('select contacted_at,responded_at,play_launched_at,contact_attempt_count from crm_play_members where id=102'))[0];
+ await db.exec("update orders set status='delivered' where id=102");
+ assert.deepEqual((await rows('select contacted_at,responded_at,play_launched_at,contact_attempt_count from crm_play_members where id=102'))[0],before);
+ assert.equal((await rows('select status from crm_play_redemptions where order_id=102'))[0].status,'redeemed');
+});
+console.log(`${passed} total checks passed including active campaign regression`);
 await db.close();
