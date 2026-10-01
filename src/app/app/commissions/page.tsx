@@ -11,9 +11,11 @@ import {
 } from '@/lib/commissions/payment-ledger';
 import { readAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
 import { loadEligibleCommissionAdvisors } from '@/lib/commissions/advisor-eligibility';
+import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
 import {
   readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
+  resolveAdvisorGoalScoringConfiguration,
   type AdvisorGoalPeriodConfig,
 } from '@/lib/commissions/goal-snapshot';
 import {
@@ -177,7 +179,7 @@ function goalJourneyStatus(
   if (config?.status === 'published') {
     return {
       label: 'Meta publicada · en desarrollo',
-      detail: 'El porcentaje visible es provisional. El definitivo se aplicará al finalizar el resultado.',
+      detail: 'Cada preliminar usa el resultado actual de su meta al actualizar. El resultado final se confirma por asesor.',
       classes: 'border-sky-400/30 bg-sky-400/10 text-sky-100',
       action: 'Ver avance y finalizar',
     };
@@ -569,6 +571,28 @@ export default async function CommissionAdministrationPage({
   const closureByAdvisorId = new Map(
     closures.map((closure) => [String(closure.advisor_user_id), closure])
   );
+  const currentGoalRates = new Map<string, number>();
+  let goalRateLoadFailed = false;
+  if (selectedPeriod && selectedGoalConfig?.status === 'published') {
+    try {
+      const scoring = resolveAdvisorGoalScoringConfiguration(selectedGoalConfig);
+      const simulation = await loadAdvisorGoalSimulation({
+        supabase: ctx.supabase, periodId: Number(selectedPeriod.id),
+        periodFrom: selectedPeriod.date_from, periodTo: selectedPeriod.date_to,
+        usePublishedTargets: true,
+        context: { billingContextPct: selectedGoalConfig.billing.appliedPct,
+          closuresContextPct: selectedGoalConfig.closures.appliedPct,
+          campaignBoostPct: selectedGoalConfig.campaignBoostPct ?? 0,
+          growthChallengePct: selectedGoalConfig.growthChallengePct,
+          metricBasePoints: scoring.metricBasePoints, bands: scoring.bands },
+      });
+      for (const advisor of simulation.advisors) {
+        if (advisor.score) currentGoalRates.set(advisor.advisorUserId, advisor.score.calculatedCommissionPct);
+      }
+    } catch {
+      goalRateLoadFailed = true;
+    }
+  }
   const commissionRateAdvisors = advisorProfiles
     .filter((advisor) => Boolean(advisor.is_active ?? true))
     .map((advisor) => {
@@ -581,10 +605,8 @@ export default async function CommissionAdministrationPage({
         closure,
         isLocked: closure?.status === 'closed' || closure?.status === 'paid',
         goalStatus: goal?.status ?? null,
-        isGoalManaged: goal?.status === 'published' || goal?.status === 'final',
-        rate: goal?.status === 'published' || goal?.status === 'final'
-          ? goal.appliedCommissionPct
-          : closure?.base_commission_pct == null
+        isGoalManaged: Boolean(goal && goal.status !== 'draft'),
+        rate: closure?.base_commission_pct == null
             ? 8
             : numberValue(closure.base_commission_pct),
       };
@@ -793,7 +815,7 @@ export default async function CommissionAdministrationPage({
                 {selectedGoalConfig?.status === 'closed'
                   ? 'Los porcentajes finales provienen de Metas y porcentajes. Aquí solo se actualiza la relación económica sin sustituirlos.'
                   : selectedGoalConfig?.status === 'published'
-                    ? 'La meta está en desarrollo. Puedes actualizar la relación, pero el porcentaje definitivo se aplicará únicamente al finalizar el resultado.'
+                    ? 'Al actualizar, cada preliminar toma automáticamente el resultado actual de su meta. Las excepciones manuales y los resultados finales se conservan.'
                     : 'Ajusta el porcentaje dentro de la tarjeta de cada asesor y luego actualiza el período. Los cierres confirmados permanecen protegidos.'}
               </p>
               <button
@@ -821,7 +843,7 @@ export default async function CommissionAdministrationPage({
               <h2 className="text-lg font-semibold tracking-[-0.02em]">Preparar relación por asesor</h2>
               <p className="mt-1 text-sm leading-6 text-[#A6A6B0]">
                 {selectedGoalConfig?.status === 'published' || selectedGoalConfig?.status === 'closed'
-                  ? 'La meta gobierna los porcentajes de este período. Utiliza “Calcular / actualizar” para generar la relación económica sin sustituirlos.'
+                  ? '“Calcular / actualizar” conecta los porcentajes individuales de las metas con sus liquidaciones preliminares.'
                   : 'Define el porcentaje individual en cada tarjeta y utiliza “Calcular / actualizar” para generar los preliminares.'}
               </p>
             </div>
@@ -875,6 +897,7 @@ export default async function CommissionAdministrationPage({
             ) : null}
 
             <section id="advisor-closures" className="scroll-mt-5 space-y-3">
+              {goalRateLoadFailed ? <p className="text-xs text-amber-200">No se pudo consultar el porcentaje actual de las metas. Los importes visibles son los últimos aplicados; vuelve a actualizar para verificar.</p> : null}
               <div>
                 <h2 className="text-lg font-semibold tracking-[-0.02em]">Relación por asesor</h2>
                 <p className="mt-1 text-sm text-[#9696A2]">Una sola lectura compacta por cada liquidación.</p>
@@ -917,15 +940,21 @@ export default async function CommissionAdministrationPage({
                             <CommissionRateField
                               compact
                               locked={row.closure.status !== 'preliminary' || selectedPeriod?.status !== 'open'}
-                              readOnly={row.goal?.status === 'published' || row.goal?.status === 'final'}
-                              readOnlyLabel={row.goal?.status === 'final' ? 'Meta final' : 'Meta en curso'}
+                              readOnly={Boolean(row.goal && row.goal.status !== 'draft')}
+                              readOnlyLabel={row.goal?.status === 'final' ? 'Meta final' : 'Aplicado'}
                               userId={row.closure.advisor_user_id}
-                              value={row.goal?.status === 'published' || row.goal?.status === 'final' ? row.goal.appliedCommissionPct : numberValue(row.closure.base_commission_pct)}
+                              value={numberValue(row.closure.base_commission_pct)}
                             />
                           </div>
                           <div className="mt-1 text-xs text-[#92929E]">
                             {numberValue(row.closure.delivered_orders_count)} pedidos entregados
                           </div>
+                          {row.goal && row.goal.status !== 'draft' ? <div className="mt-1 text-xs text-[#92929E]">
+                            {row.goal.rateOverrideReason ? `Excepción manual: ${row.goal.rateOverrideReason}`
+                              : row.goal.status === 'final' ? 'Resultado individual confirmado.'
+                              : `Meta actual: ${(currentGoalRates.get(row.closure.advisor_user_id) ?? row.goal.calculatedCommissionPct).toFixed(2)}% · se aplica al actualizar.`}
+                            <Link className="ml-2 text-[#F7DA66]" href={`/app/commissions/goals?period=${selectedPeriod?.id}`}>Revisar porcentaje →</Link>
+                          </div> : null}
                           <Link
                             className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#F0D000]/40 px-3 py-1.5 text-xs font-semibold text-[#F7DA66] transition hover:border-[#F0D000]"
                             href={adminCommissionAuditHref(row.closure.id, 'settlement')}
@@ -944,9 +973,9 @@ export default async function CommissionAdministrationPage({
                             <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-200">
                               Meta final aplicada
                             </span>
-                          ) : row.goal?.status === 'published' ? (
+                          ) : row.goal?.status === 'published' || row.goal?.status === 'provisional' ? (
                             <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-2.5 py-1 text-[11px] text-sky-100">
-                              Meta en desarrollo
+                              {row.goal.status === 'provisional' ? 'Meta aplicada al preliminar' : 'Meta en desarrollo'}
                             </span>
                           ) : null}
                           {conformityStatus === 'confirmed' ? (

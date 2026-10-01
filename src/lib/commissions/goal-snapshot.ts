@@ -21,7 +21,7 @@ export type AdvisorGoalContextConfiguration = {
 
 export type AdvisorGoalAuditEntry = {
   version: number;
-  action: 'generated' | 'published' | 'modified' | 'finalized' | 'rate_overridden';
+  action: 'generated' | 'published' | 'modified' | 'finalized' | 'rate_overridden' | 'result_applied';
   recordedAt: string;
   recordedByUserId: string;
   reason: string | null;

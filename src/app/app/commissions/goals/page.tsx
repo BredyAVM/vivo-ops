@@ -4,6 +4,7 @@ import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { ADVISOR_GOAL_METRICS } from '@/lib/commissions/goal-engine';
 import type { AdvisorGoalMetricKey, AdvisorGoalSeasonality } from '@/lib/commissions/goal-engine';
 import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
+import { advisorGoalFinalizationBlock, withPublishedAdvisorGoalTargets } from '@/lib/commissions/goal-application';
 import { suggestNextAdvisorGoalPeriod } from '@/lib/commissions/goal-period';
 import type { AdvisorGoalSimulatedMetric } from '@/lib/commissions/goal-simulation';
 import {
@@ -14,7 +15,7 @@ import {
 import type { AdvisorGoalAuditEntry } from '@/lib/commissions/goal-snapshot';
 import {
   createAdvisorGoalProjectionPeriodAction,
-  finalizeAdvisorGoalResultsAction,
+  applyAdvisorGoalResultAction,
   saveAdvisorGoalConfigurationAction,
 } from './actions';
 import { AdvisorGoalCollectionBreakdown } from '../AdvisorGoalCollectionBreakdown';
@@ -385,24 +386,39 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
         periodFrom: selectedPeriod.date_from,
         periodTo: selectedPeriod.date_to,
         context,
+        usePublishedTargets: Boolean(storedConfig && storedConfig.status !== 'draft')
+          && !Object.keys(params).some((key) => ['billingContext', 'closuresContext', 'campaign', 'growth'].includes(key)
+            || key.startsWith('weight') || key.startsWith('band')),
       });
     } catch (error) {
       simulationError = error instanceof Error ? error.message : 'No se pudo construir la simulación.';
     }
   }
   const storedGoalByAdvisorId = new Map<string, NonNullable<ReturnType<typeof readAdvisorGoalPublicationSnapshot>>>();
+  const storedClosureByAdvisorId = new Map<string, { status: string; rate: number }>();
+  const resultCutoffDate = simulation?.cutoffDate ?? '';
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   if (selectedPeriod) {
     const storedGoalsResult = await ctx.supabase
       .from('advisor_commission_closures')
-      .select('advisor_user_id, snapshot')
+      .select('advisor_user_id, status, base_commission_pct, snapshot')
       .eq('period_id', Number(selectedPeriod.id));
     if (!storedGoalsResult.error) {
       for (const closure of storedGoalsResult.data ?? []) {
+        storedClosureByAdvisorId.set(String(closure.advisor_user_id), { status: closure.status, rate: Number(closure.base_commission_pct) });
         const goal = readAdvisorGoalPublicationSnapshot(closure.snapshot);
         if (goal) storedGoalByAdvisorId.set(String(closure.advisor_user_id), goal);
       }
     }
   }
+
+  const resultAdvisors = simulation && storedConfig ? withPublishedAdvisorGoalTargets({
+    ...simulation,
+    scoring: {
+      metrics: ADVISOR_GOAL_METRICS.map((metric) => ({ ...metric, basePoints: storedScoring.metricBasePoints[metric.key], weightPct: storedScoring.metricBasePoints[metric.key] / 2 })),
+      bands: storedScoring.bands,
+    },
+  }, storedGoalByAdvisorId).advisors : simulation?.advisors ?? [];
 
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F7F7F8]">
@@ -793,55 +809,74 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
             {storedConfig && (storedConfig.status === 'published' || storedConfig.status === 'closed') ? (
               <section className="rounded-3xl border border-emerald-500/25 bg-[#0E1814] p-5">
                 <div>
-                  <h2 className="text-lg font-semibold tracking-[-0.02em]">{storedConfig.status === 'closed' ? 'Rectificar resultado final' : 'Finalizar resultado y porcentaje'}</h2>
-                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[#A8B9B1]">Al finalizar, el porcentaje calculado de cada asesor pasa a su liquidación. Puedes sustituir uno de forma excepcional; si difiere, su motivo es obligatorio y queda en el historial.</p>
+                  <h2 className="text-lg font-semibold tracking-[-0.02em]">Porcentajes conectados con las liquidaciones</h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[#A8B9B1]">Cada preliminar toma automáticamente el resultado de su meta publicada al actualizar. Puedes aplicar un asesor por separado y confirmar su resultado cuando termine su revisión y cobranza.</p>
                 </div>
-                <form action={finalizeAdvisorGoalResultsAction} className="mt-4 space-y-3">
+                <form action={applyAdvisorGoalResultAction} className="mt-4">
                   <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
-                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-                    {simulation.advisors.map((advisor) => {
+                  <button className="h-10 rounded-xl bg-emerald-400 px-5 text-sm font-semibold text-[#07110D] hover:bg-emerald-300" type="submit">Actualizar preliminares automáticamente</button>
+                </form>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {resultAdvisors.map((advisor) => {
                       const storedGoal = storedGoalByAdvisorId.get(advisor.advisorUserId);
+                      const closure = storedClosureByAdvisorId.get(advisor.advisorUserId);
+                      const locked = closure?.status !== 'preliminary';
                       const calculatedPct = advisor.score?.calculatedCommissionPct ?? 0;
                       const appliedPct = storedGoal?.rateOverrideReason
                         ? storedGoal.appliedCommissionPct
                         : calculatedPct;
                       return (
-                        <article className="rounded-2xl border border-[#294037] bg-[#0B1210] p-3" key={advisor.advisorUserId}>
+                        <form action={applyAdvisorGoalResultAction} className="rounded-2xl border border-[#294037] bg-[#0B1210] p-3" key={`${advisor.advisorUserId}:${storedGoal?.revision}`}>
+                          <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
+                          <input name="advisorUserId" type="hidden" value={advisor.advisorUserId} />
                           <div className="truncate text-sm font-semibold" title={advisor.advisorName}>{advisor.advisorName}</div>
                           <div className="mt-1 text-[11px] text-[#8FA49A]">Calculado actual: {calculatedPct.toFixed(2)}%</div>
+                          <div className="mt-1 text-[11px] text-[#A8B9B1]">Aplicado a la liquidación: {(closure?.rate ?? 0).toFixed(2)}% · {locked ? 'Protegida' : storedGoal?.status === 'final' ? 'Resultado final' : 'Preliminar'}</div>
                           {storedGoal?.rateOverrideReason ? (
                             <div className="mt-1 text-[10px] leading-4 text-amber-200">Conserva una sustitución administrativa vigente.</div>
                           ) : null}
-                          <label className="mt-3 block">
-                            <span className="text-[10px] uppercase tracking-[0.12em] text-[#82968D]">Porcentaje aplicado</span>
+                          <label className="mt-3 block text-xs text-[#A8B9B1]">
+                            Origen del porcentaje
+                            <select className="mt-1 h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3" name="rateMode" defaultValue={storedGoal?.rateOverrideReason ? 'manual' : 'automatic'} disabled={locked}>
+                              <option value="automatic">Automático: resultado de su meta</option>
+                              <option value="manual">Excepción manual con motivo</option>
+                            </select>
+                          </label>
+                          <details className="mt-3 text-xs text-[#A8B9B1]" open={Boolean(storedGoal?.rateOverrideReason)}>
+                          <summary className="cursor-pointer">Porcentaje manual y motivo</summary>
+                          <p className="mt-2 text-[11px] text-[#8FA49A]">Solo se utiliza si eliges “Excepción manual”. En automático se calcula al guardar.</p>
+                          <label className="mt-2 block">
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-[#82968D]">Porcentaje manual</span>
                             <div className="relative mt-1">
-                              <input className="h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 pr-7 text-sm font-semibold outline-none focus:border-emerald-400" defaultValue={appliedPct} max="100" min="0" name={`commissionPct:${advisor.advisorUserId}`} required step="0.01" type="number" />
+                              <input className="h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 pr-7 text-sm font-semibold outline-none focus:border-emerald-400" defaultValue={appliedPct} disabled={locked} max="100" min="0" name="commissionPct" step="0.01" type="number" />
                               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#789087]">%</span>
                             </div>
                           </label>
                           <label className="mt-2 block">
                             <span className="text-[10px] uppercase tracking-[0.12em] text-[#82968D]">Motivo si cambia</span>
-                            <input className="mt-1 h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 text-xs outline-none focus:border-emerald-400" defaultValue={storedGoal?.rateOverrideReason ?? ''} maxLength={500} name={`overrideReason:${advisor.advisorUserId}`} placeholder="Solo si sustituye" />
+                            <input className="mt-1 h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 text-xs outline-none focus:border-emerald-400" defaultValue={storedGoal?.rateOverrideReason ?? ''} disabled={locked} maxLength={500} name="overrideReason" placeholder="Explica el acuerdo excepcional" />
                           </label>
-                        </article>
+                          </details>
+                          {storedGoal?.status === 'final' ? <label className="mt-3 block text-xs text-[#A8B9B1]">Motivo de rectificación<input className="mt-1 h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3" name="finalizationReason" maxLength={500} disabled={locked} required /></label> : null}
+                          {selectedPeriod ? (() => {
+                            const block = advisorGoalFinalizationBlock({ advisor, periodTo: selectedPeriod.date_to, cutoffDate: resultCutoffDate, today });
+                            return <>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {storedGoal?.status !== 'final' ? <button className="rounded-xl border border-emerald-400/30 px-3 py-2 text-xs font-semibold text-emerald-200" name="intent" value="preliminary" disabled={locked || !advisor.score} type="submit">Aplicar a su preliminar</button> : null}
+                                <button className="rounded-xl bg-emerald-400 px-3 py-2 text-xs font-semibold text-[#07110D] disabled:opacity-40" name="intent" value="final" disabled={locked || !advisor.score || Boolean(block)} type="submit">{storedGoal?.status === 'final' ? 'Rectificar resultado' : 'Confirmar resultado final'}</button>
+                              </div>
+                              {block && !locked ? <p className="mt-2 text-[11px] leading-4 text-[#8FA49A]">{block}</p> : null}
+                            </>;
+                          })() : null}
+                        </form>
                       );
                     })}
                   </div>
-                  <div className="flex flex-col gap-3 border-t border-[#294037] pt-3 md:flex-row md:items-end md:justify-between">
-                    <label className="block w-full md:max-w-2xl">
-                      <span className="text-[10px] uppercase tracking-[0.12em] text-[#82968D]">Nota de finalización o rectificación</span>
-                      <input className="mt-1 h-10 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 text-sm outline-none focus:border-emerald-400" maxLength={500} name="finalizationReason" placeholder={storedConfig.status === 'closed' ? 'Obligatoria para explicar la nueva revisión' : 'Opcional en el primer cierre'} required={storedConfig.status === 'closed'} />
-                    </label>
-                    <button className="h-10 shrink-0 rounded-xl bg-emerald-400 px-5 text-sm font-semibold text-[#07110D] hover:bg-emerald-300" disabled={simulation.advisors.some((advisor) => advisor.score == null)} type="submit">
-                      {storedConfig.status === 'closed' ? 'Rectificar y recalcular' : 'Finalizar y aplicar'}
-                    </button>
-                  </div>
-                </form>
               </section>
             ) : null}
 
             <section className="rounded-3xl border border-[#292933] bg-[#121217] p-5 text-sm text-[#A8A8B3]">
-              La base vigente distribuye {numberLabel(simulation.scoring.metrics.reduce((sum, metric) => sum + metric.basePoints, 0), 0)} puntos: {simulation.scoring.metrics.map((metric) => `${numberLabel(metric.basePoints, 1)} ${metric.label.toLocaleLowerCase('es')}`).join(', ')}. Simular no cambia datos; solo “Finalizar y aplicar” actualiza los porcentajes de las liquidaciones.
+              La base vigente distribuye {numberLabel(simulation.scoring.metrics.reduce((sum, metric) => sum + metric.basePoints, 0), 0)} puntos: {simulation.scoring.metrics.map((metric) => `${numberLabel(metric.basePoints, 1)} ${metric.label.toLocaleLowerCase('es')}`).join(', ')}. Simular no cambia datos. Al actualizar los preliminares se aplica el porcentaje individual de la meta publicada.
             </section>
           </>
         ) : null}

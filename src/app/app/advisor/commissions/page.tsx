@@ -880,6 +880,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                     <div className="shrink-0 rounded-[14px] border border-[#F0D000]/35 bg-[#F0D000]/10 px-3 py-2 text-right">
                       <div className="text-[9px] uppercase tracking-[0.12em] text-[#AFA679]">{visibleGoal.status === 'final' ? 'Comisión final' : 'Si cerrara hoy'}</div>
                       <div className="mt-0.5 text-xl font-bold text-[#F7DA66]">{(visibleGoal.status === 'final' ? visibleGoal.appliedCommissionPct : liveGoalScore.calculatedCommissionPct).toFixed(2)}%</div>
+                      {visibleGoal.status !== 'final' ? <div className="mt-1 text-[10px] text-[#C8C19B]">Aplicado: {numberValue(closure?.base_commission_pct).toFixed(2)}%{visibleGoal.rateOverrideReason ? ' · acuerdo manual' : ' · preliminar'}</div> : null}
                     </div>
                   </div>
 

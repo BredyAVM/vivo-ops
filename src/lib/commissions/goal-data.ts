@@ -1,5 +1,7 @@
 import type { AuthContext } from '@/lib/auth';
 import { loadEligibleCommissionAdvisors } from './advisor-eligibility.ts';
+import { withPublishedAdvisorGoalTargets } from './goal-application.ts';
+import { readAdvisorGoalPublicationSnapshot } from './goal-snapshot.ts';
 import {
   buildAdvisorGoalPaymentCompletionDates,
   calculateAdvisorGoalCollectionSummary,
@@ -460,6 +462,8 @@ export async function loadAdvisorGoalSimulation(params: {
   periodFrom: string;
   periodTo: string;
   context?: Partial<AdvisorGoalSimulationContext>;
+  usePublishedTargets?: boolean;
+  preserveFinal?: boolean;
 }): Promise<AdvisorGoalSimulation> {
   const [metricsResult, closuresResult, advisors] = await Promise.all([
     params.supabase.rpc('advisor_goal_commercial_metrics_v1', {
@@ -482,7 +486,7 @@ export async function loadAdvisorGoalSimulation(params: {
     closures: (closuresResult.data ?? []) as ClosureDbRow[],
     cutoffDate,
   });
-  return buildAdvisorGoalSimulation({
+  const simulation = buildAdvisorGoalSimulation({
     periodFrom: params.periodFrom,
     periodTo: params.periodTo,
     metrics,
@@ -494,4 +498,10 @@ export async function loadAdvisorGoalSimulation(params: {
     context: params.context,
     mode: params.periodFrom > caracasDate(new Date()) ? 'projection' : 'active',
   });
+  if (!params.usePublishedTargets) return simulation;
+  const publications = new Map((closuresResult.data ?? []).flatMap((closure) => {
+    const publication = readAdvisorGoalPublicationSnapshot(closure.snapshot);
+    return publication ? [[String(closure.advisor_user_id), publication] as const] : [];
+  }));
+  return withPublishedAdvisorGoalTargets(simulation, publications, params.preserveFinal ?? true);
 }

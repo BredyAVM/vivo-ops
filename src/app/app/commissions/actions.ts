@@ -12,7 +12,9 @@ import {
   readAdvisorCommissionSettlementSnapshot,
   writeAdvisorCommissionSettlementSnapshot,
 } from '@/lib/commissions/closure-snapshot';
-import { readAdvisorGoalPublicationSnapshot } from '@/lib/commissions/goal-snapshot';
+import { readAdvisorGoalPeriodConfig, readAdvisorGoalPublicationSnapshot, resolveAdvisorGoalScoringConfiguration, withAdvisorGoalPublicationSnapshot } from '@/lib/commissions/goal-snapshot';
+import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
+import { advisorGoalFinalizationBlock, buildAdvisorGoalResultApplication } from '@/lib/commissions/goal-application';
 import {
   ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX,
   readCommissionPaymentResult,
@@ -334,8 +336,126 @@ async function applySettlementToPreliminaryClosures(input: {
 export async function recalculateAdvisorCommissionSettlementsForGoal(input: {
   periodId: number;
   scheduledLiquidationDate: string | null;
+  closureId?: number;
 }) {
   return applySettlementToPreliminaryClosures(input);
+}
+
+export async function applyAdvisorCommissionGoalResults(input: {
+  periodId: number;
+  advisorUserId?: string;
+  intent: 'automatic' | 'preliminary' | 'final';
+  overrides?: Record<string, { commissionPct: number; reason: string } | null>;
+  reason?: string;
+  scheduledLiquidationDate?: string | null;
+}) {
+  const { supabase, user } = await requireCommissionAdmin();
+  const periodResult = await supabase.from('advisor_commission_periods')
+    .select('id, date_from, date_to, status, goal_config').eq('id', input.periodId).single();
+  if (periodResult.error || !periodResult.data) throw new Error(periodResult.error?.message || 'No se pudo cargar el período.');
+  const period = periodResult.data;
+  const config = readAdvisorGoalPeriodConfig(period.goal_config);
+  if (period.status !== 'open') throw new Error('El período ya no está abierto.');
+  if (!config || config.status === 'draft') throw new Error('Primero publica las metas del período.');
+  const previousResult = await supabase.from('advisor_commission_closures')
+    .select('id, advisor_user_id, status, base_commission_pct, snapshot').eq('period_id', input.periodId);
+  if (previousResult.error) throw new Error(previousResult.error.message);
+  const eligible = new Set((await loadEligibleCommissionAdvisors(supabase)).map((advisor) => advisor.userId));
+  const selected = (previousResult.data ?? []).filter((closure) => eligible.has(String(closure.advisor_user_id))
+    && (!input.advisorUserId || closure.advisor_user_id === input.advisorUserId));
+  const editable = selected.filter((closure) => closure.status === 'preliminary');
+  if (input.advisorUserId && editable.length !== 1) throw new Error('La liquidación de este asesor está protegida o no está disponible.');
+  if (editable.length === 0) return { updated: 0, skippedLocked: selected.length };
+  for (const closure of editable) {
+    const goal = readAdvisorGoalPublicationSnapshot(closure.snapshot);
+    if (!goal || goal.status === 'draft') throw new Error('Primero publica una meta completa para cada asesor seleccionado.');
+    if (input.intent === 'preliminary' && goal.status === 'final') throw new Error('Este asesor ya tiene resultado final. Utiliza la rectificación con su motivo.');
+    if (input.intent === 'final' && goal.status === 'final' && !input.reason?.trim()) throw new Error('Indica el motivo de la rectificación.');
+    const override = input.overrides?.[String(closure.advisor_user_id)];
+    if (override && (!Number.isFinite(override.commissionPct) || override.commissionPct < 0 || override.commissionPct > 100 || !override.reason.trim())) {
+      throw new Error('La excepción manual requiere un porcentaje entre 0 y 100 y un motivo.');
+    }
+  }
+  const scheduledLiquidationDate = input.scheduledLiquidationDate === undefined
+    ? readAdvisorCommissionSettlementSnapshot(editable[0]?.snapshot).scheduledLiquidationDate
+    : input.scheduledLiquidationDate;
+  const previousSnapshotsByAdvisor = new Map(editable.map((closure) => [String(closure.advisor_user_id), closure.snapshot]));
+  const initialRates = Object.fromEntries(editable.map((closure) => {
+    const goal = readAdvisorGoalPublicationSnapshot(closure.snapshot);
+    return [String(closure.advisor_user_id), goal?.status === 'final' ? goal.appliedCommissionPct : numberValue(closure.base_commission_pct)];
+  }));
+  // Refresh order membership and validated collection before deriving a score.
+  await generateAdvisorCommissionClosuresAction({ periodId: input.periodId, advisorUserId: input.advisorUserId, baseCommissionPctByAdvisor: initialRates });
+  // Keep carry overrides, conformity history and payment scheduling intact
+  // even if subsequent score validation asks administration to review a date.
+  await applySettlementToPreliminaryClosures({ periodId: input.periodId, scheduledLiquidationDate, previousSnapshotsByAdvisor,
+    closureId: input.advisorUserId ? Number(editable[0].id) : undefined });
+  const scoring = resolveAdvisorGoalScoringConfiguration(config);
+  const simulation = await loadAdvisorGoalSimulation({
+    supabase, periodId: input.periodId, periodFrom: period.date_from, periodTo: period.date_to,
+    usePublishedTargets: true, preserveFinal: input.intent !== 'final',
+    context: {
+      billingContextPct: config.billing.appliedPct, closuresContextPct: config.closures.appliedPct,
+      growthChallengePct: config.growthChallengePct, campaignBoostPct: config.campaignBoostPct ?? 0,
+      metricBasePoints: scoring.metricBasePoints, bands: scoring.bands,
+    },
+  });
+  const recordedAt = new Date().toISOString();
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const applications = editable.map((closure) => {
+    const advisorId = String(closure.advisor_user_id);
+    const advisor = simulation.advisors.find((row) => row.advisorUserId === advisorId);
+    const previous = readAdvisorGoalPublicationSnapshot(closure.snapshot);
+    if (!advisor || !previous) throw new Error('Falta una meta publicada para uno de los asesores.');
+    if (input.intent === 'final') {
+      const block = advisorGoalFinalizationBlock({ advisor, periodTo: period.date_to, cutoffDate: simulation.cutoffDate, today });
+      if (block) throw new Error(`${advisor.advisorName}: ${block}`);
+    }
+    const publication = buildAdvisorGoalResultApplication({
+      advisor, previous, closureStatus: closure.status, intent: input.intent,
+      override: input.overrides?.[advisorId], reason: input.reason,
+      actorUserId: user.id, recordedAt,
+    });
+    if (!publication) throw new Error('El cierre cambió mientras se preparaba el resultado.');
+    return { closureId: Number(closure.id), advisorId, publication, previous };
+  });
+  await generateAdvisorCommissionClosuresAction({
+    periodId: input.periodId, advisorUserId: input.advisorUserId,
+    baseCommissionPctByAdvisor: Object.fromEntries(applications.map((row) => [row.advisorId, row.publication.appliedCommissionPct])),
+  });
+  const freshResult = await supabase.from('advisor_commission_closures')
+    .select('id, status, snapshot, updated_at').in('id', applications.map((row) => row.closureId));
+  if (freshResult.error) throw new Error(freshResult.error.message);
+  for (const application of applications) {
+    if (application.publication === application.previous) continue;
+    const closure = freshResult.data?.find((row) => Number(row.id) === application.closureId);
+    if (!closure || closure.status !== 'preliminary') throw new Error('La liquidación fue confirmada durante la actualización. Recarga y revisa su resultado.');
+    const saved = await supabase.from('advisor_commission_closures').update({
+      snapshot: withAdvisorGoalPublicationSnapshot(closure.snapshot, application.publication), updated_at: recordedAt,
+    }).eq('id', application.closureId).eq('status', 'preliminary').eq('updated_at', closure.updated_at).select('id').single();
+    if (saved.error) throw new Error('La liquidación cambió durante la actualización. Recarga antes de volver a aplicar el resultado.');
+  }
+  const result = await applySettlementToPreliminaryClosures({
+    periodId: input.periodId, scheduledLiquidationDate,
+    closureId: input.advisorUserId ? applications[0].closureId : undefined,
+    previousSnapshotsByAdvisor,
+  });
+  if (input.intent === 'final') {
+    const results = await supabase.from('advisor_commission_closures').select('advisor_user_id, status, snapshot').eq('period_id', input.periodId);
+    if (results.error) throw new Error(results.error.message);
+    const allFinal = (results.data ?? []).filter((row) => eligible.has(String(row.advisor_user_id)))
+      .every((row) => row.status !== 'preliminary' || readAdvisorGoalPublicationSnapshot(row.snapshot)?.status === 'final');
+    if (allFinal && config.status !== 'closed') {
+      const saved = await supabase.from('advisor_commission_periods').update({
+        goal_config: { ...config, status: 'closed', revision: config.revision + 1,
+          audit: [...config.audit, { version: config.revision + 1, action: 'finalized', recordedAt, recordedByUserId: user.id,
+            reason: input.reason || 'Resultados confirmados individualmente.', next: { status: 'closed' } }],
+        }, updated_at: recordedAt,
+      }).eq('id', input.periodId).eq('status', 'open').eq('goal_config', JSON.stringify(period.goal_config)).select('id').single();
+      if (saved.error) throw new Error('La configuración del período cambió. Los resultados aplicados se conservan; recarga para revisar.');
+    }
+  }
+  return { ...result, skippedLocked: selected.length - editable.length };
 }
 
 export async function calculateCommissionPeriodAction(formData: FormData) {
@@ -347,8 +467,14 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
     if (!Number.isInteger(periodId) || periodId <= 0) {
       throw new Error('Selecciona un periodo válido.');
     }
-    const baseCommissionPctByAdvisor = advisorCommissionRates(formData);
     const scheduledLiquidationDate = optionalDate(formData.get('scheduledLiquidationDate'));
+    const periodResult = await supabase.from('advisor_commission_periods').select('goal_config').eq('id', periodId).single();
+    if (periodResult.error) throw new Error(periodResult.error.message);
+    const config = readAdvisorGoalPeriodConfig(periodResult.data.goal_config);
+    if (config && config.status !== 'draft') {
+      result = await applyAdvisorCommissionGoalResults({ periodId, intent: 'automatic', scheduledLiquidationDate });
+    } else {
+    const baseCommissionPctByAdvisor = advisorCommissionRates(formData);
     const { data: previousClosures, error: previousClosuresError } = await supabase
       .from('advisor_commission_closures')
       .select('advisor_user_id, snapshot')
@@ -377,6 +503,7 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
       scheduledLiquidationDate,
       previousSnapshotsByAdvisor,
     });
+    }
     await bestEffortCommissionNotification('period review ready', () =>
       notifyAdvisorCommissionPeriodReviewReady({ supabase, periodId }),
     );
