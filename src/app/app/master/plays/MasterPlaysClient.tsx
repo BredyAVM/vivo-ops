@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
+import { playDateInput } from '@/lib/crm/play-dates';
 import { ModulePreference } from '../../ModulePreference';
 import {
   addManualPlayMemberAction,
@@ -288,12 +289,6 @@ function previousMonthRange(dateKey: string) {
   return { from, to: endOfMonth(from) };
 }
 
-function dateInput(value: string | null) {
-  if (!value) return '';
-  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
-  return match?.[0] ?? '';
-}
-
 function monthInput(value: string | null | undefined) {
   if (!value) return '';
   const match = value.match(/^\d{4}-\d{2}/);
@@ -415,8 +410,8 @@ function PlayDefinitionForm({
   const [advisorGuidance, setAdvisorGuidance] = useState(play?.advisorGuidance ?? '');
   const [messageTemplate, setMessageTemplate] = useState(play?.messageTemplate ?? '');
   const [kind, setKind] = useState<PlayKind>(() => (play ? (stringValue(rules.play_type) || play.seriesKey) as PlayKind : 'custom'));
-  const [startsOn, setStartsOn] = useState(play ? dateInput(play.startsAt) : today);
-  const [endsOn, setEndsOn] = useState(play ? dateInput(play.endsAt) : endOfMonth(today));
+  const [startsOn, setStartsOn] = useState(play ? playDateInput(play.startsAt) : today);
+  const [endsOn, setEndsOn] = useState(play ? playDateInput(play.endsAt) : endOfMonth(today));
   const [benefitOptions, setBenefitOptions] = useState(() => play?.benefits.length
     ? play.benefits.map((option) => ({
         productId: String(option.productId),
