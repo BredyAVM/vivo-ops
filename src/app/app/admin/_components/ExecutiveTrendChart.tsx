@@ -72,7 +72,7 @@ export default function ExecutiveTrendChart({ points: sourcePoints, todayKey, hi
       <figcaption className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-white">{title}</h2>
-          <p className="text-[11px] text-[#9B9BA7]">{metric === 'closures' ? 'Acumulados' : 'Neta acumulada'} · fecha programada</p>
+          <p className="text-[11px] text-[#9B9BA7]">{metric === 'closures' ? 'Acumulados hasta hoy' : 'Neta acumulada hasta hoy'} · fecha programada</p>
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold tabular-nums text-white">{values.format(actualTotal)}</p>

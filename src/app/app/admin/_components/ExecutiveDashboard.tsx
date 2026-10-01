@@ -169,6 +169,7 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
             ].map((row) => <tr key={row.label} title={row.help}><th scope="row" className="text-left font-medium text-[#BDBDC7]">{row.label}</th><td className={`text-right text-[13px] font-semibold ${row.color}`}>{row.today}</td><td className={`text-right text-[13px] font-semibold ${row.color}`}>{row.week}</td></tr>)}
           </tbody>
         </table>
+        <p className="mt-1 text-[10px] text-[#9B9BA7]">Semana: lunes a domingo, incluidos pedidos registrados para próximos días.</p>
       </section>
 
       <section className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
