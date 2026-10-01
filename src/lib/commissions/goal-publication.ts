@@ -157,8 +157,11 @@ export function buildAdvisorGoalPublicationBundle(params: {
     const score = advisor.score;
     if (!score) throw new Error(`La meta de ${advisor.advisorName} no está completa.`);
     const previous = params.previousByAdvisorId.get(advisor.advisorUserId) ?? null;
+    if (previous?.status === 'final' && params.intent !== 'finalize') {
+      return { advisorUserId: advisor.advisorUserId, publication: previous };
+    }
     const advisorRevision = (previous?.revision ?? 0) + 1;
-    const advisorWasPublished = previous?.status === 'published' || previous?.status === 'final';
+    const advisorWasPublished = previous?.status === 'published' || previous?.status === 'provisional' || previous?.status === 'final';
     const advisorPublished = params.intent === 'publish' || params.intent === 'finalize' || advisorWasPublished;
     const advisorAction = nextAction({
       previousRevision: previous?.revision ?? 0,

@@ -394,6 +394,7 @@ export async function notifyAdvisorGoalPublications(input: {
   supabase: SupabaseClient;
   periodId: number;
   event: 'published' | 'updated' | 'finalized';
+  advisorUserId?: string;
 }) {
   const [periodResult, closuresResult] = await Promise.all([
     input.supabase
@@ -420,8 +421,10 @@ export async function notifyAdvisorGoalPublications(input: {
       : 'advisor_goal_published';
   const results = await Promise.allSettled(
     (closuresResult.data ?? []).flatMap((closure) => {
+      if (input.advisorUserId && String(closure.advisor_user_id) !== input.advisorUserId) return [];
       const goal = readAdvisorGoalPublicationSnapshot(closure.snapshot);
       if (!goal || goal.status === 'draft') return [];
+      if (input.event === 'finalized' && goal.status !== 'final') return [];
       const title = input.event === 'finalized'
         ? 'Tu resultado del periodo está listo'
         : input.event === 'updated'

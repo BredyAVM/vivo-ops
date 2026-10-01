@@ -13,14 +13,12 @@ import {
 import { suggestNextAdvisorGoalPeriod } from '@/lib/commissions/goal-period';
 import { buildAdvisorGoalPublicationBundle } from '@/lib/commissions/goal-publication';
 import { notifyAdvisorGoalPublications } from '@/lib/commissions/notifications';
-import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
 import {
   readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
-  resolveAdvisorGoalScoringConfiguration,
 } from '@/lib/commissions/goal-snapshot';
 import { generateAdvisorCommissionClosuresAction } from '@/app/app/master/dashboard/actions';
-import { recalculateAdvisorCommissionSettlementsForGoal } from '../actions';
+import { applyAdvisorCommissionGoalResults } from '../actions';
 
 function numberInput(value: FormDataEntryValue | null, label: string) {
   const parsed = Number(String(value ?? '').trim().replace(/\s/g, '').replace('%', '').replace(',', '.'));
@@ -80,15 +78,39 @@ async function bestEffortGoalNotification(label: string, task: () => Promise<unk
   }
 }
 
-function caracasToday() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Caracas',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const fields = new Map(parts.map((part) => [part.type, part.value]));
-  return `${fields.get('year')}-${fields.get('month')}-${fields.get('day')}`;
+
+export async function applyAdvisorGoalResultAction(formData: FormData) {
+  const periodId = Number(formData.get('periodId') ?? 0);
+  const advisorUserId = String(formData.get('advisorUserId') ?? '').trim();
+  const intent = formData.get('intent') === 'final' ? 'final' : advisorUserId ? 'preliminary' : 'automatic';
+  let updated = 0;
+  try {
+    if (!Number.isInteger(periodId) || periodId <= 0) throw new Error('Selecciona un período válido.');
+    const manual = formData.get('rateMode') === 'manual';
+    const result = await applyAdvisorCommissionGoalResults({
+      periodId, advisorUserId: advisorUserId || undefined, intent,
+      overrides: advisorUserId ? { [advisorUserId]: manual ? {
+        commissionPct: numberInput(formData.get('commissionPct'), 'El porcentaje manual'),
+        reason: textInput(formData.get('overrideReason'), 500),
+      } : null } : undefined,
+      reason: textInput(formData.get('finalizationReason'), 500),
+    });
+    updated = result.updated;
+    if (intent === 'final') {
+      const { supabase } = await requireGoalAdmin();
+      await bestEffortGoalNotification('finalized', () => notifyAdvisorGoalPublications({
+        supabase, periodId, event: 'finalized', advisorUserId: advisorUserId || undefined,
+      }));
+    }
+  } catch (error) {
+    redirect(`/app/commissions/goals?period=${periodId}&error=${encodeURIComponent(errorMessage(error))}`);
+  }
+  revalidatePath('/app/commissions');
+  revalidatePath('/app/commissions/goals');
+  revalidatePath('/app/advisor', 'layout');
+  redirect(`/app/commissions/goals?period=${periodId}&notice=${encodeURIComponent(intent === 'final'
+    ? 'Resultado individual confirmado y porcentaje aplicado.'
+    : `${updated} liquidaciones preliminares actualizadas con sus porcentajes individuales.`)}`);
 }
 
 export async function createAdvisorGoalProjectionPeriodAction(formData: FormData) {
@@ -269,6 +291,7 @@ export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
       throw new Error('No se guardaron todas las metas de los asesores.');
     }
     if (intent === 'publish') {
+      await applyAdvisorCommissionGoalResults({ periodId, intent: 'automatic' });
       await bestEffortGoalNotification('published', () => notifyAdvisorGoalPublications({
         supabase,
         periodId,
@@ -283,149 +306,4 @@ export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
   revalidatePath('/app/commissions');
   revalidatePath('/app/advisor/commissions');
   redirect(`/app/commissions/goals?period=${periodId}&notice=${encodeURIComponent(intent === 'publish' ? 'Metas publicadas con trazabilidad por asesor.' : 'Simulación guardada como borrador.')}`);
-}
-
-export async function finalizeAdvisorGoalResultsAction(formData: FormData) {
-  const periodId = Number(formData.get('periodId') ?? 0);
-
-  try {
-    const { supabase, user } = await requireGoalAdmin();
-    if (!Number.isInteger(periodId) || periodId <= 0) throw new Error('Selecciona un periodo válido.');
-    const reason = textInput(formData.get('finalizationReason'), 500);
-    const periodResult = await supabase
-      .from('advisor_commission_periods')
-      .select('id, name, date_from, date_to, status, goal_config')
-      .eq('id', periodId)
-      .single();
-    if (periodResult.error || !periodResult.data) {
-      throw new Error(periodResult.error?.message || 'No se pudo cargar el periodo.');
-    }
-    if (periodResult.data.status !== 'open') throw new Error('El periodo de comisiones ya no está abierto.');
-    const previousConfig = readAdvisorGoalPeriodConfig(periodResult.data.goal_config);
-    if (!previousConfig || previousConfig.status === 'draft') {
-      throw new Error('Primero publica las metas del periodo antes de finalizar sus resultados.');
-    }
-    if (previousConfig.status === 'closed' && !reason) {
-      throw new Error('Indica el motivo de la rectificación antes de volver a confirmar los resultados.');
-    }
-
-    const initialClosures = await supabase
-      .from('advisor_commission_closures')
-      .select('advisor_user_id, status, base_commission_pct, snapshot')
-      .eq('period_id', periodId);
-    if (initialClosures.error) throw new Error(initialClosures.error.message);
-    const currentRateByAdvisorId = new Map(
-      (initialClosures.data ?? []).map((closure) => [
-        String(closure.advisor_user_id),
-        Number(closure.base_commission_pct ?? 8),
-      ])
-    );
-    await generateAdvisorCommissionClosuresAction({
-      periodId,
-      baseCommissionPctByAdvisor: Object.fromEntries(currentRateByAdvisorId),
-    });
-
-    const scoring = resolveAdvisorGoalScoringConfiguration(previousConfig);
-    const simulation = await loadAdvisorGoalSimulation({
-      supabase,
-      periodId,
-      periodFrom: periodResult.data.date_from,
-      periodTo: periodResult.data.date_to,
-      context: {
-        billingContextPct: previousConfig.billing.appliedPct,
-        closuresContextPct: previousConfig.closures.appliedPct,
-        campaignBoostPct: previousConfig.campaignBoostPct ?? 0,
-        growthChallengePct: previousConfig.growthChallengePct,
-        metricBasePoints: scoring.metricBasePoints,
-        bands: scoring.bands,
-      },
-    });
-    if (caracasToday() < simulation.cutoffDate) {
-      throw new Error(`La cobranza se completa el ${simulation.cutoffDate}. Finaliza el resultado a partir de esa fecha.`);
-    }
-
-    const refreshedClosures = await supabase
-      .from('advisor_commission_closures')
-      .select('advisor_user_id, status, base_commission_pct, snapshot')
-      .eq('period_id', periodId);
-    if (refreshedClosures.error) throw new Error(refreshedClosures.error.message);
-    const previousByAdvisorId = new Map(
-      (refreshedClosures.data ?? []).flatMap((closure) => {
-        const publication = readAdvisorGoalPublicationSnapshot(closure.snapshot);
-        return publication ? [[String(closure.advisor_user_id), publication] as const] : [];
-      })
-    );
-    const overrideByAdvisorId = new Map<string, { commissionPct: number; reason: string }>();
-    for (const advisor of simulation.advisors) {
-      overrideByAdvisorId.set(advisor.advisorUserId, {
-        commissionPct: numberInput(
-          formData.get(`commissionPct:${advisor.advisorUserId}`),
-          `El porcentaje de ${advisor.advisorName}`
-        ),
-        reason: textInput(formData.get(`overrideReason:${advisor.advisorUserId}`), 500),
-      });
-    }
-    const bundle = buildAdvisorGoalPublicationBundle({
-      simulation,
-      periodId,
-      intent: 'finalize',
-      reason,
-      publicationMessage: previousConfig.publicationMessage,
-      actorUserId: user.id,
-      recordedAt: new Date().toISOString(),
-      previousConfig,
-      previousByAdvisorId,
-      commissionOverrideByAdvisorId: overrideByAdvisorId,
-    });
-    const targetRateByAdvisorId = Object.fromEntries(
-      bundle.publications.map((row) => [row.advisorUserId, row.publication.appliedCommissionPct])
-    );
-    for (const closure of refreshedClosures.data ?? []) {
-      const targetRate = targetRateByAdvisorId[String(closure.advisor_user_id)];
-      if (targetRate == null) continue;
-      const locked = closure.status === 'closed' || closure.status === 'paid';
-      if (locked && Math.abs(Number(closure.base_commission_pct ?? 0) - targetRate) > 0.0001) {
-        throw new Error('Hay una liquidación conformada con un porcentaje diferente. Debe reabrirse antes de finalizar el resultado.');
-      }
-    }
-
-    await generateAdvisorCommissionClosuresAction({
-      periodId,
-      baseCommissionPctByAdvisor: targetRateByAdvisorId,
-    });
-    const scheduledLiquidationDate = (refreshedClosures.data ?? [])
-      .map((closure) => readAdvisorCommissionSettlementSnapshot(closure.snapshot).scheduledLiquidationDate)
-      .find(Boolean) ?? null;
-    await recalculateAdvisorCommissionSettlementsForGoal({ periodId, scheduledLiquidationDate });
-
-    const { data: updated, error: saveError } = await supabase.rpc(
-      'save_advisor_goal_publications_v1',
-      {
-        p_period_id: periodId,
-        p_period_config: bundle.config,
-        p_publications: bundle.publications.map((row) => ({
-          advisor_user_id: row.advisorUserId,
-          advisor_goal: row.publication,
-        })),
-      }
-    );
-    if (saveError) throw new Error(saveError.message);
-    if (Number(updated) !== bundle.publications.length) {
-      throw new Error('No se finalizaron todos los resultados de los asesores.');
-    }
-    await bestEffortGoalNotification('finalized', () => notifyAdvisorGoalPublications({
-      supabase,
-      periodId,
-      event: 'finalized',
-    }));
-  } catch (error) {
-    redirect(`/app/commissions/goals?period=${periodId > 0 ? periodId : ''}&error=${encodeURIComponent(errorMessage(error))}`);
-  }
-
-  revalidatePath('/app/commissions/goals');
-  revalidatePath('/app/commissions');
-  revalidatePath('/app/advisor', 'layout');
-  revalidatePath('/app/advisor/inbox');
-  revalidatePath('/app/advisor/commissions');
-  redirect(`/app/commissions/goals?period=${periodId}&notice=${encodeURIComponent('Resultados finalizados y porcentajes individuales aplicados a las liquidaciones.')}`);
 }
