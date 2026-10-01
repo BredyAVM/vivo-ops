@@ -39,11 +39,13 @@ test('keeps Admin V2 independent from legacy dashboard actions and business quer
   assert.doesNotMatch(source, /money_movements/);
 });
 
-test('leaves the production Admin entry pointing to the current dashboard', () => {
+test('opens the new Admin entry while preserving a separate legacy dashboard entry', () => {
   const modules = read('src/lib/app-modules.ts');
   const adminDefinition = modules.match(/key: 'admin'[\s\S]*?href: '([^']+)'/);
 
-  assert.equal(adminDefinition?.[1], '/app/master/dashboard');
+  assert.equal(adminDefinition?.[1], '/app/admin');
+  const legacyDefinition = modules.match(/key: 'admin-legacy'[\s\S]*?href: '([^']+)'/);
+  assert.equal(legacyDefinition?.[1], '/app/master/dashboard');
 });
 
 test('does not prefetch the heavy operational centers from the new shell', () => {

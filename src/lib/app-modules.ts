@@ -1,6 +1,6 @@
 export type AppRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 
-export type AppModuleKey = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
+export type AppModuleKey = 'admin' | 'admin-legacy' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 
 export type AppModuleDefinition = {
   key: AppModuleKey;
@@ -38,7 +38,17 @@ export const APP_MODULES: AppModuleDefinition[] = [
     key: 'admin',
     label: 'Administrador',
     shortLabel: 'Admin',
-    description: 'Cuentas, cierres, usuarios, reglas y control administrativo.',
+    description: 'Indicadores del negocio, órdenes, cuentas, cobranzas y control administrativo.',
+    href: '/app/admin',
+    status: 'available',
+    roles: ['admin'],
+    recommendedDevice: 'Computadora o teléfono',
+  },
+  {
+    key: 'admin-legacy',
+    label: 'Administrador antiguo',
+    shortLabel: 'Admin antiguo',
+    description: 'Dashboard anterior, con sus herramientas administrativas y acceso de respaldo.',
     href: '/app/master/dashboard',
     status: 'available',
     roles: ['admin'],

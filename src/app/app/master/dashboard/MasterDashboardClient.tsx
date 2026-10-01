@@ -5084,7 +5084,7 @@ const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
 
   const permissions = useMemo(() => getMasterDashboardPermissions(roles), [roles]);
   const isAdmin = permissions.isAdmin;
-  const activeModuleKey = isAdmin ? 'admin' : 'master';
+  const activeModuleKey = isAdmin ? 'admin-legacy' : 'master';
 
   useEffect(() => {
     setDeliveryPartners((current) =>

@@ -41,6 +41,9 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
             <div className="mb-2 min-w-0 px-1" title={email}>
               <p className="truncate text-xs font-semibold text-white">{userLabel}</p>
             </div>
+            <Link href="/app" prefetch={false} className="mb-2 flex min-h-8 items-center justify-center rounded-lg border border-[#2A2A38] px-2 text-xs font-medium text-[#B7B7C2] hover:border-[#FEEF00]/40 hover:text-white">
+              Módulos
+            </Link>
             <AdminSignOutButton />
           </div>
         </aside>
