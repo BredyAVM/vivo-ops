@@ -1,4 +1,5 @@
 -- Individual order exceptions. No campaign, order, reservation or price is rewritten.
+-- Filename synchronized with the version assigned by the managed migration service.
 create table app_private.crm_order_validity_exceptions (
   id uuid primary key,
   order_id bigint not null references public.orders(id),

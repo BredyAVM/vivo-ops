@@ -70,7 +70,7 @@ update orders set extra_fields=jsonb_build_object('schedule',jsonb_build_object(
 update crm_plays set status='closed',ends_at=now()-interval '1 day' where id=1;
 update crm_play_members set benefit_status='expired' where play_id=1;
 `);
-await db.exec(read('20261001141922_crm_order_validity_exceptions.sql'));
+await db.exec(read('20261001143104_crm_order_validity_exceptions.sql'));
 await db.exec('create trigger item_guard before insert or update on order_items for each row execute function app_private.crm_order_item_guard_v1()');
 const rows=async(sql)=>(await db.query(sql)).rows;
 const state=async(id)=>(await rows(`select public.crm_read_order_validity_v1(${id}) rules`))[0].rules[0];
