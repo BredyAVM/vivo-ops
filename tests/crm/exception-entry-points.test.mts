@@ -25,3 +25,22 @@ test('order and client views share the panel; no independent exception mutation'
   assert.doesNotMatch(read('master/plays/exceptions/page.tsx'),/\.insert\(|\.update\(/);
   assert.match(read('master/ops/CrmOrderValidityPanel.tsx'),/expanded && !closed && rule.canAuthorize/);
 });
+
+test('campaign member name is the accessible link, including closed campaigns', () => {
+  const list = read('master/plays/MasterPlaysClient.tsx').split('function MemberList(')[1].split('function PlayMonitor(')[0];
+  assert.match(list,/Toca el nombre del cliente/);
+  const nameLink = list.match(/<Link\s+href=\{`\/app\/master\/plays\/exceptions\?client=\$\{member.clientId\}&member=\$\{member.id\}`\}[\s\S]*?<\/Link>/)?.[0];
+  assert.ok(nameLink);
+  assert.match(nameLink,/\{member.clientName\}/);
+  assert.match(nameLink,/aria-label=\{`Ver órdenes y excepciones de/);
+  assert.match(nameLink,/prefetch=\{false\}/);
+  assert.doesNotMatch(nameLink,/play.status|disabled/);
+});
+
+test('order heading toggles the same lazily loaded exception panel', () => {
+  const card = read('master/plays/exceptions/OrderExceptionCard.tsx');
+  assert.match(card,/<h2>\s*<button[\s\S]*?Orden #\{orderId\}[\s\S]*?<\/button>\s*<\/h2>/);
+  assert.match(card,/aria-controls=\{panelId\}/);
+  assert.match(card,/id=\{panelId\} hidden=\{!open\}/);
+  assert.match(card,/open \? <>\s*<CrmOrderValidityPanel/);
+});

@@ -1398,6 +1398,7 @@ function MemberList({
         <div>
           <h2 className="text-sm font-semibold">2. Revisar lista</h2>
           <p className="mt-0.5 text-[10px] text-[#777785]">{memberCount.toLocaleString('es-VE')} clientes · ordenados por facturación</p>
+          <p className="mt-1 text-[11px] text-[#B7B7C2]">Toca el nombre del cliente para ver sus órdenes y excepciones de esta jugada.</p>
         </div>
         <form action="/app/master/plays" method="get" className="flex items-center gap-2">
           <input type="hidden" name="play" value={play.id} />
@@ -1419,8 +1420,15 @@ function MemberList({
           {members.map((member) => (
             <div key={member.id} className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 lg:grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px]">
               <div className="min-w-0">
-                <div className="truncate text-xs font-semibold text-[#F5F5F7]">{member.clientName}</div>
-                <Link href={`/app/master/plays/exceptions?client=${member.clientId}&member=${member.id}`} className="text-[10px] text-amber-200 underline">Excepciones</Link>
+                <Link
+                  href={`/app/master/plays/exceptions?client=${member.clientId}&member=${member.id}`}
+                  prefetch={false}
+                  aria-label={`Ver órdenes y excepciones de ${member.clientName}`}
+                  className="group block rounded-md py-1 outline-none hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-amber-300"
+                >
+                  <span className="block truncate text-xs font-semibold text-amber-100 underline decoration-amber-200/40 underline-offset-2 group-hover:text-amber-200">{member.clientName}</span>
+                  <span className="block text-[10px] text-[#B7B7C2]">Órdenes y excepciones →</span>
+                </Link>
                 <div className="mt-0.5 truncate text-[9px] text-[#666675]">#{member.clientId} · última {dateLabel(member.lastPurchaseOn)}</div>
               </div>
               <div className="hidden min-w-0 truncate text-[11px] text-[#B7B7C2] lg:block">{member.advisorName}</div>
