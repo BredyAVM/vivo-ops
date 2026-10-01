@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import CrmOrderValidityPanel from "../ops/CrmOrderValidityPanel";
 import {
   formatOrderDisplayNumber,
   getPaymentMethodLabel,
@@ -538,6 +539,12 @@ export function MasterOrderDetailBody({
     return (
       <div className="mt-4 rounded-xl border border-[#242433] bg-[#121218] p-3">
         <div className="text-sm font-semibold text-[#F5F5F7]">Pedido</div>
+        {order.status !== 'delivered' && order.status !== 'cancelled' && lines.some((line) => line.crmPlayName) ? (
+          <details className="mt-3 text-xs">
+            <summary className="cursor-pointer text-amber-200">Vigencia y excepciones de jugada</summary>
+            <div className="mt-2"><CrmOrderValidityPanel key={order.id} orderId={order.id} /></div>
+          </details>
+        ) : null}
 
         <div className="mt-3 space-y-2 text-sm">
           {lines.length === 0 ? (

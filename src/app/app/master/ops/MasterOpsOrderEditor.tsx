@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { parseDecimalInput } from "@/lib/number-input";
 import CrmOrderMinimumPanel from "./CrmOrderMinimumPanel";
+import CrmOrderValidityPanel from "./CrmOrderValidityPanel";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot } from "@/lib/orders/approved-price-preservation";
 import {
@@ -1305,7 +1306,10 @@ export default function MasterOpsOrderEditor({
                   {form.selectedClientId ? (
                     <Section title={currentCrmContext ? `Jugada · ${currentCrmContext.playName}` : "Jugada del cliente"}>
                       {!isCreateMode && orderId && hasPersistedCrmBenefit ? (
-                        <CrmOrderMinimumPanel key={orderId} orderId={orderId} isAdmin={isAdmin} />
+                        <div className="space-y-2">
+                          <CrmOrderValidityPanel key={`validity:${orderId}`} orderId={orderId} />
+                          <CrmOrderMinimumPanel key={orderId} orderId={orderId} isAdmin={isAdmin} />
+                        </div>
                       ) : null}
                       {crmLoading ? <p role="status" className="text-xs text-[#B7B7C2]">Consultando beneficios disponibles…</p> : null}
                       {crmError ? (

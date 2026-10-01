@@ -1,5 +1,5 @@
 // Isolated Postgres. Same pinned PGlite runtime as catalog-gift-db.mjs; no remote credentials.
-import { PGlite } from '../../outputs/crm-auto-link-test-runtime/node_modules/@electric-sql/pglite/dist/index.js';
+const { PGlite } = await import(process.env.PGLITE_RUNTIME || '../../outputs/crm-auto-link-test-runtime/node_modules/@electric-sql/pglite/dist/index.js');
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 const read = (name) => readFileSync(new URL(`../../supabase/migrations/${name}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
