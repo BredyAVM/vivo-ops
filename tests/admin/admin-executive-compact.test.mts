@@ -60,6 +60,9 @@ export function renderExecutivePreview() {
   preview.historicalAverage.todayBilledUsd = 760;
   preview.historicalAverage.todayClosures = 22;
   preview.trend = preview.trend.map((point, index) => ({ ...point, currentBilledUsd: index <= 2 ? [1100, 2415, 3240.25][index] : null, historicalBilledUsd: [1000, 2150, 2980, 4150, 5300, 6650, 7400][index] }));
+  preview.operational.today = { closures: 24, commercialNetUsd: 825.25, confirmedPaidUsd: 712.25, pendingUsd: 113, financialStatesComplete: true };
+  preview.operational.week = { closures: 96, commercialNetUsd: 3240.25, confirmedPaidUsd: 2840.25, pendingUsd: 400, financialStatesComplete: true };
+  preview.operational.trend = preview.trend;
   return renderToStaticMarkup(createElement(Dashboard, { executive: { status: 'ready', data: preview }, finance }));
 }
 

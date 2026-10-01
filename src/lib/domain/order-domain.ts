@@ -262,10 +262,4 @@ export function canCorrectDeliveredDeliveryAssignment(order: FulfillmentOrderInp
   return canEditClosedOrders && isDeliveredDeliveryOrder(order);
 }
 
-export function isScheduledClosingOrder(order: OrderStatusInput & { totalUsd?: number | null }) {
-  return statusKey(order.status) !== 'cancelled' && Number(order.totalUsd || 0) > 0.005;
-}
-
-export function isRecognizedBillingOrder(order: OrderStatusInput & { totalUsd?: number | null }) {
-  return !hasStatus(order.status, ['created', 'cancelled']) && Number(order.totalUsd || 0) > 0.005;
-}
+export { isScheduledClosingOrder, isRecognizedBillingOrder } from '../orders/order-sales.ts';

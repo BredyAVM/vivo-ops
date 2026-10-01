@@ -365,22 +365,31 @@ El diccionario queda listo para implementación cuando:
 
 ## 11. Contrato de la portada ejecutiva
 
-La portada compacta de Administración usa los siguientes significados aunque
-las etiquetas visibles se abrevien para facilitar la lectura:
+Actualización 2026-10-01: la portada compacta usa la lectura operativa de Estado
+del Master por fecha programada (o fecha de creación Caracas si no existe):
 
-- `Facturado hoy/semana` corresponde a `C04`: total contractual de órdenes
-  entregadas, agrupado por el evento real `delivered`, no por la fecha de pago;
-- `Cierres hoy/semana` corresponde a `C01` y excluye órdenes sin valor;
-- `Cubierto hoy/semana` corresponde a la cobertura actual `C07` de esa misma
-  cohorte. Puede incluir anticipos o fondos aplicados anteriormente y no
-  significa caja ingresada hoy;
-- `Por cobrar hoy/semana` corresponde a `C08` para la misma cohorte y el mismo
-  corte, por lo que no se sustituye con reportes de pago pendientes;
-- `Deliveries` es un indicador operativo separado: usa la fecha programada y
-  distingue completados de pendientes sin incorporarlos a facturación hasta su
-  evento de entrega.
+- `Cierres`: órdenes con valor, incluso creadas; excluye canceladas y obsequios
+  sin valor. Reutiliza `isScheduledClosingOrder` del dominio compartido.
+- `Fact. neta`: órdenes con valor que salieron de Creada, excluyendo canceladas,
+  netas de descuentos y sin impuesto; reutiliza `isRecognizedBillingOrder`.
+- `Abonado`: `confirmed_paid_usd` canónico para esas órdenes; no se sustituye
+  por total menos pendiente ni representa entradas a cuentas de hoy.
+- `Pendiente`: saldo canónico actual de esas órdenes, respetando cierre por
+  redondeo. Datos faltantes se muestran como no disponibles, no como cero.
+- Hoy y semana usan la misma definición; semana incluye lunes a domingo y las
+  órdenes ya registradas para próximos días. Delivery sigue por fecha programada.
+- Las métricas financieras C01/C04/C07/C08 por entrega efectiva mantienen su
+  definición separada; no deben confundirse con este resumen operativo.
 
-La línea de referencia usa el promedio de las cuatro semanas completas
-anteriores. Para el día en curso compara hasta la misma hora de Caracas; los
-días ya terminados usan su cierre completo. No se etiqueta como `Plan` hasta
-que exista una meta global certificada para todo el negocio.
+La línea operativa usa el promedio diario de las cuatro semanas completas
+anteriores y acumula por día de la semana. La referencia es de días completos;
+hoy sigue en curso. No se afirma comparación a la misma hora ni se emite alarma
+de caída basada en un día parcial. No es una meta oficial.
+
+`/app/admin/proyecciones` consulta bajo demanda entre una y cuatro semanas
+completas anteriores, incluyendo semanas sin órdenes como cero, y aplica el
+crecimiento seleccionado: promedio × (1 + porcentaje/100). La referencia usa
+la misma base neta operativa. No publica metas de asesores, no escribe registros
+financieros y no estima utilidad. Los detalles de semanas y cifras están
+plegados. Las consultas se paginan y fallan explícitamente al exceder el límite
+seguro en vez de mostrar sumas truncadas. No hay refresco automático del histórico.

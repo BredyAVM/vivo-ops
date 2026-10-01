@@ -1,8 +1,10 @@
 import {
   getOrderCommercialNetUsd,
   getOrderMoneySnapshot,
+  getOrderRoundingClosureSnapshot,
   type OrderMoneySource,
 } from '../orders/order-money.ts';
+import { isRecognizedBillingOrder, isScheduledClosingOrder } from '../orders/order-sales.ts';
 import {
   addDateKeyDays,
   buildAdminFinancePeriod,
@@ -20,7 +22,7 @@ export function executiveHistoryStartKey(asOf: Date) {
 }
 
 export function executiveWindowEndKey(asOf: Date) {
-  return buildAdminFinancePeriod('week', asOf).endExclusiveKey;
+  return buildAdminFinancePeriod('week', asOf).fullEndExclusiveKey;
 }
 
 export type ExecutiveOrderRow = OrderMoneySource & {
@@ -80,6 +82,7 @@ export type AdminExecutiveKpiOverview = {
     weekClosures: number;
   };
   trend: ExecutiveTrendPoint[];
+  operational: OperationalOverview;
   quality: {
     deliveryRowsTruncated: boolean;
     financialStatesComplete: boolean;
@@ -88,6 +91,115 @@ export type AdminExecutiveKpiOverview = {
     historicalWeeks: number;
   };
 };
+
+export type OperationalTotals = {
+  closures: number;
+  commercialNetUsd: number;
+  confirmedPaidUsd: number | null;
+  pendingUsd: number | null;
+  financialStatesComplete: boolean;
+};
+
+export type OperationalOverview = {
+  today: OperationalTotals;
+  week: OperationalTotals;
+  history: { startKey: string; endExclusiveKey: string; closures: number; commercialNetUsd: number }[];
+  trend: ExecutiveTrendPoint[];
+  historyWeeks: number;
+  growthPct: number;
+  weeklyReferenceUsd: number;
+  weeklyReferenceClosures: number;
+};
+
+export function parseProjectionOptions(weeks: unknown, growth: unknown) {
+  const historyWeeks = Number(weeks);
+  const growthPct = typeof growth === 'string' && growth.trim() !== '' ? Number(growth) : 0;
+  return {
+    historyWeeks: Number.isInteger(historyWeeks) && historyWeeks >= 1 && historyWeeks <= HISTORICAL_WEEKS ? historyWeeks : HISTORICAL_WEEKS,
+    growthPct: Number.isFinite(growthPct) && growthPct >= 0 && growthPct <= 100 ? growthPct : 0,
+  };
+}
+
+function operationalTotals(orders: ExecutiveOrderRow[], states: Map<number, ExecutiveFinancialStateRow>): OperationalTotals {
+  let closures = 0;
+  let net = 0;
+  let paid = 0;
+  let pending = 0;
+  let complete = true;
+  for (const order of orders) {
+    const state = states.get(Number(order.id));
+    const totalUsd = state ? numberValue(state.total_usd) : getOrderMoneySnapshot(order).totalUsd;
+    const criteria = { status: order.status, totalUsd };
+    if (isScheduledClosingOrder(criteria)) closures += 1;
+    if (!isRecognizedBillingOrder(criteria)) continue;
+    net += getOrderCommercialNetUsd(order);
+    if (!state || state.confirmed_paid_usd === null || state.pending_usd === null ||
+      !Number.isFinite(Number(state.confirmed_paid_usd)) || !Number.isFinite(Number(state.pending_usd))) {
+      complete = false;
+      continue;
+    }
+    paid += Math.max(0, Number(state.confirmed_paid_usd));
+    pending += getOrderRoundingClosureSnapshot(order).isClosed ? 0 : Math.max(0, Number(state.pending_usd));
+  }
+  return {
+    closures, commercialNetUsd: roundMoney(net),
+    confirmedPaidUsd: complete ? roundMoney(paid) : null,
+    pendingUsd: complete ? roundMoney(pending) : null,
+    financialStatesComplete: complete,
+  };
+}
+
+export function buildOperationalOverview(input: {
+  orders: ExecutiveOrderRow[];
+  financialStates: ExecutiveFinancialStateRow[];
+  asOf: Date;
+  historyWeeks?: number;
+  growthPct?: number;
+}): OperationalOverview {
+  const { historyWeeks, growthPct } = parseProjectionOptions(input.historyWeeks, String(input.growthPct ?? 0));
+  const period = buildAdminFinancePeriod('week', input.asOf);
+  const todayKey = getCaracasDateKey(input.asOf);
+  const states = new Map(input.financialStates.map((state) => [Number(state.order_id), state]));
+  const byDay = new Map<string, ExecutiveOrderRow[]>();
+  // One order contributes once, even if the loader found it by multiple dates/events.
+  for (const order of new Map(input.orders.map((order) => [Number(order.id), order])).values()) {
+    const key = getExecutiveOrderDateKey(order);
+    if (key) byDay.set(key, [...(byDay.get(key) ?? []), order]);
+  }
+  const days = listDateKeys(period.startKey, period.fullEndExclusiveKey);
+  const currentDaily = days.map((key) => operationalTotals(byDay.get(key) ?? [], states));
+  const historyStartKey = addDateKeyDays(period.startKey, -historyWeeks * 7);
+  const history = Array.from({ length: historyWeeks }, (_, index) => {
+    const startKey = addDateKeyDays(historyStartKey, index * 7);
+    const totals = operationalTotals(listDateKeys(startKey, addDateKeyDays(startKey, 7)).flatMap((key) => byDay.get(key) ?? []), states);
+    return { startKey, endExclusiveKey: addDateKeyDays(startKey, 7), closures: totals.closures, commercialNetUsd: totals.commercialNetUsd };
+  });
+  let actualUsd = 0;
+  let referenceUsd = 0;
+  let actualClosures = 0;
+  let referenceClosures = 0;
+  const factor = 1 + growthPct / 100;
+  const trend = days.map((dateKey, weekday) => {
+    const samples = history.map((week) => operationalTotals(byDay.get(addDateKeyDays(week.startKey, weekday)) ?? [], states));
+    referenceUsd += samples.reduce((sum, day) => sum + day.commercialNetUsd, 0) / historyWeeks * factor;
+    referenceClosures += samples.reduce((sum, day) => sum + day.closures, 0) / historyWeeks * factor;
+    actualUsd += currentDaily[weekday].commercialNetUsd;
+    actualClosures += currentDaily[weekday].closures;
+    return {
+      dateKey, currentBilledUsd: dateKey <= todayKey ? roundMoney(actualUsd) : null,
+      historicalBilledUsd: roundMoney(referenceUsd),
+      currentClosures: dateKey <= todayKey ? actualClosures : null,
+      historicalClosures: Number(referenceClosures.toFixed(1)),
+    };
+  });
+  return {
+    today: currentDaily[days.indexOf(todayKey)],
+    week: operationalTotals(days.flatMap((key) => byDay.get(key) ?? []), states),
+    history, trend, historyWeeks, growthPct,
+    weeklyReferenceUsd: roundMoney(history.reduce((sum, week) => sum + week.commercialNetUsd, 0) / historyWeeks * factor),
+    weeklyReferenceClosures: Number((history.reduce((sum, week) => sum + week.closures, 0) / historyWeeks * factor).toFixed(1)),
+  };
+}
 
 function numberValue(value: unknown) {
   const parsed = Number(value);
@@ -353,6 +465,7 @@ export function buildAdminExecutiveKpiOverview(input: {
       weekClosures: Number(historicalAverageWeek.closures.toFixed(1)),
     },
     trend,
+    operational: buildOperationalOverview(input),
     quality: {
       deliveryRowsTruncated: Boolean(input.deliveryRowsTruncated),
       financialStatesComplete:

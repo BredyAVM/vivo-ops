@@ -20,6 +20,7 @@ export const adminNavigation: AdminNavigationItem[] = [
   },
   { key: 'tasks', label: 'Pendientes', shortLabel: 'Pendientes', description: 'Revisiones por cuenta, pedido y comisión', href: '/app/admin/tareas', prefetch: false, marker: 'PD' },
   { key: 'authorizations', label: 'Autorizaciones', shortLabel: 'Autorizar', description: 'Egresos, órdenes, modificaciones y pagos', href: '/app/admin/autorizaciones', prefetch: false, marker: 'AU' },
+  { key: 'projections', label: 'Proyecciones', shortLabel: 'Proyecciones', description: 'Promedios semanales y escenarios de crecimiento', href: '/app/admin/proyecciones', prefetch: false, marker: 'PY' },
   {
     key: 'finance',
     label: 'Finanzas',

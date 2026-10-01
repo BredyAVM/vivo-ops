@@ -3,12 +3,61 @@ import test from 'node:test';
 
 import {
   buildAdminExecutiveKpiOverview,
+  buildOperationalOverview,
+  parseProjectionOptions,
   getExecutiveOrderDateKey,
   type ExecutiveFinancialStateRow,
   type ExecutiveOrderRow,
 } from '../../src/lib/admin-finance/executive-model.ts';
 
 const asOf = new Date('2026-09-09T16:00:00.000Z');
+
+test('operational KPIs match Master scheduled criteria, rather than only deliveries', () => {
+  const result = buildOperationalOverview({ orders: currentOrders, financialStates, asOf });
+  assert.equal(result.today.closures, 3); // created + queued + delivered; not cancelled
+  assert.equal(result.today.commercialNetUsd, 150); // no tax, created excluded
+  assert.equal(result.today.confirmedPaidUsd, 70); // 12 + 58, not total minus pending
+  assert.equal(result.today.pendingUsd, 56);
+  assert.equal(result.week.closures, 5); // includes Friday scheduled order
+  assert.equal(result.week.commercialNetUsd, 190);
+  assert.equal(result.week.confirmedPaidUsd, 80);
+  assert.equal(result.week.pendingUsd, 86);
+});
+
+test('operational projection averages complete prior weeks and applies selected growth once', () => {
+  const result = buildOperationalOverview({ orders: [...currentOrders, ...historicalOrders], financialStates, asOf, historyWeeks: 2, growthPct: 20 });
+  assert.equal(result.history.length, 2);
+  assert.equal(result.history[0].startKey, '2026-08-24');
+  assert.equal(result.weeklyReferenceUsd, 420); // mean(300,400)*1.2
+  assert.equal(result.weeklyReferenceClosures, 1.2);
+  assert.equal(result.trend[2].historicalBilledUsd, 420);
+  assert.equal(result.trend[2].currentBilledUsd, 160);
+  assert.equal(result.trend[4].currentBilledUsd, null); // future is not observed
+});
+
+test('projection keeps empty weeks, deduplicates orders, and cannot read current-week sales as history', () => {
+  const rows = [currentOrders[0], currentOrders[0], historicalOrders[3]];
+  const result = buildOperationalOverview({ orders: rows, financialStates, asOf });
+  assert.equal(result.today.closures, 1);
+  assert.equal(result.weeklyReferenceUsd, 100); // 400/4, not 400/1
+  assert.equal(result.history.filter((week) => week.commercialNetUsd === 0).length, 3);
+});
+
+test('operational missing financial state is unknown; canonical rounding closure is respected', () => {
+  const row = order({ id: 99, date: '2026-09-09', status: 'queued', totalUsd: 10 });
+  assert.equal(buildOperationalOverview({ orders: [row], financialStates: [], asOf }).today.pendingUsd, null);
+  row.extra_fields = { ...row.extra_fields, payment: { rounding_close: { closed_balance_usd: 0.02 } } };
+  const result = buildOperationalOverview({ orders: [row], financialStates: [state(99, 10, 9.98, 0.02)], asOf });
+  assert.equal(result.today.pendingUsd, 0);
+  assert.equal(result.today.confirmedPaidUsd, 9.98);
+  assert.equal(buildOperationalOverview({ orders: [], financialStates: [], asOf }).today.pendingUsd, 0);
+});
+
+test('projection normalizes invalid or unbounded parameters', () => {
+  assert.deepEqual(parseProjectionOptions('2', '15.5'), { historyWeeks: 2, growthPct: 15.5 });
+  for (const weeks of ['0', '-1', '5', '2.5', 'NaN']) assert.equal(parseProjectionOptions(weeks, '0').historyWeeks, 4);
+  for (const growth of ['-1', '101', 'Infinity', 'NaN']) assert.equal(parseProjectionOptions('4', growth).growthPct, 0);
+});
 
 function order(input: {
   id: number;

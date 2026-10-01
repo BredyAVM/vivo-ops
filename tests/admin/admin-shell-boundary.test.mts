@@ -72,10 +72,10 @@ test('keeps the Admin home KPI-first and leaves the detailed dashboard on its ow
   assert.match(page, /<ExecutiveDashboard/);
   assert.doesNotMatch(page, /<FinancialDashboard/);
   assert.doesNotMatch(executiveDashboard, /Radiografía financiera del negocio/);
-  assert.match(executiveDashboard, /Facturado hoy/);
-  assert.match(executiveDashboard, /Cierres hoy/);
-  assert.match(executiveDashboard, /Cubierto hoy/);
-  assert.match(executiveDashboard, /Por cobrar hoy/);
+  assert.match(executiveDashboard, /Fact\. neta/);
+  assert.match(executiveDashboard, /Cierres/);
+  assert.match(executiveDashboard, /Abonado/);
+  assert.match(executiveDashboard, /Pendiente/);
   assert.match(executiveData, /from\('order_events'\)/);
   assert.match(executiveData, /\.eq\('event', 'delivered'\)/);
   assert.match(executiveData, /get_orders_financial_state/);

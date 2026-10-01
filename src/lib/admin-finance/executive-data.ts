@@ -3,6 +3,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   buildAdminExecutiveKpiOverview,
+  buildOperationalOverview,
   executiveHistoryStartKey,
   executiveWindowEndKey,
   getExecutiveCommercialDateKey,
@@ -16,9 +17,27 @@ import {
   caracasDateKeyToUtcIso,
   getCaracasDateKey,
 } from './period';
+import { isRecognizedBillingOrder } from '../orders/order-sales';
+import { getOrderMoneySnapshot } from '../orders/order-money';
 
-const EXECUTIVE_ORDER_LIMIT = 2_000;
+const EXECUTIVE_ORDER_LIMIT = 8_000;
 const EXECUTIVE_ORDER_BATCH_SIZE = 250;
+
+// Never assume .limit() overrides the API row cap: walk stable, bounded pages.
+export async function readExecutivePages<T>(query: (from: number, to: number) => PromiseLike<{
+  data: unknown[] | null; error: { message: string } | null;
+}>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; offset <= EXECUTIVE_ORDER_LIMIT; offset += EXECUTIVE_ORDER_BATCH_SIZE) {
+    const result = await query(offset, offset + EXECUTIVE_ORDER_BATCH_SIZE - 1);
+    if (result.error) throw new Error(result.error.message);
+    const page = (result.data ?? []) as T[];
+    rows.push(...page);
+    if (rows.length > EXECUTIVE_ORDER_LIMIT) throw new Error('La consulta supera el rango seguro de 8.000 registros; no se mostrarán cifras incompletas.');
+    if (page.length < EXECUTIVE_ORDER_BATCH_SIZE) return rows;
+  }
+  throw new Error('No se pudo completar la consulta del tablero.');
+}
 
 export type AdminExecutiveKpiDomain =
   | { status: 'ready'; data: AdminExecutiveKpiOverview }
@@ -40,13 +59,16 @@ function hasScheduledDate(order: ExecutiveOrderRow) {
 export async function loadAdminExecutiveKpis(input: {
   supabase: ExecutiveSupabaseClient;
   asOf?: Date;
+  includeFinancialStates?: boolean;
+  historyWeeks?: number;
+  growthPct?: number;
 }): Promise<AdminExecutiveKpiOverview> {
   const asOf = input.asOf ?? new Date();
   const historyStartKey = executiveHistoryStartKey(asOf);
   const windowEndKey = executiveWindowEndKey(asOf);
   const weekPeriod = buildAdminFinancePeriod('week', asOf);
-  const [deliveredEventResult, scheduledResult, legacyCreatedResult] = await Promise.all([
-    input.supabase
+  const [deliveredEvents, scheduledRows, legacyCreatedRows] = await Promise.all([
+    readExecutivePages<DeliveredEventRow>((from, to) => input.supabase
       .from('order_events')
       .select('order_id,created_at')
       .eq('event', 'delivered')
@@ -54,42 +76,28 @@ export async function loadAdminExecutiveKpis(input: {
       .lt('created_at', caracasDateKeyToUtcIso(windowEndKey))
       .lte('created_at', asOf.toISOString())
       .order('created_at', { ascending: true })
-      .limit(EXECUTIVE_ORDER_LIMIT + 1),
-    input.supabase
+      .order('id', { ascending: true })
+      .range(from, to)),
+    readExecutivePages<ExecutiveOrderRow>((from, to) => input.supabase
       .from('orders')
       .select(orderSelect)
-      .eq('fulfillment', 'delivery')
       .neq('status', 'cancelled')
-      .gte('extra_fields->schedule->>date', weekPeriod.startKey)
+      .gte('extra_fields->schedule->>date', historyStartKey)
       .lt('extra_fields->schedule->>date', windowEndKey)
       .lte('created_at', asOf.toISOString())
       .order('id', { ascending: true })
-      .limit(EXECUTIVE_ORDER_LIMIT + 1),
-    input.supabase
+      .range(from, to)),
+    readExecutivePages<ExecutiveOrderRow>((from, to) => input.supabase
       .from('orders')
       .select(orderSelect)
-      .eq('fulfillment', 'delivery')
       .neq('status', 'cancelled')
-      .gte('created_at', caracasDateKeyToUtcIso(weekPeriod.startKey))
+      .gte('created_at', caracasDateKeyToUtcIso(historyStartKey))
       .lt('created_at', caracasDateKeyToUtcIso(windowEndKey))
       .lte('created_at', asOf.toISOString())
       .order('id', { ascending: true })
-      .limit(EXECUTIVE_ORDER_LIMIT + 1),
+      .range(from, to)),
   ]);
 
-  const orderError =
-    deliveredEventResult.error ?? scheduledResult.error ?? legacyCreatedResult.error;
-  if (orderError) throw new Error(orderError.message || 'No se pudieron consultar las ordenes del tablero.');
-
-  const deliveredEvents = (deliveredEventResult.data ?? []) as unknown as DeliveredEventRow[];
-  if (deliveredEvents.length > EXECUTIVE_ORDER_LIMIT) {
-    throw new Error('El volumen de entregas supera el rango seguro del tablero ejecutivo.');
-  }
-  const scheduledRows = (scheduledResult.data ?? []) as unknown as ExecutiveOrderRow[];
-  const legacyCreatedRows = (legacyCreatedResult.data ?? []) as unknown as ExecutiveOrderRow[];
-  const deliveryRowsTruncated =
-    scheduledRows.length > EXECUTIVE_ORDER_LIMIT ||
-    legacyCreatedRows.length > EXECUTIVE_ORDER_LIMIT;
   const latestDeliveredEventByOrderId = new Map<number, DeliveredEventRow>();
 
   for (const event of deliveredEvents) {
@@ -155,19 +163,20 @@ export async function loadAdminExecutiveKpis(input: {
   });
   const currentWeekOrderIds = orders
     .filter((order) => {
-      const dateKey = getExecutiveCommercialDateKey(order);
+      const dateKey = getExecutiveOrderDateKey(order);
+      const commercialKey = getExecutiveCommercialDateKey(order);
       return Boolean(
-        order.status === 'delivered' &&
-          dateKey &&
+        (isRecognizedBillingOrder({ status: order.status, totalUsd: getOrderMoneySnapshot(order).totalUsd }) && dateKey &&
           dateKey >= weekPeriod.startKey &&
-          dateKey < weekPeriod.endExclusiveKey
+          dateKey < weekPeriod.fullEndExclusiveKey) ||
+        (order.status === 'delivered' && commercialKey && commercialKey >= weekPeriod.startKey && commercialKey < weekPeriod.endExclusiveKey)
       );
     })
     .map((order) => Number(order.id))
     .filter((orderId) => Number.isFinite(orderId) && orderId > 0);
 
   let financialStates: ExecutiveFinancialStateRow[] = [];
-  if (currentWeekOrderIds.length > 0) {
+  if (currentWeekOrderIds.length > 0 && input.includeFinancialStates !== false) {
     const financialStateResult = await input.supabase.rpc('get_orders_financial_state', {
       p_order_ids: currentWeekOrderIds,
       p_operation_date: null,
@@ -181,17 +190,24 @@ export async function loadAdminExecutiveKpis(input: {
     financialStates = (financialStateResult.data ?? []) as unknown as ExecutiveFinancialStateRow[];
   }
 
-  return buildAdminExecutiveKpiOverview({
+  const result = buildAdminExecutiveKpiOverview({
     orders,
     financialStates,
     asOf,
-    deliveryRowsTruncated,
+    deliveryRowsTruncated: false,
   });
+  if (input.historyWeeks !== undefined || input.growthPct !== undefined) {
+    result.operational = buildOperationalOverview({ orders, financialStates, asOf, historyWeeks: input.historyWeeks, growthPct: input.growthPct });
+  }
+  return result;
 }
 
 export async function loadAdminExecutiveKpiDomain(input: {
   supabase: ExecutiveSupabaseClient;
   asOf?: Date;
+  includeFinancialStates?: boolean;
+  historyWeeks?: number;
+  growthPct?: number;
 }): Promise<AdminExecutiveKpiDomain> {
   try {
     return { status: 'ready', data: await loadAdminExecutiveKpis(input) };

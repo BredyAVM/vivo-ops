@@ -3,6 +3,9 @@ import type { ExecutiveTrendPoint } from '@/lib/admin-finance/executive-model';
 type ExecutiveTrendChartProps = {
   points: ExecutiveTrendPoint[];
   todayKey: string;
+  historyWeeks?: number;
+  growthPct?: number;
+  metric?: 'billing' | 'closures';
 };
 
 const moneyFormatter = new Intl.NumberFormat('es-VE', {
@@ -26,7 +29,11 @@ function weekdayLabel(dateKey: string) {
   return label.replace('.', '').slice(0, 3);
 }
 
-export default function ExecutiveTrendChart({ points, todayKey }: ExecutiveTrendChartProps) {
+export default function ExecutiveTrendChart({ points: sourcePoints, todayKey, historyWeeks = 4, growthPct = 0, metric = 'billing' }: ExecutiveTrendChartProps) {
+  const points = metric === 'closures' ? sourcePoints.map((point) => ({ ...point, currentBilledUsd: point.currentClosures, historicalBilledUsd: point.historicalClosures })) : sourcePoints;
+  const values = metric === 'closures' ? new Intl.NumberFormat('es-VE', { maximumFractionDigits: 1 }) : exactMoneyFormatter;
+  const axisValues = metric === 'closures' ? values : moneyFormatter;
+  const title = metric === 'closures' ? 'Cierres semanales' : 'Facturación semanal';
   const width = 640;
   const height = 210;
   const left = 16;
@@ -64,13 +71,13 @@ export default function ExecutiveTrendChart({ points, todayKey }: ExecutiveTrend
     <figure className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] p-3">
       <figcaption className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-white">Facturación semanal</h2>
-          <p className="text-xs text-[#9B9BA7]">Acumulada · mismo día y hora</p>
+          <h2 className="text-sm font-semibold text-white">{title}</h2>
+          <p className="text-[11px] text-[#9B9BA7]">{metric === 'closures' ? 'Acumulados' : 'Neta acumulada'} · fecha programada</p>
         </div>
         <div className="text-right">
-          <p className="text-base font-semibold tabular-nums text-white">{exactMoneyFormatter.format(actualTotal)}</p>
+          <p className="text-sm font-semibold tabular-nums text-white">{values.format(actualTotal)}</p>
           <p className="text-xs tabular-nums text-[#8E8E9A]">
-            Referencia a hoy {exactMoneyFormatter.format(historicalToDate)}
+            Referencia al cierre de hoy {values.format(historicalToDate)}
           </p>
         </div>
       </figcaption>
@@ -82,13 +89,13 @@ export default function ExecutiveTrendChart({ points, todayKey }: ExecutiveTrend
         </span>
         <span className="inline-flex items-center gap-2">
           <span className="h-0.5 w-5 border-t border-dashed border-[#8F8FA3]" aria-hidden="true" />
-          Promedio 4 semanas
+          {growthPct > 0 ? `Referencia +${growthPct}%` : `Promedio ${historyWeeks} semanas`}
         </span>
       </div>
 
       <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2">
         <div aria-hidden="true" className="flex h-40 flex-col justify-between py-3 text-[10px] tabular-nums text-[#9B9BA7] sm:h-44">
-          {[maximum, maximum / 2, 0].map((value) => <span key={value}>{moneyFormatter.format(value)}</span>)}
+          {[maximum, maximum / 2, 0].map((value) => <span key={value}>{axisValues.format(value)}</span>)}
         </div>
         <div className="min-w-0">
         <svg
@@ -96,7 +103,7 @@ export default function ExecutiveTrendChart({ points, todayKey }: ExecutiveTrend
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label="Facturación acumulada de la semana actual comparada con el promedio de las cuatro semanas anteriores"
+          aria-label={`${title}: acumulado actual frente a la referencia de ${historyWeeks} semanas y ${growthPct}% de crecimiento; el día actual está en curso y la referencia usa días completos`}
         >
         {[0, 0.5, 1].map((fraction) => {
           const y = top + chartHeight - chartHeight * fraction;
@@ -149,11 +156,13 @@ export default function ExecutiveTrendChart({ points, todayKey }: ExecutiveTrend
         </div>
       </div>
 
+      <p className="mt-2 text-[10px] text-[#9B9BA7]">Hoy está en curso; la referencia usa días completos. No es una comparación a la misma hora.</p>
+
       <details className="mt-2 border-t border-[#292937]">
         <summary className="min-h-11 cursor-pointer content-center text-xs text-[#BDBDC7] focus-visible:outline-2 focus-visible:outline-[#FEEF00]">Ver cifras por día</summary>
       <div className="overflow-x-auto">
       <table className="w-full text-right text-xs tabular-nums text-[#CFCFD7] [&_td]:py-1.5 [&_th]:py-1.5">
-        <caption className="sr-only">Facturación acumulada actual y promedio histórico</caption>
+        <caption className="sr-only">{title}: acumulado actual y referencia histórica</caption>
         <thead>
           <tr>
             <th>Día</th>
@@ -165,8 +174,8 @@ export default function ExecutiveTrendChart({ points, todayKey }: ExecutiveTrend
           {points.map((point) => (
             <tr key={point.dateKey}>
               <th>{point.dateKey}</th>
-              <td>{point.currentBilledUsd === null ? 'Pendiente' : exactMoneyFormatter.format(point.currentBilledUsd)}</td>
-              <td>{exactMoneyFormatter.format(point.historicalBilledUsd)}</td>
+              <td>{point.currentBilledUsd === null ? 'Pendiente' : values.format(point.currentBilledUsd)}</td>
+              <td>{values.format(point.historicalBilledUsd)}</td>
             </tr>
           ))}
         </tbody>
