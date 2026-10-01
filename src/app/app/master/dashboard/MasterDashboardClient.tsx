@@ -26722,6 +26722,9 @@ deliveryAssignMode === 'external' ? (
                   {selectedClient.clientType ? (
                     <SmallBadge label={fmtClientTypeLabel(selectedClient.clientType)} tone="muted" />
                   ) : null}
+                  <Link href={`/app/master/plays/exceptions?client=${selectedClient.id}`} className="rounded-xl border border-amber-200/30 px-3 py-2 text-sm text-amber-200">
+                    Excepciones de jugadas
+                  </Link>
                   <button
                     type="button"
                     className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"

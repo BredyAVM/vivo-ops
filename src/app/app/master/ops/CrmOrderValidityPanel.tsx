@@ -6,8 +6,8 @@ import { authorizeCrmOrderValidityAction, loadCrmOrderValidityAction, type CrmOr
 const dateLabel = (value: string | null) => value ? value.split('-').reverse().join('/') : 'Sin fecha';
 const todayVE = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
-function ValidityRule({ rule, orderId, onAuthorized }: {
-  rule: CrmOrderValidity; orderId: number; onAuthorized: () => void;
+function ValidityRule({ rule, orderId, onAuthorized, closed }: {
+  rule: CrmOrderValidity; orderId: number; onAuthorized: () => void; closed: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [through, setThrough] = useState(rule.authorizedThrough ?? rule.scheduledOn ?? todayVE());
@@ -37,11 +37,11 @@ function ValidityRule({ rule, orderId, onAuthorized }: {
     <p className="font-semibold">Vigencia · {rule.playName}</p>
     <p>Jugada hasta {dateLabel(rule.endsOn)} · Pedido para {dateLabel(rule.scheduledOn)}.</p>
     {rule.authorizedThrough ? <p>Excepción hasta {dateLabel(rule.authorizedThrough)} (hora de Venezuela), por {rule.approvedBy || 'responsable autorizado'}. Motivo: {rule.reason}</p> : null}
-    <p>{rule.eligible ? 'Fecha habilitada para este obsequio.' : 'Requiere revisión: no avanzar a cocina ni entregar sin resolver la vigencia.'}</p>
-    {rule.canAuthorize ? <button type="button" disabled={busy} aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="rounded-lg border border-amber-200/40 px-3 py-2 disabled:opacity-50">
+    <p>{closed ? 'Pedido cerrado. La autorización se conserva para consulta; no admite nuevas excepciones.' : rule.eligible ? 'Fecha habilitada para este obsequio.' : 'Requiere revisión: no avanzar a cocina ni entregar sin resolver la vigencia.'}</p>
+    {!closed && rule.canAuthorize ? <button type="button" disabled={busy} aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="rounded-lg border border-amber-200/40 px-3 py-2 disabled:opacity-50">
       {expanded ? 'Cerrar autorización' : 'Autorizar fecha excepcional'}
-    </button> : <p>Esta condición no se puede exceptuar desde esta orden.</p>}
-    {expanded ? <div className="space-y-3">
+    </button> : !closed ? <p>{rule.authorizationRoleAllowed ? 'Esta condición no se puede exceptuar desde esta orden.' : 'Solo el administrador puede autorizar. Tu acceso es de consulta.'}</p> : null}
+    {expanded && !closed && rule.canAuthorize ? <div className="space-y-3">
       <label className="block">Permitir entrega hasta (inclusive)
         <input type="date" value={through} min={todayVE()} disabled={busy} onChange={(event) => setThrough(event.target.value)} className="mt-1 block w-full rounded-lg border border-[#343440] bg-[#0B0B0D] p-2" />
       </label>
@@ -55,7 +55,7 @@ function ValidityRule({ rule, orderId, onAuthorized }: {
   </div>;
 }
 
-export default function CrmOrderValidityPanel({ orderId }: { orderId: number }) {
+export default function CrmOrderValidityPanel({ orderId, closed = false }: { orderId: number; closed?: boolean }) {
   const [rules, setRules] = useState<CrmOrderValidity[]>([]);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -68,6 +68,6 @@ export default function CrmOrderValidityPanel({ orderId }: { orderId: number }) 
   }, [orderId, revision]);
   return <div className="space-y-2">
     {error ? <p role="alert" className="text-xs text-amber-100">{error} <button type="button" onClick={() => setRevision((value) => value + 1)} className="underline">Reintentar</button></p> : null}
-    {rules.map((rule) => <ValidityRule key={`${orderId}:${rule.memberId}:${rule.fingerprint}`} rule={rule} orderId={orderId} onAuthorized={() => setRevision((value) => value + 1)} />)}
+    {rules.map((rule) => <ValidityRule key={`${orderId}:${rule.memberId}:${rule.fingerprint}`} rule={rule} orderId={orderId} closed={closed} onAuthorized={() => setRevision((value) => value + 1)} />)}
   </div>;
 }

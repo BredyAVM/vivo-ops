@@ -1425,6 +1425,7 @@ function MemberList({
             <div key={member.id} className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 lg:grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px]">
               <div className="min-w-0">
                 <div className="truncate text-xs font-semibold text-[#F5F5F7]">{member.clientName}</div>
+                <Link href={`/app/master/plays/exceptions?client=${member.clientId}&member=${member.id}`} className="text-[10px] text-amber-200 underline">Excepciones</Link>
                 <div className="mt-0.5 truncate text-[9px] text-[#666675]">#{member.clientId} · última {dateLabel(member.lastPurchaseOn)}</div>
               </div>
               <div className="hidden min-w-0 truncate text-[11px] text-[#B7B7C2] lg:block">{member.advisorName}</div>

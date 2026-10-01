@@ -71,6 +71,7 @@ update crm_plays set status='closed',ends_at=now()-interval '1 day' where id=1;
 update crm_play_members set benefit_status='expired' where play_id=1;
 `);
 await db.exec(read('20261001143104_crm_order_validity_exceptions.sql'));
+await db.exec(read('20261001145419_crm_validity_admin_only.sql'));
 await db.exec('create trigger item_guard before insert or update on order_items for each row execute function app_private.crm_order_item_guard_v1()');
 const rows=async(sql)=>(await db.query(sql)).rows;
 const state=async(id)=>(await rows(`select public.crm_read_order_validity_v1(${id}) rules`))[0].rules[0];
@@ -101,12 +102,19 @@ await check('allows unrelated notes without unblocking benefit',async()=>{
  await db.exec(`update orders set extra_fields=extra_fields||'{"notes":"test"}'::jsonb where id=101`);
  assert.equal((await state(101)).eligible,false);
 });
-await check('advisor/counter/anonymous cannot authorize',async()=>{
+await check('master/advisor/counter/anonymous cannot authorize',async()=>{
  const snapshot=await state(101);
- for(const name of ['advisor','counter']){await role(name);await assert.rejects(authorize(101,tomorrow,undefined,snapshot),/Solo master/);}
+ for(const name of ['master','advisor','counter']){await role(name);await assert.rejects(authorize(101,tomorrow,undefined,snapshot),/Solo el administrador/);}
  await db.exec("select set_config('test.uid','',false)");
- await assert.rejects(authorize(101,tomorrow,undefined,snapshot),/Solo master/);
+ await assert.rejects(authorize(101,tomorrow,undefined,snapshot),/Solo el administrador/);
+ await role('admin');
+});
+await check('master reads the same rule but receives no authorization capability',async()=>{
  await role('master');
+ const r=await state(101);assert.equal(r.authorizationRoleAllowed,false);assert.equal(r.canAuthorize,false);
+ await role('admin');
+ const a=await state(101);assert.equal(a.authorizationRoleAllowed,true);assert.equal(a.canAuthorize,true);
+ assert.equal(r.fingerprint,a.fingerprint);
 });
 await check('validates reason, date and stale fingerprint',async()=>{
  await assert.rejects(authorize(101,tomorrow,'short'),/motivo/);
@@ -114,7 +122,7 @@ await check('validates reason, date and stale fingerprint',async()=>{
  const r=await state(101);await assert.rejects(authorize(101,tomorrow,undefined,{...r,fingerprint:'stale'}),/cambió/);
 });
 const requestId='00000000-0000-0000-0000-000000000999';
-await check('master grants bounded/idempotent audited exception without modifying order',async()=>{
+await check('admin grants bounded/idempotent audited exception without modifying order',async()=>{
  const before=(await rows('select * from orders where id=101'))[0];
  await authorize(101,tomorrow,undefined,null,requestId);await authorize(101,tomorrow,undefined,null,requestId);
  assert.equal((await state(101)).eligible,true);

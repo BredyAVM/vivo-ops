@@ -1,13 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireMasterOrAdminContext } from '@/lib/auth';
+import { requireAdminContext, requireMasterOrAdminContext } from '@/lib/auth';
 
 export type CrmOrderValidity = {
   memberId: number; playName: string; playStatus: string; scheduledOn: string | null;
   endsOn: string | null; fingerprint: string; authorizedThrough: string | null;
   reason: string | null; approvedAt: string | null; approvedBy: string | null;
   eligible: boolean; exceptionValid: boolean; canAuthorize: boolean;
+  authorizationRoleAllowed: boolean;
 };
 
 export async function loadCrmOrderValidityAction(orderId: number) {
@@ -23,7 +24,7 @@ export async function authorizeCrmOrderValidityAction(input: {
   authorizedThrough: string; reason: string;
 }) {
   try {
-    const { supabase } = await requireMasterOrAdminContext();
+    const { supabase } = await requireAdminContext();
     if (!Number.isSafeInteger(input.orderId) || input.orderId <= 0 ||
       !Number.isSafeInteger(input.memberId) || input.memberId <= 0 ||
       !/^\d{4}-\d{2}-\d{2}$/.test(input.authorizedThrough) ||
@@ -36,7 +37,7 @@ export async function authorizeCrmOrderValidityAction(input: {
       p_reason: input.reason.trim(),
     });
     if (error) throw new Error(error.message);
-    for (const path of ['/app/master/ops','/app/master/dashboard','/app/admin','/app/counter','/app/advisor/orders']) revalidatePath(path);
+    for (const path of ['/app/master/ops','/app/master/plays/exceptions','/app/master/dashboard','/app/admin','/app/counter','/app/advisor/orders']) revalidatePath(path);
     return { ok: true as const };
   } catch (error) {
     return { ok: false as const, message: error instanceof Error ? error.message : 'No se pudo autorizar la excepción.' };

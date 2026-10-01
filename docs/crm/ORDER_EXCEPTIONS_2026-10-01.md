@@ -4,11 +4,11 @@
 
 Herramienta para órdenes guardadas que ya contienen un obsequio vinculado al CRM. No autoriza automáticamente la orden 2988 ni ninguna otra. No reabre ni prolonga una campaña completa y no incorpora obsequios por sí sola.
 
-En Master/administrador, abrir el pedido y desplegar **Vigencia y excepciones de jugada**. También está disponible en **Modificar → Jugada del cliente**, junto a la autorización de mínimo de compra existente.
+El administrador tiene tres accesos al mismo registro: **Clientes → ficha → Excepciones de jugadas**, **Jugada → fila del cliente → Excepciones**, y **Orden → Vigencia y excepciones de jugada**. También está disponible en **Modificar → Jugada del cliente**, junto a la autorización de mínimo de compra existente. Master puede consultar, pero no autorizar.
 
-- **Fecha excepcional:** master o administrador eligen una fecha límite inclusive, en Venezuela, y explican el motivo. Autorizar no modifica la fecha del pedido ni lo entrega. Luego se puede reprogramar dentro del plazo autorizado.
+- **Fecha excepcional:** exclusivamente el administrador elige una fecha límite inclusive, en Venezuela, y explica el motivo. Autorizar no modifica la fecha del pedido ni lo entrega. Luego se puede reprogramar dentro del plazo autorizado.
 - **Compra mínima:** se conserva la herramienta existente, exclusiva del administrador; permite un mínimo reducido o cero. Una excepción de fecha no exonera el mínimo.
-- El asesor no autoriza excepciones. La validación del servidor funciona independientemente del navegador.
+- Master, mostrador y asesor no autorizan excepciones. La validación del servidor y de la base de datos funciona independientemente del navegador. La lectura devuelve capacidad de autorización falsa para cualquier rol sin administrador.
 
 ## Seguridad y operación
 
@@ -31,6 +31,6 @@ No es una herramienta para añadir clientes fuera de lista ni para insertar por 
 
 ## Estado de publicación
 
-Base de datos instalada con versión `20261001143104`; cero autorizaciones creadas por la implementación. La pantalla todavía no está publicada: el control de seguridad exigió autorización humana expresa para enviar el commit a `main` y activar producción. No se utilizó otra vía de publicación. Pendiente verificar visualmente el formulario publicado, sin conceder una excepción real como parte de las pruebas.
+Base de datos instalada con versiones `20261001143104` y `20261001145419` (restricción exclusiva de administrador); cero autorizaciones creadas por la implementación. La pantalla todavía no está publicada: el control de seguridad exigió autorización humana expresa para enviar el commit a `main` y activar producción. No se utilizó otra vía de publicación. Pendiente verificar visualmente el formulario publicado, sin conceder una excepción real como parte de las pruebas.
 
 El asesor de seguridad de Supabase reporta dos condiciones deliberadas: [tabla privada con RLS sin políticas](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy), que impide acceso directo, y RPC autenticadas SECURITY DEFINER que acceden al registro privado. Estas últimas comprueban identidad y rol/propiedad dentro de la función, revocan ejecución anónima y fijan search_path vacío. Ver [seguridad de funciones](https://supabase.com/docs/guides/database/functions). Las pruebas verifican que asesor/mostrador/anónimo no puedan autorizar.
