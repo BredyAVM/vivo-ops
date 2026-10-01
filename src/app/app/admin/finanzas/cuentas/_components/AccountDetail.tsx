@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import AccountOperationLinks from './AccountOperationLinks';
 import AdminQualityIndicator from '@/app/app/admin/_components/AdminQualityIndicator';
 import type {
@@ -190,11 +191,11 @@ function DetailKpi({
   detail?: string;
   tone?: 'neutral' | 'positive' | 'warning';
 }) {
-  const valueClass = tone === 'positive' ? 'text-emerald-200' : tone === 'warning' ? 'text-orange-200' : 'text-white';
+  const valueClass = tone === 'positive' ? 'text-emerald-200' : tone === 'warning' ? 'text-orange-200' : 'text-[#D5D5DD]';
   return (
-    <div className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] px-3 py-3 sm:px-4">
+    <div className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] px-3 py-2.5">
       <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#858592]">{label}</p>
-      <p className={`mt-1.5 text-[clamp(0.95rem,4vw,1.25rem)] font-semibold leading-tight tabular-nums [overflow-wrap:anywhere] ${valueClass}`}>{value}</p>
+      <p className={`mt-1 text-sm font-medium leading-tight tabular-nums [overflow-wrap:anywhere] ${valueClass}`}>{value}</p>
       {detail ? <p className="mt-1.5 truncate text-[11px] text-[#7D7D89]">{detail}</p> : null}
     </div>
   );
@@ -203,7 +204,7 @@ function DetailKpi({
 function ConvertedValue({ native, usd, currencyCode }: { native: number; usd: number; currencyCode: 'USD' | 'VES' }) {
   return (
     <div>
-      <p className="whitespace-nowrap font-semibold tabular-nums text-white">{formatNative(native, currencyCode)}</p>
+      <p className="font-medium tabular-nums text-[#D5D5DD] [overflow-wrap:anywhere]">{formatNative(native, currencyCode)}</p>
       {currencyCode === 'VES' ? (
         <p className="mt-0.5 whitespace-nowrap text-[10px] tabular-nums text-[#777784]">≈ {formatUsd(usd)}</p>
       ) : null}
@@ -211,19 +212,20 @@ function ConvertedValue({ native, usd, currencyCode }: { native: number; usd: nu
   );
 }
 
-function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
+function MovementRows({ rows, accountId, returnHref }: { rows: AdminFinanceMovementRow[]; accountId: number; returnHref: string }) {
+  const movementHref = (id: number) => `/app/admin/finanzas/cuentas/${accountId}/movimientos/${id}?volver=${encodeURIComponent(returnHref)}`;
   return (
     <>
-      <div className="hidden overflow-hidden rounded-xl border border-[#292937] bg-[#111117] md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-[#292937] bg-[#111117] lg:block">
         <table className="w-full table-fixed text-left text-xs">
           <thead className="border-b border-[#292937] bg-[#15151C] text-[10px] font-bold uppercase tracking-[0.1em] text-[#81818D]">
             <tr>
               <th className="w-[13%] px-3 py-2.5">Fecha</th>
-              <th className="w-[29%] px-3 py-2.5">Movimiento</th>
+              <th className="w-[26%] px-3 py-2.5">Movimiento</th>
               <th className="w-[18%] px-3 py-2.5">Referencia</th>
               <th className="w-[15%] px-3 py-2.5">Entrada</th>
               <th className="w-[15%] px-3 py-2.5">Salida</th>
-              <th className="w-[10%] px-3 py-2.5">Estado</th>
+              <th className="w-[13%] px-3 py-2.5">Estado</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#252531]">
@@ -233,7 +235,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
                 <tr key={row.id} className="hover:bg-[#17171F]">
                   <td className="px-3 py-3 text-[#BDBDC7]">{formatDate(row.movementDate)}</td>
                   <td className="px-3 py-3">
-                    <p className="truncate font-semibold text-white">{title}</p>
+                    <Link href={movementHref(row.id)} prefetch={false} title={title} className="block truncate font-medium text-[#D5D5DD] underline decoration-[#555563] underline-offset-2 hover:text-[#FEEF00]">{title}</Link>
                     {row.operationRequestId?<Link href={`/app/admin/finanzas/cuentas/movimiento/${row.operationRequestId}`} prefetch={false} className="inline-flex min-h-8 items-center text-xs underline">Ver comprobante</Link>:null}
                     <p className="mt-0.5 truncate text-[11px] text-[#777784]">
                       {movementTypeLabels[row.movementType] || row.movementType}
@@ -247,7 +249,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
                         prefetch={false}
                         className="mt-0.5 inline-flex text-[10px] font-semibold text-[#A6A6B0] hover:text-white"
                       >
-                        Pedido #{row.orderId} →
+                        Pedido #{formatOrderDisplayNumber(row.orderId)} →
                       </Link>
                     ) : null}
                   </td>
@@ -263,6 +265,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
                   </td>
                   <td className="px-3 py-3">
                     <StatusBadge status={row.status} label={movementStatusLabels[row.status]} />
+                    <Link href={movementHref(row.id)} prefetch={false} className="mt-1 inline-flex min-h-8 items-center text-[10px] text-[#A6A6B0] underline hover:text-[#FEEF00]">Ver detalle</Link>
                   </td>
                 </tr>
               );
@@ -271,7 +274,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
         </table>
       </div>
 
-      <div className="grid gap-2 md:hidden">
+      <div className="grid gap-2 lg:hidden">
         {rows.map((row) => {
           const title = row.counterpartyName || row.description || movementTypeLabels[row.movementType] || row.movementType;
           const isInflow = row.direction === 'inflow';
@@ -283,7 +286,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
               </div>
               <div className="mt-2.5 flex items-end justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-white">{title}</p>
+                  <Link href={movementHref(row.id)} prefetch={false} title={title} className="inline-flex min-h-11 max-w-full items-center text-xs font-medium text-[#D5D5DD] underline"><span className="truncate">{title} →</span></Link>
                   {row.operationRequestId?<Link href={`/app/admin/finanzas/cuentas/movimiento/${row.operationRequestId}`} prefetch={false} className="inline-flex min-h-11 items-center text-xs underline">Ver comprobante</Link>:null}
                   <p className="mt-0.5 truncate text-[11px] text-[#777784]">
                     {row.referenceCode || movementTypeLabels[row.movementType] || row.movementType}
@@ -294,7 +297,7 @@ function MovementRows({ rows }: { rows: AdminFinanceMovementRow[] }) {
                       prefetch={false}
                       className="mt-1 inline-flex text-[10px] font-semibold text-[#A6A6B0]"
                     >
-                      Pedido #{row.orderId} →
+                      Pedido #{formatOrderDisplayNumber(row.orderId)} →
                     </Link>
                   ) : null}
                 </div>
@@ -499,7 +502,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
             ← Cuentas
           </Link>
           <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-            <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight text-white sm:text-2xl">{account.name}</h1>
+            <h1 className="min-w-0 truncate text-base font-semibold tracking-tight text-[#D5D5DD]">{account.name}</h1>
             <AdminQualityIndicator quality={account.quality} />
           </div>
           <p className="mt-1 text-xs text-[#81818E]">
@@ -510,7 +513,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
           <p className={`mb-1 text-[10px] font-bold uppercase tracking-[0.12em] ${account.anchorKind === 'none' ? 'text-orange-200' : 'text-[#858592]'}`}>
             {account.anchorKind === 'none' ? 'Saldo parcial' : 'Saldo confirmado'}
           </p>
-          <p className="text-[clamp(1.55rem,7vw,2.25rem)] font-semibold leading-none tracking-[-0.04em] text-white tabular-nums [overflow-wrap:anywhere]">
+          <p className="text-lg font-medium leading-tight text-[#D5D5DD] tabular-nums [overflow-wrap:anywhere]">
             {formatNative(account.balanceNative, account.currencyCode)}
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[#7D7D89] lg:justify-end">
@@ -562,7 +565,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
         />
       </section>
 
-      <nav aria-label="Detalle de cuenta" className="flex gap-1 overflow-x-auto border-b border-[#292937]">
+      <nav aria-label="Detalle de cuenta" className="flex flex-wrap gap-1 border-b border-[#292937]">
         {sectionOptions.map((option) => {
           const selected = option.key === detail.section;
           return (
@@ -655,7 +658,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
           Sin datos para estos filtros
         </section>
       ) : detail.section === 'movements' ? (
-        <MovementRows rows={movements} />
+        <MovementRows rows={movements} accountId={account.id} returnHref={detailHref(rootPath, account.id, query, {})} />
       ) : detail.section === 'closures' ? (
         <ClosureRows rows={closures} />
       ) : (

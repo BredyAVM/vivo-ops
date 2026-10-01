@@ -122,11 +122,11 @@ function OverviewKpi({
   const warning = tone === 'warning';
   return (
     <div
-      className={`min-w-0 rounded-xl border px-3 py-3 sm:px-4 ${warning ? 'border-orange-300/25 bg-orange-300/[0.04]' : 'border-[#292937] bg-[#111117]'}`}
+      className={`min-w-0 rounded-xl border px-3 py-2.5 ${warning ? 'border-orange-300/25 bg-orange-300/[0.04]' : 'border-[#292937] bg-[#111117]'}`}
       title={help}
     >
       <p className={`text-[10px] font-bold uppercase tracking-[0.12em] ${warning ? 'text-orange-200' : 'text-[#92929E]'}`}>{label}</p>
-      <p className="mt-1.5 whitespace-nowrap text-[clamp(1.05rem,4vw,1.75rem)] font-semibold leading-none tracking-[-0.035em] text-white tabular-nums">
+      <p className="mt-1 text-sm font-medium leading-tight text-[#D5D5DD] tabular-nums [overflow-wrap:anywhere] sm:text-base">
         {value}
       </p>
       {detail ? <p className={`mt-1.5 truncate text-[11px] ${warning ? 'text-orange-100/80' : 'text-[#858592]'}`}>{detail}</p> : null}
@@ -144,7 +144,7 @@ function AccountIdentity({ account }: { account: AdminFinanceAccountSnapshot }) 
           title={account.isActive ? 'Activa' : 'Inactiva'}
           aria-label={account.isActive ? 'Cuenta activa' : 'Cuenta inactiva'}
         />
-        <span className="truncate font-semibold text-white">{account.name}</span>
+        <span className="truncate font-medium text-[#D5D5DD]">{account.name}</span>
       </div>
       {metadata ? <p className="mt-0.5 truncate text-[11px] text-[#7F7F8C]">{metadata}</p> : null}
     </div>
@@ -154,7 +154,7 @@ function AccountIdentity({ account }: { account: AdminFinanceAccountSnapshot }) 
 function BalanceValue({ account }: { account: AdminFinanceAccountSnapshot }) {
   return (
     <div className="min-w-0">
-      <p className="whitespace-nowrap font-semibold text-white tabular-nums">
+      <p className="font-medium text-[#D5D5DD] tabular-nums [overflow-wrap:anywhere]">
         {formatNative(account.balanceNative, account.currencyCode)}
       </p>
       {account.currencyCode === 'VES' ? (
@@ -212,7 +212,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
     <div className="space-y-4" data-definition-version={overview.definitionVersion}>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">Cuentas</h1>
+          <h1 className="text-base font-semibold tracking-tight text-[#D5D5DD]">Cuentas</h1>
           <p className="mt-1 text-xs text-[#81818E]">
             {overview.summary.activeAccounts} activas · {overview.summary.inactiveAccounts} inactivas
           </p>

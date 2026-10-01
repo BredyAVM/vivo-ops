@@ -22,7 +22,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
         Saltar al contenido principal
       </a>
 
-      <div className="mx-auto min-h-dvh w-full max-w-[1800px] md:grid md:grid-cols-[216px_minmax(0,1fr)]">
+      <div className="mx-auto min-h-dvh w-full max-w-[1800px] md:grid md:grid-cols-[184px_minmax(0,1fr)]">
         <aside className="sticky top-0 hidden h-dvh min-w-0 flex-col border-r border-[#242433] bg-[#0E0E13] px-2.5 py-3 md:flex">
           <Link
             href="/app/admin"

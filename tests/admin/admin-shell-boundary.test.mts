@@ -64,7 +64,7 @@ test('desktop menu has a bounded grid track so long labels cannot widen the side
   assert.match(navigation, /group flex min-h-8 w-full min-w-0/);
   assert.match(navigation, /title=\{item.label\}/);
   assert.match(shell, /h-dvh min-w-0 flex-col/);
-  assert.match(shell, /md:grid-cols-\[216px_minmax\(0,1fr\)\]/);
+  assert.match(shell, /md:grid-cols-\[184px_minmax\(0,1fr\)\]/);
   assert.match(shell, /\[scrollbar-width:thin\]/);
 });
 

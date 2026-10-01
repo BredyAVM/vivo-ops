@@ -7,7 +7,7 @@
     "test:delivered-commissions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/commissions/delivered-order-commission.test.mts",
     "test:executive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/admin-executive-kpi.test.mts tests/admin/admin-executive-compact.test.mts tests/admin/admin-executive-loader.test.mts",
     "test:collections": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/admin-collections.test.mts",
-    "test:accounts-operations": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/account-reconciliation.test.mts tests/admin/admin-operational-movements.test.mts tests/admin/admin-closure-ui.test.mts tests/admin/admin-transfer.test.mts",
+    "test:accounts-operations": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/account-reconciliation.test.mts tests/admin/admin-operational-movements.test.mts tests/admin/admin-closure-ui.test.mts tests/admin/admin-transfer.test.mts tests/admin/account-movement-detail.test.mts",
     "test:delivery-debts": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/delivery-debts.test.mts",
     "test:collection-precision": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/order-collection-precision.test.mts",
     "test:delivery": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/delivery-services.test.mts tests/admin/admin-completion-blocks.test.mts",

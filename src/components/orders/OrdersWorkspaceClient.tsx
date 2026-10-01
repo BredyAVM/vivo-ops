@@ -721,7 +721,7 @@ function StatRow({
   );
 }
 
-function RowProcessTimeline({ order }: { order: MasterOpsOrder }) {
+function RowProcessTimeline({ order, compact = false }: { order: MasterOpsOrder; compact?: boolean }) {
   const steps = processSteps(order);
   const currentKey = processCurrentKey(order);
   const orderedKeys = steps.map((step) => step.key);
@@ -737,15 +737,15 @@ function RowProcessTimeline({ order }: { order: MasterOpsOrder }) {
           : "Sin driver";
 
   return (
-    <div className="space-y-1">
+    <div className="min-w-0 space-y-1" title={compact ? `${ORDER_STATUS_LABELS[order.status]} · ${assignmentLabel}` : undefined}>
       <div className="flex items-center gap-1">
         {steps.map((step, idx) => {
           const visual = visualClasses(stepTone(step.key, currentKey, cancelled, orderedKeys));
           return (
             <div key={step.key} className="flex min-w-0 flex-1 items-center">
-              <div className="flex min-w-0 items-center gap-1">
+              <div className="flex min-w-0 items-center gap-1" title={step.label}>
                 <div className={`h-1.5 w-1.5 shrink-0 rounded-full border ${visual.dotClass}`} />
-                <div className={`truncate text-[10px] leading-none ${visual.textClass}`}>{step.label}</div>
+                <div className={`${compact ? "sr-only" : "truncate"} text-[10px] leading-none ${visual.textClass}`}>{step.label}</div>
               </div>
               {idx < steps.length - 1 ? <div className={`mx-1 h-[1px] flex-1 rounded-full ${visual.lineClass}`} /> : null}
             </div>
@@ -753,13 +753,13 @@ function RowProcessTimeline({ order }: { order: MasterOpsOrder }) {
         })}
       </div>
       <div className="flex items-start justify-between gap-2 text-[10px]">
-        <div className={`flex items-center gap-1.5 ${needsDriverUrgent ? "font-semibold text-red-400" : "text-[#8A8A96]"}`}>
+        <div className={`flex min-w-0 items-center gap-1.5 ${needsDriverUrgent ? "font-semibold text-red-400" : "text-[#8A8A96]"}`}>
           {order.isAsap ? (
             <span className="inline-flex items-center rounded-full border border-red-500/40 bg-red-500/10 px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-red-300">
               Urgente
             </span>
           ) : null}
-          <span>{assignmentLabel}</span>
+          <span className={compact ? "truncate" : undefined}>{assignmentLabel}</span>
         </div>
       </div>
     </div>
@@ -2148,7 +2148,7 @@ function OrderDetailPanel({
             <RowProcessTimeline order={order} />
           </div>
 
-          <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+          <div className="mt-3 flex flex-wrap gap-1.5 pb-1">
             {MASTER_OPS_ORDER_DETAIL_TABS.map((tab) => (
               <button
                 key={tab.key}
@@ -5037,7 +5037,7 @@ export default function OrdersWorkspaceClient({
           </div>
         </div>
 
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+        <div className={isAdminSurface ? "mt-4 flex flex-wrap gap-1.5 pb-1" : "mt-4 flex gap-2 overflow-x-auto pb-1"}>
           {trayItems.map((item) => (
             <button
               key={item.key}
@@ -5139,8 +5139,9 @@ export default function OrdersWorkspaceClient({
         </div>
 
         <div className="mt-4 hidden overflow-hidden rounded-2xl border border-[#242433] bg-[#121218] lg:block">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12px]">
+          <div className={isAdminSurface ? "min-w-0" : "overflow-x-auto"}>
+            <table className={isAdminSurface ? "w-full table-fixed text-[11px] [&_td]:align-top [&_td]:[overflow-wrap:anywhere]" : "w-full text-[12px]"}>
+              {isAdminSurface ? <colgroup>{[7, 10, 13, 16, 8, 9, 9, 13, 15].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup> : null}
               <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
                 <tr>
                   <th className="px-2 py-2 text-left font-medium">Hora</th>
@@ -5179,17 +5180,17 @@ export default function OrdersWorkspaceClient({
                         <td className="px-2 py-2">
                           {fmtTimeAMPM(order.deliveryAtISO)}
                         </td>
-                        <td className="min-w-[104px] px-2 py-2">
+                        <td className={isAdminSurface ? "px-2 py-2" : "min-w-[104px] px-2 py-2"}>
                           <div className="font-semibold text-[#F5F5F7]">{orderDisplayNumber(order)}</div>
                           <div className="mt-0.5 text-[10px] text-[#8A8A96]">{ORDER_STATUS_LABELS[order.status]}</div>
                         </td>
-                        <td className="min-w-[122px] px-2 py-2 leading-4">
-                          <div>{advisorName.line1}</div>
-                          <div className="text-[#B7B7C2]">{advisorName.line2}</div>
+                        <td className={isAdminSurface ? "px-2 py-2 leading-4" : "min-w-[122px] px-2 py-2 leading-4"} title={order.advisorName}>
+                          <div className={isAdminSurface ? "truncate" : undefined}>{advisorName.line1}</div>
+                          <div className={isAdminSurface ? "truncate text-[#B7B7C2]" : "text-[#B7B7C2]"}>{advisorName.line2}</div>
                         </td>
-                        <td className="min-w-[122px] px-2 py-2 leading-4">
-                          <div>{clientName.line1}</div>
-                          <div className="text-[#B7B7C2]">{clientName.line2}</div>
+                        <td className={isAdminSurface ? "px-2 py-2 leading-4" : "min-w-[122px] px-2 py-2 leading-4"} title={order.clientName}>
+                          <div className={isAdminSurface ? "truncate" : undefined}>{clientName.line1}</div>
+                          <div className={isAdminSurface ? "truncate text-[#B7B7C2]" : "text-[#B7B7C2]"}>{clientName.line2}</div>
                           {order.isNewClient ? (
                             <div className="mt-1 inline-flex rounded-full bg-[#FEEF00] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-[#0B0B0D]">
                               CLIENTE NUEVO
@@ -5205,7 +5206,7 @@ export default function OrdersWorkspaceClient({
                         <td className={["px-2 py-2 font-medium", paymentToneClass(order.balanceUsd)].join(" ")}>
                           {fmtUSD(order.balanceUsd)}
                         </td>
-                        <td className="min-w-[132px] px-2 py-2">
+                        <td className={isAdminSurface ? "px-2 py-2" : "min-w-[132px] px-2 py-2"}>
                           <button
                             className={[
                               "inline-flex rounded-lg border border-[#242433] bg-[#0B0B0D] px-2 py-1 text-[11px] font-medium transition hover:border-[#FEEF00]/40",
@@ -5224,8 +5225,8 @@ export default function OrdersWorkspaceClient({
                             {actionLabel}
                           </button>
                         </td>
-                        <td className="min-w-[400px] px-2 py-2">
-                          <RowProcessTimeline order={order} />
+                        <td className={isAdminSurface ? "px-2 py-2" : "min-w-[400px] px-2 py-2"}>
+                          <RowProcessTimeline order={order} compact={isAdminSurface} />
                         </td>
                       </tr>
                     );
