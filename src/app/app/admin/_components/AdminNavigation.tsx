@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { usePathname } from 'next/navigation';
 import { adminNavigation, desktopAdminNavigationGroups, mobileAdminNavigation } from '../_lib/navigation';
 

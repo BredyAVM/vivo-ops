@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ModulePreference } from '@/app/app/ModulePreference';
 import AdminNavigation from './AdminNavigation';
 import AdminSignOutButton from './AdminSignOutButton';
+import AdminContextBack from './AdminContextBack';
 
 type AdminShellProps = {
   children: ReactNode;
@@ -69,6 +70,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
             tabIndex={-1}
             className="mx-auto w-full max-w-[1500px] px-4 pb-28 pt-5 focus:outline-none sm:px-6 sm:pt-7 md:pb-10 lg:px-8 lg:pt-8"
           >
+            <AdminContextBack />
             {children}
           </main>
 

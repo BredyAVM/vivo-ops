@@ -1,4 +1,5 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
+import BackLink, { ReturnContextField } from '@/components/navigation/BackLink';
 import AccountOperationLinks from './AccountOperationLinks';
 import AdminQualityIndicator from '@/app/app/admin/_components/AdminQualityIndicator';
 import {
@@ -212,6 +213,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
     <div className="space-y-4" data-definition-version={overview.definitionVersion}>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
+          <BackLink fallbackHref="/app/admin" />
           <h1 className="text-base font-semibold tracking-tight text-[#D5D5DD]">Cuentas</h1>
           <p className="mt-1 text-xs text-[#81818E]">
             {overview.summary.activeAccounts} activas · {overview.summary.inactiveAccounts} inactivas
@@ -275,6 +277,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
         method="get"
         className="grid gap-2 rounded-xl border border-[#292937] bg-[#111117] p-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[minmax(180px,1fr)_repeat(6,minmax(105px,auto))_auto]"
       >
+        <ReturnContextField />
         <label className="min-w-0">
           <span className="sr-only">Buscar cuenta</span>
           <input

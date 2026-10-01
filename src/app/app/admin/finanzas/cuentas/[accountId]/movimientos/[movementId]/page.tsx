@@ -1,4 +1,5 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
+import BackLink from '@/components/navigation/BackLink';
 import { notFound } from 'next/navigation';
 import { requireAdminContext } from '@/lib/auth';
 import { readAccountMovementDetail } from '@/lib/admin-finance/movement-detail-data';
@@ -25,14 +26,14 @@ export default async function AccountMovementPage({ params, searchParams }: {
   let detail;
   try { detail = await readAccountMovementDetail(ctx.supabase, accountId, movementId); }
   catch (error) {
-    return <section className="space-y-3 text-xs"><Link prefetch={false} href={back} className="underline">← Volver a la cuenta</Link><p role="alert" className="text-red-200">{error instanceof Error ? error.message : 'No se pudo verificar el movimiento.'}</p></section>;
+    return <section className="space-y-3 text-xs"><BackLink fallbackHref={back} /><p role="alert" className="text-red-200">{error instanceof Error ? error.message : 'No se pudo verificar el movimiento.'}</p></section>;
   }
   if (!detail) notFound();
   const { movement, movements, accountNames, fingerprint } = detail;
   const blocked = movementVoidBlock(movements);
   const closure = movements.map(row => row.reference?.match(/^closure-(\d+)$/)?.[1]).find(Boolean);
   return <section className="min-w-0 space-y-4 text-xs text-[#BCBCC8]">
-    <Link href={back} prefetch={false} className="inline-flex min-h-8 items-center text-[#9696A4] hover:text-[#FEEF00]">← {accountNames[accountId]}</Link>
+    <BackLink fallbackHref={back} />
     <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#292937] pb-3">
       <div className="min-w-0"><h1 className="text-base font-semibold text-[#D5D5DD]">{typeLabels[movement.type] ?? 'Movimiento'} · {statusLabels[movement.status]}</h1><p className="mt-1 break-words">{movement.counterparty ?? movement.description ?? accountNames[accountId]} · {movement.date}</p></div>
       <p className="text-base font-medium tabular-nums [overflow-wrap:anywhere]">{movement.direction === 'inflow' ? '+' : '−'} {money(movement.amount, movement.currency)}</p>

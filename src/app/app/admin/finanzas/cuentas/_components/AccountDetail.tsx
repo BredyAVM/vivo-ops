@@ -1,4 +1,5 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
+import BackLink, { ReturnContextField } from '@/components/navigation/BackLink';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import AccountOperationLinks from './AccountOperationLinks';
 import AdminQualityIndicator from '@/app/app/admin/_components/AdminQualityIndicator';
@@ -498,9 +499,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
     <div className="space-y-4" data-definition-version={detail.definitionVersion}>
       <header className="grid gap-3 border-b border-[#252531] pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="min-w-0">
-          <Link href={rootPath} prefetch={false} className="inline-flex text-xs font-semibold text-[#8C8C99] hover:text-white">
-            ← Cuentas
-          </Link>
+          <BackLink fallbackHref={rootPath} />
           <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
             <h1 className="min-w-0 truncate text-base font-semibold tracking-tight text-[#D5D5DD]">{account.name}</h1>
             <AdminQualityIndicator quality={account.quality} />
@@ -594,6 +593,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
           method="get"
           className="grid gap-2 rounded-xl border border-[#292937] bg-[#111117] p-2 sm:grid-cols-[minmax(130px,1fr)_minmax(130px,1fr)_minmax(130px,0.8fr)_auto]"
         >
+          <ReturnContextField />
           {detail.section !== 'movements' ? <input type="hidden" name="vista" value={detail.section} /> : null}
           <label>
             <span className="sr-only">Desde</span>

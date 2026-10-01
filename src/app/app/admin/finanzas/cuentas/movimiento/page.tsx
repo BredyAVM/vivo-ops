@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import BackLink from '@/components/navigation/BackLink';
 import { requireAdminContext } from '@/lib/auth';
 import { loadAdminFinanceAccountsOverview, type AdminFinanceAccountsRpcClient } from '@/lib/admin-finance/accounts-data';
 import { resolveAdminMovementContext } from '@/lib/admin-finance/movement-navigation';
@@ -30,7 +31,7 @@ export default async function AdminMoneyMovementPage({ searchParams }: {
   const backHref = `/app/admin/finanzas/cuentas${context.accountId ? `/${context.accountId}` : ''}`;
   return <div className="space-y-4">
     <header>
-      <Link href={backHref} prefetch={false} className="inline-flex min-h-11 items-center text-sm text-[#9B9BA7]">← Volver a cuentas</Link>
+      <BackLink fallbackHref={backHref} />
       <h1 className="text-xl font-semibold">Ingreso / Egreso</h1>
       <p className="mt-1 text-xs text-[#9B9BA7]">Caja chica y movimientos operativos. Los cobros de clientes se registran en su orden.</p>
     </header>

@@ -20,6 +20,8 @@ const registerHooks = Reflect.get(nodeModule, 'registerHooks') as (hooks: {
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === 'next/link') return { url: linkStub, shortCircuit: true };
+    if (specifier === 'next/navigation') return { url: 'data:text/javascript,' + encodeURIComponent("export function usePathname(){return '/app/admin';} export function useSearchParams(){return new URLSearchParams();}"), shortCircuit: true };
+    if (specifier === '@/components/navigation/ContextLink') return nextResolve(new URL('src/components/navigation/ContextLink.tsx', root).href, context);
     if (specifier.startsWith('@/')) {
       return nextResolve(new URL(`src/${specifier.slice(2)}.ts`, root).href, context);
     }
@@ -85,9 +87,9 @@ test('keeps financial errors distinct from zero pending tasks', () => {
 
 test('exposes direct income, expense and closure actions without prefetching destinations', () => {
   const html = renderToStaticMarkup(createElement(Dashboard, { executive: { status: 'ready', data }, finance }));
-  assert.match(html, /href="\/app\/admin\/finanzas\/cuentas\/movimiento\?tipo=inflow"[^>]*data-prefetch="false"/);
-  assert.match(html, /href="\/app\/admin\/finanzas\/cuentas\/movimiento\?tipo=outflow"[^>]*data-prefetch="false"/);
-  assert.match(html, /href="\/app\/admin\/finanzas\/cuentas\/cierre"[^>]*data-prefetch="false"/);
+  assert.match(html, /href="\/app\/admin\/finanzas\/cuentas\/movimiento\?tipo=inflow&amp;returnTo=%2Fapp%2Fadmin"[^>]*data-prefetch="false"/);
+  assert.match(html, /href="\/app\/admin\/finanzas\/cuentas\/movimiento\?tipo=outflow&amp;returnTo=%2Fapp%2Fadmin"[^>]*data-prefetch="false"/);
+  assert.match(html, /href="\/app\/admin\/finanzas\/cuentas\/cierre\?returnTo=%2Fapp%2Fadmin"[^>]*data-prefetch="false"/);
   assert.match(html, /Jugadas \/ CRM/);
 });
 

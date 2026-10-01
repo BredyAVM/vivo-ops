@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { adminMovementHref } from '@/lib/admin-finance/movement-navigation';
 
 export default function AccountOperationLinks({ accountId }: { accountId?: number }) {

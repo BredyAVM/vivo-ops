@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import ContextLink from "@/components/navigation/ContextLink";
+import BackLink from "@/components/navigation/BackLink";
 import DeliveredOrderCommissionEditor from "@/app/app/commissions/_components/DeliveredOrderCommissionEditor";
 import MasterClientSearchResults from "@/app/app/master/_components/MasterClientSearchResults";
 import { ordersWorkspaceNavigation, type OrdersWorkspaceSurface } from "@/lib/orders/workspace-navigation";
@@ -678,14 +680,16 @@ function TopNavButton({
   active = false,
   count,
   onClick,
+  compact = false,
 }: {
   label: string;
   active?: boolean;
   count?: number;
   onClick?: () => void;
+  compact?: boolean;
 }) {
   const className = [
-    "inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-[13px] font-semibold transition",
+    compact ? "inline-flex min-h-11 items-center gap-1 rounded-xl border px-2 py-1.5 text-[11px] font-medium transition sm:min-h-8" : "inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-[13px] font-semibold transition",
     active
       ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
       : "border-[#242433] bg-[#121218] text-[#B7B7C2] hover:text-[#F5F5F7]",
@@ -693,7 +697,7 @@ function TopNavButton({
 
   const content = (
     <>
-      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-black/15">=</span>
+      {!compact ? <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-black/15">=</span> : null}
       <span>{label}</span>
       {count != null && count > 0 ? (
         <span className="rounded-full bg-[#242433] px-2 py-0.5 text-[11px] text-[#F5F5F7]">{count}</span>
@@ -4711,15 +4715,16 @@ export default function OrdersWorkspaceClient({
     <div className={`${isAdminSurface ? "min-w-0" : "min-h-screen"} bg-[#0B0B0D] text-[#F5F5F7]`}>
       <div className={`${isAdminSurface ? "" : "sticky top-0 z-50"} border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur`}>
         <div className={`mx-auto max-w-[1400px] py-2.5 ${isAdminSurface ? "" : "px-3 sm:px-5"}`}>
-          <div className={isAdminSurface ? "flex flex-col gap-2.5" : "flex flex-col gap-2.5 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center xl:gap-x-4 xl:gap-y-2.5"}>
+          <div className={isAdminSurface ? "flex flex-col gap-2 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-x-3" : "flex flex-col gap-2.5 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center xl:gap-x-4 xl:gap-y-2.5"}>
             <div className="contents">
-              <div className="flex flex-wrap items-center gap-2.5">
+              <div className={isAdminSurface ? "flex min-w-0 flex-wrap items-center gap-1.5" : "flex flex-wrap items-center gap-2.5"}>
+                {isAdminSurface ? <BackLink /> : null}
                 <h1 className="text-base font-semibold leading-none">{isAdminSurface ? "Órdenes" : "B. Master 3.0"}</h1>
 
                 <div className="relative">
                   <button
                     aria-label={`Seleccionar fecha operativa. Fecha actual ${fmtDateKey(focusDate)}`}
-                    className="flex min-w-[145px] items-center justify-between gap-3 rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-left transition hover:border-[#FEEF00]/50"
+                    className={`flex ${isAdminSurface ? "min-w-[125px] gap-2 px-2" : "min-w-[145px] gap-3 px-3"} items-center justify-between rounded-2xl border border-[#242433] bg-[#121218] py-1.5 text-left transition hover:border-[#FEEF00]/50`}
                     type="button"
                     onClick={openFocusDatePicker}
                   >
@@ -4778,27 +4783,29 @@ export default function OrdersWorkspaceClient({
                 <MasterOpsAlerts publicVapidKey={publicVapidKey} onRefresh={requestOpsRefresh} />
               </div>
 
-              <div className={isAdminSurface ? "flex min-w-0 flex-wrap items-center gap-2.5" : "flex min-w-0 flex-wrap items-center gap-2.5 xl:col-span-2 xl:row-start-2 xl:flex-nowrap xl:justify-between"}>
-                {searchParams.get("returnTo") === "/app/admin/autorizaciones" && roles.includes("admin") ? (
+              <div className={isAdminSurface ? "contents" : "flex min-w-0 flex-wrap items-center gap-2.5 xl:col-span-2 xl:row-start-2 xl:flex-nowrap xl:justify-between"}>
+                {!isAdminSurface && searchParams.get("returnTo") === "/app/admin/autorizaciones" && roles.includes("admin") ? (
                   <Link href="/app/admin/autorizaciones" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FEEF00] underline">← Autorizaciones</Link>
                 ) : null}
-                <div className={`${isAdminSurface ? "flex flex-wrap" : "flex max-w-full overflow-x-auto"} items-center gap-1.5 rounded-2xl border border-[#242433] bg-[#0F0F14] p-1`}>
-                  <TopNavButton label="Operacion" active={inboxMode == null} onClick={closeInbox} />
+                <div aria-label="Vistas de órdenes" className={`${isAdminSurface ? "flex min-w-0 flex-wrap self-start lg:col-start-2 lg:row-start-1 lg:justify-self-end" : "flex max-w-full overflow-x-auto"} items-center gap-1.5 rounded-2xl border border-[#242433] bg-[#0F0F14] p-1`}>
+                  <TopNavButton label="Operacion" active={inboxMode == null} onClick={closeInbox} compact={isAdminSurface} />
                   <TopNavButton
                     label="Acciones"
                     active={inboxMode === "actions"}
                     count={inboxCounts.actions}
+                    compact={isAdminSurface}
                     onClick={() => setInboxMode("actions")}
                   />
                   <TopNavButton
                     label="Seguimiento"
                     active={inboxMode === "updates"}
                     count={inboxCounts.updates}
+                    compact={isAdminSurface}
                     onClick={() => setInboxMode("updates")}
                   />
                 </div>
 
-                <div className={isAdminSurface ? "flex min-w-0 flex-wrap items-center gap-2" : "contents xl:flex xl:min-w-0 xl:items-center xl:gap-2.5 xl:overflow-x-auto"}>
+                <div className={isAdminSurface ? "flex min-w-0 flex-wrap items-center gap-2 lg:col-span-2 lg:row-start-2" : "contents xl:flex xl:min-w-0 xl:items-center xl:gap-2.5 xl:overflow-x-auto"}>
                   <Link href="/app/events/ongoing" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Eventos</Link>
                   <Link
                     href={navigation.inventory}
@@ -4837,27 +4844,27 @@ export default function OrdersWorkspaceClient({
                     </Link>
                   ) : null}
 
-                  <Link
+                  <ContextLink
                     href={navigation.payments}
                     prefetch={false}
                     className="shrink-0 rounded-2xl border border-emerald-400/40 bg-emerald-400/5 px-3 py-2 text-xs font-semibold text-emerald-200 transition hover:border-emerald-300"
                     title="Abrir pagos operativos sin cargar finanzas en la pantalla principal"
                   >
                     Pagos
-                  </Link>
+                  </ContextLink>
 
-                  <Link
+                  <ContextLink
                     href={navigation.movement}
                     prefetch={false}
                     className="shrink-0 rounded-2xl border border-[#FEEF00]/55 bg-[#FEEF00]/10 px-3 py-2 text-xs font-bold text-[#FEEF00] transition hover:border-[#FEEF00]"
                     title="Registrar un ingreso o egreso operativo"
                   >
                     Ingreso / Egreso
-                  </Link>
+                  </ContextLink>
                   {isAdminSurface ? <>
-                    <Link href="/app/admin/finanzas/cuentas" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Cuentas</Link>
-                    <Link href="/app/admin/finanzas/cobranzas" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Cobranzas</Link>
-                    <Link href="/app/admin/autorizaciones" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Autorizaciones</Link>
+                    <ContextLink href="/app/admin/finanzas/cuentas" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Cuentas</ContextLink>
+                    <ContextLink href="/app/admin/finanzas/cobranzas" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Cobranzas</ContextLink>
+                    <ContextLink href="/app/admin/autorizaciones" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Autorizaciones</ContextLink>
                     <Link href="/app/master/dashboard" prefetch={false} className="shrink-0 px-2 py-2 text-xs text-[#9B9BA7] underline">Panel anterior</Link>
                   </> : null}
                 </div>

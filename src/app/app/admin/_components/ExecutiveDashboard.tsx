@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import type { AdminExecutiveKpiDomain } from '@/lib/admin-finance/executive-data';
 import type { AdminFinancialOverview } from '@/lib/admin-finance/model';
 import ExecutiveTrendChart from './ExecutiveTrendChart';
