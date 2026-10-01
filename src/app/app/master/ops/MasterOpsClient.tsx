@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import DeliveredOrderCommissionEditor from "../../commissions/_components/DeliveredOrderCommissionEditor";
 import MasterClientSearchResults from "../_components/MasterClientSearchResults";
 import type { ClientSearchSummary } from "@/lib/search/client-search";
 import { matchesPhoneSearch } from "@/lib/search/phone-search";
@@ -3821,6 +3822,9 @@ function OrderDetailPanel({
                   ))}
                 </div>
               </div>
+            ) : null}
+            {isAdmin && order.status === "delivered" ? (
+              <div className="mt-3"><DeliveredOrderCommissionEditor key={order.id} orderId={Number(order.id)} /></div>
             ) : null}
             {actionError ? (
               <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">

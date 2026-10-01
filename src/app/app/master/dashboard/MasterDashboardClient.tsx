@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import DeliveredOrderCommissionEditor from '../../commissions/_components/DeliveredOrderCommissionEditor';
 import MasterClientSearchResults from '../_components/MasterClientSearchResults';
 import type { ClientSearchSummary } from '@/lib/search/client-search';
 import { matchesPhoneSearch } from '@/lib/search/phone-search';
@@ -21046,6 +21047,10 @@ onClick={() => {
         >
           Modificar
         </button>
+
+        {isAdmin && selectedOrder.status === 'delivered' ? (
+          <DeliveredOrderCommissionEditor key={selectedOrder.id} orderId={Number(selectedOrder.id)} />
+        ) : null}
 
         {canSendToKitchen(selectedOrder) ? (
           <button

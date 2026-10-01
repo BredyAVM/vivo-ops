@@ -337,8 +337,11 @@ export async function recalculateAdvisorCommissionSettlementsForGoal(input: {
   periodId: number;
   scheduledLiquidationDate: string | null;
   closureId?: number;
+  previousSnapshotsByAdvisor?: Record<string, unknown>;
 }) {
-  return applySettlementToPreliminaryClosures(input);
+  return applySettlementToPreliminaryClosures({ ...input,
+    previousSnapshotsByAdvisor: input.previousSnapshotsByAdvisor
+      ? new Map(Object.entries(input.previousSnapshotsByAdvisor)) : undefined });
 }
 
 export async function applyAdvisorCommissionGoalResults(input: {
