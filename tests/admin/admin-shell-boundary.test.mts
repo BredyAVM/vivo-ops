@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { adminNavigation, desktopAdminNavigationGroups } from '../../src/app/app/admin/_lib/navigation.ts';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const adminRoot = join(repositoryRoot, 'src', 'app', 'app', 'admin');
@@ -63,6 +64,14 @@ test('desktop menu has a bounded grid track so long labels cannot widen the side
   assert.match(navigation, /group flex min-h-8 w-full min-w-0/);
   assert.match(navigation, /title=\{item.label\}/);
   assert.match(shell, /h-dvh min-w-0 flex-col/);
+  assert.match(shell, /md:grid-cols-\[216px_minmax\(0,1fr\)\]/);
+  assert.match(shell, /\[scrollbar-width:thin\]/);
+});
+
+test('compact groups retain every administrative destination exactly once', () => {
+  const keys = desktopAdminNavigationGroups.flatMap((group) => group.items.map((item) => item.key));
+  assert.deepEqual([...keys].sort(), adminNavigation.map((item) => item.key).sort());
+  assert.equal(new Set(keys).size, keys.length);
 });
 
 test('keeps the Admin home KPI-first and leaves the detailed dashboard on its own route', () => {

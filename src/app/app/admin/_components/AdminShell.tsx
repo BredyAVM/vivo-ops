@@ -32,7 +32,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
             <span className="mt-1 block text-base font-semibold tracking-tight">Administración</span>
           </Link>
 
-          <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+          <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#383843_transparent]">
             <AdminNavigation variant="desktop" />
           </div>
 
