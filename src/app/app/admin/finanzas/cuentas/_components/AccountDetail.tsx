@@ -230,7 +230,7 @@ function MovementRows({ rows, accountId, returnHref }: { rows: AdminFinanceMovem
           </thead>
           <tbody className="divide-y divide-[#252531]">
             {rows.map((row) => {
-              const title = row.counterpartyName || row.description || movementTypeLabels[row.movementType] || row.movementType;
+              const title = row.counterpartyName || (row.movementType === 'order_payment' && row.orderId ? `Pago de pedido #${formatOrderDisplayNumber(row.orderId)}` : row.description) || movementTypeLabels[row.movementType] || row.movementType;
               return (
                 <tr key={row.id} className="hover:bg-[#17171F]">
                   <td className="px-3 py-3 text-[#BDBDC7]">{formatDate(row.movementDate)}</td>
@@ -274,19 +274,19 @@ function MovementRows({ rows, accountId, returnHref }: { rows: AdminFinanceMovem
         </table>
       </div>
 
-      <div className="grid gap-2 lg:hidden">
+      <div className="grid min-w-0 grid-cols-1 gap-2 lg:hidden">
         {rows.map((row) => {
-          const title = row.counterpartyName || row.description || movementTypeLabels[row.movementType] || row.movementType;
+          const title = row.counterpartyName || (row.movementType === 'order_payment' && row.orderId ? `Pago de pedido #${formatOrderDisplayNumber(row.orderId)}` : row.description) || movementTypeLabels[row.movementType] || row.movementType;
           const isInflow = row.direction === 'inflow';
           return (
-            <article key={row.id} className="rounded-xl border border-[#292937] bg-[#111117] p-3.5">
+            <article key={row.id} className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] p-3">
               <div className="flex items-start justify-between gap-3">
                 <time className="text-[11px] text-[#858592]" dateTime={row.movementDate}>{formatDate(row.movementDate)}</time>
                 <StatusBadge status={row.status} label={movementStatusLabels[row.status]} />
               </div>
               <div className="mt-2.5 flex items-end justify-between gap-3">
-                <div className="min-w-0">
-                  <Link href={movementHref(row.id)} prefetch={false} title={title} className="inline-flex min-h-11 max-w-full items-center text-xs font-medium text-[#D5D5DD] underline"><span className="truncate">{title} →</span></Link>
+                <div className="min-w-0 flex-1">
+                  <Link href={movementHref(row.id)} prefetch={false} title={title} className="inline-flex min-h-11 w-full min-w-0 items-center text-xs font-medium text-[#D5D5DD] underline"><span className="truncate">{title} →</span></Link>
                   {row.operationRequestId?<Link href={`/app/admin/finanzas/cuentas/movimiento/${row.operationRequestId}`} prefetch={false} className="inline-flex min-h-11 items-center text-xs underline">Ver comprobante</Link>:null}
                   <p className="mt-0.5 truncate text-[11px] text-[#777784]">
                     {row.referenceCode || movementTypeLabels[row.movementType] || row.movementType}

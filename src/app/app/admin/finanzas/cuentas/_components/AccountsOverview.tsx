@@ -443,13 +443,13 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
             </table>
           </div>
 
-          <div className="grid gap-2 lg:hidden">
+          <div className="grid min-w-0 grid-cols-1 gap-2 lg:hidden">
             {result.accounts.map((account) => (
               <Link
                 key={account.id}
                 href={accountHref(rootPath, account.id, filters.attention)}
                 prefetch={false}
-                className="rounded-xl border border-[#292937] bg-[#111117] p-3.5 transition hover:border-[#FEEF00]/35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+                className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] p-3 transition hover:border-[#FEEF00]/35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
               >
                 <div className="flex items-start justify-between gap-3">
                   <AccountIdentity account={account} />

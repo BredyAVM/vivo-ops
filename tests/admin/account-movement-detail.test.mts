@@ -124,6 +124,9 @@ test('compact surfaces fit columns, wrap tabs and load movement details only on 
   assert.match(orders, /isAdminSurface \? "min-w-0" : "overflow-x-auto"/);
   const account = read('src/app/app/admin/finanzas/cuentas/_components/AccountDetail.tsx');
   assert.match(account, /Detalle de cuenta" className="flex flex-wrap/); assert.doesNotMatch(account, /text-\[clamp/);
+  assert.match(account, /grid min-w-0 grid-cols-1 gap-2 lg:hidden/);
+  assert.match(account, /min-h-11 w-full min-w-0 items-center text-xs/);
+  assert.match(account, /Pago de pedido #\$\{formatOrderDisplayNumber\(row.orderId\)\}/);
   assert.match(account, /formatOrderDisplayNumber\(row.orderId\)/); assert.match(account, /href=\{movementHref\(row.id\)\} prefetch=\{false\}/);
   const form = read('src/app/app/admin/finanzas/cuentas/[accountId]/movimientos/[movementId]/VoidMovementForm.tsx');
   assert.match(form, /inFlight.current/); assert.match(form, /no devuelve dinero del banco/); assert.match(form, /Revisé la operación completa/);
