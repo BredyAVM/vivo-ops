@@ -49,6 +49,8 @@ test('details and heavy editor are loaded only when needed, not for every listed
   assert.match(ui, /if \(!selectedOrderId\)[\s\S]*loadMasterOpsOrderDetailAction\(\{ orderId: selectedOrderId \}\)/);
   assert.match(ui, /cached\?\.snapshotAt === snapshotAt/);
   assert.match(ui, /const MasterOpsOrderEditor = dynamic/);
+  assert.match(ui, /\{createOrderOpen \? <MasterOpsOrderEditor/);
+  assert.match(ui, /\{editingOrderId !== null \? <MasterOpsOrderEditor/);
   assert.match(ui, /if \(isAdminSurface\) return;\s*const refreshIfStale/);
   assert.match(ui, /if \(isAdminSurface\) return;\s*loadMasterOpsInventoryAlertSummaryAction/);
   assert.match(ui, /!isAdminSurface \? <div[\s\S]*<MasterOpsSignOutButton/);

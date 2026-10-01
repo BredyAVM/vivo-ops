@@ -5262,7 +5262,7 @@ export default function OrdersWorkspaceClient({
           paymentAccounts={paymentAccounts}
         />
       ) : null}
-      <MasterOpsOrderEditor
+      {createOrderOpen ? <MasterOpsOrderEditor
         mode="create"
         open={createOrderOpen}
         focusDate={focusDate}
@@ -5273,8 +5273,8 @@ export default function OrdersWorkspaceClient({
           setCreateOrderOpen(false);
           requestOpsRefresh();
         }}
-      />
-      <MasterOpsOrderEditor
+      /> : null}
+      {editingOrderId !== null ? <MasterOpsOrderEditor
         mode="edit"
         orderId={editingOrderId}
         roles={roles}
@@ -5284,7 +5284,7 @@ export default function OrdersWorkspaceClient({
           setEditingOrderId(null);
           requestOpsRefresh();
         }}
-      />
+      /> : null}
       {rateEditorOpen ? (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 px-4">
           <form
