@@ -15,9 +15,11 @@ export const adminNavigation: AdminNavigationItem[] = [
     shortLabel: 'Inicio',
     description: 'Resumen y accesos principales',
     href: '/app/admin',
-    prefetch: true,
+    prefetch: false,
     marker: 'IN',
   },
+  { key: 'operations', label: 'Operaciones', shortLabel: 'Operación', description: 'Órdenes, aprobaciones y seguimiento', href: '/app/admin/operaciones', prefetch: false, marker: 'OP' },
+  { key: 'business', label: 'Negocio', shortLabel: 'Negocio', description: 'Productos, clientes y equipo', href: '/app/admin/negocio', prefetch: false, marker: 'NE' },
   { key: 'tasks', label: 'Pendientes', shortLabel: 'Pendientes', description: 'Revisiones por cuenta, pedido y comisión', href: '/app/admin/tareas', prefetch: false, marker: 'PD' },
   { key: 'authorizations', label: 'Autorizaciones', shortLabel: 'Autorizar', description: 'Egresos, órdenes, modificaciones y pagos', href: '/app/admin/autorizaciones', prefetch: false, marker: 'AU' },
   { key: 'projections', label: 'Proyecciones', shortLabel: 'Proyecciones', description: 'Promedios semanales y escenarios de crecimiento', href: '/app/admin/proyecciones', prefetch: false, marker: 'PY' },
@@ -25,14 +27,15 @@ export const adminNavigation: AdminNavigationItem[] = [
     key: 'finance',
     label: 'Finanzas',
     shortLabel: 'Finanzas',
-    description: 'Indicadores, posición y pendientes',
+    description: 'Cuentas, cobros y liquidaciones',
     href: '/app/admin/finanzas',
     prefetch: false,
     marker: 'FI',
   },
+  { key: 'finance-summary', label: 'Resumen financiero', shortLabel: 'Resumen', description: 'Indicadores y posición por período', href: '/app/admin/finanzas/resumen', prefetch: false, marker: 'RF' },
   {
     key: 'accounts',
-    label: 'Cuentas',
+    label: 'Cuentas y caja',
     shortLabel: 'Cuentas',
     description: 'Saldos, movimientos y conciliación',
     href: '/app/admin/finanzas/cuentas',
@@ -86,7 +89,7 @@ export const adminNavigation: AdminNavigationItem[] = [
   },
   {
     key: 'events',
-    label: 'Presupuestos de eventos',
+    label: 'Eventos',
     shortLabel: 'Eventos',
     description: 'Cotizaciones y seguimiento',
     href: '/app/events',
@@ -102,43 +105,38 @@ export const adminNavigation: AdminNavigationItem[] = [
     prefetch: false,
     marker: 'JU',
   },
-  {
-    key: 'legacy',
-    label: 'Panel anterior',
-    shortLabel: 'Anterior',
-    description: 'Respaldo con las herramientas vigentes',
-    href: '/app/master/dashboard',
-    prefetch: false,
-    marker: 'PA',
-  },
   { key: 'delivery-finance', label: 'Delivery', shortLabel: 'Delivery', description: 'Costos guardados y retornos pendientes', href: '/app/admin/finanzas/delivery', prefetch: false, marker: 'DE' },
   { key: 'reports', label: 'Reportes', shortLabel: 'Reportes', description: 'Descargas y evidencia por dominio', href: '/app/admin/reportes', prefetch: false, marker: 'RE' },
   { key: 'tools', label: 'Herramientas', shortLabel: 'Herramientas', description: 'Clientes, equipo, configuración e inventario', href: '/app/admin/herramientas', prefetch: false, marker: 'HE' },
 ];
 
-function navigationItem(key: string) {
+export function navigationItem(key: string) {
   const item = adminNavigation.find((candidate) => candidate.key === key);
   if (!item) throw new Error(`Navegacion administrativa incompleta: ${key}`);
   return item;
 }
 
 export const desktopAdminNavigationGroups = [
-  { label: 'Operación', keys: ['home', 'orders', 'tasks', 'authorizations', 'active-orders'] },
-  { label: 'Finanzas', keys: ['finance', 'accounts', 'receivables', 'commissions', 'delivery-finance', 'projections', 'reports'] },
-  { label: 'Negocio', keys: ['inventory', 'events', 'plays', 'tools', 'legacy'] },
-].map((group) => ({ label: group.label, items: group.keys.map(navigationItem) }));
+  { key: 'operations', label: 'Operaciones', keys: ['operations', 'orders', 'authorizations', 'tasks', 'active-orders'] },
+  { key: 'finance', label: 'Finanzas', keys: ['finance', 'finance-summary', 'accounts', 'receivables', 'commissions', 'delivery-finance', 'projections', 'reports'] },
+  { key: 'business', label: 'Negocio', keys: ['business', 'inventory', 'events', 'plays', 'tools'] },
+].map((group) => ({ key: group.key, label: group.label, items: group.keys.map(navigationItem) }));
+
+export function activeAdminNavigationKey(pathname: string) {
+  return adminNavigation
+    .filter((item) => item.href.startsWith('/app/admin'))
+    .filter((item) => pathname === item.href || (item.href !== '/app/admin' && pathname.startsWith(`${item.href}/`)))
+    .sort((left, right) => right.href.length - left.href.length)[0]?.key;
+}
+
+export function activeAdminNavigationGroup(pathname: string) {
+  const key = activeAdminNavigationKey(pathname);
+  return desktopAdminNavigationGroups.find((group) => group.items.some((item) => item.key === key))?.key;
+}
 
 export const mobileAdminNavigation: AdminNavigationItem[] = [
   navigationItem('home'),
+  navigationItem('operations'),
   navigationItem('finance'),
-  navigationItem('orders'),
-  {
-    key: 'more',
-    label: 'Ver todos los centros',
-    shortLabel: 'Más',
-    description: 'Todos los accesos',
-    href: '/app/admin/herramientas',
-    prefetch: false,
-    marker: '•••',
-  },
+  navigationItem('business'),
 ];

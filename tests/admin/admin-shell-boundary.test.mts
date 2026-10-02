@@ -52,7 +52,8 @@ test('does not prefetch the heavy operational centers from the new shell', () =>
   const navigation = read('src/app/app/admin/_lib/navigation.ts');
   const legacyLinks = navigation.match(/href: '\/app\/(?:master|inventory|commissions|events)[^']*'[\s\S]*?prefetch: (?:true|false)/g) ?? [];
 
-  assert.ok(legacyLinks.length >= 4);
+  assert.ok(legacyLinks.length >= 3);
+  assert.ok(adminNavigation.every((item) => item.prefetch === false));
   assert.match(navigation, /href: '\/app\/admin\/ordenes'[\s\S]*?prefetch: false/);
   for (const link of legacyLinks) {
     assert.match(link, /prefetch: false/);
@@ -71,7 +72,7 @@ test('desktop menu has a bounded grid track so long labels cannot widen the side
 });
 
 test('compact groups retain every administrative destination exactly once', () => {
-  const keys = desktopAdminNavigationGroups.flatMap((group) => group.items.map((item) => item.key));
+  const keys = ['home', ...desktopAdminNavigationGroups.flatMap((group) => group.items.map((item) => item.key))];
   assert.deepEqual([...keys].sort(), adminNavigation.map((item) => item.key).sort());
   assert.equal(new Set(keys).size, keys.length);
 });

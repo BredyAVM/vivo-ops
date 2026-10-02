@@ -4865,7 +4865,6 @@ export default function OrdersWorkspaceClient({
                     <ContextLink href="/app/admin/finanzas/cuentas" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Cuentas</ContextLink>
                     <ContextLink href="/app/admin/finanzas/cobranzas" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Cobranzas</ContextLink>
                     <ContextLink href="/app/admin/autorizaciones" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Autorizaciones</ContextLink>
-                    <Link href="/app/master/dashboard" prefetch={false} className="shrink-0 px-2 py-2 text-xs text-[#9B9BA7] underline">Panel anterior</Link>
                   </> : null}
                 </div>
               </div>

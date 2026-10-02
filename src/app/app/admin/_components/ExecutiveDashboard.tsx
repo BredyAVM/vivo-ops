@@ -69,7 +69,7 @@ function AttentionItem({ label, value, href, urgent = false }: { label: string; 
     <Link
       href={href}
       prefetch={false}
-      className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-[#2B2B38] bg-[#17171F] px-3 transition hover:border-[#FEEF00]/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+      className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-[#2B2B38] bg-[#17171F] px-3 transition hover:border-[#FFFF00]/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
     >
       <span className="text-xs font-semibold text-[#BDBDC7]">{label}</span>
       <span title={value === null ? 'No disponible' : undefined} className={`text-sm font-bold tabular-nums ${urgent && value !== null && value > 0 ? 'text-orange-200' : 'text-white'}`}>
@@ -82,21 +82,16 @@ function AttentionItem({ label, value, href, urgent = false }: { label: string; 
 function Shortcuts() {
   return (
     <details id="centros" className="scroll-mt-24 rounded-xl border border-[#292937] bg-[#111117] px-3">
-      <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-[#FEEF00]">Todos los módulos</summary>
-      <div className="mb-2 flex justify-end">
-        <Link href="/app/master/dashboard" prefetch={false} className="text-xs font-semibold text-[#9B9BA7] hover:text-white">
-          Panel anterior →
-        </Link>
-      </div>
+      <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-[#FFFF00]">Todos los módulos</summary>
       <nav aria-label="Todos los módulos administrativos" className="grid grid-cols-2 gap-2 pb-3 sm:grid-cols-3 xl:grid-cols-4">
         {shortcuts.map((shortcut) => (
           <Link
             key={shortcut.label}
             href={shortcut.href}
             prefetch={false}
-            className="group flex min-h-11 items-center gap-2 rounded-lg border border-[#292937] px-2 transition hover:border-[#FEEF00]/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+            className="group flex min-h-11 items-center gap-2 rounded-lg border border-[#292937] px-2 transition hover:border-[#FFFF00]/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
           >
-            <span className="flex h-7 min-w-7 items-center justify-center rounded-lg bg-[#FEEF00]/10 px-1 text-[9px] font-black text-[#FEEF00] group-hover:bg-[#FEEF00] group-hover:text-[#0B0B0D]">
+            <span className="flex h-7 min-w-7 items-center justify-center rounded-lg bg-[#FFFF00]/10 px-1 text-[9px] font-black text-[#FFFF00] group-hover:bg-[#FFFF00] group-hover:text-[#0B0B0D]">
               {shortcut.marker}
             </span>
             <span className="min-w-0 text-xs font-semibold text-[#D8D8DF]">{shortcut.label}</span>
@@ -141,11 +136,11 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
             </span>
           ) : null}
           <span className="text-xs text-[#9B9BA7]">Al corte {timeFormatter.format(new Date(data.asOf))}</span>
-          <a href="/app/admin" className="inline-flex min-h-11 items-center px-2 text-xs font-semibold text-[#CFCFD7] underline focus-visible:outline-2 focus-visible:outline-[#FEEF00]">Actualizar</a>
+          <a href="/app/admin" className="inline-flex min-h-11 items-center px-2 text-xs font-semibold text-[#CFCFD7] underline focus-visible:outline-2 focus-visible:outline-[#FFFF00]">Actualizar</a>
           <Link
             href="/app/admin/finanzas"
             prefetch={false}
-            className="inline-flex min-h-10 items-center rounded-xl border border-[#3A3A48] px-3 text-xs font-semibold text-white hover:border-[#FEEF00]/55 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+            className="inline-flex min-h-10 items-center rounded-xl border border-[#3A3A48] px-3 text-xs font-semibold text-white hover:border-[#FFFF00]/55 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
           >
             Ver finanzas
           </Link>
@@ -260,7 +255,7 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
           { label: 'Jugadas / CRM', href: '/app/master/plays' },
           { label: 'Proyecciones', href: '/app/admin/proyecciones' },
         ].map((action) => (
-          <Link key={action.href} href={action.href} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs font-semibold text-[#E0E0E7] hover:border-[#FEEF00]/50 focus-visible:outline-2 focus-visible:outline-[#FEEF00]">
+          <Link key={action.href} href={action.href} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs font-semibold text-[#E0E0E7] hover:border-[#FFFF00]/50 focus-visible:outline-2 focus-visible:outline-[#FFFF00]">
             {action.label}
           </Link>
         ))}

@@ -18,7 +18,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
 
       <a
         href="#admin-main-content"
-        className="fixed left-3 top-3 z-[60] -translate-y-24 rounded-xl bg-[#FEEF00] px-4 py-3 text-sm font-bold text-[#0B0B0D] transition focus:translate-y-0 focus:outline-2 focus:outline-offset-2 focus:outline-white"
+        className="fixed left-3 top-3 z-[60] -translate-y-24 rounded-xl bg-[#FFFF00] px-4 py-3 text-sm font-bold text-[#0B0B0D] transition focus:translate-y-0 focus:outline-2 focus:outline-offset-2 focus:outline-white"
       >
         Saltar al contenido principal
       </a>
@@ -27,9 +27,10 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
         <aside className="sticky top-0 hidden h-dvh min-w-0 flex-col border-r border-[#242433] bg-[#0E0E13] px-2.5 py-3 md:flex">
           <Link
             href="/app/admin"
-            className="rounded-xl px-2 py-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+            prefetch={false}
+            className="rounded-xl px-2 py-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
           >
-            <span className="block text-xs font-bold uppercase tracking-[0.22em] text-[#FEEF00]">VIVO OPS</span>
+            <span className="block text-xs font-bold uppercase tracking-[0.22em] text-[#FFFF00]">VIVO OPS</span>
             <span className="mt-1 block text-base font-semibold tracking-tight">Administración</span>
           </Link>
 
@@ -41,7 +42,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
             <div className="mb-2 min-w-0 px-1" title={email}>
               <p className="truncate text-xs font-semibold text-white">{userLabel}</p>
             </div>
-            <Link href="/app" prefetch={false} className="mb-2 flex min-h-8 items-center justify-center rounded-lg border border-[#2A2A38] px-2 text-xs font-medium text-[#B7B7C2] hover:border-[#FEEF00]/40 hover:text-white">
+            <Link href="/app" prefetch={false} className="mb-2 flex min-h-8 items-center justify-center rounded-lg border border-[#2A2A38] px-2 text-xs font-medium text-[#B7B7C2] hover:border-[#FFFF00]/40 hover:text-white">
               Módulos
             </Link>
             <AdminSignOutButton />
@@ -52,15 +53,17 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
           <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-2 border-b border-[#242433] bg-[#0B0B0D]/95 px-4 py-3 backdrop-blur md:hidden">
             <Link
               href="/app/admin"
-              className="min-w-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+              prefetch={false}
+              className="min-w-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
             >
-              <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-[#FEEF00]">VIVO OPS</span>
+              <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-[#FFFF00]">VIVO OPS</span>
               <span className="block truncate text-base font-semibold">Administración</span>
             </Link>
             <div className="flex shrink-0 items-center gap-2">
               <Link
                 href="/app"
-                className="flex min-h-11 shrink-0 items-center rounded-xl border border-[#2A2A38] bg-[#121218] px-3 text-xs font-semibold text-[#D4D4DC] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+                prefetch={false}
+                className="flex min-h-11 shrink-0 items-center rounded-xl border border-[#2A2A38] bg-[#121218] px-3 text-xs font-semibold text-[#D4D4DC] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
               >
                 Módulos
               </Link>

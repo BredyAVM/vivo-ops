@@ -11,7 +11,7 @@ import FinancialBarChart from './FinancialBarChart';
 
 type FinancialDashboardProps = {
   overview: AdminFinancialOverview;
-  basePath: '/app/admin' | '/app/admin/finanzas';
+  basePath: '/app/admin' | '/app/admin/finanzas' | '/app/admin/finanzas/resumen';
   detail?: boolean;
 };
 

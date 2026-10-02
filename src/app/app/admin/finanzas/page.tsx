@@ -1,28 +1,22 @@
-import FinancialDashboard from '../_components/FinancialDashboard';
-import { requireAdminContext } from '@/lib/auth';
-import { loadAdminFinancialOverview, type AdminFinanceRpcClient } from '@/lib/admin-finance/data';
-import { ADMIN_FINANCE_DEFINITION_VERSION } from '@/lib/admin-finance/model';
-import { normalizeAdminFinancePeriod, parseAdminFinanceAsOf } from '@/lib/admin-finance/period';
-import { notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
+import AdminSectionHub from '../_components/AdminSectionHub';
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
 export default async function AdminFinancesPage({ searchParams }: { searchParams?: SearchParams }) {
   const params = (await searchParams) ?? {};
-  const periodKey = normalizeAdminFinancePeriod(firstParam(params.period));
-  const requestedDefinition = firstParam(params.definition);
-  if (requestedDefinition && requestedDefinition !== ADMIN_FINANCE_DEFINITION_VERSION) notFound();
-  const asOf = parseAdminFinanceAsOf(firstParam(params.asOf));
-  const ctx = await requireAdminContext();
-  const overview = await loadAdminFinancialOverview({
-    supabase: ctx.supabase as unknown as AdminFinanceRpcClient,
-    periodKey,
-    asOf,
-  });
-
-  return <FinancialDashboard overview={overview} basePath="/app/admin/finanzas" detail />;
+  // Preserve links to dated financial snapshots, including their return context.
+  if (params.period !== undefined || params.asOf !== undefined || params.definition !== undefined) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) query.append(key, item);
+    }
+    redirect(`/app/admin/finanzas/resumen?${query}`);
+  }
+  return <AdminSectionHub section="finance" actions={[
+    { label: 'Ingreso', description: 'Registrar entrada de dinero', href: '/app/admin/finanzas/cuentas/movimiento?tipo=inflow' },
+    { label: 'Egreso', description: 'Registrar salida de dinero', href: '/app/admin/finanzas/cuentas/movimiento?tipo=outflow' },
+    { label: 'Cierre de caja', description: 'Cerrar caja o cuenta', href: '/app/admin/finanzas/cuentas/cierre' },
+    { label: 'Transferencia', description: 'Mover dinero entre cuentas', href: '/app/admin/finanzas/cuentas/transferencia' },
+  ]} />;
 }
