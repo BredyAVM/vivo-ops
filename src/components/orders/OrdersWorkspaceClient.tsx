@@ -1,9 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import ContextLink from "@/components/navigation/ContextLink";
 import BackLink from "@/components/navigation/BackLink";
+import { adminWorkspaceHref } from "@/lib/navigation/admin-workspace";
+import { appContextHref } from "@/lib/navigation/return-navigation";
 import DeliveredOrderCommissionEditor from "@/app/app/commissions/_components/DeliveredOrderCommissionEditor";
 import MasterClientSearchResults from "@/app/app/master/_components/MasterClientSearchResults";
 import { ordersWorkspaceNavigation, type OrdersWorkspaceSurface } from "@/lib/orders/workspace-navigation";
@@ -31,6 +32,7 @@ import { parseDecimalInput } from "@/lib/number-input";
 import { parseDeliveryCostInput, parseDeliveryDistanceInput } from "@/lib/domain/delivery-cost";
 import {
   ORDER_STATUS_LABELS,
+  formatOrderConcept,
   formatOrderDisplayNumber,
   getPaymentMethodLabel,
   type OrderStatus,
@@ -792,7 +794,7 @@ const MASTER_OPS_ACTIVITY_TONE: Record<OrderFinancialActivityType, string> = {
   refund_paid: "border-sky-500/25 bg-sky-500/5",
 };
 
-function MasterOpsFinancialActivity({ activity }: { activity: OrderFinancialActivity[] }) {
+function MasterOpsFinancialActivity({ activity, orderId }: { activity: OrderFinancialActivity[]; orderId: number }) {
   if (activity.length === 0) return null;
 
   return (
@@ -840,7 +842,7 @@ function MasterOpsFinancialActivity({ activity }: { activity: OrderFinancialActi
               </div>
               {movement.notes ? (
                 <div className="mt-2 text-[11px] text-[#B7B7C2]">
-                  Nota: <span className="text-[#F5F5F7]">{movement.notes}</span>
+                  Nota: <span className="text-[#F5F5F7]">{formatOrderConcept(movement.notes, orderId)}</span>
                 </div>
               ) : null}
             </div>
@@ -2325,7 +2327,7 @@ function OrderDetailPanel({
                         </div>
                       ) : null}
 
-                      <MasterOpsFinancialActivity activity={order.financialActivity ?? []} />
+                      <MasterOpsFinancialActivity activity={order.financialActivity ?? []} orderId={order.id} />
                     </>
                   ) : null}
                   <MasterOrderDetailBody
@@ -4186,7 +4188,8 @@ export default function OrdersWorkspaceClient({
   function openInboxOrder(item: MasterOpsInboxItem) {
     setInboxMode(null);
     if (item.eventHref && /^\/app\/events\/\d+$/.test(item.eventHref)) {
-      router.push(item.eventHref);
+      const current = `${navigation.orders}?${searchParams.toString()}`;
+      router.push(appContextHref(adminWorkspaceHref(item.eventHref, current), current));
       return;
     }
     const localOrder = orders.find((order) => order.id === item.orderId);
@@ -4785,7 +4788,7 @@ export default function OrdersWorkspaceClient({
 
               <div className={isAdminSurface ? "contents" : "flex min-w-0 flex-wrap items-center gap-2.5 xl:col-span-2 xl:row-start-2 xl:flex-nowrap xl:justify-between"}>
                 {!isAdminSurface && searchParams.get("returnTo") === "/app/admin/autorizaciones" && roles.includes("admin") ? (
-                  <Link href="/app/admin/autorizaciones" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FEEF00] underline">← Autorizaciones</Link>
+                  <ContextLink href="/app/admin/autorizaciones" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FEEF00] underline">← Autorizaciones</ContextLink>
                 ) : null}
                 <div aria-label="Vistas de órdenes" className={`${isAdminSurface ? "flex min-w-0 flex-wrap self-start lg:col-start-2 lg:row-start-1 lg:justify-self-end" : "flex max-w-full overflow-x-auto"} items-center gap-1.5 rounded-2xl border border-[#242433] bg-[#0F0F14] p-1`}>
                   <TopNavButton label="Operacion" active={inboxMode == null} onClick={closeInbox} compact={isAdminSurface} />
@@ -4806,8 +4809,8 @@ export default function OrdersWorkspaceClient({
                 </div>
 
                 <div className={isAdminSurface ? "flex min-w-0 flex-wrap items-center gap-2 lg:col-span-2 lg:row-start-2" : "contents xl:flex xl:min-w-0 xl:items-center xl:gap-2.5 xl:overflow-x-auto"}>
-                  <Link href="/app/events/ongoing" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Eventos</Link>
-                  <Link
+                  <ContextLink href="/app/events/ongoing" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Eventos</ContextLink>
+                  <ContextLink
                     href={navigation.inventory}
                     prefetch={false}
                     className="flex shrink-0 items-center gap-1.5 rounded-2xl border border-[#FEEF00]/45 bg-[#17170F] px-3 py-2 text-xs font-semibold text-[#FEEF00] transition hover:border-[#FEEF00]"
@@ -4826,13 +4829,13 @@ export default function OrdersWorkspaceClient({
                         {inventoryAlertSummary.active}
                       </span>
                     ) : null}
-                  </Link>
+                  </ContextLink>
 
                   {inventoryAlertSummary && inventoryAlertSummary.pendingReviews > 0 ? (
-                    <Link
+                    <ContextLink
                       href={inventoryAlertSummary.pendingReviews === 1 && inventoryAlertSummary.nextPendingReviewId
                         ? `/app/inventory/counts/${inventoryAlertSummary.nextPendingReviewId}`
-                        : "/app/master/ops/inventory?view=counts#inventory-reviews"}
+                        : isAdminSurface ? "/app/admin/inventario/counts" : "/app/master/ops/inventory?view=counts#inventory-reviews"}
                       prefetch={false}
                       className="flex shrink-0 items-center gap-2 rounded-2xl border border-rose-300/55 bg-rose-400/10 px-3 py-2 text-xs font-black text-rose-100 transition hover:border-rose-200 hover:bg-rose-400/15"
                       title={`${inventoryAlertSummary.pendingReviews} inventario${inventoryAlertSummary.pendingReviews === 1 ? '' : 's'} de Cocina por revisar`}
@@ -4841,7 +4844,7 @@ export default function OrdersWorkspaceClient({
                       <span className="rounded-full bg-rose-200 px-2 py-0.5 text-[10px] tabular-nums text-rose-950">
                         {inventoryAlertSummary.pendingReviews}
                       </span>
-                    </Link>
+                    </ContextLink>
                   ) : null}
 
                   <ContextLink
@@ -4880,12 +4883,12 @@ export default function OrdersWorkspaceClient({
                         {roles.length > 0 ? roles.map((role) => role.toUpperCase()).join(" / ") : "Sin roles"}
                       </div>
                     </div>
-                    <Link
+                    <ContextLink
                       href="/app"
                       className="shrink-0 rounded-xl border border-[#242433] bg-[#0B0B0D] px-2 py-2 text-[11px] text-[#B7B7C2] hover:text-[#F5F5F7]"
                     >
                       Modulos
-                    </Link>
+                    </ContextLink>
                   </div>
                 </div>
                 <MasterOpsSignOutButton />

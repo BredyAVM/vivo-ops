@@ -12,6 +12,8 @@ test('maps every shared domain and keeps query, hash and short order links', () 
     assert.equal(adminWorkspaceHref(from,'/app/admin'), from.startsWith('/app/inventory') ? '/app/admin/inventario/configure?view=create' : to);
   }
   assert.equal(adminWorkspaceHref('/app/master/ops?openOrder=2934&tab=pagos','/app/admin'),'/app/admin/ordenes?openOrder=2934&tab=pagos');
+  assert.equal(adminWorkspaceHref('/app/master/ops/finance?status=pending','/app/admin'),'/app/admin/finanzas/pagos?status=pending');
+  assert.equal(adminWorkspaceHref('/app/master/ops/finance?status=pending','/app/master/ops'),'/app/master/ops/finance?status=pending');
   assert.equal(sharedWorkspacePath('/app/admin/inventario/counts/7'),'/app/inventory/counts/7');
 });
 test('does not redirect other roles, unknown routes, or external links', () => {

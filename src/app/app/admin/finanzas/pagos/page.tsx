@@ -14,6 +14,10 @@ const statusLabel: Record<string, string> = {
   confirmed: "Confirmado",
   rejected: "Rechazado",
 };
+const amountFormat = new Intl.NumberFormat("es-VE", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 export default async function AdminPaymentsPage({
   searchParams,
 }: {
@@ -111,11 +115,11 @@ export default async function AdminPaymentsPage({
           <p className="text-xs text-[#9B9BA7]">
             {data.rows.length} reportes en esta página
           </p>
-          <div className="space-y-2">
+          <div className="space-y-1">
             {data.rows.map((row) => (
               <article
                 key={row.id}
-                className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] p-3"
+                className="min-w-0 rounded-lg border border-[#292937] bg-[#111117] px-3 py-2"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -136,17 +140,14 @@ export default async function AdminPaymentsPage({
                       {statusLabel[row.status] ?? row.status}
                     </span>
                     <span className="font-semibold tabular-nums text-[#DEDEE6]">
-                      {new Intl.NumberFormat("es-VE", {
-                        style: "currency",
-                        currency: row.reported_currency_code,
-                        maximumFractionDigits: 2,
-                      }).format(Number(row.reported_amount))}
+                      {row.reported_currency_code === "VES" ? "Bs" : "USD"}{" "}
+                      {amountFormat.format(Number(row.reported_amount))}
                     </span>
                   </div>
                   <Link
                     href={`/app/admin/ordenes?openOrder=${row.order_id}&tab=pagos`}
                     prefetch={false}
-                    className="inline-flex min-h-11 items-center text-xs text-[#FFFF00]"
+                    className="inline-flex min-h-11 items-center text-xs text-[#FFFF00] sm:min-h-7"
                   >
                     {row.status === "pending" ? "Revisar" : "Abrir orden"} →
                   </Link>
@@ -166,7 +167,7 @@ export default async function AdminPaymentsPage({
                   · Ref. {row.reference_code ?? "—"}
                 </p>
                 <details className="mt-1">
-                  <summary className="min-h-11 cursor-pointer content-center text-xs text-[#BDBDC7]">
+                  <summary className="min-h-11 cursor-pointer content-center text-xs text-[#BDBDC7] sm:min-h-7">
                     Ver detalle del reporte
                   </summary>
                   <dl className="space-y-1 break-words text-xs text-[#BDBDC7]">

@@ -30,7 +30,7 @@ test('both route entries render one shared workspace without copied queries or c
 
 test('Admin navigation stays native and Master keeps its original operational destinations', () => {
   assert.deepEqual(ordersWorkspaceNavigation('admin'), {
-    orders: '/app/admin/ordenes', inventory: '/app/inventory',
+    orders: '/app/admin/ordenes', inventory: '/app/admin/inventario',
     payments: '/app/admin/autorizaciones?tipo=payment',
     movement: '/app/admin/finanzas/cuentas/movimiento',
   });
@@ -39,6 +39,9 @@ test('Admin navigation stays native and Master keeps its original operational de
     payments: '/app/master/ops/finance', movement: '/app/master/ops/finance?movement=new',
   });
   const ui = read('src/components/orders/OrdersWorkspaceClient.tsx');
+  assert.doesNotMatch(ui, /import Link from "next\/link"/);
+  assert.match(ui, /<ContextLink href="\/app\/events\/ongoing"/);
+  assert.match(ui, /appContextHref\(adminWorkspaceHref\(item.eventHref, current\), current\)/);
   assert.doesNotMatch(ui, /router\.(?:push|replace)\(`?['"]?\/app\/master\/ops/);
   assert.match(ui, /router\.push\(`\$\{navigation.orders\}/);
   assert.match(ui, /query \? `\$\{navigation.orders\}\?\$\{query\}` : navigation.orders/);

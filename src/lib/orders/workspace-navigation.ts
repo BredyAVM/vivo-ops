@@ -9,7 +9,7 @@ export function ordersWorkspaceNavigation(surface: OrdersWorkspaceSurface) {
   const admin = surface === "admin";
   return {
     orders: admin ? "/app/admin/ordenes" : "/app/master/ops",
-    inventory: admin ? "/app/inventory" : "/app/master/ops/inventory",
+    inventory: admin ? "/app/admin/inventario" : "/app/master/ops/inventory",
     payments: admin ? "/app/admin/autorizaciones?tipo=payment" : "/app/master/ops/finance",
     movement: admin ? "/app/admin/finanzas/cuentas/movimiento" : "/app/master/ops/finance?movement=new",
   };
