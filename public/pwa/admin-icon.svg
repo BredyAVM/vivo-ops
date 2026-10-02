@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0B0B0D"/>
+  <rect x="32" y="32" width="448" height="448" rx="82" fill="#15151D"/>
+  <text x="256" y="233" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700" font-size="78" letter-spacing="6" fill="#FFFF00">VIVO</text>
+  <text x="256" y="293" text-anchor="middle" font-family="Arial, sans-serif" font-weight="600" font-size="38" letter-spacing="3" fill="#E4E4EA">ADMIN</text>
+  <rect x="148" y="331" width="216" height="18" rx="4" fill="#FFFF00"/>
+</svg>

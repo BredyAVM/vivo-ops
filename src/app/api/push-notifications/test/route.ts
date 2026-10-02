@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { configureWebPush, hasPushEnv } from '@/lib/push';
+import { pushUrlForSubscription } from '@/lib/pwa/push-routing';
 
 function serverSupabase() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing push environment variables' }, { status: 503 });
     }
 
-    const body = (await req.json()) as { accessToken?: string; url?: string; scope?: string };
+    const body = (await req.json()) as { accessToken?: string; url?: string; scope?: string; endpoint?: string };
     const accessToken = String(body.accessToken || '').trim();
     const scope = String(body.scope || '').trim().toLowerCase();
     if (!accessToken) return NextResponse.json({ error: 'Missing accessToken' }, { status: 401 });
@@ -38,11 +39,18 @@ export async function POST(req: Request) {
 
     let subscriptionsQuery = supa
       .from('user_push_subscriptions')
-      .select('endpoint, p256dh, auth')
+      .select('endpoint, p256dh, auth, scope')
       .eq('user_id', userRes.user.id)
       .eq('is_active', true);
 
     if (scope) subscriptionsQuery = subscriptionsQuery.eq('scope', scope);
+    if (body.endpoint) subscriptionsQuery = subscriptionsQuery.eq('endpoint', body.endpoint);
+
+    if (scope === 'admin') {
+      const { data: role, error: roleError } = await supa.from('user_roles')
+        .select('user_id').eq('user_id', userRes.user.id).eq('role', 'admin').maybeSingle();
+      if (roleError || !role) return NextResponse.json({ error: 'Administrator role required' }, { status: 403 });
+    }
 
     const { data: rows, error } = await subscriptionsQuery;
 
@@ -62,13 +70,13 @@ export async function POST(req: Request) {
     }
 
     const webpush = configureWebPush();
-    const payload = JSON.stringify({
+    const testPayload = {
       title: 'VIVO OPS',
       body: 'Notificaciones activas para este usuario.',
       url: String(body.url || '/app/master/dashboard'),
       tag: 'user-push-test',
       tone: 'info',
-    });
+    };
 
     const results = await Promise.allSettled(
       rows.map((row) =>
@@ -80,7 +88,7 @@ export async function POST(req: Request) {
               auth: String(row.auth),
             },
           },
-          payload
+          JSON.stringify({ ...testPayload, url: pushUrlForSubscription(testPayload.url, row.scope, testPayload.tag) })
         )
       )
     );

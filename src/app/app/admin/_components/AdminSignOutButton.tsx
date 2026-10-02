@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LAST_MODULE_STORAGE_KEY } from '@/app/app/ModulePreference';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { detachAdminPush } from '@/lib/pwa/operations-push';
 
 type AdminSignOutButtonProps = {
   compact?: boolean;
@@ -20,6 +21,13 @@ export default function AdminSignOutButton({ compact = false }: AdminSignOutButt
 
     setIsSigningOut(true);
     setError(null);
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      await detachAdminPush(data.session?.access_token || '');
+    } catch {
+      // Signing out must remain possible if the device's push service is unavailable.
+    }
 
     const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
     if (signOutError) {

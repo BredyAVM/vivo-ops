@@ -1,23 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { getOperationsServiceWorker, waitForOperationsWorker, isInstalledApp, isAppleMobile, type OperationsPushWorkspace } from '@/lib/pwa/operations-push';
 
 type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
 
 const PUSH_TIMEOUT_MS = 12000;
-
-function isStandaloneMode() {
-  if (typeof window === 'undefined') return false;
-  return window.matchMedia('(display-mode: standalone)').matches || (window.navigator as Navigator & {
-    standalone?: boolean;
-  }).standalone === true;
-}
-
-function isIPhoneLike() {
-  if (typeof navigator === 'undefined') return false;
-  return /iphone|ipad|ipod/i.test(navigator.userAgent);
-}
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -50,53 +39,12 @@ async function withTimeout<T>(promise: Promise<T>, message: string) {
   }
 }
 
-async function getAppServiceWorker() {
-  const existing = await navigator.serviceWorker.getRegistration('/app/');
-  if (existing) return existing;
-
-  return navigator.serviceWorker.register('/vivo-sw.js', {
-    scope: '/app/',
-    updateViaCache: 'none',
-  });
-}
-
-async function waitForActiveServiceWorker(registration: ServiceWorkerRegistration) {
-  if (registration.active) return registration;
-
-  const worker = registration.installing || registration.waiting;
-  if (!worker) {
-    return navigator.serviceWorker.ready;
-  }
-
-  await withTimeout(
-    new Promise<void>((resolve, reject) => {
-      const onStateChange = () => {
-        if (worker.state === 'activated') {
-          worker.removeEventListener('statechange', onStateChange);
-          resolve();
-        }
-      };
-
-      worker.addEventListener('statechange', onStateChange);
-
-      if (worker.state === 'activated') {
-        worker.removeEventListener('statechange', onStateChange);
-        resolve();
-      }
-
-      if (worker.state === 'redundant') {
-        worker.removeEventListener('statechange', onStateChange);
-        reject(new Error('El servicio de notificaciones no pudo activarse.'));
-      }
-    }),
-    'La app tardo demasiado en activar el servicio de notificaciones.'
-  );
-
-  return navigator.serviceWorker.ready;
-}
-
-export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/master/dashboard' }: { publicVapidKey: string; targetUrl?: string }) {
+export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/master/dashboard', workspace='master' }: { publicVapidKey: string; targetUrl?: string; workspace?: OperationsPushWorkspace }) {
   const supabase = useMemo(() => createSupabaseBrowser(), []);
+  const getAccessToken = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || '';
+  }, [supabase]);
   const [pushState, setPushState] = useState<PushState>('checking');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -107,7 +55,7 @@ export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/ma
 
   useEffect(() => {
     async function boot() {
-      setShowInstallHint(isIPhoneLike() && !isStandaloneMode());
+      setShowInstallHint(isAppleMobile() && !isInstalledApp());
 
       if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
         setPushState('unsupported');
@@ -127,14 +75,23 @@ export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/ma
 
       try {
         const initialRegistration = await withTimeout(
-          getAppServiceWorker(),
+          getOperationsServiceWorker(workspace),
           'La app tardo demasiado en registrar las notificaciones.'
         );
-        const registration = await waitForActiveServiceWorker(initialRegistration);
+        const registration = await waitForOperationsWorker(initialRegistration);
         const currentSubscription = await withTimeout(
           registration.pushManager.getSubscription(),
           'La app tardo demasiado en revisar la suscripcion push.'
         );
+        if (workspace === 'admin' && currentSubscription) {
+          const accessToken = await getAccessToken();
+          if (!accessToken) throw new Error('La sesión venció. Vuelve a iniciar sesión.');
+          const response = await withTimeout(fetch('/api/push-subscriptions', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accessToken, scope: workspace, subscription: subscriptionToJson(currentSubscription) }),
+          }), 'No se pudo comprobar el dispositivo. Intenta nuevamente.');
+          if (!response.ok) throw new Error('No se pudo vincular este dispositivo a tu sesión. Intenta activar las notificaciones nuevamente.');
+        }
         setSubscription(currentSubscription);
         setPushState(currentSubscription ? 'subscribed' : 'ready');
       } catch (err) {
@@ -144,12 +101,7 @@ export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/ma
     }
 
     void boot();
-  }, [publicVapidKey]);
-
-  async function getAccessToken() {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token || '';
-  }
+  }, [publicVapidKey, workspace, getAccessToken]);
 
   async function enablePush() {
     setBusy(true);
@@ -158,23 +110,23 @@ export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/ma
     setStepLabel('Pidiendo permiso...');
 
     try {
-      if (isIPhoneLike() && !isStandaloneMode()) {
+      if (isAppleMobile() && !isInstalledApp()) {
         throw new Error('En iPhone debes abrir VIVO OPS desde la app instalada en pantalla de inicio.');
       }
 
       const permission = await Notification.requestPermission();
-      if (permission === 'denied') {
-        setPushState('denied');
-        setError('El navegador bloqueo las notificaciones.');
+      if (permission !== 'granted') {
+        setPushState(permission === 'denied' ? 'denied' : 'ready');
+        setError(permission === 'denied' ? 'El navegador bloqueó las notificaciones.' : 'No se concedió el permiso. Puedes intentarlo después.');
         return;
       }
 
       setStepLabel('Registrando la app...');
       const initialRegistration = await withTimeout(
-        getAppServiceWorker(),
+        getOperationsServiceWorker(workspace),
         'La app tardo demasiado en registrar el servicio de notificaciones.'
       );
-      const registration = await waitForActiveServiceWorker(initialRegistration);
+      const registration = await waitForOperationsWorker(initialRegistration);
 
       setStepLabel('Revisando suscripcion...');
       let nextSubscription = await withTimeout(
@@ -194,13 +146,14 @@ export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/ma
 
       setStepLabel('Guardando dispositivo...');
       const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error('La sesión venció. Vuelve a iniciar sesión.');
       const response = await withTimeout(
         fetch('/api/push-subscriptions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             accessToken,
-            scope: 'master',
+            scope: workspace,
             subscription: subscriptionToJson(nextSubscription),
           }),
         }),
@@ -242,6 +195,7 @@ export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/ma
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accessToken,
+          scope: workspace,
           subscription: subscriptionToJson(subscription),
         }),
       });
@@ -272,7 +226,7 @@ export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/ma
         fetch('/api/push-notifications/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accessToken, url: targetUrl }),
+          body: JSON.stringify({ accessToken, url: targetUrl, scope: workspace, endpoint: subscription?.endpoint }),
         }),
         'La prueba tardo demasiado en responder desde el servidor.'
       );
@@ -311,7 +265,7 @@ export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/ma
         <div>
           <div className="text-sm font-semibold text-[#F5F5F7]">Notificaciones push</div>
           <p className="mt-1 text-xs leading-5 text-[#8A8A96]">
-            Activa avisos reales para pagos, aprobaciones y excepciones aunque la dashboard no este abierta.
+            Recibe los avisos de órdenes, pagos y autorizaciones conectados al sistema, aunque no tengas abierto el módulo.
           </p>
         </div>
         <span
@@ -342,7 +296,7 @@ export default function OperationsPushPanel({ publicVapidKey, targetUrl='/app/ma
             disabled={busy || pushState === 'unsupported'}
             className="rounded-xl bg-[#FFFF00] min-h-11 px-3 py-2 text-xs font-semibold text-[#0B0B0D] disabled:bg-[#242433] disabled:text-[#6F6F7C]"
           >
-            {busy ? 'Activando...' : 'Activar push'}
+            {busy ? 'Activando…' : 'Activar notificaciones'}
           </button>
         ) : (
           <>

@@ -14,7 +14,7 @@ export const adminNavigation: AdminNavigationItem[] = [
   {key:'clients',label:'Clientes',shortLabel:'Clientes',description:'Consultar, crear y editar clientes',href:'/app/admin/configuracion/clientes',prefetch:false,marker:'CL'},
   {key:'users',label:'Usuarios',shortLabel:'Usuarios',description:'Equipo, estados y permisos',href:'/app/admin/configuracion/usuarios',prefetch:false,marker:'US'},
   {key:'configuration',label:'Configuración',shortLabel:'Configurar',description:'Tasa, cuentas y tarifas',href:'/app/admin/configuracion',prefetch:false,marker:'CF'},
-  {key:'notifications',label:'Notificaciones',shortLabel:'Avisos',description:'Avisos en este dispositivo',href:'/app/admin/notificaciones',prefetch:false,marker:'AV'},
+  {key:'notifications',label:'App y notificaciones',shortLabel:'Avisos',description:'Instalar Administración y activar avisos',href:'/app/admin/notificaciones',prefetch:false,marker:'AV'},
   {
     key: 'home',
     label: 'Inicio',

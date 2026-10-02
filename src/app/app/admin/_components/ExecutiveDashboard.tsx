@@ -260,6 +260,7 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
           { label: 'Cuentas y saldos', href: '/app/admin/finanzas/cuentas' },
           { label: 'Jugadas / CRM', href: '/app/master/plays' },
           { label: 'Proyecciones', href: '/app/admin/proyecciones' },
+          { label: 'Instalar app / avisos', href: '/app/admin/notificaciones' },
         ].map((action) => (
           <Link key={action.href} href={action.href} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs font-semibold text-[#E0E0E7] hover:border-[#FFFF00]/50 focus-visible:outline-2 focus-visible:outline-[#FFFF00]">
             {action.label}

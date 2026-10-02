@@ -36,6 +36,7 @@ function normalizeScope(value: unknown) {
   const scope = String(value || '').trim().toLowerCase();
   if (
     scope === 'master' ||
+    scope === 'admin' ||
     scope === 'master_ops' ||
     scope === 'advisor' ||
     scope === 'kitchen' ||
@@ -61,13 +62,20 @@ export async function POST(req: Request) {
     const { supa, user } = await getActorUser(accessToken);
     if (!user) return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
 
+    const scope = normalizeScope(body.scope);
+    if (scope === 'admin') {
+      const { data: role, error: roleError } = await supa.from('user_roles')
+        .select('user_id').eq('user_id', user.id).eq('role', 'admin').maybeSingle();
+      if (roleError || !role) return NextResponse.json({ error: 'Administrator role required' }, { status: 403 });
+    }
+
     const payload = {
       user_id: user.id,
       endpoint: subscription.endpoint,
       p256dh: subscription.keys.p256dh,
       auth: subscription.keys.auth,
       user_agent: req.headers.get('user-agent'),
-      scope: normalizeScope(body.scope),
+      scope,
       is_active: true,
       last_seen_at: new Date().toISOString(),
     };

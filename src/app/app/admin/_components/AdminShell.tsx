@@ -50,7 +50,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
         </aside>
 
         <div className="min-w-0">
-          <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-2 border-b border-[#242433] bg-[#0B0B0D]/95 px-4 py-3 backdrop-blur md:hidden">
+          <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-2 border-b border-[#242433] bg-[#0B0B0D]/95 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur md:hidden">
             <Link
               href="/app/admin"
               prefetch={false}

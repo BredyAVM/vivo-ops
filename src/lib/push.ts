@@ -1,6 +1,7 @@
 import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
+import { pushUrlForSubscription } from '@/lib/pwa/push-routing';
 
 export type StoredPushSubscription = {
   endpoint: string;
@@ -41,26 +42,6 @@ export const ADVISOR_PUSH_EVENT_TYPES = new Set([
 function safeText(value: unknown, fallback = '') {
   const text = String(value ?? '').trim();
   return text || fallback;
-}
-
-function pushUrlForSubscription(url: string, scope: unknown, tag: unknown) {
-  if (safeText(scope) !== 'master_ops') return url;
-
-  const masterOpsUrl = url.startsWith('/app/master/dashboard')
-    ? url.replace('/app/master/dashboard', '/app/master/ops')
-    : url;
-  if (!masterOpsUrl.startsWith('/app/master/ops')) return masterOpsUrl;
-
-  const orderId = safeText(tag).match(/^master-order-(\d+)(?:-|$)/)?.[1];
-  if (!orderId) return masterOpsUrl;
-
-  const [pathAndQuery, hash = ''] = masterOpsUrl.split('#', 2);
-  const [pathname, query = ''] = pathAndQuery.split('?', 2);
-  const params = new URLSearchParams(query);
-  if (!params.has('openOrder')) params.set('openOrder', orderId);
-
-  const nextQuery = params.toString();
-  return `${pathname}${nextQuery ? `?${nextQuery}` : ''}${hash ? `#${hash}` : ''}`;
 }
 
 function webPushTopicFromTag(value: unknown) {
@@ -318,12 +299,21 @@ export async function sendPushToUserDevices(input: {
     return { skipped: true, reason: 'no_subscriptions' as const };
   }
 
+  // A stored workspace is a routing preference, not a permanent role grant.
+  let subscriptions = rows;
+  if (rows.some(row => row.scope === 'admin')) {
+    const { data: role, error: roleError } = await supa.from('user_roles')
+      .select('user_id').eq('user_id', userId).eq('role', 'admin').maybeSingle();
+    if (roleError || !role) subscriptions = rows.filter(row => row.scope !== 'admin');
+  }
+  if (subscriptions.length === 0) return { skipped: true, reason: 'no_authorized_subscriptions' as const };
+
   const tone = input.tone ?? 'info';
   const webPush = configureWebPush();
   const requestedUrl = safeText(input.url, '/app/master/dashboard');
 
   const results = await Promise.allSettled(
-    rows.map((row) => {
+    subscriptions.map((row) => {
       const payload = JSON.stringify({
         title: safeText(input.title, 'VIVO OPS'),
         body: safeText(input.body, 'Tienes una actualizacion nueva.'),
@@ -351,7 +341,7 @@ export async function sendPushToUserDevices(input: {
     }),
   );
 
-  const invalidEndpoints = rows
+  const invalidEndpoints = subscriptions
     .filter((_, index) => {
       const result = results[index];
       if (!result || result.status !== 'rejected') return false;

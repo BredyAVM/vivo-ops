@@ -1,4 +1,6 @@
 const CACHE_NAME = 'vivo-ops-app-v2';
+const IS_ADMIN_WORKER = self.VIVO_PUSH_WORKSPACE === 'admin';
+const DEFAULT_PUSH_URL = IS_ADMIN_WORKER ? '/app/admin/operaciones' : '/app/master/dashboard';
 const PRECACHE_URLS = [
   '/pwa/advisor-180.png',
   '/pwa/advisor-192.png',
@@ -8,6 +10,10 @@ const PRECACHE_URLS = [
   '/pwa/kitchen-192.png',
   '/pwa/kitchen-512.png',
   '/pwa/kitchen-512-maskable.png',
+  '/pwa/admin-180.png',
+  '/pwa/admin-192.png',
+  '/pwa/admin-512.png',
+  '/pwa/admin-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -35,7 +41,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
+      Promise.all(keys.filter((key) => key.startsWith('vivo-ops-app-') && key !== CACHE_NAME).map((key) => caches.delete(key)))
     ).then(() => self.clients.claim())
   );
 });
@@ -80,8 +86,10 @@ self.addEventListener('push', (event) => {
   }
 
   const title = payload.title || 'VIVO OPS';
-  const targetUrl = payload.url || '/app/master/dashboard';
+  const targetUrl = notificationTarget(payload.url);
   const isKitchenPush = String(targetUrl).startsWith('/app/kitchen');
+  const icon = IS_ADMIN_WORKER || String(targetUrl).startsWith('/app/admin')
+    ? '/pwa/admin-192.png' : isKitchenPush ? '/pwa/kitchen-192.png' : '/pwa/advisor-192.png';
   const vibration = isKitchenPush
     ? payload.tone === 'critical'
       ? [260, 90, 260, 90, 460]
@@ -93,8 +101,8 @@ self.addEventListener('push', (event) => {
       : [80];
   const options = {
     body: payload.body || 'Tienes una actualizacion nueva.',
-    icon: isKitchenPush ? '/pwa/kitchen-192.png' : '/pwa/advisor-192.png',
-    badge: isKitchenPush ? '/pwa/kitchen-192.png' : '/pwa/advisor-192.png',
+    icon,
+    badge: icon,
     renotify: true,
     silent: false,
     requireInteraction: Boolean(payload.requireInteraction),
@@ -110,6 +118,7 @@ self.addEventListener('push', (event) => {
       self.registration.showNotification(title, options),
       self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
+          if (!matchesWorkspace(client)) return;
           client.postMessage({
             type: 'vivo-push',
             payload,
@@ -122,12 +131,12 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification?.data?.url || '/app/master/dashboard';
+  const targetUrl = notificationTarget(event.notification?.data?.url);
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
-        if ('focus' in client && client.url.includes('/app/')) {
+        if ('focus' in client && matchesWorkspace(client)) {
           client.navigate(targetUrl);
           return client.focus();
         }
@@ -141,3 +150,22 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+
+function notificationTarget(value) {
+  try {
+    const url = new URL(value || DEFAULT_PUSH_URL, self.location.origin);
+    if (url.origin !== self.location.origin) return DEFAULT_PUSH_URL;
+    if (IS_ADMIN_WORKER && url.pathname !== '/app/admin' && !url.pathname.startsWith('/app/admin/')) return DEFAULT_PUSH_URL;
+    if (!url.pathname.startsWith('/app/')) return DEFAULT_PUSH_URL;
+    return url.pathname + url.search + url.hash;
+  } catch { return DEFAULT_PUSH_URL; }
+}
+
+function matchesWorkspace(client) {
+  try {
+    const url = new URL(client.url);
+    return url.origin === self.location.origin && (IS_ADMIN_WORKER
+      ? url.pathname === '/app/admin' || url.pathname.startsWith('/app/admin/')
+      : url.pathname.startsWith('/app/'));
+  } catch { return false; }
+}
