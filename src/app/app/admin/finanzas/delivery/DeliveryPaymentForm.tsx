@@ -1,4 +1,6 @@
 'use client';
+import { currencyLabel } from '@/lib/ui/currency-label';
+import { queryControl, queryAction, queryPrimary } from '@/components/ui/QueryControls';
 
 import { useRef, useState, useTransition, type RefObject } from 'react';
 import { deliveryServiceTotals, type DeliveryService } from '@/lib/admin-finance/delivery-services';
@@ -9,9 +11,9 @@ import { recordDeliveryPayment, type DeliveryPaymentInput } from './actions';
 
 export type DeliveryPaymentAttempt = { id: string; payload: string } | null;
 export type DeliveryMoneyAccount = { id: number; name: string; currency_code: string };
-export const deliveryInput = 'min-h-11 min-w-0 rounded-md border border-[#30303D] bg-[#14141C] px-2 text-xs text-white md:min-h-8 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-[#FFFF00]';
-export const deliveryButton = `${deliveryInput} hover:bg-[#22222C]`;
-export const deliveryPrimaryButton = 'min-h-11 rounded-md bg-[#FFFF00] px-3 text-xs font-semibold text-black hover:bg-yellow-200 md:min-h-8 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-white';
+export const deliveryInput = queryControl;
+export const deliveryButton = queryAction;
+export const deliveryPrimaryButton = queryPrimary;
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
 export default function DeliveryPaymentForm({ rows, extras, debts, accounts, from, to, today, partial, attempt, onClose, onPaid }: {
@@ -80,7 +82,7 @@ export default function DeliveryPaymentForm({ rows, extras, debts, accounts, fro
           <h3 className="text-xs font-semibold">Descontar esta semana</h3>
           <p className="mt-1 text-[11px] text-[#B9B9C4]">Elige un importe por deuda. Dejar en cero no descuenta; el saldo restante continúa pendiente.</p>
           <div className="mt-2 max-h-60 space-y-2 overflow-auto">{debts.map(d => <label key={d.id} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="min-w-0 flex-1">{d.concept}{d.orderId ? ` · #${formatOrderDisplayNumber(d.orderId)}` : ''}<span className="block text-[11px] text-[#B9B9C4]">Deuda: {usd(d.balance)}</span></span>
-            <input aria-label={`Descontar de ${d.concept}`} type="number" min="0" max={d.balance} step="0.01" value={chosen[d.id] ?? '0'} onChange={e => setChosen({ ...chosen, [d.id]: e.target.value })} className={`${deliveryInput} w-28 text-right`} /></label>)}</div>
+            <span className="grid gap-1 text-[11px] text-[#B7B7C2]"><span>Descontar · USD</span><input aria-label={`Descontar en USD de ${d.concept}`} type="number" min="0" max={d.balance} step="0.01" value={chosen[d.id] ?? '0'} onChange={e => setChosen({ ...chosen, [d.id]: e.target.value })} className={`${deliveryInput} max-w-28 text-right`} /></span></label>)}</div>
           <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-[#383830] pt-2 text-xs"><div><dt>Descuento</dt><dd className="font-semibold">{usd(plan.discount)}</dd></div><div><dt>Pago neto</dt><dd className="font-semibold text-[#FFFF00]">{usd(total)}</dd></div><div><dt>Deuda restante</dt><dd className="font-semibold">{usd(plan.remaining)}</dd></div></dl>
           {plan.error ? <p role="alert" className="mt-2 text-xs text-orange-200">{plan.error}</p> : null}
         </div> : null}
@@ -89,9 +91,9 @@ export default function DeliveryPaymentForm({ rows, extras, debts, accounts, fro
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <label className="grid gap-1 text-xs">Fecha del pago<input name="paymentDate" type="date" defaultValue={today} max={today} required className={deliveryInput} /></label>
           {total <= 0 ? null : method === 'existing' ? <label className="grid gap-1 text-xs">Número del egreso existente<input name="existingMovementId" type="number" min="1" step="1" required className={deliveryInput} /></label> : <>
-            <label className="grid gap-1 text-xs">Cuenta de salida<select value={accountId} onChange={e => setAccountId(e.target.value)} required className={deliveryInput}><option value="">Seleccionar cuenta</option>{accounts.map(a => <option value={a.id} key={a.id}>{a.name} · {a.currency_code}</option>)}</select></label>
+            <label className="grid gap-1 text-xs">Cuenta de salida<select value={accountId} onChange={e => setAccountId(e.target.value)} required className={deliveryInput}><option value="">Seleccionar cuenta</option>{accounts.map(a => <option value={a.id} key={a.id}>{a.name} · {currencyLabel(a.currency_code)}</option>)}</select></label>
             {account?.currency_code === 'VES' ? <label className="grid gap-1 text-xs">Tasa del pago (Bs/USD)<input value={rate} onChange={e => setRate(e.target.value)} type="number" min="0.000001" step="any" required className={deliveryInput} /></label> : null}
-            <label className="grid gap-1 text-xs">Importe · {account?.currency_code || 'USD'}<input key={`${accountId}-${rate}-${total}`} name="amount" type="number" min="0.01" max="1000000000" step="0.01" defaultValue={Number.isFinite(native) ? native.toFixed(2) : ''} required className={deliveryInput} /></label>
+            <label className="grid gap-1 text-xs">Importe · {currencyLabel(account?.currency_code)}<input key={`${accountId}-${rate}-${total}`} name="amount" type="number" min="0.01" max="1000000000" step="0.01" defaultValue={account && Number.isFinite(native) ? native.toFixed(2) : ''} required className={deliveryInput} /></label>
           </>}
           <label className="grid gap-1 text-xs">Referencia<input name="reference" maxLength={120} className={deliveryInput} /></label>
         </div>

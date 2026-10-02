@@ -1,4 +1,6 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
+import { queryAction, queryPrimary } from '@/components/ui/QueryControls';
+import FinancialDetailSection from './FinancialDetailSection';
 import {
   compressFinancialSeries,
   type AdminFinanceDomain,
@@ -78,7 +80,7 @@ function qualityClass(quality: FinancialQualityCode) {
 function QualityBadge({ quality }: { quality: FinancialQualityCode }) {
   return (
     <span
-      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${qualityClass(quality)}`}
+      className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${qualityClass(quality)}`}
       title={qualityDescriptions[quality]}
       aria-label={`${qualityLabels[quality]}: ${qualityDescriptions[quality]}`}
     >
@@ -120,14 +122,14 @@ function MetricCard({
   const valueClass =
     tone === 'positive' ? 'text-emerald-300' : tone === 'warning' ? 'text-orange-200' : 'text-white';
   const card = (
-    <article className="min-w-0 rounded-2xl border border-[#2A2A38] bg-[#111117] p-5">
+    <article className="min-w-0 rounded-xl border border-[#2A2A38] bg-[#111117] p-3">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#A4A4AF]">{label}</p>
-        <span className="shrink-0 text-xs font-bold text-[#777784]">{kpi}</span>
+        <p className="text-xs font-bold  text-[#A4A4AF]">{label}</p>
+        <span className="sr-only">{kpi}</span>
       </div>
-      <p className={`mt-4 break-words text-3xl font-semibold tracking-[-0.03em] ${valueClass}`}>{value}</p>
-      <p className="mt-2 min-h-10 text-sm leading-5 text-[#A8A8B3]">{context}</p>
-      <div className="mt-4 border-t border-[#292937] pt-3">
+      <p className={`mt-1 break-words text-base font-semibold tabular-nums ${valueClass}`}>{value}</p>
+      <p className="mt-1 text-[11px] leading-4 text-[#A8A8B3]">{context}</p>
+      <div className="mt-2 border-t border-[#292937] pt-2">
         <div className="flex items-center justify-between gap-3">
           <QualityBadge quality={quality} />
           {href ? <span className="text-xs font-semibold text-[#D8D8DF]">Ver detalle →</span> : null}
@@ -140,7 +142,7 @@ function MetricCard({
     <Link
       href={href}
       prefetch={false}
-      className="rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
+      className="rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
     >
       {card}
     </Link>
@@ -149,7 +151,7 @@ function MetricCard({
 
 function DomainUnavailable({ message }: { message: string }) {
   return (
-    <section className="rounded-2xl border border-red-400/20 bg-red-400/5 p-5">
+    <section className="rounded-xl border border-red-400/20 bg-red-400/5 p-3">
       <p className="text-sm font-semibold text-red-100">Este bloque no está disponible por ahora.</p>
       <p className="mt-1 text-sm leading-6 text-red-100/75">{message} Las demás cifras continúan funcionando.</p>
     </section>
@@ -158,9 +160,9 @@ function DomainUnavailable({ message }: { message: string }) {
 
 function BreakdownStat({ label, value, context }: { label: string; value: string; context: string }) {
   return (
-    <div className="rounded-xl border border-[#2D2D3A] bg-[#17171F] p-4">
+    <div className="rounded-xl border border-[#2D2D3A] bg-[#17171F] p-3">
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9696A3]">{label}</p>
-      <p className="mt-2 text-xl font-semibold text-white">{value}</p>
+      <p className="mt-2 text-base font-semibold text-white">{value}</p>
       <p className="mt-1 text-sm leading-5 text-[#A9A9B4]">{context}</p>
     </div>
   );
@@ -188,12 +190,12 @@ function SectionHeading({
   description: string;
 }) {
   return (
-    <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
-      <div>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#FFFF00]">{eyebrow}</p>
-        <h2 id={id} className="mt-2 text-2xl font-semibold tracking-tight text-white">{title}</h2>
-      </div>
-      <p className="max-w-2xl text-sm leading-6 text-[#A1A1AD]">{description}</p>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 id={id} className="text-sm font-semibold text-[#E4E4EA]"><span className="sr-only">{eyebrow}: </span>{title}</h2>
+      <details className="max-w-2xl text-[11px] text-[#B7B7C2]">
+        <summary className="min-h-11 cursor-pointer content-center md:min-h-8">Cómo se calcula</summary>
+        <p className="mt-1">{description}</p>
+      </details>
     </div>
   );
 }
@@ -203,7 +205,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
   const commercial = overview.commercial.status === 'ready' ? overview.commercial.data : null;
   const treasury = overview.treasury.status === 'ready' ? overview.treasury.data : null;
   const snapshotQuery = `period=${currentPeriod.key}&asOf=${encodeURIComponent(currentPeriod.asOf)}&definition=${overview.definitionVersion}`;
-  const financialDetailPath = `/app/admin/finanzas?${snapshotQuery}`;
+  const financialDetailPath = `${detail ? basePath : '/app/admin/finanzas/resumen'}?${snapshotQuery}`;
   const cashChartHasUnclassified =
     Boolean(treasury) &&
     ((treasury?.unclassifiedAdjustmentCount ?? 0) > 0 ||
@@ -249,124 +251,46 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
         }));
 
   return (
-    <div className="space-y-8">
-      <section className="overflow-hidden rounded-[28px] border border-[#2A2A38] bg-[#111117]">
-        <div className="relative px-5 py-6 sm:px-7 sm:py-8 xl:px-9 xl:py-9">
-          <div
-            className="pointer-events-none absolute -right-20 -top-32 h-72 w-72 rounded-full bg-[#FFFF00]/10 blur-3xl"
-            aria-hidden="true"
-          />
-          <div className="relative flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#FFFF00]">
-                {detail ? 'Centro financiero' : 'Inicio ejecutivo'}
-              </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl xl:text-5xl">
-                {detail ? 'Finanzas con contexto y trazabilidad.' : 'Radiografía financiera del negocio.'}
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#B7B7C2] sm:text-base sm:leading-7">
-                Ventas por entrega, dinero por fecha real de operación y posición actual se mantienen separados para
-                que una cifra no aparente ser otra.
-              </p>
-            </div>
-
-            <div className="flex shrink-0 flex-col gap-2 sm:flex-row xl:flex-col">
-              {detail ? (
-                <>
-                  <Link
-                    href={`/app/admin/finanzas?period=${currentPeriod.key}`}
-                    prefetch={false}
-                    className="flex min-h-12 items-center justify-center rounded-xl bg-[#FFFF00] px-5 text-sm font-bold text-[#0B0B0D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                  >
-                    Actualizar cifras ahora
-                  </Link>
-                  <Link
-                    href="/app/master/ops/finance?status=pending"
-                    prefetch={false}
-                    className="flex min-h-12 items-center justify-center rounded-xl border border-orange-300/30 bg-orange-400/10 px-5 text-sm font-semibold text-orange-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-200"
-                  >
-                    Revisar pagos
-                  </Link>
-                  <Link
-                    href="/app/admin/finanzas/cuentas"
-                    prefetch={false}
-                    className="flex min-h-12 items-center justify-center rounded-xl border border-[#3A3A49] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
-                  >
-                    Ver cuentas
-                  </Link>
-                  <Link
-                    href="/app/admin/finanzas/pedidos"
-                    prefetch={false}
-                    className="flex min-h-12 items-center justify-center rounded-xl border border-[#3A3A49] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
-                  >
-                    Pedidos por entregar
-                  </Link>
-                </>
-              ) : (
-                <Link
-                  href={financialDetailPath}
-                  prefetch={false}
-                  className="flex min-h-12 items-center justify-center rounded-xl bg-[#FFFF00] px-5 text-sm font-bold text-[#0B0B0D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                >
-                  Ver dashboard financiero
-                </Link>
-              )}
-            </div>
+    <div className="space-y-3">
+      <section className="rounded-xl border border-[#2A2A38] bg-[#111117] p-3">
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-base font-semibold text-[#E4E4EA]">Resumen financiero</h1>
+          <div className="flex flex-wrap gap-2">
+            <Link href={`${basePath}?period=${currentPeriod.key}`} prefetch={false} className={queryAction}>Actualizar</Link>
+            <Link href="/app/admin/autorizaciones?tipo=payment" prefetch={false} className={queryAction}>Revisar pagos</Link>
+            <Link href="/app/admin/finanzas/cuentas" prefetch={false} className={queryAction}>Cuentas</Link>
+            <Link href="/app/admin/finanzas/pedidos" prefetch={false} className={queryAction}>Por entregar</Link>
           </div>
-
-          <div className="relative mt-7 flex flex-col gap-4 border-t border-[#2A2A38] pt-5 lg:flex-row lg:items-center lg:justify-between">
-            <nav aria-label="Período del resumen financiero" className="flex gap-2 overflow-x-auto pb-1">
-              {periodOptions.map((option) => {
-                const isActive = option.key === currentPeriod.key;
-                const periodHref = detail
-                  ? `${basePath}?period=${option.key}&asOf=${encodeURIComponent(currentPeriod.asOf)}&definition=${overview.definitionVersion}`
-                  : `${basePath}?period=${option.key}`;
-                return (
-                  <Link
-                    key={option.key}
-                    href={periodHref}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={[
-                      'flex min-h-11 shrink-0 items-center rounded-full border px-4 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white',
-                      isActive
-                        ? 'border-[#FFFF00] bg-[#FFFF00] text-[#0B0B0D]'
-                        : 'border-[#393948] bg-[#17171F] text-[#CECED6] hover:border-[#5A5A6A]',
-                    ].join(' ')}
-                  >
-                    {option.label}
-                  </Link>
-                );
-              })}
-            </nav>
-            <div className="text-sm leading-6 text-[#A7A7B2] lg:text-right">
-              <p>
-                {formatDateKey(currentPeriod.startKey)} – {formatDateKey(addDateKeyDays(currentPeriod.endExclusiveKey, -1))}
-              </p>
-              <p>Actualizado {dateTimeFormatter.format(new Date(currentPeriod.asOf))} · hora de Caracas</p>
-            </div>
-          </div>
-          <details className="relative mt-4 rounded-xl border border-[#30303E] bg-[#17171F] px-4 py-3 text-sm text-[#C8C8D1]">
-            <summary className="cursor-pointer font-semibold text-white">Cómo leer la calidad de los datos</summary>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {(Object.keys(qualityLabels) as FinancialQualityCode[]).map((quality) => (
-                <p key={quality} className="leading-5">
-                  <span className="font-semibold text-white">{qualityLabels[quality]}:</span>{' '}
-                  {qualityDescriptions[quality]}
-                </p>
-              ))}
-            </div>
-          </details>
+        </header>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <nav aria-label="Período del resumen financiero" className="flex flex-wrap gap-1">
+            {periodOptions.map((option) => (
+              <Link key={option.key} href={detail ? `${basePath}?period=${option.key}&asOf=${encodeURIComponent(currentPeriod.asOf)}&definition=${overview.definitionVersion}` : `${basePath}?period=${option.key}`} prefetch={false} aria-current={option.key === currentPeriod.key ? 'page' : undefined} className={option.key === currentPeriod.key ? queryPrimary : queryAction}>
+                {option.label}
+              </Link>
+            ))}
+          </nav>
+          <p className="text-[11px] text-[#B7B7C2]">
+            {formatDateKey(currentPeriod.startKey)} – {formatDateKey(addDateKeyDays(currentPeriod.endExclusiveKey, -1))} · Al corte {dateTimeFormatter.format(new Date(currentPeriod.asOf))} · Caracas
+          </p>
         </div>
+        <details className="mt-1 text-[11px] text-[#B7B7C2]">
+          <summary className="min-h-11 cursor-pointer content-center md:min-h-8">Definiciones y calidad de los datos</summary>
+          <p className="mt-1">Ventas por entrega, dinero por fecha real de operación y posición actual se muestran separados. Un dato no disponible no equivale a cero.</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {(Object.keys(qualityLabels) as FinancialQualityCode[]).map(quality => <p key={quality}><strong>{qualityLabels[quality]}:</strong> {qualityDescriptions[quality]}</p>)}
+          </div>
+        </details>
       </section>
 
       <section aria-labelledby="financial-kpis-title">
         <SectionHeading
           id="financial-kpis-title"
           eyebrow="Cómo vamos"
-          title="Cuatro señales, cuatro significados"
+          title="Indicadores del período"
           description="Semana y Mes se comparan contra un período anterior de igual duración. Hoy se presenta como corte parcial, sin un porcentaje engañoso contra el día completo de ayer."
         />
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+        <div className="mt-2 grid gap-2 grid-cols-2 xl:grid-cols-4">
           <DomainValue domain={overview.commercial}>
             {(data) => (
             <MetricCard
@@ -434,7 +358,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
           title="Qué se entregó y qué se movió"
           description="La venta usa la fecha efectiva de entrega. Caja usa la fecha de operación guardada en cada movimiento confirmado."
         />
-        <div className="mt-5 grid gap-3 xl:grid-cols-2">
+        <div className="mt-2 grid gap-2 xl:grid-cols-2">
           {commercial ? (
             <FinancialBarChart
               title="Ventas entregadas"
@@ -468,17 +392,17 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
         <SectionHeading
           id="financial-outlook-title"
           eyebrow="Lo que viene"
-          title="Programado, no prometido"
+          title="Pedidos programados"
           description="Sin una meta financiera global certificada, la referencia honesta es el pipeline de órdenes activas que ya tienen fecha."
         />
-        <div className="mt-5 grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="mt-2 grid gap-2 lg:grid-cols-[1.1fr_0.9fr]">
           <DomainValue domain={overview.commercial}>
             {(data) => (
-              <article className="rounded-2xl border border-[#FFFF00]/25 bg-[#FFFF00]/5 p-5 sm:p-6">
+              <article className="rounded-xl border border-[#FFFF00]/25 bg-[#FFFF00]/5 p-3">
                 <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#FFFF00]">C06 · Pipeline programado</p>
-                    <p className="mt-3 text-3xl font-semibold tracking-tight text-white">{formatUsd(data.scheduledSalesUsd)}</p>
+                    <p className="text-xs font-bold  text-[#FFFF00]">Pedidos programados</p>
+                    <p className="mt-3 text-base font-semibold tracking-tight text-white">{formatUsd(data.scheduledSalesUsd)}</p>
                     <p className="mt-2 text-sm text-[#C4C4CD]">
                       {integerFormatter.format(data.scheduledOrders)} orden(es) activas desde hoy hasta el cierre del período.
                     </p>
@@ -501,9 +425,9 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
             )}
           </DomainValue>
 
-          <article className="rounded-2xl border border-[#2A2A38] bg-[#111117] p-5 sm:p-6">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#A4A4AF]">Lectura responsable</p>
-            <h3 className="mt-3 text-xl font-semibold text-white">Rentabilidad todavía no se publica</h3>
+          <article className="rounded-xl border border-[#2A2A38] bg-[#111117] p-3">
+            <p className="text-xs font-bold  text-[#A4A4AF]">Lectura responsable</p>
+            <h3 className="mt-3 text-base font-semibold text-white">Rentabilidad todavía no se publica</h3>
             <p className="mt-2 text-sm leading-6 text-[#A8A8B3]">
               Utilidad, margen e inventario valorizado necesitan costos certificados. Hasta entonces, la pantalla los
               muestra como no disponibles en vez de presentarlos como cero.
@@ -517,12 +441,12 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
         <SectionHeading
           id="financial-position-title"
           eyebrow="Posición actual"
-          title="Qué está bajo control y qué falta cerrar"
+          title="Posición actual"
           description="Esta sección es una foto al momento de actualizar; no cambia cuando eliges Hoy, Semana o Mes."
         />
         <DomainValue domain={overview.position}>
           {(data) => (
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard
                 kpi="P17"
                 label="Tasa general activa"
@@ -581,30 +505,30 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
         <SectionHeading
           id="financial-attention-title"
           eyebrow="Atención requerida"
-          title="Lo que necesita una decisión"
+          title="Por atender"
           description="Estos contadores son trabajo pendiente; nunca se suman como dinero realizado."
         />
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <div className="mt-2 grid gap-2 md:grid-cols-3">
           <DomainValue domain={overview.treasury}>
             {(data) => (
               <>
                 <Link
-                  href="/app/master/ops/finance?status=pending"
+                  href="/app/admin/autorizaciones?tipo=payment"
                   prefetch={false}
-                  className="rounded-2xl border border-orange-400/25 bg-orange-400/5 p-5 transition hover:border-orange-300/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-200 motion-reduce:transition-none"
+                  className="rounded-xl border border-orange-400/25 bg-orange-400/5 p-3 transition hover:border-orange-300/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-200 motion-reduce:transition-none"
                 >
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-200">T08 · Reportes de pago</p>
-                  <p className="mt-3 text-3xl font-semibold text-white">{data.pendingPaymentReports}</p>
+                  <p className="text-xs font-bold  text-orange-200">Reportes de pago</p>
+                  <p className="mt-3 text-base font-semibold text-white">{data.pendingPaymentReports}</p>
                   <p className="mt-1 text-sm text-[#B9B9C3]">{formatUsd(data.pendingPaymentReportsUsd)} reportados, aún no caja.</p>
                   <p className="mt-4 text-sm font-semibold text-orange-100">Revisar pagos →</p>
                 </Link>
                 <Link
                   href="/app/admin/finanzas/cuentas?state=pending_movements"
                   prefetch={false}
-                  className="rounded-2xl border border-blue-400/20 bg-blue-400/5 p-5 transition hover:border-blue-300/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-200 motion-reduce:transition-none"
+                  className="rounded-xl border border-blue-400/20 bg-blue-400/5 p-3 transition hover:border-blue-300/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-200 motion-reduce:transition-none"
                 >
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-200">T07 · Movimientos</p>
-                  <p className="mt-3 text-3xl font-semibold text-white">{data.pendingMovementOperations}</p>
+                  <p className="text-xs font-bold  text-blue-200">Movimientos</p>
+                  <p className="mt-3 text-base font-semibold text-white">{data.pendingMovementOperations}</p>
                   <p className="mt-1 text-sm text-[#B9B9C3]">Operación(es) agrupadas pendientes de aprobación.</p>
                   <p className="mt-4 text-sm font-semibold text-blue-100">Ver cuentas afectadas →</p>
                 </Link>
@@ -616,10 +540,10 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
               <Link
                 href="/app/admin/finanzas/cuentas?state=open_reconciliation"
                 prefetch={false}
-                className="rounded-2xl border border-red-400/20 bg-red-400/5 p-5 transition hover:border-red-300/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-200 motion-reduce:transition-none"
+                className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 transition hover:border-red-300/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-200 motion-reduce:transition-none"
               >
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-red-200">P12 · Conciliaciones</p>
-                <p className="mt-3 text-3xl font-semibold text-white">{data.openReconciliations}</p>
+                <p className="text-xs font-bold  text-red-200">Conciliaciones</p>
+                <p className="mt-3 text-base font-semibold text-white">{data.openReconciliations}</p>
                 <p className="mt-1 text-sm text-[#B9B9C3]">{formatUsd(data.openReconciliationsUsd)} de diferencia absoluta abierta.</p>
                 <p className="mt-4 text-sm font-semibold text-red-100">Ir a conciliación →</p>
               </Link>
@@ -630,7 +554,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
 
       {detail ? (
         <div className="space-y-4">
-          <section id="commercial-detail" className="scroll-mt-24 rounded-2xl border border-[#2A2A38] bg-[#111117] p-5 sm:p-6">
+          <FinancialDetailSection id="commercial-detail" title="Detalle comercial">
             <SectionHeading
               id="commercial-detail-title"
               eyebrow="Detalle comercial"
@@ -639,7 +563,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
             />
             <DomainValue domain={overview.commercial}>
               {(data) => (
-                <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   <BreakdownStat
                     label="Período actual"
                     value={formatUsd(data.deliveredSalesUsd)}
@@ -663,9 +587,9 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                 </div>
               )}
             </DomainValue>
-          </section>
+          </FinancialDetailSection>
 
-          <section id="treasury-detail" className="scroll-mt-24 rounded-2xl border border-[#2A2A38] bg-[#111117] p-5 sm:p-6">
+          <FinancialDetailSection id="treasury-detail" title="Detalle de entradas y salidas">
             <SectionHeading
               id="treasury-detail-title"
               eyebrow="Detalle de tesorería"
@@ -674,7 +598,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
             />
             <DomainValue domain={overview.treasury}>
               {(data) => (
-                <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   <BreakdownStat label="Cobros de órdenes" value={formatUsd(data.confirmedCollectionsUsd)} context="T01 · entradas confirmadas" />
                   <BreakdownStat label="Otros ingresos externos" value={formatUsd(data.otherExternalIncomeUsd)} context="Excluye patas de traspasos internos" />
                   <BreakdownStat label="Egresos identificados" value={formatUsd(data.externalOutflowsUsd)} context={`T03 · calidad ${qualityLabels[data.outflowQuality].toLowerCase()}`} />
@@ -684,9 +608,9 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                 </div>
               )}
             </DomainValue>
-          </section>
+          </FinancialDetailSection>
 
-          <section id="position-detail" className="scroll-mt-24 rounded-2xl border border-[#2A2A38] bg-[#111117] p-5 sm:p-6">
+          <FinancialDetailSection id="position-detail" title="Detalle de posición y controles">
             <SectionHeading
               id="position-detail-title"
               eyebrow="Detalle de posición"
@@ -695,7 +619,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
             />
             <DomainValue domain={overview.position}>
               {(data) => (
-                <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   <BreakdownStat label="Tasa activa" value={data.activeRateBsPerUsd === null ? 'No disponible' : `${usdFormatter.format(data.activeRateBsPerUsd)} Bs/USD`} context={`${data.activeRateCount} tasa(s) activas al corte`} />
                   <BreakdownStat label="Fondos según clientes" value={formatUsd(data.clientFundsUsd)} context="Saldo cacheado de la obligación" />
                   <BreakdownStat label="Fondos según ledger" value={formatUsd(data.clientFundLedgerUsd)} context="Créditos menos débitos del subledger" />
@@ -705,17 +629,8 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                 </div>
               )}
             </DomainValue>
-          </section>
+          </FinancialDetailSection>
 
-          <section className="rounded-2xl border border-[#2A2A38] bg-[#111117] p-5 sm:p-6">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#FFFF00]">Alcance de esta versión</p>
-            <h2 className="mt-2 text-xl font-semibold text-white">Lectura ejecutiva lista; operación avanzada en transición</h2>
-            <p className="mt-3 max-w-4xl text-sm leading-6 text-[#A8A8B3]">
-              Esta ruta ya consulta resúmenes pequeños y protegidos. Cuentas, movimientos, cierres, conciliación y tasa
-              se migrarán aquí por cortes completos; mientras tanto, los botones superiores conservan acceso a las
-              herramientas vigentes sin duplicar acciones financieras.
-            </p>
-          </section>
         </div>
       ) : null}
     </div>

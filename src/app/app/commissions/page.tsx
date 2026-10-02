@@ -229,12 +229,12 @@ function Stat({ label, value, note, href }: { label: string; value: string; note
   const content = (
     <>
       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8F8F9C]">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-[#F7F7F8]">{value}</div>
+      <div className="mt-1 text-base font-semibold tabular-nums text-[#E4E4EA]">{value}</div>
       {note ? <div className="mt-1 text-xs text-[#A4A4AF]">{note}</div> : null}
     </>
   );
   return href ? (
-    <Link className="rounded-2xl border border-[#282832] bg-[#15151B] px-4 py-3 transition hover:border-[#F0D000]/55" href={href}>
+    <Link className="rounded-2xl border border-[#282832] bg-[#15151B] px-4 py-3 transition hover:border-[#FFFF00]/55" href={href}>
       {content}
     </Link>
   ) : (
@@ -265,7 +265,7 @@ function CommissionRateField({
         <span className="text-[11px] font-medium text-[#A8A8B3]">Porcentaje</span>
         <div className="relative w-16">
           <input
-            className="h-7 w-full rounded-lg border border-[#34343F] bg-[#0E0E12] px-2 pr-5 text-xs font-semibold text-[#F7F7F8] outline-none focus:border-[#F0D000] disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-7 w-full rounded-lg border border-[#34343F] bg-[#0E0E12] px-2 pr-5 text-xs font-semibold text-[#F7F7F8] outline-none focus:border-[#FFFF00] disabled:cursor-not-allowed disabled:opacity-60"
             defaultValue={value}
             disabled={locked}
             form={COMMISSION_CALCULATION_FORM_ID}
@@ -293,7 +293,7 @@ function CommissionRateField({
       </span>
       <div className="relative mt-1.5 max-w-40">
         <input
-          className="h-9 w-full rounded-xl border border-[#34343F] bg-[#0E0E12] px-3 pr-8 text-sm font-semibold text-[#F7F7F8] outline-none focus:border-[#F0D000] disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-9 w-full rounded-xl border border-[#34343F] bg-[#0E0E12] px-3 pr-8 text-sm font-semibold text-[#F7F7F8] outline-none focus:border-[#FFFF00] disabled:cursor-not-allowed disabled:opacity-60"
           defaultValue={value}
           disabled={locked}
           form={COMMISSION_CALCULATION_FORM_ID}
@@ -338,7 +338,7 @@ export default async function CommissionAdministrationPage({
           <p className="mt-2 text-sm leading-6 text-[#B5B5C0]">
             Los datos actuales no pudieron cargarse. No se modificó ninguna información.
           </p>
-          <Link className="mt-5 inline-flex text-sm font-semibold text-[#F7DA66]" href="/app/master/dashboard">
+          <Link className="mt-5 inline-flex text-sm font-semibold text-[#FFFF00]" href="/app/master/dashboard">
             Volver al panel administrativo
           </Link>
         </div>
@@ -660,13 +660,13 @@ export default async function CommissionAdministrationPage({
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
-              className="inline-flex w-fit items-center rounded-full border border-[#F0D000]/45 bg-[#F0D000]/10 px-4 py-2 text-sm font-semibold text-[#F7DA66] transition hover:border-[#F0D000]"
+              className="inline-flex w-fit items-center rounded-full border border-[#FFFF00]/45 bg-[#FFFF00]/10 px-4 py-2 text-sm font-semibold text-[#FFFF00] transition hover:border-[#FFFF00]"
               href={`/app/commissions/goals${selectedPeriod ? `?period=${selectedPeriod.id}` : ''}`}
             >
               Metas y porcentajes
             </Link>
             <Link
-              className="inline-flex w-fit items-center rounded-full border border-[#34343F] px-4 py-2 text-sm font-semibold text-[#D8D8DF] transition hover:border-[#F0D000] hover:text-[#F7DA66]"
+              className="inline-flex w-fit items-center rounded-full border border-[#34343F] px-4 py-2 text-sm font-semibold text-[#D8D8DF] transition hover:border-[#FFFF00] hover:text-[#FFFF00]"
               href="/app/master/dashboard"
             >
               Volver al panel
@@ -710,7 +710,7 @@ export default async function CommissionAdministrationPage({
               <label className="block">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Nombre</span>
                 <input
-                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#FFFF00]"
                   maxLength={120}
                   name="name"
                   placeholder="Ej. Agosto 1"
@@ -720,7 +720,7 @@ export default async function CommissionAdministrationPage({
               <label className="block">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Desde</span>
                 <input
-                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#FFFF00]"
                   name="dateFrom"
                   required
                   type="date"
@@ -729,7 +729,7 @@ export default async function CommissionAdministrationPage({
               <label className="block">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Hasta</span>
                 <input
-                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#FFFF00]"
                   name="dateTo"
                   required
                   type="date"
@@ -738,13 +738,13 @@ export default async function CommissionAdministrationPage({
               <label className="block">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Nota</span>
                 <input
-                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#FFFF00]"
                   maxLength={500}
                   name="notes"
                   placeholder="Opcional"
                 />
               </label>
-              <button className="h-10 rounded-xl border border-[#F0D000]/45 px-4 text-sm font-semibold text-[#F7DA66]" type="submit">
+              <button className="h-10 rounded-xl border border-[#FFFF00]/45 px-4 text-sm font-semibold text-[#FFFF00]" type="submit">
                 Crear periodo
               </button>
             </WorkspaceForm>
@@ -754,7 +754,7 @@ export default async function CommissionAdministrationPage({
             <WorkspaceForm action="/app/commissions" className="mt-4 flex items-end gap-2" method="get">
               <label className="min-w-0 flex-1">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Cambiar de período</span>
-                <select className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]" defaultValue={String(selectedPeriod?.id ?? '')} name="period">
+                <select className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#FFFF00]" defaultValue={String(selectedPeriod?.id ?? '')} name="period">
                   {periods.map((period) => {
                     const config = readAdvisorGoalPeriodConfig(period.goal_config);
                     return (
@@ -765,7 +765,7 @@ export default async function CommissionAdministrationPage({
                   })}
                 </select>
               </label>
-              <button className="h-10 rounded-xl border border-[#4A4A56] px-4 text-sm font-semibold text-[#E3E3E8] hover:border-[#F0D000] hover:text-[#F7DA66]" type="submit">Abrir</button>
+              <button className="h-10 rounded-xl border border-[#4A4A56] px-4 text-sm font-semibold text-[#E3E3E8] hover:border-[#FFFF00] hover:text-[#FFFF00]" type="submit">Abrir</button>
             </WorkspaceForm>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-[#363641] px-4 py-8 text-center text-sm text-[#A6A6B0]">
@@ -806,7 +806,7 @@ export default async function CommissionAdministrationPage({
                   Fecha prevista de pago
                 </span>
                 <input
-                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#FFFF00]"
                   defaultValue={rows.find((row) => row.settlement.scheduledLiquidationDate)?.settlement.scheduledLiquidationDate ?? ''}
                   name="scheduledLiquidationDate"
                   type="date"
@@ -820,7 +820,7 @@ export default async function CommissionAdministrationPage({
                     : 'Ajusta el porcentaje dentro de la tarjeta de cada asesor y luego actualiza el período. Los cierres confirmados permanecen protegidos.'}
               </p>
               <button
-                className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] transition enabled:hover:bg-[#FFE44F] disabled:cursor-not-allowed disabled:opacity-40"
+                className="h-10 rounded-xl bg-[#FFFF00] px-5 text-sm font-semibold text-[#111113] transition enabled:hover:bg-[#FFE44F] disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={
                   selectedPeriod.status !== 'open' ||
                   advisorLoadFailed ||
@@ -954,10 +954,10 @@ export default async function CommissionAdministrationPage({
                             {row.goal.rateOverrideReason ? `Excepción manual: ${row.goal.rateOverrideReason}`
                               : row.goal.status === 'final' ? 'Resultado individual confirmado.'
                               : `Meta actual: ${(currentGoalRates.get(row.closure.advisor_user_id) ?? row.goal.calculatedCommissionPct).toFixed(2)}% · se aplica al actualizar.`}
-                            <Link className="ml-2 text-[#F7DA66]" href={`/app/commissions/goals?period=${selectedPeriod?.id}`}>Revisar porcentaje →</Link>
+                            <Link className="ml-2 text-[#FFFF00]" href={`/app/commissions/goals?period=${selectedPeriod?.id}`}>Revisar porcentaje →</Link>
                           </div> : null}
                           <Link
-                            className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#F0D000]/40 px-3 py-1.5 text-xs font-semibold text-[#F7DA66] transition hover:border-[#F0D000]"
+                            className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#FFFF00]/40 px-3 py-1.5 text-xs font-semibold text-[#FFFF00] transition hover:border-[#FFFF00]"
                             href={adminCommissionAuditHref(row.closure.id, 'settlement')}
                           >
                             Auditar cierre completo <span aria-hidden="true">→</span>
@@ -995,37 +995,37 @@ export default async function CommissionAdministrationPage({
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'billing')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Facturación</div>
                           <div className="mt-1 font-semibold">{money(row.closure.billed_usd)}</div>
-                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver pedidos →</div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver pedidos →</div>
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'commission')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Comisión bruta</div>
                           <div className="mt-1 font-semibold">{money(row.closure.gross_commission_usd)}</div>
-                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver fórmula →</div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver fórmula →</div>
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'deductions')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Deducibles</div>
                           <div className="mt-1 font-semibold">
                             {money(numberValue(row.closure.gift_deductions_usd) + row.registeredManualDeductionsUsd)}
                           </div>
-                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver cargos →</div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver cargos →</div>
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'debts')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Deuda clientes</div>
                           <div className="mt-1 font-semibold text-amber-200">{money(row.closure.pending_collection_usd)}</div>
-                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver clientes →</div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver clientes →</div>
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'settlement')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Liquidación acordada</div>
-                          <div className="mt-1 font-semibold text-[#F7DA66]">{money(row.closure.payable_usd)}</div>
-                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver cálculo →</div>
+                          <div className="mt-1 font-semibold text-[#FFFF00]">{money(row.closure.payable_usd)}</div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver cálculo →</div>
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'payments')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Pagado / pendiente</div>
                           <div className="mt-1 font-semibold">
                             {money(row.paidUsd)} <span className="text-[#777784]">/</span>{' '}
-                            <span className="text-[#F7DA66]">{money(row.paymentBalanceUsd)}</span>
+                            <span className="text-[#FFFF00]">{money(row.paymentBalanceUsd)}</span>
                           </div>
-                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver abonos →</div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver abonos →</div>
                         </Link>
                       </div>
 
@@ -1101,7 +1101,7 @@ export default async function CommissionAdministrationPage({
                             <label className="block">
                               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Concepto</span>
                               <input
-                                className="mt-1 h-9 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-xs text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                                className="mt-1 h-9 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-xs text-[#F7F7F8] outline-none focus:border-[#FFFF00]"
                                 maxLength={240}
                                 name="description"
                                 placeholder="Pedido, préstamo, adelanto…"
@@ -1111,7 +1111,7 @@ export default async function CommissionAdministrationPage({
                             <label className="block">
                               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Monto USD</span>
                               <input
-                                className="mt-1 h-9 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-xs text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                                className="mt-1 h-9 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-xs text-[#F7F7F8] outline-none focus:border-[#FFFF00]"
                                 min="0.01"
                                 name="amountUsd"
                                 required
@@ -1119,7 +1119,7 @@ export default async function CommissionAdministrationPage({
                                 type="number"
                               />
                             </label>
-                            <button className="h-9 rounded-xl border border-[#F0D000]/45 px-4 text-xs font-semibold text-[#F7DA66]" type="submit">
+                            <button className="h-9 rounded-xl border border-[#FFFF00]/45 px-4 text-xs font-semibold text-[#FFFF00]" type="submit">
                               Agregar
                             </button>
                           </WorkspaceForm>

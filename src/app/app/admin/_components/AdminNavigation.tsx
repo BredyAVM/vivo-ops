@@ -19,8 +19,8 @@ function DesktopDestination({ item, active }: { item: AdminNavigationItem; activ
         active ? 'bg-[#FFFF00]/10 text-[#FFFF00]' : 'text-[#BDBDC7] hover:bg-[#17171F] hover:text-white',
       ].join(' ')}
     >
-      <span aria-hidden="true" className="w-5 shrink-0 text-center text-[9px] text-[#888895]">{item.marker}</span>
-      <span className="min-w-0 truncate font-medium">{item.label}</span>
+      <span aria-hidden="true" className="w-5 shrink-0 text-center text-[9px] text-[#A4A4B0]">{item.marker}</span>
+      <span className="min-w-0 whitespace-normal break-words font-medium leading-4">{item.label}</span>
     </Link>
   );
 }
@@ -56,7 +56,7 @@ export default function AdminNavigation({ variant }: { variant: 'desktop' | 'mob
         <details key={`${group.key}:${pathname}`} open={group.key === activeGroup} className="group/section min-w-0">
           <summary className={`flex min-h-9 cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-[#FFFF00] [&::-webkit-details-marker]:hidden ${group.key === activeGroup ? 'text-[#FFFF00]' : 'text-[#D0D0D8] hover:bg-[#17171F]'}`}>
             <span>{group.label}</span>
-            <span aria-hidden="true" className="text-[#888895] transition-transform group-open/section:rotate-90">›</span>
+            <span aria-hidden="true" className="text-[#A4A4B0] transition-transform group-open/section:rotate-90">›</span>
           </summary>
           <div className="ml-2 mt-0.5 grid min-w-0 gap-0.5 border-l border-[#2A2A38] pl-1">
             {group.items.map((item) => (

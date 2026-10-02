@@ -10,7 +10,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0b0b0d', color: 'white', fontFamily: 'system-ui' }}>
+    <div style={{ minHeight: '100vh', background: '#0b0b0d', color: 'white', fontFamily: 'var(--font-geist-sans), Arial, sans-serif' }}>
       {children}
     </div>
   );

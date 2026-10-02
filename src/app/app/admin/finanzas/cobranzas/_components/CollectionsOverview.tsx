@@ -1,4 +1,5 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
+import { queryAction } from '@/components/ui/QueryControls';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { normalizePhone } from '@/lib/phone/normalize-phone';
 import {
@@ -11,13 +12,13 @@ import CollectionFiltersForm from './CollectionFiltersForm';
 const money = (n: number) => new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n);
 const date = (s: string | null) => s ? s.split('-').reverse().join('/') : '—';
 
-const action = 'inline-flex min-h-10 items-center rounded-lg border border-zinc-700 px-2.5 text-xs text-zinc-200 hover:border-yellow-300';
+const action = queryAction;
 function OrderActions({ order }: { order: CollectionOrder }) {
   const phone = normalizePhone(order.clientPhone);
   return <div className="flex flex-wrap gap-1.5">
     <Link className={action} prefetch={false} href={`/app/admin/ordenes?openOrder=${order.id}&tab=pagos`}>Ver pagos</Link>
     {phone ? <a className={action} href={`https://wa.me/${phone.slice(1)}`} target="_blank" rel="noopener noreferrer" aria-label={`Contactar al cliente de la orden ${formatOrderDisplayNumber(order.id)}`}>WhatsApp</a>
-      : <span className="self-center text-[11px] text-zinc-500">Sin teléfono</span>}
+      : <span className="self-center text-[11px] text-[#B7B7C2]">Sin teléfono</span>}
   </div>;
 }
 function People({ order }: { order: CollectionOrder }) {
@@ -37,8 +38,8 @@ export default function CollectionsOverview({ data, filters }: { data: Overview;
       {[
         ['Importe de órdenes', data.totals.totalUsd, false], ['Abonado / cubierto', data.totals.coveredUsd, false],
         ['Pendiente', data.totals.pendingUsd, true], ['Pagos por verificar', data.totals.reviewUsd, false],
-      ].map(([label, amount, highlight]) => <article key={String(label)} className={`rounded-xl border p-3 ${highlight ? 'border-yellow-300/40 bg-yellow-300/5' : 'border-zinc-800 bg-[#111117]'}`}>
-        <p className="text-xs text-zinc-400">{label}</p><p className={`mt-1 text-lg font-semibold tabular-nums ${highlight ? 'text-yellow-200' : 'text-white'}`}>{money(Number(amount))}</p>
+      ].map(([label, amount, highlight]) => <article key={String(label)} className={`rounded-xl border p-3 ${highlight ? 'border-[#FFFF00]/40 bg-[#FFFF00]/5' : 'border-zinc-800 bg-[#111117]'}`}>
+        <p className="text-xs text-zinc-400">{label}</p><p className={`mt-1 text-base font-semibold tabular-nums ${highlight ? 'text-[#FFFF00]' : 'text-white'}`}>{money(Number(amount))}</p>
       </article>)}
     </section>
     <CollectionFiltersForm key={JSON.stringify(filters)} filters={filters} people={data.people} todayIso={data.asOf} />
@@ -52,7 +53,7 @@ export default function CollectionsOverview({ data, filters }: { data: Overview;
         <table className="w-full text-left text-xs"><caption className="sr-only">Órdenes y saldos actuales. Los totales superiores abarcan todas las páginas.</caption>
           <thead className="bg-[#19191f] text-zinc-400"><tr>{['Orden / fecha', 'Cliente', 'Creada por / asesor', 'Total', 'Cubierto', 'Pendiente', 'Acciones'].map(h => <th key={h} scope="col" className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
           <tbody>{data.orders.map(o => <tr key={o.id} className="border-t border-zinc-800 align-top">
-            <td className="px-3 py-3"><Link href={`/app/admin/ordenes?openOrder=${o.id}&tab=pagos`} prefetch={false} className="font-semibold text-yellow-200">#{formatOrderDisplayNumber(o.id)}</Link><div className="mt-1 text-zinc-400">{date(filters.basis === 'created' ? o.createdDate : o.deliveredDate)}</div><div className="mt-1 text-[11px] text-zinc-500">{collectionStages[o.stage as keyof typeof collectionStages] ?? o.stage}</div></td>
+            <td className="px-3 py-3"><Link href={`/app/admin/ordenes?openOrder=${o.id}&tab=pagos`} prefetch={false} className="font-semibold text-yellow-200">#{formatOrderDisplayNumber(o.id)}</Link><div className="mt-1 text-zinc-400">{date(filters.basis === 'created' ? o.createdDate : o.deliveredDate)}</div><div className="mt-1 text-[11px] text-[#B7B7C2]">{collectionStages[o.stage as keyof typeof collectionStages] ?? o.stage}</div></td>
             <td className="max-w-52 px-3 py-3"><div className="font-medium text-white">{o.clientName}</div><div className="mt-1 text-[11px] text-zinc-400">{o.fulfillment === 'pickup' ? 'Pickup' : 'Delivery'} · {collectionSources[o.source as keyof typeof collectionSources] ?? o.source}</div></td>
             <td className="max-w-44 px-3 py-3"><People order={o} /></td>
             <td className="whitespace-nowrap px-3 py-3 tabular-nums">{money(o.totalUsd)}</td><td className="whitespace-nowrap px-3 py-3 tabular-nums">{money(o.coveredUsd)}</td>

@@ -1,5 +1,6 @@
 import Link from "@/components/navigation/ContextLink";
 import WorkspaceForm from "@/components/navigation/WorkspaceForm";
+import { queryControl, queryPrimary, queryPanel } from "@/components/ui/QueryControls";
 import {
   loadAdminPaymentReports,
   paymentRelation,
@@ -7,8 +8,7 @@ import {
 import { paymentReportsHref } from "@/lib/admin-finance/payment-reports-model";
 import { AdminReadError } from "../../_components/AdminReadUi";
 export const dynamic = "force-dynamic";
-const input =
-  "min-h-11 min-w-0 rounded-lg border border-[#30303D] bg-[#14141C] px-2 text-xs";
+const input = queryControl;
 const statusLabel: Record<string, string> = {
   pending: "Por revisar",
   confirmed: "Confirmado",
@@ -55,10 +55,10 @@ export default async function AdminPaymentsPage({
       <WorkspaceForm
         method="get"
         action="/app/admin/finanzas/pagos"
-        className="flex flex-wrap items-end gap-2"
+        className={`${queryPanel} grid grid-cols-2 items-end gap-2 lg:grid-cols-[1fr_1fr_1fr_1fr_auto]`}
       >
         <input type="hidden" name="consultar" value="1" />
-        <label className="grid gap-1 text-xs">
+        <label className="grid gap-1 text-[11px] text-[#B7B7C2]">
           Desde
           <input
             required
@@ -68,7 +68,7 @@ export default async function AdminPaymentsPage({
             className={input}
           />
         </label>
-        <label className="grid gap-1 text-xs">
+        <label className="grid gap-1 text-[11px] text-[#B7B7C2]">
           Hasta
           <input
             required
@@ -78,7 +78,7 @@ export default async function AdminPaymentsPage({
             className={input}
           />
         </label>
-        <label className="grid gap-1 text-xs">
+        <label className="grid gap-1 text-[11px] text-[#B7B7C2]">
           Estado
           <select name="status" defaultValue={filters.status} className={input}>
             <option value="pending">Por revisar</option>
@@ -87,7 +87,7 @@ export default async function AdminPaymentsPage({
             <option value="all">Todos</option>
           </select>
         </label>
-        <label className="grid gap-1 text-xs">
+        <label className="grid gap-1 text-[11px] text-[#B7B7C2]">
           Orden corta
           <input
             type="number"
@@ -97,7 +97,7 @@ export default async function AdminPaymentsPage({
             className={input + " w-28"}
           />
         </label>
-        <button className="min-h-11 rounded-lg bg-[#FFFF00] px-3 text-xs font-semibold text-black">
+        <button className={queryPrimary}>
           Consultar pagos
         </button>
       </WorkspaceForm>

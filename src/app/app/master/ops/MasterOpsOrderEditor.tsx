@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { parseDecimalInput } from "@/lib/number-input";
 import CrmOrderMinimumPanel from "./CrmOrderMinimumPanel";
+import { useDialogFocus } from "@/components/ui/useDialogFocus";
+import { currencyLabel } from "@/lib/ui/currency-label";
 import CrmOrderValidityPanel from "./CrmOrderValidityPanel";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot } from "@/lib/orders/approved-price-preservation";
@@ -296,6 +298,7 @@ export default function MasterOpsOrderEditor({
 }: Props) {
   const isCreateMode = mode === "create";
   const isOpen = isCreateMode ? open : Boolean(orderId);
+  const dialogRef = useDialogFocus<HTMLDivElement>(onClose, isOpen);
   const isAdmin = roles.includes("admin");
   const commercialSectionRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<MasterOpsEditData | null>(null);
@@ -1121,11 +1124,11 @@ export default function MasterOpsOrderEditor({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/70">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="order-editor-title" tabIndex={-1} className="order-detail-dialog fixed inset-0 z-[80] bg-black/70">
       <div className="ml-auto flex h-full w-full max-w-[1180px] flex-col border-l border-[#242433] bg-[#0B0B0D] text-[#F5F5F7] shadow-2xl">
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#242433] px-5 py-3">
           <div>
-            <div className="text-lg font-semibold">
+            <div id="order-editor-title" className="text-base font-semibold">
               {isCreateMode
                 ? "Nuevo pedido"
                 : form
@@ -1141,6 +1144,7 @@ export default function MasterOpsOrderEditor({
           <button
             className="rounded-xl border border-[#242433] bg-[#121218] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
             type="button"
+            data-dialog-close
             onClick={onClose}
           >
             Cerrar
@@ -1550,14 +1554,16 @@ export default function MasterOpsOrderEditor({
                             Escribe lo que entregará, no el cambio. Si la orden hace $15 y paga con $20, registra 20; Counter preparará $5.
                           </p>
                           <div className="mt-2 grid grid-cols-[1fr_0.7fr] gap-2">
+                            <Field label={`Monto que entrega · ${currencyLabel(form.paymentChangeCurrency)}`}>
                             <input
                               className={fieldClass()}
                               value={form.paymentChangeFor}
                               onChange={(event) => patchForm({ paymentChangeFor: event.target.value })}
                               placeholder="Monto que entrega"
                               inputMode="decimal"
-                              aria-label="Monto con el que pagara el cliente"
+                              aria-label={`Monto con el que pagará el cliente · ${currencyLabel(form.paymentChangeCurrency)}`}
                             />
+                            </Field>
                             <select
                               className={fieldClass()}
                               value={form.paymentChangeCurrency}
@@ -1789,6 +1795,7 @@ export default function MasterOpsOrderEditor({
                                 </summary>
                                 {!isCrmBenefit ? (
                                 <div className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_minmax(0,1.3fr)_auto]">
+                                  <Field label="Precio unitario · USD">
                                   <input
                                     className={fieldClass()}
                                     value={item.sourcePriceCurrency === "USD" ? compact(item.sourcePriceAmount, 6) : compact(item.unitPriceUsdSnapshot, 6)}
@@ -1797,6 +1804,8 @@ export default function MasterOpsOrderEditor({
                                     placeholder="USD unit."
                                     aria-label={`Precio unitario USD: ${item.productNameSnapshot}`}
                                   />
+                                  </Field>
+                                  <Field label="Precio unitario · Bs">
                                   <input
                                     className={fieldClass()}
                                     value={item.sourcePriceCurrency === "VES" ? compact(item.sourcePriceAmount, 2) : compact(item.unitPriceUsdSnapshot * fxRate, 2)}
@@ -1805,6 +1814,8 @@ export default function MasterOpsOrderEditor({
                                     placeholder="Bs unit."
                                     aria-label={`Precio unitario Bs: ${item.productNameSnapshot}`}
                                   />
+                                  </Field>
+                                  <Field label="Motivo del precio">
                                   <input
                                     className={fieldClass()}
                                     value={item.adminPriceOverrideReason ?? ""}
@@ -1812,8 +1823,9 @@ export default function MasterOpsOrderEditor({
                                     placeholder="Motivo"
                                     aria-label={`Motivo del precio: ${item.productNameSnapshot}`}
                                   />
+                                  </Field>
                                   <button
-                                    className="rounded-xl border border-[#242433] px-3 py-2 text-xs text-[#B7B7C2]"
+                                    className="self-end rounded-xl border border-[#242433] px-3 py-2 text-xs text-[#B7B7C2]"
                                     type="button"
                                     onClick={() => {
                                       const productBase = catalogById.get(item.productId);
@@ -1891,7 +1903,7 @@ export default function MasterOpsOrderEditor({
                   </div>
                   <Section title="Totales">
                     <div className="grid gap-3 sm:grid-cols-3">
-                      <Field label={pricingChanged ? "Tasa vigente para recalcular" : "Tasa snapshot"}>
+                      <Field label={pricingChanged ? "Tasa vigente · Bs/USD" : "Tasa registrada · Bs/USD"}>
                         <input
                           className={fieldClass()}
                           value={pricingChanged ? compact(fxRate, 6) : form.fxRate}

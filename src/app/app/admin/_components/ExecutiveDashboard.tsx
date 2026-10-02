@@ -25,7 +25,7 @@ const shortcuts: Shortcut[] = [
   { label: 'Cobranzas', marker: 'CA', href: '/app/admin/finanzas/cobranzas' },
   { label: 'Por entregar', marker: 'PE', href: '/app/admin/finanzas/pedidos' },
   { label: 'Órdenes', marker: 'OR', href: '/app/admin/ordenes' },
-  { label: 'Pagos', marker: 'PA', href: '/app/master/ops/finance?status=pending' },
+  { label: 'Pagos', marker: 'PA', href: '/app/admin/autorizaciones?tipo=payment' },
   { label: 'Inventario', marker: 'IV', href: '/app/inventory' },
   { label: 'Productos', marker: 'PR', href: '/app/inventory/configure?view=edit' },
   { label: 'Comisiones', marker: 'CO', href: '/app/admin/finanzas/comisiones' },
@@ -107,7 +107,7 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
     return (
       <div className="space-y-5">
         <section className="rounded-2xl border border-red-400/20 bg-red-400/5 p-5">
-          <h1 className="text-lg font-semibold text-white">Indicadores no disponibles</h1>
+          <h1 className="text-base font-semibold text-[#E4E4EA]">Indicadores no disponibles</h1>
           <p className="mt-1 text-sm text-red-100/75">{executive.message}</p>
         </section>
         <Shortcuts />
@@ -127,7 +127,7 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs font-semibold capitalize text-[#90909C]">{dateFormatter.format(new Date(data.asOf))}</p>
-          <h1 className="mt-0.5 text-lg font-semibold text-white">Visión general</h1>
+          <h1 className="mt-0.5 text-base font-semibold text-[#E4E4EA]">Visión general</h1>
         </div>
         <div className="flex items-center gap-2">
           {position?.activeRateBsPerUsd ? (
@@ -210,7 +210,7 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
               <AttentionItem
                 label="Pagos por revisar"
                 value={treasury?.pendingPaymentReports ?? null}
-                href="/app/master/ops/finance?status=pending"
+                href="/app/admin/autorizaciones?tipo=payment"
                 urgent
               />
               <AttentionItem

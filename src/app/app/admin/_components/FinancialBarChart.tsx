@@ -41,13 +41,13 @@ export default function FinancialBarChart({
   const primaryClass = primaryTone === 'emerald' ? 'bg-emerald-400' : 'bg-[#FFFF00]';
 
   return (
-    <figure className="rounded-2xl border border-[#292937] bg-[#111117] p-5 sm:p-6">
+    <figure className="rounded-xl border border-[#292937] bg-[#111117] p-3">
       <figcaption>
-        <h3 className="text-base font-semibold text-white">{title}</h3>
-        <p className="mt-1 text-sm leading-6 text-[#A5A5B1]">{description}</p>
+        <h3 className="text-sm font-semibold text-[#E4E4EA]">{title}</h3>
+        <p className="mt-1 text-[11px] leading-4 text-[#A5A5B1]">{description}</p>
       </figcaption>
 
-      <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-[#C9C9D2]">
+      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-[#C9C9D2]">
         <span className="inline-flex items-center gap-2">
           <span className={`h-2.5 w-2.5 rounded-sm ${primaryClass}`} aria-hidden="true" />
           {primaryLabel}
@@ -61,12 +61,12 @@ export default function FinancialBarChart({
       </div>
 
       <div
-        className="mt-5 grid h-44 items-end gap-1.5 border-b border-[#333342] px-1 sm:gap-2"
+        className="mt-2 grid h-28 items-end gap-1.5 border-b border-[#333342] px-1 sm:gap-2"
         style={{ gridTemplateColumns: `repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))` }}
         aria-hidden="true"
       >
         {rows.length === 0 ? (
-          <div className="col-span-full self-center text-center text-sm text-[#8F8F9B]">Sin puntos en este período</div>
+          <div className="col-span-full self-center text-center text-sm text-[#B7B7C2]">Sin puntos en este período</div>
         ) : (
           rows.map((row) => {
             const primaryHeight = Math.max(row.primary > 0 ? 3 : 0, (Math.max(0, row.primary) / maximum) * 100);
@@ -76,7 +76,7 @@ export default function FinancialBarChart({
             );
             return (
               <div key={row.label} className="flex h-full min-w-0 flex-col justify-end">
-                <div className="flex h-36 items-end justify-center gap-0.5 sm:gap-1">
+                <div className="flex h-28 items-end justify-center gap-0.5 sm:gap-1">
                   <span
                     className={`w-full max-w-7 rounded-t-md ${primaryClass}`}
                     style={{ height: `${primaryHeight}%` }}

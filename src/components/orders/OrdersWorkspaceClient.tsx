@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 import ContextLink from "@/components/navigation/ContextLink";
+import { currencyLabel } from "@/lib/ui/currency-label";
+import { useDialogFocus } from "@/components/ui/useDialogFocus";
 import BackLink from "@/components/navigation/BackLink";
 import { adminWorkspaceHref } from "@/lib/navigation/admin-workspace";
 import { appContextHref } from "@/lib/navigation/return-navigation";
@@ -1313,6 +1315,7 @@ function OrderDetailPanel({
   deliveryPartners: DeliveryPartnerOption[];
   paymentAccounts: MasterOpsPaymentAccountOption[];
 }) {
+  const dialogRef = useDialogFocus<HTMLElement>(onClose);
   const isAdmin = roles.includes("admin");
   const isIncompleteOrder = order.integrityStatus === "missing_items";
   const actionLabel = isIncompleteOrder
@@ -2054,14 +2057,14 @@ function OrderDetailPanel({
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/55">
-      <button className="absolute inset-0 cursor-default" type="button" aria-label="Cerrar detalle" onClick={onClose} />
-      <section className="absolute right-0 top-0 flex h-full w-full max-w-[1180px] flex-col border-l border-[#242433] bg-[#0B0B0D] shadow-2xl">
+      <button className="absolute inset-0 cursor-default" type="button" aria-label="Cerrar detalle" tabIndex={-1} onClick={onClose} />
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="order-detail-title" tabIndex={-1} className="order-detail-dialog absolute right-0 top-0 flex h-dvh w-full max-w-[1180px] flex-col border-l border-[#242433] bg-[#0B0B0D] shadow-2xl">
         <div className="border-b border-[#242433] p-3 sm:p-4">
           <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-base font-semibold text-[#F5F5F7]">
+                  <h2 id="order-detail-title" className="text-sm font-semibold text-[#E4E4EA]">
                     Orden #{orderDisplayNumber(order)} - {order.clientName}
                   </h2>
                   <span className="text-sm font-semibold text-[#F5F5F7]">{formatMasterOrderUSD(order.totalUsd)}</span>
@@ -2130,36 +2133,58 @@ function OrderDetailPanel({
                   }
                 >
                   {detailLoading
-                    ? "Cargando WS"
+                    ? "Cargando resumen"
                     : detailError || order.lines.length === 0
-                      ? "WS no disponible"
+                      ? "Resumen no disponible"
                       : whatsAppCopyStatus === "copied"
-                        ? "WS copiado"
+                        ? "Copiado"
                         : whatsAppCopyStatus === "error"
                           ? "No se copio"
-                          : "Copiar WS"}
+                          : "Copiar WhatsApp"}
                 </button>
                 <button
                   className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] hover:border-[#FEEF00]/50"
                   type="button"
+                  data-dialog-close
+                  aria-label="Cerrar detalle de orden"
                   onClick={onClose}
                 >
-                  x
+                  ×
                 </button>
               </div>
             </div>
           </div>
 
-          <div className="mt-3 rounded-xl border border-[#242433] bg-[#121218] px-3 py-2">
+          <div className="mt-2 hidden rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 sm:block">
             <RowProcessTimeline order={order} />
           </div>
+          <details className="mt-1 text-xs text-[#B7B7C2] sm:hidden">
+            <summary className="min-h-11 cursor-pointer content-center">Seguimiento · {ORDER_STATUS_LABELS[order.status]}</summary>
+            <div className="rounded-lg border border-[#242433] p-2"><RowProcessTimeline order={order} /></div>
+          </details>
 
-          <div className="mt-3 flex flex-wrap gap-1.5 pb-1">
-            {MASTER_OPS_ORDER_DETAIL_TABS.map((tab) => (
+          <div className="mt-2 hidden flex-wrap gap-1.5 pb-1 sm:flex">{MASTER_OPS_ORDER_DETAIL_TABS.map((tab) => (
               <button
                 key={tab.key}
                 className={[
-                  "shrink-0 rounded-full border px-3 py-1.5 text-[13px] transition",
+                  "min-h-11 shrink-0 rounded-lg border px-2 py-1 text-xs transition sm:min-h-8",
+                  activeTab === tab.key
+                    ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
+                    : "border-[#242433] bg-[#121218] text-[#B7B7C2] hover:text-[#F5F5F7]",
+                ].join(" ")}
+                type="button"
+                aria-pressed={activeTab === tab.key}
+                onClick={() => onTabChange(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}</div>
+          <div className="relative flex flex-wrap gap-1 pb-1 sm:hidden">
+            {MASTER_OPS_ORDER_DETAIL_TABS.filter(tab => ["detalle", "entrega", "pagos", "ajustes"].includes(tab.key)).map((tab) => (
+              <button
+                key={tab.key}
+                className={[
+                  "min-h-11 shrink-0 rounded-lg border px-2 py-1 text-xs transition sm:min-h-8",
                   activeTab === tab.key
                     ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
                     : "border-[#242433] bg-[#121218] text-[#B7B7C2] hover:text-[#F5F5F7]",
@@ -2171,6 +2196,25 @@ function OrderDetailPanel({
                 {tab.label}
               </button>
             ))}
+            <details className="group/more">
+              <summary className="min-h-11 cursor-pointer content-center rounded-lg border border-[#343442] px-2 text-xs text-[#B7B7C2]">Más</summary>
+              <div className="absolute right-0 z-20 grid gap-1 rounded-lg border border-[#343442] bg-[#121218] p-2 shadow-xl">{MASTER_OPS_ORDER_DETAIL_TABS.filter(tab => !["detalle", "entrega", "pagos", "ajustes"].includes(tab.key)).map((tab) => (
+              <button
+                key={tab.key}
+                className={[
+                  "min-h-11 shrink-0 rounded-lg border px-2 py-1 text-xs transition sm:min-h-8",
+                  activeTab === tab.key
+                    ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
+                    : "border-[#242433] bg-[#121218] text-[#B7B7C2] hover:text-[#F5F5F7]",
+                ].join(" ")}
+                type="button"
+                aria-pressed={activeTab === tab.key}
+                onClick={event => { onTabChange(tab.key); const menu = event.currentTarget.closest("details"); if (menu) menu.open = false; }}
+              >
+                {tab.label}
+              </button>
+            ))}</div>
+            </details>
           </div>
         </div>
 
@@ -2731,13 +2775,15 @@ function OrderDetailPanel({
                         </option>
                       ))}
                     </select>
-                    <input
-                      className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-                      value={deliveryAssignCostUsd}
-                      onChange={(event) => setDeliveryAssignCostUsd(event.target.value)}
-                      inputMode="decimal"
-                      placeholder="Pago interno USD opcional"
-                    />
+                    <label className="grid min-w-0 gap-1 text-[11px] text-[#B7B7C2]">Pago interno · USD (opcional)
+                      <input
+                        className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                        value={deliveryAssignCostUsd}
+                        onChange={(event) => setDeliveryAssignCostUsd(event.target.value)}
+                        inputMode="decimal"
+                        placeholder="Pago interno USD opcional"
+                      />
+                    </label>
                     {canCorrectDeliveredDelivery ? (
                       <textarea
                         className="mt-3 min-h-[70px] w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
@@ -2784,14 +2830,16 @@ function OrderDetailPanel({
                         aria-label="Distancia del delivery en km"
                         placeholder={canCorrectDeliveredDelivery ? "Distancia km" : "Distancia km (si la conoces)"}
                       />
-                      <input
-                        className="rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-                        value={deliveryAssignCostUsd}
-                        onChange={(event) => setDeliveryAssignCostUsd(event.target.value)}
-                        inputMode="decimal"
-                        aria-label="Costo del delivery en USD"
-                        placeholder={canCorrectDeliveredDelivery ? "Costo USD" : "Costo USD (automático si está vacío)"}
-                      />
+                      <label className="grid min-w-0 gap-1 text-[11px] text-[#B7B7C2]">Costo del delivery · USD
+                        <input
+                          className="rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                          value={deliveryAssignCostUsd}
+                          onChange={(event) => setDeliveryAssignCostUsd(event.target.value)}
+                          inputMode="decimal"
+                          aria-label="Costo del delivery en USD"
+                          placeholder={canCorrectDeliveredDelivery ? "Costo USD" : "Costo USD (automático si está vacío)"}
+                        />
+                      </label>
                     </div>
                     {!canCorrectDeliveredDelivery ? (
                       <p className="mt-2 text-xs text-[#B7B7C2]">Usa el tabulador por empresa y distancia. Si falta información, puedes continuar con el costo pendiente.</p>
@@ -2984,13 +3032,13 @@ function OrderDetailPanel({
                       </label>
 
                       <label className="text-[11px] text-[#B7B7C2]">
-                        Monto {selectedPaymentAccount?.currencyCode ?? ""}
+                        Monto · {currencyLabel(selectedPaymentAccount?.currencyCode)}
                         <input
                           className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
                           value={paymentReportAmount}
                           onChange={(event) => setPaymentReportAmount(event.target.value)}
                           inputMode="decimal"
-                          placeholder={paymentReportIsRetention ? "Monto" : `Pendiente ${formatMasterOrderUSD(order.balanceUsd)}`}
+                          placeholder={paymentReportIsRetention || !selectedPaymentAccount ? "0,00" : selectedPaymentAccount.currencyCode === "VES" ? `Pendiente ${formatMasterOrderBs(effectivePaymentSuggestion.pendingBs)}` : `Pendiente ${formatMasterOrderUSD(order.balanceUsd)}`}
                         />
                       </label>
 
@@ -3170,21 +3218,25 @@ function OrderDetailPanel({
                                   </option>
                                 ))}
                               </select>
-                              <input
-                                className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
-                                value={line.amount}
-                                onChange={(event) => updateFundPayoutLine(line.localId, { amount: event.target.value })}
-                                inputMode="decimal"
-                                placeholder={`Monto ${account?.currencyCode ?? ""}`}
-                              />
-                              {account?.currencyCode === "VES" ? (
+                              <label className="grid min-w-0 gap-1 text-[11px] text-[#B7B7C2]">Monto · {currencyLabel(account?.currencyCode)}
                                 <input
                                   className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
-                                  value={line.exchangeRate}
-                                  onChange={(event) => updateFundPayoutLine(line.localId, { exchangeRate: event.target.value })}
+                                  value={line.amount}
+                                  onChange={(event) => updateFundPayoutLine(line.localId, { amount: event.target.value })}
                                   inputMode="decimal"
-                                  placeholder="Tasa"
+                                  placeholder={`Monto ${account?.currencyCode ?? ""}`}
                                 />
+                              </label>
+                              {account?.currencyCode === "VES" ? (
+                                <label className="grid min-w-0 gap-1 text-[11px] text-[#B7B7C2]">Tasa · Bs/USD
+                                  <input
+                                    className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                    value={line.exchangeRate}
+                                    onChange={(event) => updateFundPayoutLine(line.localId, { exchangeRate: event.target.value })}
+                                    inputMode="decimal"
+                                    placeholder="Tasa"
+                                  />
+                                </label>
                               ) : null}
                               <input
                                 className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
@@ -3350,21 +3402,25 @@ function OrderDetailPanel({
                                         </option>
                                       ))}
                                     </select>
-                                    <input
-                                      className="rounded-lg border border-red-500/30 bg-[#0B0B0D] px-2 py-2 text-[12px] text-[#F5F5F7]"
-                                      value={line.amount}
-                                      onChange={(event) => updateCancelRefundLine(line.localId, { amount: event.target.value })}
-                                      inputMode="decimal"
-                                      placeholder={`Monto ${account?.currencyCode ?? ""}`}
-                                    />
-                                    {account?.currencyCode === "VES" ? (
+                                    <label className="grid min-w-0 gap-1 text-[11px] text-[#B7B7C2]">Monto · {currencyLabel(account?.currencyCode)}
                                       <input
                                         className="rounded-lg border border-red-500/30 bg-[#0B0B0D] px-2 py-2 text-[12px] text-[#F5F5F7]"
-                                        value={line.exchangeRate}
-                                        onChange={(event) => updateCancelRefundLine(line.localId, { exchangeRate: event.target.value })}
+                                        value={line.amount}
+                                        onChange={(event) => updateCancelRefundLine(line.localId, { amount: event.target.value })}
                                         inputMode="decimal"
-                                        placeholder="Tasa"
+                                        placeholder={`Monto ${account?.currencyCode ?? ""}`}
                                       />
+                                    </label>
+                                    {account?.currencyCode === "VES" ? (
+                                      <label className="grid min-w-0 gap-1 text-[11px] text-[#B7B7C2]">Tasa · Bs/USD
+                                        <input
+                                          className="rounded-lg border border-red-500/30 bg-[#0B0B0D] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                          value={line.exchangeRate}
+                                          onChange={(event) => updateCancelRefundLine(line.localId, { exchangeRate: event.target.value })}
+                                          inputMode="decimal"
+                                          placeholder="Tasa"
+                                        />
+                                      </label>
                                     ) : null}
                                     <input
                                       className="rounded-lg border border-red-500/30 bg-[#0B0B0D] px-2 py-2 text-[12px] text-[#F5F5F7]"
@@ -3569,7 +3625,7 @@ function OrderDetailPanel({
                                 </select>
                               </label>
                               <label className="text-[11px] text-[#B7B7C2]">
-                                Monto {confirmationAccount?.currencyCode ?? report.currencyCode}
+                                Monto · {currencyLabel(confirmationAccount?.currencyCode ?? report.currencyCode)}
                                 <input
                                   className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
                                   value={confirmationDraft.amount}
@@ -3688,21 +3744,25 @@ function OrderDetailPanel({
                                                 </option>
                                               ))}
                                             </select>
-                                            <input
-                                              className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
-                                              value={line.amount}
-                                              onChange={(event) => updatePaymentChangeLine(line.localId, { amount: event.target.value })}
-                                              inputMode="decimal"
-                                              placeholder={`Monto ${account?.currencyCode ?? ""}`}
-                                            />
-                                            {account?.currencyCode === "VES" ? (
+                                            <label className="grid min-w-0 gap-1 text-[11px] text-[#B7B7C2]">Monto · {currencyLabel(account?.currencyCode)}
                                               <input
                                                 className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
-                                                value={line.exchangeRate}
-                                                onChange={(event) => updatePaymentChangeLine(line.localId, { exchangeRate: event.target.value })}
+                                                value={line.amount}
+                                                onChange={(event) => updatePaymentChangeLine(line.localId, { amount: event.target.value })}
                                                 inputMode="decimal"
-                                                placeholder="Tasa"
+                                                placeholder={`Monto ${account?.currencyCode ?? ""}`}
                                               />
+                                            </label>
+                                            {account?.currencyCode === "VES" ? (
+                                              <label className="grid min-w-0 gap-1 text-[11px] text-[#B7B7C2]">Tasa · Bs/USD
+                                                <input
+                                                  className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                                  value={line.exchangeRate}
+                                                  onChange={(event) => updatePaymentChangeLine(line.localId, { exchangeRate: event.target.value })}
+                                                  inputMode="decimal"
+                                                  placeholder="Tasa"
+                                                />
+                                              </label>
                                             ) : null}
                                             <input
                                               className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"

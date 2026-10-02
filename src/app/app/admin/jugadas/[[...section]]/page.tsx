@@ -13,5 +13,5 @@ export default async function AdminPlaysPage({ params, searchParams }: Props) {
   if (!path && query.consultar !== '1' && !query.play && query.create !== '1') return <SharedWorkspace title="Jugadas"><nav className="flex flex-wrap gap-2"><Link href="/app/admin/jugadas?consultar=1" prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#FFFF00]/40 px-3 text-xs text-[#FFFF00]">Consultar jugadas →</Link><Link href="/app/admin/jugadas?create=1" prefetch={false} className="inline-flex min-h-11 items-center px-3 text-xs">Nueva jugada</Link></nav></SharedWorkspace>;
   if (path === 'exceptions') { const { default: Page } = await import('@/app/app/master/plays/exceptions/page'); return <SharedWorkspace title="Excepciones de jugadas"><Page searchParams={Promise.resolve(query)} /></SharedWorkspace>; }
   const { default: Page } = await import('@/app/app/master/plays/page');
-  return <SharedWorkspace title="Jugadas"><Page searchParams={Promise.resolve(query)} /></SharedWorkspace>;
+  return <SharedWorkspace title="Jugadas" showHeading={false}><Page searchParams={Promise.resolve(query)} /></SharedWorkspace>;
 }

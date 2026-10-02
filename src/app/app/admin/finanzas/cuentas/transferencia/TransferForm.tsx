@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { queryControl } from '@/components/ui/QueryControls';
+import { currencyLabel } from '@/lib/ui/currency-label';
 import { useRef, useState, useTransition, type FormEvent } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';
 import { adminMovementHistoryHref } from '@/lib/admin-finance/movement-navigation';
@@ -10,7 +12,7 @@ import {clearFinancialAttempt,saveFinancialAttempt} from '@/lib/finance/financia
 
 type Account = { id: number; name: string; currencyCode: 'USD' | 'VES' };
 type Props = { accounts: Account[]; initialAccountId: number | null; activeRate: number | null; today: string; userId:string };
-const inputClass = 'w-full min-h-11 rounded-lg border border-[#343442] bg-[#0B0B0D] px-3 py-2 text-sm text-white';
+const inputClass = queryControl;
 const buttonClass = 'inline-flex min-h-11 items-center justify-center rounded-lg border border-[#FFFF00]/50 px-4 text-sm font-semibold text-[#FFFF00] disabled:opacity-50';
 const native = (amount: number, currency: string) => `${currency === 'VES' ? 'Bs' : 'USD'} ${new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(amount)}`;
 
@@ -91,7 +93,7 @@ export default function TransferForm({ accounts, initialAccountId, activeRate, t
     const saved = submitted;
     return <section role="status" className="space-y-3 rounded-xl border border-emerald-400/30 p-4">
       <h2 className="text-lg font-semibold text-emerald-200">Transferencia registrada</h2>
-      <p className="text-sm">{source?.name}: {native(saved.sourceAmount + Number(saved.feeAmount ?? 0), source?.currencyCode ?? '')} de salida total → {target?.name}: {native(saved.targetAmount, target?.currencyCode ?? '')} recibidos.</p>
+      <p className="text-xs">{source?.name}: {native(saved.sourceAmount + Number(saved.feeAmount ?? 0), source?.currencyCode ?? '')} de salida total → {target?.name}: {native(saved.targetAmount, target?.currencyCode ?? '')} recibidos.</p>
       {result.receipt.replayed ? <p className="text-xs text-[#9B9BA7]">Se recuperó el registro del envío anterior; no se duplicó.</p> : null}
       <p className="break-all text-xs text-[#9B9BA7]">Comprobante: {result.receipt.movementGroupId}</p>
       <div className="flex flex-wrap gap-2">
@@ -116,11 +118,11 @@ export default function TransferForm({ accounts, initialAccountId, activeRate, t
               <span>Cuenta de {side === 'source' ? 'origen' : 'destino'}</span>
               <select required className={inputClass} value={form[side]} onChange={event => update(side, event.target.value)}>
                 <option value="">Seleccionar cuenta</option>
-                {accounts.map(row => <option key={row.id} value={row.id} disabled={String(row.id) === form[side === 'source' ? 'target' : 'source']}>{row.name} · {row.currencyCode}</option>)}
+                {accounts.map(row => <option key={row.id} value={row.id} disabled={String(row.id) === form[side === 'source' ? 'target' : 'source']}>{row.name} · {currencyLabel(row.currencyCode)}</option>)}
               </select>
             </label>
             <label className="block space-y-1 text-xs text-[#B7B7C2]">
-              <span>{side === 'source' ? 'Monto enviado' : 'Monto recibido'} · {account?.currencyCode ?? 'selecciona cuenta'}</span>
+              <span>{side === 'source' ? 'Monto enviado' : 'Monto recibido'} · {currencyLabel(account?.currencyCode)}</span>
               <input required className={inputClass} inputMode="decimal" value={side === 'source' ? form.amount : form.received} onChange={event => update(side === 'source' ? 'amount' : 'received', event.target.value)} placeholder="0,00" />
             </label>
             {account?.currencyCode === 'VES' ? <label className="block space-y-1 text-xs text-[#B7B7C2]">
@@ -132,7 +134,7 @@ export default function TransferForm({ accounts, initialAccountId, activeRate, t
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-xs text-[#B7B7C2]"><span>Fecha</span><input required type="date" className={inputClass} value={form.date} onChange={event => update('date', event.target.value)} /></label>
-        <label className="space-y-1 text-xs text-[#B7B7C2]"><span>Comisión adicional · {source?.currencyCode ?? 'moneda de origen'} · opcional</span><input inputMode="decimal" className={inputClass} value={form.fee} onChange={event => update('fee', event.target.value)} placeholder="0,00" /></label>
+        <label className="space-y-1 text-xs text-[#B7B7C2]"><span>Comisión adicional · {currencyLabel(source?.currencyCode)} · opcional</span><input inputMode="decimal" className={inputClass} value={form.fee} onChange={event => update('fee', event.target.value)} placeholder="0,00" /></label>
       </div>
       <details className="text-sm text-[#B7B7C2]">
         <summary className="cursor-pointer py-2">Concepto, referencia y notas</summary>

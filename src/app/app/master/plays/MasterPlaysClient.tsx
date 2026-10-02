@@ -2,6 +2,7 @@
 import WorkspaceForm from '@/components/navigation/WorkspaceForm';
 
 import Link from '@/components/navigation/ContextLink';
+import BackLink from '@/components/navigation/BackLink';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
@@ -348,7 +349,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     <label className="block min-w-0">
       <span className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-[#B7B7C2]">
         <span>{label}</span>
-        {hint ? <span className="font-normal text-[#666675]">{hint}</span> : null}
+        {hint ? <span className="font-normal text-[#9B9BA7]">{hint}</span> : null}
       </span>
       {children}
     </label>
@@ -375,12 +376,12 @@ function PlayProgress({ status, hasPreview }: { status: MasterPlay['status']; ha
         const active = step.number === stage;
         return (
           <div key={step.number} className={`flex items-center gap-2 border-r border-[#242433] px-3 py-2 last:border-r-0 ${active ? 'bg-[#FFFF00]/[0.07]' : ''}`}>
-            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${complete ? 'bg-emerald-400 text-black' : active ? 'bg-[#FFFF00] text-black' : 'bg-[#242433] text-[#777785]'}`}>
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${complete ? 'bg-emerald-400 text-black' : active ? 'bg-[#FFFF00] text-black' : 'bg-[#242433] text-[#B7B7C2]'}`}>
               {complete ? '✓' : step.number}
             </span>
             <div className="min-w-0">
-              <div className={`truncate text-[11px] font-semibold ${active || complete ? 'text-[#F5F5F7]' : 'text-[#777785]'}`}>{step.label}</div>
-              <div className="truncate text-[9px] text-[#666675]">{step.detail}</div>
+              <div className={`truncate text-[11px] font-semibold ${active || complete ? 'text-[#F5F5F7]' : 'text-[#B7B7C2]'}`}>{step.label}</div>
+              <div className="truncate text-[9px] text-[#9B9BA7]">{step.detail}</div>
             </div>
           </div>
         );
@@ -641,9 +642,9 @@ function PlayDefinitionForm({
         <div className="mb-2 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-[#F5F5F7]">1. Definición de la jugada</h2>
-            <p className="mt-0.5 text-[11px] text-[#777785]">Prueba las condiciones cuantas veces necesites. Nada se comparte todavía.</p>
+            <p className="mt-0.5 text-[11px] text-[#B7B7C2]">Prueba las condiciones cuantas veces necesites. Nada se comparte todavía.</p>
           </div>
-          {play ? <span className="text-[10px] text-[#666675]">Versión {play.version}</span> : null}
+          {play ? <span className="text-[10px] text-[#9B9BA7]">Versión {play.version}</span> : null}
         </div>
 
         <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-[#0B0B0D] p-1.5 sm:grid-cols-6">
@@ -972,7 +973,7 @@ function PlayDefinitionForm({
               {overlapPolicy === 'selected_compatible' ? (
                 <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-[#2A2A35] bg-[#0B0B0D] p-2">
                   {plays.filter((candidate) => candidate.id !== play?.id && candidate.overlapPolicy === 'selected_compatible').length === 0 ? (
-                    <p className="px-1 py-2 text-[10px] text-[#777785]">No hay otra jugada preparada para convivencia seleccionada.</p>
+                    <p className="px-1 py-2 text-[10px] text-[#B7B7C2]">No hay otra jugada preparada para convivencia seleccionada.</p>
                   ) : plays
                     .filter((candidate) => candidate.id !== play?.id && candidate.overlapPolicy === 'selected_compatible')
                     .map((candidate) => (
@@ -986,7 +987,7 @@ function PlayDefinitionForm({
                           className="accent-[#FFFF00]"
                         />
                         <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
-                        <span className="text-[#666675]">{STATUS_PRESENTATION[candidate.status].label}</span>
+                        <span className="text-[#9B9BA7]">{STATUS_PRESENTATION[candidate.status].label}</span>
                       </label>
                     ))}
                 </div>
@@ -1015,7 +1016,7 @@ function PlayDefinitionForm({
                     onChange={(event) => setEvaluationWindowDays(event.target.value)}
                     required
                   />
-                  <span className="text-[10px] text-[#777785]">días</span>
+                  <span className="text-[10px] text-[#B7B7C2]">días</span>
                 </div>
               </Field>
             </div>
@@ -1025,7 +1026,7 @@ function PlayDefinitionForm({
         <div className="rounded-2xl border border-[#242433] bg-[#0F0F14] p-3">
           <div className="mb-3">
             <h3 className="text-xs font-semibold text-[#E7E7ED]">Condiciones comerciales</h3>
-            <p className="mt-0.5 text-[10px] text-[#666675]">Deja un campo vacío cuando no quieras usar ese límite.</p>
+            <p className="mt-0.5 text-[10px] text-[#9B9BA7]">Deja un campo vacío cuando no quieras usar ese límite.</p>
           </div>
           <div className="mb-3 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3">
             <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1059,7 +1060,7 @@ function PlayDefinitionForm({
                   return (
                     <label
                       key={advisor.id}
-                      className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] transition ${checked ? 'border-sky-300/45 bg-sky-300/10 text-sky-50' : 'border-[#30303C] bg-[#0B0B0D] text-[#777785]'}`}
+                      className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] transition ${checked ? 'border-sky-300/45 bg-sky-300/10 text-sky-50' : 'border-[#30303C] bg-[#0B0B0D] text-[#B7B7C2]'}`}
                     >
                       <input
                         type="checkbox"
@@ -1110,7 +1111,7 @@ function PlayDefinitionForm({
             <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
               <div className="mb-2">
                 <h4 className="text-[11px] font-semibold text-[#D8D8E0]">Aniversario de la primera compra</h4>
-                <p className="mt-0.5 text-[9px] text-[#666675]">Permite incluirlos o evitar que reciban dos reconocimientos el mismo mes.</p>
+                <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Permite incluirlos o evitar que reciban dos reconocimientos el mismo mes.</p>
               </div>
               <div className="space-y-2">
                 <Field label="Cómo usarlo">
@@ -1134,7 +1135,7 @@ function PlayDefinitionForm({
             <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
               <div className="mb-2">
                 <h4 className="text-[11px] font-semibold text-[#D8D8E0]">Fecha de la primera compra</h4>
-                <p className="mt-0.5 text-[9px] text-[#666675]">Filtra cuándo el cliente compró por primera vez. Es la base de clientes nuevos.</p>
+                <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Filtra cuándo el cliente compró por primera vez. Es la base de clientes nuevos.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Desde mes">
@@ -1149,7 +1150,7 @@ function PlayDefinitionForm({
             <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
               <div className="mb-2">
                 <h4 className="text-[11px] font-semibold text-[#D8D8E0]">Fecha de la última compra</h4>
-                <p className="mt-0.5 text-[9px] text-[#666675]">Filtra cuándo ocurrió su compra más reciente; no modifica la primera compra.</p>
+                <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Filtra cuándo ocurrió su compra más reciente; no modifica la primera compra.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Desde mes">
@@ -1185,7 +1186,7 @@ function PlayDefinitionForm({
 
       {editable ? (
         <div className="flex flex-col gap-2 border-t border-[#242433] pt-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[10px] text-[#777785]">La prueba guardará el borrador y calculará inmediatamente los candidatos.</p>
+          <p className="text-[10px] text-[#B7B7C2]">La prueba guardará el borrador y calculará inmediatamente los candidatos.</p>
           <button type="submit" disabled={busy || benefits.length === 0} className={buttonPrimary}>
             {play ? 'Actualizar y probar de nuevo' : 'Probar definición'}
           </button>
@@ -1253,7 +1254,7 @@ function PublishedPlayEditor({
       <div className="grid gap-3 border-t border-violet-300/10 p-3 xl:grid-cols-2">
         <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
           <div className="text-xs font-semibold">Mensaje y pauta para el asesor</div>
-          <p className="mt-0.5 text-[9px] text-[#666675]">El texto nuevo se muestra de inmediato; la versión anterior queda en el historial.</p>
+          <p className="mt-0.5 text-[9px] text-[#9B9BA7]">El texto nuevo se muestra de inmediato; la versión anterior queda en el historial.</p>
           <div className="mt-2 space-y-2">
             <Field label="Mensaje para copiar">
               <textarea className={`${inputClass} min-h-28 resize-y py-2`} value={messageTemplate} onChange={(event) => setMessageTemplate(event.target.value)} maxLength={6000} />
@@ -1277,7 +1278,7 @@ function PublishedPlayEditor({
 
         <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
           <div className="text-xs font-semibold">Incluir un cliente manualmente</div>
-          <p className="mt-0.5 text-[9px] text-[#666675]">Puede estar fuera de los filtros, pero no en otra jugada incompatible del mismo período.</p>
+          <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Puede estar fuera de los filtros, pero no en otra jugada incompatible del mismo período.</p>
           <WorkspaceForm action="/app/master/plays" method="get" className="mt-2 flex gap-2">
             <input type="hidden" name="play" value={play.id} />
             <input name="addq" defaultValue={manualClientSearch} className={inputClass} placeholder="Nombre, teléfono o número" minLength={2} />
@@ -1286,7 +1287,7 @@ function PublishedPlayEditor({
           {manualClientSearch.length >= 2 ? (
             <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
               {manualClientSuggestions.length === 0 ? (
-                <div className="rounded-lg border border-[#242433] px-2 py-3 text-center text-[10px] text-[#777785]">No encontramos clientes activos.</div>
+                <div className="rounded-lg border border-[#242433] px-2 py-3 text-center text-[10px] text-[#B7B7C2]">No encontramos clientes activos.</div>
               ) : manualClientSuggestions.map((client) => {
                 const alreadyIncluded = client.currentWorkflowStatus != null && client.currentWorkflowStatus !== 'removed';
                 const selected = selectedClientId === client.clientId;
@@ -1300,7 +1301,7 @@ function PublishedPlayEditor({
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-[11px] font-semibold">{client.fullName}</span>
-                      <span className="block truncate text-[9px] text-[#666675]">#{client.clientId} · {client.phone || 'sin teléfono'} · {client.primaryAdvisorName || 'sin asesor actual'}</span>
+                      <span className="block truncate text-[9px] text-[#9B9BA7]">#{client.clientId} · {client.phone || 'sin teléfono'} · {client.primaryAdvisorName || 'sin asesor actual'}</span>
                     </span>
                     <span className="shrink-0 text-[9px] text-[#8F8F9D]">{alreadyIncluded ? 'Ya está en la lista' : client.currentWorkflowStatus === 'removed' ? 'Reincorporar' : 'Seleccionar'}</span>
                   </button>
@@ -1329,7 +1330,7 @@ function PublishedPlayEditor({
 
         <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
           <div className="text-xs font-semibold">Retirar un asesor de esta publicación</div>
-          <p className="mt-0.5 text-[9px] text-[#666675]">Retira sus clientes pendientes en bloque. Los beneficios ya utilizados permanecen en el historial.</p>
+          <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Retira sus clientes pendientes en bloque. Los beneficios ya utilizados permanecen en el historial.</p>
           <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
             <select className={inputClass} value={excludedAdvisorId} onChange={(event) => setExcludedAdvisorId(event.target.value)}>
               <option value="">Selecciona asesor</option>
@@ -1354,16 +1355,16 @@ function PublishedPlayEditor({
           <div className="text-xs font-semibold">Historial de cambios</div>
           <div className="mt-2 max-h-40 divide-y divide-[#242433] overflow-y-auto">
             {amendments.length === 0 ? (
-              <div className="py-5 text-center text-[10px] text-[#777785]">Esta publicación todavía no tiene ajustes.</div>
+              <div className="py-5 text-center text-[10px] text-[#B7B7C2]">Esta publicación todavía no tiene ajustes.</div>
             ) : amendments.map((amendment) => (
               <div key={amendment.id} className="py-2 first:pt-0">
                 <div className="flex items-center justify-between gap-3">
                   <span className="truncate text-[10px] font-semibold text-[#D5D5DD]">
                     {amendmentLabels[amendment.type]}{amendment.clientName ? ` · ${amendment.clientName}` : amendment.advisorName ? ` · ${amendment.advisorName}` : ''}
                   </span>
-                  <span className="shrink-0 text-[9px] text-[#666675]">{dateTimeFormatter.format(new Date(amendment.createdAt))}</span>
+                  <span className="shrink-0 text-[9px] text-[#9B9BA7]">{dateTimeFormatter.format(new Date(amendment.createdAt))}</span>
                 </div>
-                <div className="mt-0.5 truncate text-[9px] text-[#777785]">{amendment.reason} · {amendment.actorName}</div>
+                <div className="mt-0.5 truncate text-[9px] text-[#B7B7C2]">{amendment.reason} · {amendment.actorName}</div>
               </div>
             ))}
           </div>
@@ -1398,7 +1399,7 @@ function MemberList({
       <div className="flex flex-col gap-2 border-b border-[#242433] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold">2. Revisar lista</h2>
-          <p className="mt-0.5 text-[10px] text-[#777785]">{memberCount.toLocaleString('es-VE')} clientes · ordenados por facturación</p>
+          <p className="mt-0.5 text-[10px] text-[#B7B7C2]">{memberCount.toLocaleString('es-VE')} clientes · ordenados por facturación</p>
           <p className="mt-1 text-[11px] text-[#B7B7C2]">Toca el nombre del cliente para ver sus órdenes y excepciones de esta jugada.</p>
         </div>
         <WorkspaceForm action="/app/master/plays" method="get" className="flex items-center gap-2">
@@ -1411,11 +1412,11 @@ function MemberList({
       {members.length === 0 ? (
         <div className="px-4 py-12 text-center">
           <div className="text-sm font-semibold text-[#D5D5DD]">{search ? 'No hay coincidencias' : 'La lista aún no ha sido generada'}</div>
-          <p className="mt-1 text-xs text-[#777785]">{search ? 'Prueba con otro nombre.' : 'Completa las condiciones y usa Probar definición.'}</p>
+          <p className="mt-1 text-xs text-[#B7B7C2]">{search ? 'Prueba con otro nombre.' : 'Completa las condiciones y usa Probar definición.'}</p>
         </div>
       ) : (
         <div className="divide-y divide-[#242433]">
-          <div className="hidden grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px] gap-3 bg-[#0D0D11] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#666675] lg:grid">
+          <div className="hidden grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px] gap-3 bg-[#0D0D11] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#9B9BA7] lg:grid">
             <span>Cliente</span><span>Asesor</span><span className="text-right">Cierres</span><span className="text-right">Facturación</span><span className="text-right">Sin comprar</span><span className="text-right">Últ. obsequio</span><span />
           </div>
           {members.map((member) => (
@@ -1430,7 +1431,7 @@ function MemberList({
                   <span className="block truncate text-xs font-semibold text-amber-100 underline decoration-amber-200/40 underline-offset-2 group-hover:text-amber-200">{member.clientName}</span>
                   <span className="block text-[10px] text-[#B7B7C2]">Órdenes y excepciones →</span>
                 </Link>
-                <div className="mt-0.5 truncate text-[9px] text-[#666675]">#{member.clientId} · última {dateLabel(member.lastPurchaseOn)}</div>
+                <div className="mt-0.5 truncate text-[9px] text-[#9B9BA7]">#{member.clientId} · última {dateLabel(member.lastPurchaseOn)}</div>
               </div>
               <div className="hidden min-w-0 truncate text-[11px] text-[#B7B7C2] lg:block">{member.advisorName}</div>
               <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.purchaseCount}</div>
@@ -1463,7 +1464,7 @@ function MemberList({
 
       {memberCount > pageSize ? (
         <div className="flex items-center justify-between gap-3 border-t border-[#242433] px-3 py-2">
-          <span className="text-[10px] text-[#777785]">Página {page} de {totalPages}</span>
+          <span className="text-[10px] text-[#B7B7C2]">Página {page} de {totalPages}</span>
           <div className="flex gap-1.5">
             <Link aria-disabled={page <= 1} href={pageHref(play.id, Math.max(1, page - 1), search)} className={`${buttonSecondary} ${page <= 1 ? 'pointer-events-none opacity-35' : ''}`}>Anterior</Link>
             <Link aria-disabled={page >= totalPages} href={pageHref(play.id, Math.min(totalPages, page + 1), search)} className={`${buttonSecondary} ${page >= totalPages ? 'pointer-events-none opacity-35' : ''}`}>Siguiente</Link>
@@ -1497,24 +1498,24 @@ function PlayMonitor({
     <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="mb-3">
         <h2 className="text-sm font-semibold">3. Supervisar ejecución</h2>
-        <p className="mt-0.5 text-[10px] text-[#777785]">Embudo vivo desde el saludo inicial hasta el mensaje de la jugada y el beneficio aplicado.</p>
+        <p className="mt-0.5 text-[10px] text-[#B7B7C2]">Embudo vivo desde el saludo inicial hasta el mensaje de la jugada y el beneficio aplicado.</p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
         {metrics.map((metric) => (
           <div key={metric.label} className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
-            <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#777785]">{metric.label}</div>
+            <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#B7B7C2]">{metric.label}</div>
             <div className="mt-1 text-xl font-semibold tabular-nums text-white">{metric.value.toLocaleString('es-VE')}</div>
-            <div className="mt-0.5 text-[9px] text-[#666675]">{metric.note}</div>
+            <div className="mt-0.5 text-[9px] text-[#9B9BA7]">{metric.note}</div>
           </div>
         ))}
       </div>
       {summary.advisors.length > 0 ? (
         <div className="mt-4 overflow-x-auto rounded-xl border border-[#242433]">
           <table className="min-w-[1040px] w-full border-collapse text-left text-[10px]">
-            <caption className="border-b border-[#242433] bg-[#0D0D11] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-[#777785]">
+            <caption className="border-b border-[#242433] bg-[#0D0D11] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-[#B7B7C2]">
               Avance vivo por asesor
             </caption>
-            <thead className="bg-[#101014] text-[#777785]">
+            <thead className="bg-[#101014] text-[#B7B7C2]">
               <tr>
                 <th scope="col" className="px-3 py-2 font-medium">Asesor</th>
                 <th scope="col" className="px-2 py-2 text-right font-medium">Lista</th>
@@ -1532,17 +1533,17 @@ function PlayMonitor({
                 <tr key={advisor.advisorId ?? 'orphan'} className="border-t border-[#20202B] bg-[#121218] text-[#D6D6DF]">
                   <th scope="row" className="max-w-[190px] px-3 py-2.5 font-medium">
                     <div className="truncate">{advisor.advisorName}</div>
-                    <div className="mt-0.5 text-[9px] font-normal text-[#666675]">
+                    <div className="mt-0.5 text-[9px] font-normal text-[#9B9BA7]">
                       {advisor.lastActivityAt ? `Último movimiento ${dateTimeFormatter.format(new Date(advisor.lastActivityAt))}` : 'Todavía sin movimientos'}
                     </div>
                   </th>
                   <td className="px-2 py-2.5 text-right tabular-nums">{advisor.totalMembers}</td>
-                  <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.pendingMembers > 0 ? 'text-amber-200' : 'text-[#777785]'}`}>{advisor.pendingMembers}</td>
-                  <td className="px-2 py-2.5 text-right tabular-nums text-blue-200">{advisor.contactedMembers}<span className="ml-1 text-[9px] text-[#666675]">{advisor.contactRatePct.toFixed(0)}%</span></td>
-                  <td className="px-2 py-2.5 text-right tabular-nums text-violet-200">{advisor.respondedMembers}<span className="ml-1 text-[9px] text-[#666675]">{advisor.responseRatePct.toFixed(0)}%</span></td>
-                  <td className="px-2 py-2.5 text-right tabular-nums">{advisor.launchedMembers}<span className="ml-1 text-[9px] text-[#666675]">{advisor.launchRatePct.toFixed(0)}%</span></td>
+                  <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.pendingMembers > 0 ? 'text-amber-200' : 'text-[#B7B7C2]'}`}>{advisor.pendingMembers}</td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-blue-200">{advisor.contactedMembers}<span className="ml-1 text-[9px] text-[#9B9BA7]">{advisor.contactRatePct.toFixed(0)}%</span></td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-violet-200">{advisor.respondedMembers}<span className="ml-1 text-[9px] text-[#9B9BA7]">{advisor.responseRatePct.toFixed(0)}%</span></td>
+                  <td className="px-2 py-2.5 text-right tabular-nums">{advisor.launchedMembers}<span className="ml-1 text-[9px] text-[#9B9BA7]">{advisor.launchRatePct.toFixed(0)}%</span></td>
                   <td className="px-2 py-2.5 text-right tabular-nums text-orange-200">{advisor.noResponseMembers}</td>
-                  <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.overdueFollowUps > 0 ? 'text-rose-200' : 'text-[#777785]'}`}>{advisor.overdueFollowUps}</td>
+                  <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.overdueFollowUps > 0 ? 'text-rose-200' : 'text-[#B7B7C2]'}`}>{advisor.overdueFollowUps}</td>
                   <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-emerald-200">{advisor.redeemedMembers}</td>
                 </tr>
               ))}
@@ -1561,23 +1562,23 @@ function PlayMonitor({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className={`text-[10px] font-semibold ${budget.status === 'exceeded' ? 'text-red-200' : 'text-blue-100'}`}>Presupuesto ejecutado de la jugada</div>
-            <div className="mt-0.5 text-[9px] text-[#777785]">Solo consume el aporte real de la empresa en beneficios aplicados; el cargo del asesor se liquida aparte en su comisión.</div>
+            <div className="mt-0.5 text-[9px] text-[#B7B7C2]">Solo consume el aporte real de la empresa en beneficios aplicados; el cargo del asesor se liquida aparte en su comisión.</div>
           </div>
           <div className="grid grid-cols-3 gap-4 text-right text-[9px]">
-            <div><div className="text-[#777785]">Presupuesto</div><div className="mt-0.5 text-xs font-semibold">{budget.plannedBudgetUsd == null ? 'No definido' : moneyFormatter.format(budget.plannedBudgetUsd)}</div></div>
-            <div><div className="text-[#777785]">Consumido</div><div className="mt-0.5 text-xs font-semibold">{moneyFormatter.format(budget.companyCostUsd)}{budget.usagePct == null ? '' : ` · ${budget.usagePct.toFixed(1)}%`}</div></div>
-            <div><div className="text-[#777785]">Saldo</div><div className={`mt-0.5 text-xs font-semibold ${budget.status === 'exceeded' ? 'text-red-200' : ''}`}>{budget.remainingBudgetUsd == null ? '—' : moneyFormatter.format(budget.remainingBudgetUsd)}</div></div>
+            <div><div className="text-[#B7B7C2]">Presupuesto</div><div className="mt-0.5 text-xs font-semibold">{budget.plannedBudgetUsd == null ? 'No definido' : moneyFormatter.format(budget.plannedBudgetUsd)}</div></div>
+            <div><div className="text-[#B7B7C2]">Consumido</div><div className="mt-0.5 text-xs font-semibold">{moneyFormatter.format(budget.companyCostUsd)}{budget.usagePct == null ? '' : ` · ${budget.usagePct.toFixed(1)}%`}</div></div>
+            <div><div className="text-[#B7B7C2]">Saldo</div><div className={`mt-0.5 text-xs font-semibold ${budget.status === 'exceeded' ? 'text-red-200' : ''}`}>{budget.remainingBudgetUsd == null ? '—' : moneyFormatter.format(budget.remainingBudgetUsd)}</div></div>
           </div>
         </div>
       </div>
       <div className="mt-4 border-t border-[#242433] pt-3">
         <div className="mb-2">
           <h3 className="text-xs font-semibold text-[#D6D6DF]">Efecto posterior</h3>
-          <p className="mt-0.5 text-[9px] text-[#666675]">Solo observa clientes que respondieron y no usaron el beneficio. No se contabiliza como aplicación directa.</p>
+          <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Solo observa clientes que respondieron y no usaron el beneficio. No se contabiliza como aplicación directa.</p>
         </div>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
-            <div className="text-[9px] text-[#777785]">Respondieron sin aplicarlo</div>
+            <div className="text-[9px] text-[#B7B7C2]">Respondieron sin aplicarlo</div>
             <div className="mt-0.5 text-lg font-semibold tabular-nums">{summary.respondedWithoutRedemptionMembers.toLocaleString('es-VE')}</div>
           </div>
           <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2.5">
@@ -1591,18 +1592,18 @@ function PlayMonitor({
             <div className="text-[9px] text-cyan-100/40">{summary.cadenceImprovementRatePct.toFixed(1)}% de {summary.comparableCadenceMembers.toLocaleString('es-VE')} comparables</div>
           </div>
           <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
-            <div className="text-[9px] text-[#777785]">Aún en observación</div>
+            <div className="text-[9px] text-[#B7B7C2]">Aún en observación</div>
             <div className="mt-0.5 text-lg font-semibold tabular-nums">{summary.evaluationPendingMembers.toLocaleString('es-VE')}</div>
-            <div className="text-[9px] text-[#666675]">Respondieron, sin compra posterior todavía</div>
+            <div className="text-[9px] text-[#9B9BA7]">Respondieron, sin compra posterior todavía</div>
           </div>
         </div>
         {summary.comparableCadenceMembers > 0 ? (
-          <div className="mt-2 text-[9px] text-[#777785]">
+          <div className="mt-2 text-[9px] text-[#B7B7C2]">
             Ritmo comparable: {summary.comparableBaselineCadenceDays.toFixed(1)} días antes · {summary.comparablePostCadenceDays.toFixed(1)} días después.
           </div>
         ) : null}
       </div>
-      {summary.expiredMembers > 0 ? <div className="mt-2 text-[9px] text-[#777785]">{summary.expiredMembers.toLocaleString('es-VE')} beneficios vencieron sin utilizarse.</div> : null}
+      {summary.expiredMembers > 0 ? <div className="mt-2 text-[9px] text-[#B7B7C2]">{summary.expiredMembers.toLocaleString('es-VE')} beneficios vencieron sin utilizarse.</div> : null}
     </section>
   );
 }
@@ -1716,9 +1717,9 @@ export default function MasterPlaysClient({
       <header className="sticky top-0 z-40 border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <Link href="/app/master/dashboard" className="flex h-9 items-center rounded-xl border border-[#2A2A35] px-3 text-xs text-[#B7B7C2] hover:border-[#FFFF00]/50 hover:text-white">← Dashboard</Link>
+            <BackLink fallbackHref="/app/master/dashboard" className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs text-[#B7B7C2] hover:border-[#FFFF00]/50 md:min-h-8" />
             <div className="min-w-0">
-              <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[#777785]">CRM · B. Master 3.0</div>
+              <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[#B7B7C2]">CRM · Jugadas</div>
               <h1 className="truncate text-base font-semibold">Diseño de jugadas</h1>
             </div>
           </div>
@@ -1737,11 +1738,11 @@ export default function MasterPlaysClient({
         <aside className="h-fit overflow-hidden rounded-2xl border border-[#242433] bg-[#121218] lg:sticky lg:top-[78px]">
           <div className="border-b border-[#242433] px-3 py-3">
             <div className="text-xs font-semibold">Jugadas</div>
-            <div className="mt-0.5 text-[10px] text-[#666675]">Historial y trabajos en curso</div>
+            <div className="mt-0.5 text-[10px] text-[#9B9BA7]">Historial y trabajos en curso</div>
           </div>
           <div className="max-h-[calc(100vh-150px)] overflow-y-auto p-1.5">
             {plays.length === 0 ? (
-              <div className="px-3 py-8 text-center text-xs text-[#777785]">Aún no hay jugadas creadas.</div>
+              <div className="px-3 py-8 text-center text-xs text-[#B7B7C2]">Aún no hay jugadas creadas.</div>
             ) : plays.map((play) => {
               const status = STATUS_PRESENTATION[play.status];
               const active = selectedPlay?.id === play.id;
@@ -1754,13 +1755,13 @@ export default function MasterPlaysClient({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-xs font-semibold">{play.name}</div>
-                      <div className="mt-1 truncate text-[9px] text-[#666675]">{dateLabel(play.startsAt)} — {dateLabel(play.endsAt)}</div>
+                      <div className="mt-1 truncate text-[9px] text-[#9B9BA7]">{dateLabel(play.startsAt)} — {dateLabel(play.endsAt)}</div>
                     </div>
                     <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${status.dot}`} />
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <span className={`rounded-full border px-2 py-0.5 text-[9px] ${status.badge}`}>{status.label}</span>
-                    <span className="text-[9px] tabular-nums text-[#777785]">{summaryNumber(play, 'total')} clientes</span>
+                    <span className="text-[9px] tabular-nums text-[#B7B7C2]">{summaryNumber(play, 'total')} clientes</span>
                   </div>
                 </Link>
               );
@@ -1784,7 +1785,7 @@ export default function MasterPlaysClient({
                       <h2 className="truncate text-lg font-semibold">{selectedPlay.name}</h2>
                       <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${STATUS_PRESENTATION[selectedPlay.status].badge}`}>{STATUS_PRESENTATION[selectedPlay.status].label}</span>
                     </div>
-                    <p className="mt-1 text-xs text-[#777785]">{selectedPlay.description || 'Sin objetivo interno descrito.'}</p>
+                    <p className="mt-1 text-xs text-[#B7B7C2]">{selectedPlay.description || 'Sin objetivo interno descrito.'}</p>
                   </div>
                   <div className="shrink-0 rounded-xl border border-[#3C3410] bg-[#211E0A] px-3 py-2 text-right">
                     <div className="text-[9px] uppercase tracking-[0.12em] text-[#A99D4D]">
@@ -1815,7 +1816,7 @@ export default function MasterPlaysClient({
                     >
                       Preparar siguiente mes
                     </button>
-                    <div className="mt-1 text-[8px] text-[#777785]">
+                    <div className="mt-1 text-[8px] text-[#B7B7C2]">
                       Serie v{selectedPlay.version}{selectedPlay.copiedFromPlayId ? ` · deriva de #${selectedPlay.copiedFromPlayId}` : ' · original'}
                     </div>
                   </div>
@@ -1823,10 +1824,10 @@ export default function MasterPlaysClient({
                 <PlayProgress status={selectedPlay.status} hasPreview={selectedHasPreview} />
 
                 <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
-                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedSummaryTotal}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Clientes</div></div>
-                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedAdvisorCount}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Asesores</div></div>
-                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedTotalClosures.toLocaleString('es-VE')}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Cierres acumulados</div></div>
-                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{moneyFormatter.format(selectedRevenue)}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#666675]">Facturación acumulada</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedSummaryTotal}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Clientes</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedAdvisorCount}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Asesores</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedTotalClosures.toLocaleString('es-VE')}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Cierres acumulados</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{moneyFormatter.format(selectedRevenue)}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Facturación acumulada</div></div>
                 </div>
 
                 {selectedHasPreview ? (
@@ -1888,7 +1889,7 @@ export default function MasterPlaysClient({
                 <details className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
                   <summary className="cursor-pointer list-none px-4 py-3">
                     <div className="text-xs font-semibold text-[#D5D5DD]">Consultar definición original</div>
-                    <div className="mt-0.5 text-[9px] text-[#666675]">Condiciones, período y costos congelados · solo lectura</div>
+                    <div className="mt-0.5 text-[9px] text-[#9B9BA7]">Condiciones, período y costos congelados · solo lectura</div>
                   </summary>
                   <div className="border-t border-[#242433] p-4">
                     <PlayDefinitionForm
@@ -1951,7 +1952,7 @@ export default function MasterPlaysClient({
 
               {advisors.length > 0 ? (
                 <section className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-3">
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#777785]">Distribución por asesor</div>
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#B7B7C2]">Distribución por asesor</div>
                   <div className="flex flex-wrap gap-1.5">
                     {advisors.map((advisor) => <span key={`${advisor.id}-${advisor.name}`} className="rounded-full border border-[#2A2A35] bg-[#0D0D11] px-2.5 py-1 text-[10px] text-[#B7B7C2]">{advisor.name} <strong className="ml-1 text-white">{advisor.count}</strong></span>)}
                   </div>

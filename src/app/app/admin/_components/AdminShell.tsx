@@ -13,7 +13,7 @@ type AdminShellProps = {
 
 export default function AdminShell({ children, userLabel, email }: AdminShellProps) {
   return (
-    <div className="min-h-dvh bg-[#0B0B0D] font-sans text-[#F5F5F7]">
+    <div className="admin-workspace min-h-dvh bg-[#0B0B0D] font-sans text-[#E4E4EA]">
       <ModulePreference moduleKey="admin" />
 
       <a
@@ -40,7 +40,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
 
           <div className="mt-2 border-t border-[#242433] pt-2">
             <div className="mb-2 min-w-0 px-1" title={email}>
-              <p className="truncate text-xs font-semibold text-white">{userLabel}</p>
+              <p className="whitespace-normal break-words text-xs font-semibold text-[#D5D5DF]">{userLabel}</p>
             </div>
             <Link href="/app" prefetch={false} className="mb-2 flex min-h-8 items-center justify-center rounded-lg border border-[#2A2A38] px-2 text-xs font-medium text-[#B7B7C2] hover:border-[#FFFF00]/40 hover:text-white">
               Módulos
@@ -74,7 +74,7 @@ export default function AdminShell({ children, userLabel, email }: AdminShellPro
           <main
             id="admin-main-content"
             tabIndex={-1}
-            className="mx-auto w-full max-w-[1500px] px-4 pb-28 pt-5 focus:outline-none sm:px-6 sm:pt-7 md:pb-10 lg:px-8 lg:pt-8"
+            className="mx-auto w-full max-w-[1500px] px-3 pb-24 pt-3 focus:outline-none sm:px-4 md:pb-8 lg:px-5"
           >
             <AdminContextBack />
             {children}

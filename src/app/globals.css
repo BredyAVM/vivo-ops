@@ -22,7 +22,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
 .advisor-app {
@@ -155,12 +155,22 @@ body {
   flex-shrink: 0;
 }
 
+/* Semantic hierarchy: compact headings, readable secondary text, unchanged data. */
+.admin-workspace { --admin-muted: #b7b7c2; --admin-accent: #ffff00; }
+.admin-workspace h1 { font-size: 1rem; line-height: 1.5; }
+.admin-workspace :is(h2, h3) { font-size: 0.875rem; line-height: 1.5; }
+.admin-workspace :is(input, select, textarea) { min-width: 0; }
+.order-detail-dialog { min-width: 0; outline: none; }
+@media (max-width: 639px) {
+  .order-detail-dialog :is(button, select, input:not([type=checkbox]):not([type=radio]), summary) { min-height: 44px; }
+}
 /* Shared domain screens retain their behavior inside the compact Admin shell. */
 .admin-shared-workspace { font-size: 0.8125rem; color: #d5d5df; }
 .admin-shared-workspace main,
 .admin-shared-workspace div.min-h-screen { min-height: 0; padding: 0; background: transparent; }
-.admin-shared-workspace :is(h1, h2) { font-size: 1.125rem; line-height: 1.5; }
-.admin-shared-workspace :is(.text-2xl, .text-3xl, .text-4xl) { font-size: 1.125rem; line-height: 1.5; }
+.admin-shared-workspace h1 { font-size: 1rem; line-height: 1.5; }
+.admin-shared-workspace :is(h2, h3) { font-size: 0.875rem; line-height: 1.5; }
+.admin-shared-workspace :is(.text-2xl, .text-3xl, .text-4xl) { font-size: 1rem; line-height: 1.5; }
 .admin-shared-workspace .text-sm { font-size: 0.8125rem; }
 .admin-shared-workspace :is(.p-6, .p-8) { padding: 0.75rem; }
 .admin-shared-workspace :is(.py-6, .py-8) { padding-block: 0.75rem; }

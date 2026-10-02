@@ -62,7 +62,7 @@ export default function ActiveOrdersOverview({ overview, filters }: { overview: 
       {filtered ? <p className="mb-2 text-xs text-[#A3A3AE]">Selección: {totals.orders} de {overview.summary.orders} pedidos</p> : null}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{cards.map(card => <article key={card.label} title={card.help} className="min-w-0 rounded-2xl border border-[#292937] bg-[#111117] p-3 sm:p-4">
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[#A3A3AE]">{card.label}</h2>
-        <p className={`mt-2 break-words text-xl font-semibold tracking-tight tabular-nums sm:text-2xl ${card.label === 'Por cobrar' ? 'text-[#FFFF00]' : 'text-white'}`}>{card.value}</p>
+        <p className={`mt-2 break-words text-base font-semibold tabular-nums ${card.label === 'Por cobrar' ? 'text-[#FFFF00]' : 'text-white'}`}>{card.value}</p>
       </article>)}</div>
       <p className="mt-2 text-xs text-[#A3A3AE]">Agrupados por entrega programada; no por fecha prometida de pago. Cubierto incluye abonos y fondos aplicados.</p>
     </section>

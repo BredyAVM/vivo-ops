@@ -1,4 +1,5 @@
 import Link from '@/components/navigation/ContextLink';
+import { queryControl, queryPrimary, queryPanel, QueryField, MoreFilters } from '@/components/ui/QueryControls';
 import BackLink, { ReturnContextField } from '@/components/navigation/BackLink';
 import AccountOperationLinks from './AccountOperationLinks';
 import AdminQualityIndicator from '@/app/app/admin/_components/AdminQualityIndicator';
@@ -272,28 +273,23 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
         />
       </section>
 
-      <form
-        action={rootPath}
-        method="get"
-        className="grid gap-2 rounded-xl border border-[#292937] bg-[#111117] p-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[minmax(180px,1fr)_repeat(6,minmax(105px,auto))_auto]"
-      >
+      <form action={rootPath} method="get" className={queryPanel}>
         <ReturnContextField />
-        <label className="min-w-0">
-          <span className="sr-only">Buscar cuenta</span>
+        <div className="grid grid-cols-2 items-end gap-2 lg:grid-cols-[minmax(180px,1fr)_1fr_1fr_auto]">
+          <QueryField label="Buscar cuenta">
           <input
             type="search"
             name="q"
             defaultValue={filters.q}
             placeholder="Buscar cuenta"
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-3 text-sm text-white outline-none placeholder:text-[#6F6F7C] focus:border-[#FFFF00]/60"
+            className={queryControl}
           />
-        </label>
-        <label>
-          <span className="sr-only">Grupo</span>
+        </QueryField>
+<QueryField label="Grupo">
           <select
             name="grupo"
             defaultValue={filters.group}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
+            className={queryControl}
           >
             <option value="all">Todos los grupos</option>
             {Object.entries(FINANCE_WORKSTREAM_LABELS).map(([value, label]) => (
@@ -302,37 +298,37 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          <span className="sr-only">Moneda</span>
+        </QueryField>
+<QueryField label="Moneda">
           <select
             name="moneda"
             defaultValue={filters.currency}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
+            className={queryControl}
           >
             <option value="all">Toda moneda</option>
             <option value="USD">USD</option>
-            <option value="VES">VES</option>
+            <option value="VES">Bs</option>
           </select>
-        </label>
-        <label>
-          <span className="sr-only">Estado de cuenta</span>
+        </QueryField>
+          <button type="submit" className={queryPrimary}>Consultar</button>
+        </div>
+        <MoreFilters active={filters.state !== 'active' || filters.quality !== 'all' || filters.sort !== 'attention' || filters.attention !== 'all'}>
+          <QueryField label="Estado de cuenta">
           <select
             name="estado"
             defaultValue={filters.state}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
+            className={queryControl}
           >
             <option value="active">Activas</option>
             <option value="inactive">Inactivas</option>
             <option value="all">Todas</option>
           </select>
-        </label>
-        <label>
-          <span className="sr-only">Calidad</span>
+        </QueryField>
+<QueryField label="Calidad">
           <select
             name="calidad"
             defaultValue={filters.quality}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
+            className={queryControl}
           >
             <option value="all">Toda calidad</option>
             <option value="exact">Exacto</option>
@@ -340,25 +336,23 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
             <option value="incomplete">Parcial</option>
             <option value="blocked">No disponible</option>
           </select>
-        </label>
-        <label>
-          <span className="sr-only">Orden</span>
+        </QueryField>
+<QueryField label="Orden">
           <select
             name="orden"
             defaultValue={filters.sort}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
+            className={queryControl}
           >
             <option value="attention">Atención primero</option>
             <option value="balance_desc">Mayor saldo</option>
             <option value="name">Nombre</option>
           </select>
-        </label>
-        <label>
-          <span className="sr-only">Atención</span>
+        </QueryField>
+<QueryField label="Atención">
           <select
             name="state"
             defaultValue={filters.attention}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
+            className={queryControl}
           >
             <option value="all">Toda atención</option>
             <option value="pending_movements">Movimientos</option>
@@ -366,16 +360,11 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
             <option value="no_anchor">Sin ancla</option>
             <option value="orphaned_reconciliation">Origen faltante</option>
           </select>
-        </label>
-        <button
-          type="submit"
-          className="h-10 rounded-lg bg-[#FFFF00] px-4 text-xs font-black text-[#0B0B0D] transition hover:bg-[#fff45a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
-        >
-          Aplicar
-        </button>
+        </QueryField>
+        </MoreFilters>
       </form>
 
-      <div className="flex min-h-6 items-center justify-between gap-3 text-xs text-[#848491]">
+      <div className="flex min-h-6 items-center justify-between gap-3 text-xs text-[#B7B7C2]">
         <span>{result.total} cuentas</span>
         {hasFilters ? (
           <Link href={rootPath} prefetch={false} className="font-semibold text-[#CFCFD7] hover:text-white">
@@ -397,7 +386,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
         <>
           <div className="hidden overflow-hidden rounded-xl border border-[#292937] bg-[#111117] lg:block">
             <table className="w-full table-fixed text-left text-xs">
-              <thead className="border-b border-[#292937] bg-[#15151C] text-[10px] font-bold uppercase tracking-[0.1em] text-[#81818D]">
+              <thead className="border-b border-[#292937] bg-[#15151C] text-[10px] font-bold uppercase tracking-[0.1em] text-[#B7B7C2]">
                 <tr>
                   <th className="w-[25%] px-3 py-2.5">Cuenta</th>
                   <th className="w-[9%] px-3 py-2.5">Tipo</th>

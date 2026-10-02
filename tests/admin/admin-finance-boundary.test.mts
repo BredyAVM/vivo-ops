@@ -75,7 +75,7 @@ test('preserves period, cutoff and definition when opening the detailed finance 
 
   assert.match(dashboard, /snapshotQuery = `period=\$\{currentPeriod\.key\}&asOf=/);
   assert.match(dashboard, /&definition=\$\{overview\.definitionVersion\}/);
-  assert.match(dashboard, /financialDetailPath = `\/app\/admin\/finanzas\?\$\{snapshotQuery\}`/);
+  assert.ok(dashboard.includes("financialDetailPath = `${detail ? basePath : '/app/admin/finanzas/resumen'}?${snapshotQuery}`"));
   assert.match(dashboard, /#commercial-detail/);
   assert.match(dashboard, /#treasury-detail/);
   assert.match(dashboard, /#position-detail/);
