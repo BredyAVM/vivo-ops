@@ -428,6 +428,7 @@ function rejectLegacyInventoryAdministration(): void {
 
 function revalidateMasterDashboardFinancialReferences() {
   updateTag(MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG);
+  revalidatePath('/app/admin', 'layout');
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
   revalidatePath('/app/admin/ordenes');

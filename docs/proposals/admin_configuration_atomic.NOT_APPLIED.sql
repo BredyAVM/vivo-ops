@@ -15,6 +15,8 @@ create table if not exists app_private.admin_configuration_audit (
 );
 revoke all on app_private.admin_configuration_audit from public,anon,authenticated,service_role;
 alter table app_private.admin_configuration_audit enable row level security;
+create index if not exists admin_configuration_audit_created_idx on app_private.admin_configuration_audit(created_at desc,operation_id);
+create index if not exists admin_configuration_audit_command_created_idx on app_private.admin_configuration_audit(command,created_at desc,operation_id);
 
 create or replace function app_private.assert_configuration_admin_v1() returns uuid
 language plpgsql security invoker set search_path='' as $f$
@@ -32,6 +34,7 @@ declare
  v_uid uuid; v_id bigint; v_account public.money_accounts%rowtype; v_target public.money_accounts%rowtype;
  v_currency text; v_kind text; v_target_id bigint; v_before jsonb; v_after jsonb; v_saved app_private.admin_configuration_audit%rowtype;
 begin
+ perform pg_advisory_xact_lock_shared(20261001,1);
  v_uid:=app_private.assert_configuration_admin_v1();
  if p_operation_id is null or jsonb_typeof(p_input) is distinct from 'object' then raise exception 'Solicitud inválida.'; end if;
  perform pg_advisory_xact_lock(hashtextextended('config:'||p_operation_id::text,0));
@@ -82,6 +85,7 @@ create or replace function public.admin_account_rules_v1(p_account_id bigint,p_r
 returns jsonb language plpgsql security definer set search_path='' as $f$
 declare v_uid uuid; v_request jsonb; v_before jsonb; v_after jsonb; v_saved app_private.admin_configuration_audit%rowtype;
 begin
+ perform pg_advisory_xact_lock_shared(20261001,1);
  v_uid:=app_private.assert_configuration_admin_v1();
  if p_operation_id is null or p_account_id is null or jsonb_typeof(p_rules) is distinct from 'array' or jsonb_array_length(p_rules)=0 or jsonb_array_length(p_rules)>48
  then raise exception 'Reglas inválidas.'; end if;
@@ -131,6 +135,7 @@ returns jsonb language plpgsql security definer set search_path='' as $f$
 declare v_uid uuid; v_account public.money_accounts%rowtype; v_saved app_private.admin_configuration_audit%rowtype;
  v_id bigint; v_date date; v_counted numeric; v_rate numeric; v_expected numeric; v_expected_usd numeric; v_counted_usd numeric; v_result jsonb;
 begin
+ perform pg_advisory_xact_lock_shared(20261001,1);
  v_uid:=(select auth.uid());
  if v_uid is null or not(public.has_role('admin') or public.has_role('master')) or not exists(select 1 from public.profiles p where p.id=v_uid and p.is_active)
  then raise exception 'Esta operación requiere un administrador o master activo.' using errcode='42501'; end if;
@@ -221,12 +226,12 @@ grant execute on function public.admin_configuration_history_v1(integer,text) to
 -- Read-only readiness handshake; never enables forms when the migration is absent.
 create or replace function public.admin_configuration_capabilities_v1()
 returns jsonb language plpgsql stable security definer set search_path=''
-as $
+as $f$
 begin
   perform app_private.assert_configuration_admin_v1();
   return jsonb_build_object('version','admin-configuration-v1','atomic',true);
 end;
-$;
+$f$;
 revoke all on function public.admin_configuration_capabilities_v1() from public,anon,authenticated,service_role;
 grant execute on function public.admin_configuration_capabilities_v1() to authenticated;
 

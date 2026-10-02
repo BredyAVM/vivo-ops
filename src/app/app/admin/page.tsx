@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import ExecutiveDashboard from './_components/ExecutiveDashboard';
 import { requireAdminContext } from '@/lib/auth';
 import { loadAdminExecutiveKpiDomain } from '@/lib/admin-finance/executive-data';
-import { loadAdminFinancialOverview, type AdminFinanceRpcClient } from '@/lib/admin-finance/data';
+import { loadAdminExecutiveFinanceOverview, type AdminFinanceRpcClient } from '@/lib/admin-finance/data';
 
 export default async function AdminHomePage() {
   const ctx = await requireAdminContext();
@@ -12,9 +12,8 @@ export default async function AdminHomePage() {
       supabase: ctx.supabase as unknown as SupabaseClient,
       asOf,
     }),
-    loadAdminFinancialOverview({
+    loadAdminExecutiveFinanceOverview({
       supabase: ctx.supabase as unknown as AdminFinanceRpcClient,
-      periodKey: 'week',
       asOf,
     }),
   ]);

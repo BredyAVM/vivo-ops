@@ -6,7 +6,7 @@ import {getCaracasDateKey} from '@/lib/admin-finance/period';
 import {AdminReadError,adminPanel} from '../../_components/AdminReadUi';
 const input='min-h-11 min-w-0 rounded-lg border border-[#30303D] bg-[#14141C] px-2 text-xs';
 const record=(v:unknown):Record<string,unknown>=>v&&typeof v==='object'&&!Array.isArray(v)?v as Record<string,unknown>:{};
-const titles:Record<string,string>={account:'Cuenta',rules:'Permisos de pago',baseline:'Saldo inicial',user:'Usuario',item_price_override:'Precio de producto',order_update:'Modificación de orden'};
+const titles:Record<string,string>={account:'Cuenta',rules:'Permisos de pago',baseline:'Saldo inicial',user:'Usuario',item_price_override:'Precio de producto',order_update:'Modificación de orden',other:'Otro ajuste'};
 const scalar=(v:unknown)=>v===null||v===undefined?'—':typeof v==='boolean'?(v?'Sí':'No'):typeof v==='object'?'Ver desglose':String(v);
 const labels:Record<string,string>={name:'Nombre',full_name:'Nombre',currency_code:'Moneda',account_kind:'Tipo',institution_name:'Institución',owner_name:'Titular',notes:'Notas',is_active:'Activo',closure_kind:'Cierre',requires_zero_difference:'Exige diferencia cero',generates_transfer_on_close:'Transfiere al cerrar',default_target_money_account_id:'Cuenta destino',counted_amount:'Saldo contado',baseline_date:'Fecha base',reason:'Motivo',roles:'Roles',role:'Rol',payment_method_code:'Método',can_view_account:'Ver cuenta',can_share_with_client:'Compartir',can_report_payment:'Reportar',can_confirm_payment:'Confirmar',auto_confirms_report:'Confirmar automáticamente',review_required:'Revisión',review_roles:'Revisores',receives_commissions:'Comisiones'};
 function AuditValue({value}:{value:unknown}){

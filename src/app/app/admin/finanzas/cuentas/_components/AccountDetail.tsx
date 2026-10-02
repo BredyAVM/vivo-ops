@@ -1,6 +1,6 @@
 import Link from '@/components/navigation/ContextLink';
 import BackLink, { ReturnContextField } from '@/components/navigation/BackLink';
-import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
+import { formatOrderConcept, formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import AccountOperationLinks from './AccountOperationLinks';
 import AdminQualityIndicator from '@/app/app/admin/_components/AdminQualityIndicator';
 import type {
@@ -231,7 +231,7 @@ function MovementRows({ rows, accountId, returnHref }: { rows: AdminFinanceMovem
           </thead>
           <tbody className="divide-y divide-[#252531]">
             {rows.map((row) => {
-              const title = row.counterpartyName || (row.movementType === 'order_payment' && row.orderId ? `Pago de pedido #${formatOrderDisplayNumber(row.orderId)}` : row.description) || movementTypeLabels[row.movementType] || row.movementType;
+              const title = formatOrderConcept(row.counterpartyName || (row.movementType === 'order_payment' && row.orderId ? `Pago de pedido #${formatOrderDisplayNumber(row.orderId)}` : row.description), row.orderId) || movementTypeLabels[row.movementType] || row.movementType;
               return (
                 <tr key={row.id} className="hover:bg-[#17171F]">
                   <td className="px-3 py-3 text-[#BDBDC7]">{formatDate(row.movementDate)}</td>
@@ -277,7 +277,7 @@ function MovementRows({ rows, accountId, returnHref }: { rows: AdminFinanceMovem
 
       <div className="grid min-w-0 grid-cols-1 gap-2 lg:hidden">
         {rows.map((row) => {
-          const title = row.counterpartyName || (row.movementType === 'order_payment' && row.orderId ? `Pago de pedido #${formatOrderDisplayNumber(row.orderId)}` : row.description) || movementTypeLabels[row.movementType] || row.movementType;
+          const title = formatOrderConcept(row.counterpartyName || (row.movementType === 'order_payment' && row.orderId ? `Pago de pedido #${formatOrderDisplayNumber(row.orderId)}` : row.description), row.orderId) || movementTypeLabels[row.movementType] || row.movementType;
           const isInflow = row.direction === 'inflow';
           return (
             <article key={row.id} className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] p-3">

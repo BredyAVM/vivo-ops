@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { formatOrderConcept } from '../../src/lib/orders/order-labels.ts';
 import { movementReturnHref, movementSnapshot, movementVoidBlock, parseAccountMovement, positiveMovementId } from '../../src/lib/admin-finance/movement-detail-model.ts';
 
 const groupId = '11111111-1111-4111-8111-111111111111';
+test('legacy concepts show the verified short order id, not the unrelated tracker suffix', () => {
+  assert.equal(formatOrderConcept('Cambio Counter orden VO-20260930-1493', 3004), 'Cambio Counter orden #3004');
+  assert.equal(formatOrderConcept('orden VO-20260930-1493'), 'orden [orden sin vínculo]');
+  assert.equal(formatOrderConcept('Recibo 123456', 3004), 'Recibo 123456');
+  assert.equal(formatOrderConcept(null, 3004), '');
+});
 const baseRow = { id: 40, money_account_id: 1, movement_group_id: groupId, order_id: 2934,
   payment_report_id: 90, movement_date: '2026-10-01', status: 'confirmed', direction: 'inflow', movement_type: 'order_payment',
   currency_code: 'VES', amount: '5175.00', amount_usd_equivalent: '6.015', exchange_rate_ves_per_usd: '860.2',

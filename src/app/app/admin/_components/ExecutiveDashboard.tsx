@@ -6,7 +6,7 @@ import { adminMovementHref } from '@/lib/admin-finance/movement-navigation';
 
 type ExecutiveDashboardProps = {
   executive: AdminExecutiveKpiDomain;
-  finance: AdminFinancialOverview;
+  finance: Pick<AdminFinancialOverview, 'period' | 'treasury' | 'position'>;
 };
 
 type Shortcut = {
@@ -150,6 +150,7 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
       <section aria-label="Indicadores principales" className="rounded-xl border border-[#292937] bg-[#111117] p-3">
         <div className="mb-1 flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-white">Estado</h2>
+          <Link href={`/app/admin/ordenes?focusDate=${data.todayKey}`} prefetch={false} className="text-[11px] text-[#FFFF00]">Ver órdenes →</Link>
           <span className="text-[10px] text-[#9B9BA7]">Fecha programada · USD</span>
         </div>
         <table className="w-full text-xs tabular-nums [&_td]:py-1.5 [&_th]:py-1.5">
@@ -228,6 +229,11 @@ export default function ExecutiveDashboard({ executive, finance }: ExecutiveDash
           </section>
         </div>
       </section>
+
+      <details className="rounded-xl border border-[#292937] bg-[#111117] px-3">
+        <summary className="min-h-11 cursor-pointer content-center text-xs text-[#BDBDC7]">Comparación de cierres</summary>
+        <ExecutiveTrendChart points={operational.trend} todayKey={data.todayKey} historyWeeks={operational.historyWeeks} metric="closures" />
+      </details>
 
       <section aria-label="Flujo de caja semanal" className="rounded-xl border border-[#292937] bg-[#111117] p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { requireAdminContext } from '@/lib/auth';
 import { readAccountMovementDetail } from '@/lib/admin-finance/movement-detail-data';
 import { movementReturnHref, movementVoidBlock, positiveMovementId } from '@/lib/admin-finance/movement-detail-model';
-import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
+import { formatOrderConcept, formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import VoidMovementForm from './VoidMovementForm';
 
 const statusLabels = { pending: 'Pendiente', confirmed: 'Confirmado', rejected: 'Rechazado', voided: 'Anulado' };
@@ -35,13 +35,13 @@ export default async function AccountMovementPage({ params, searchParams }: {
   return <section className="min-w-0 space-y-4 text-xs text-[#BCBCC8]">
     <BackLink fallbackHref={back} />
     <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#292937] pb-3">
-      <div className="min-w-0"><h1 className="text-base font-semibold text-[#D5D5DD]">{typeLabels[movement.type] ?? 'Movimiento'} · {statusLabels[movement.status]}</h1><p className="mt-1 break-words">{movement.counterparty ?? movement.description ?? accountNames[accountId]} · {movement.date}</p></div>
+      <div className="min-w-0"><h1 className="text-base font-semibold text-[#D5D5DD]">{typeLabels[movement.type] ?? 'Movimiento'} · {statusLabels[movement.status]}</h1><p className="mt-1 break-words">{formatOrderConcept(movement.counterparty ?? movement.description ?? accountNames[accountId], movement.orderId)} · {movement.date}</p></div>
       <p className="text-base font-medium tabular-nums [overflow-wrap:anywhere]">{movement.direction === 'inflow' ? '+' : '−'} {money(movement.amount, movement.currency)}</p>
     </header>
     <dl className="grid grid-cols-1 gap-2 rounded-xl border border-[#292937] bg-[#111117] p-3 sm:grid-cols-2">
       <div><dt className="text-[#81818E]">Referencia</dt><dd className="break-words">{movement.reference ?? 'Sin referencia'}</dd></div>
       <div><dt className="text-[#81818E]">Pedido</dt><dd>{movement.orderId ? <Link prefetch={false} className="underline" href={`/app/admin/ordenes?openOrder=${movement.orderId}&tab=pagos`}>#{formatOrderDisplayNumber(movement.orderId)} →</Link> : 'Sin pedido vinculado'}</dd></div>
-      {movement.description ? <div><dt className="text-[#81818E]">Concepto</dt><dd className="break-words">{movement.description}</dd></div> : null}
+      {movement.description ? <div><dt className="text-[#81818E]">Concepto</dt><dd className="break-words">{formatOrderConcept(movement.description, movement.orderId)}</dd></div> : null}
       {movement.rate !== null ? <div><dt className="text-[#81818E]">Tasa registrada</dt><dd>{number.format(movement.rate)} Bs/USD{movement.usd !== null ? ` · ${money(movement.usd, 'USD')}` : ''}</dd></div> : null}
       {movement.voidReason ? <div><dt className="text-[#81818E]">Motivo de anulación</dt><dd className="break-words">{movement.voidReason}</dd></div> : null}
     </dl>

@@ -1,6 +1,7 @@
 import { safeAppReturnHref } from './return-navigation';
 
 const sharedRoutes = [
+  ['/app/master/ops/finance', '/app/admin/finanzas/pagos'],
   ['/app/inventory', '/app/admin/inventario'],
   ['/app/commissions', '/app/admin/finanzas/comisiones/operar'],
   ['/app/master/plays', '/app/admin/jugadas'],

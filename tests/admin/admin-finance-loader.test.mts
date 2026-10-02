@@ -36,7 +36,14 @@ registerHooks({
   },
 });
 
-const { loadAdminFinancialOverview } = await import('../../src/lib/admin-finance/data.ts');
+const { loadAdminFinancialOverview,loadAdminExecutiveFinanceOverview } = await import('../../src/lib/admin-finance/data.ts');
+
+test('home never executes the unused commercial overview scan',async()=>{
+ const calls:string[]=[];const oldWarn=console.warn;console.warn=()=>{};
+ try{await loadAdminExecutiveFinanceOverview({supabase:{rpc:async name=>{calls.push(name);return {data:null,error:{message:'test offline'}}}},asOf:new Date('2026-10-01T12:00:00Z')});}
+ finally{console.warn=oldWarn;}
+ assert.deepEqual(calls.sort(),['admin_finance_position_overview_v1','admin_finance_treasury_overview_v1']);
+});
 
 test('keeps fulfilled financial domains visible when one RPC rejects', async () => {
   const calls: Array<{ name: string; params: Record<string, unknown> }> = [];

@@ -79,6 +79,14 @@ export function formatOrderDisplayLabel(orderId: number | string | null | undefi
   return `Orden ${formatOrderDisplayNumber(orderId)}`;
 }
 
+// Legacy concepts may embed a tracker whose suffix is not the order's database ID.
+// Display only the verified link; never infer an ID from that tracker or rewrite storage.
+export function formatOrderConcept(text: string | null | undefined, orderId?: number | null) {
+  const linked = Number.isSafeInteger(orderId) && Number(orderId) > 0;
+  return (text ?? '').replace(/\bVO-\d{8}-\d+\b/gi,
+    linked ? `#${formatOrderDisplayNumber(orderId)}` : '[orden sin vínculo]');
+}
+
 function isOrderStatus(value: string): value is OrderStatus {
   return value in ORDER_STATUS_LABELS;
 }

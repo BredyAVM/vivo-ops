@@ -19,7 +19,22 @@ registerHooks({
     return next(specifier, context);
   },
 });
-const { readExecutivePages } = await import('../../src/lib/admin-finance/executive-data.ts');
+const { readExecutivePages,readExecutiveFinancialStates } = await import('../../src/lib/admin-finance/executive-data.ts');
+
+test('financial states walk capped batches with at most four concurrent queries',async()=>{
+ const ids=Array.from({length:1251},(_,i)=>i+1),sizes:number[]=[];let active=0,max=0;
+ const supabase={from(){throw new Error('unexpected table')},async rpc(_name:string,p:{p_order_ids:number[]}){
+ active++;max=Math.max(max,active);sizes.push(p.p_order_ids.length);await Promise.resolve();active--;
+ return {data:p.p_order_ids.map(order_id=>({order_id,total_usd:10,confirmed_paid_usd:10,pending_usd:0})),error:null};
+ }};
+ const rows=await readExecutiveFinancialStates(supabase as never,ids);
+ assert.deepEqual(rows.map(r=>r.order_id),ids);assert.deepEqual(sizes,[250,250,250,250,250,1]);assert.ok(max<=4);
+});
+test('financial states reject missing, duplicate and unrelated answers instead of zeroing debt',async()=>{
+ for(const data of [[],[{order_id:7},{order_id:7}],[{order_id:9}]]){
+ await assert.rejects(readExecutiveFinancialStates({rpc:async()=>({data,error:null})} as never,[7]),/saldos/);
+ }
+});
 
 test('executive pagination reads past API row caps without losing or duplicating a row', async () => {
   const data = Array.from({ length: 722 }, (_, id) => ({ id }));

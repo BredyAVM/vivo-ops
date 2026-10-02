@@ -295,3 +295,16 @@ export async function loadAdminFinancialOverview(input: {
     ),
   };
 }
+
+/** Home only consumes treasury and position. Do not run the separate commercial scan. */
+export async function loadAdminExecutiveFinanceOverview(input: {
+  supabase: AdminFinanceRpcClient; asOf?: Date;
+}): Promise<Pick<AdminFinancialOverview, 'period' | 'treasury' | 'position'>> {
+  const asOf = input.asOf ?? new Date(), asOfIso = asOf.toISOString();
+  const period = buildAdminFinancePeriod('week', asOf);
+  const [treasury, position] = await Promise.allSettled([
+    runOverviewRpc({supabase:input.supabase,name:'admin_finance_treasury_overview_v1',params:{p_period:period.key,p_as_of:asOfIso},parse:value=>parseTreasury(value,{asOf:asOfIso,period})}),
+    runOverviewRpc({supabase:input.supabase,name:'admin_finance_position_overview_v1',params:{p_as_of:asOfIso},parse:value=>parsePosition(value,{asOf:asOfIso})}),
+  ]);
+  return {period,treasury:settledDomain(treasury,'No pudimos cargar los movimientos de tesorería.','admin home treasury unavailable'),position:settledDomain(position,'No pudimos cargar la posición financiera.','admin home position unavailable')};
+}
