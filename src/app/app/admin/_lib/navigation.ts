@@ -20,8 +20,7 @@ export const adminNavigation: AdminNavigationItem[] = [
   },
   { key: 'operations', label: 'Operaciones', shortLabel: 'Operación', description: 'Órdenes, aprobaciones y seguimiento', href: '/app/admin/operaciones', prefetch: false, marker: 'OP' },
   { key: 'business', label: 'Negocio', shortLabel: 'Negocio', description: 'Productos, clientes y equipo', href: '/app/admin/negocio', prefetch: false, marker: 'NE' },
-  { key: 'tasks', label: 'Pendientes', shortLabel: 'Pendientes', description: 'Revisiones por cuenta, pedido y comisión', href: '/app/admin/tareas', prefetch: false, marker: 'PD' },
-  { key: 'authorizations', label: 'Autorizaciones', shortLabel: 'Autorizar', description: 'Egresos, órdenes, modificaciones y pagos', href: '/app/admin/autorizaciones', prefetch: false, marker: 'AU' },
+  { key: 'authorizations', label: 'Aprobaciones', shortLabel: 'Aprobaciones', description: 'Autorizar operaciones y consultar incidencias', href: '/app/admin/autorizaciones', prefetch: false, marker: 'AP' },
   { key: 'projections', label: 'Proyecciones', shortLabel: 'Proyecciones', description: 'Promedios semanales y escenarios de crecimiento', href: '/app/admin/proyecciones', prefetch: false, marker: 'PY' },
   {
     key: 'finance',
@@ -117,7 +116,7 @@ export function navigationItem(key: string) {
 }
 
 export const desktopAdminNavigationGroups = [
-  { key: 'operations', label: 'Operaciones', keys: ['operations', 'orders', 'authorizations', 'tasks', 'active-orders'] },
+  { key: 'operations', label: 'Operaciones', keys: ['operations', 'orders', 'authorizations', 'active-orders'] },
   { key: 'finance', label: 'Finanzas', keys: ['finance', 'finance-summary', 'accounts', 'receivables', 'commissions', 'delivery-finance', 'projections', 'reports'] },
   { key: 'business', label: 'Negocio', keys: ['business', 'inventory', 'events', 'plays', 'tools'] },
 ].map((group) => ({ key: group.key, label: group.label, items: group.keys.map(navigationItem) }));

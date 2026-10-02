@@ -20,7 +20,7 @@ export function buildAdminTaskGroups(input: { accounts: AdminFinanceAccountSnaps
   for (const c of input.commissions) {
     const currentPreliminary = c.status === 'preliminary' && c.eligibleNow && c.periodId === input.currentPeriodId;
     if (!currentPreliminary && c.status !== 'closed' && !(c.status === 'paid' && c.issues.length)) continue;
-    result.push({ key: `comisiones:revision:${c.id}`, domain: 'comisiones', title: c.calculationBeforePeriod ? 'Actualizar cálculo' : c.status === 'preliminary' ? 'Revisar cálculo preliminar' : c.status === 'closed' ? 'Revisar liquidación cerrada' : 'Revisar evidencia de pago', entity: c.advisorName, count: 1,
+    result.push({ key: `comisiones:revision:${c.id}`, domain: 'comisiones', title: c.calculationBeforePeriod ? 'Actualizar cálculo' : c.status === 'preliminary' ? 'Revisar cálculo preliminar' : c.status === 'closed' ? 'Liquidación cerrada por revisar' : 'Pago liquidado con observaciones', entity: c.advisorName, count: 1,
       href: `/app/commissions/${c.id}?section=settlement#audit-detail`, attention: c.status === 'paid' && c.issues.length > 0, amount: null, currency: 'USD', note: `Cierre #${c.id} · ${c.issues[0] || 'Abrir el cierre para decidir'}` });
   }
   if (new Set(result.map(row => row.key)).size !== result.length) throw new Error('Duplicate administrative groups');
