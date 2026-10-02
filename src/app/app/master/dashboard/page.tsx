@@ -1023,6 +1023,7 @@ export default async function MasterDashboardPage({
 }: {
   searchParams?: MasterDashboardSearchParams;
 }) {
+  const snapshotStartedAt = new Date().toISOString();
   const supabase = await createSupabaseServer();
   const params = (await searchParams) ?? {};
   const focusDateKey = normalizeDashboardFocusDate(params.focusDate);
@@ -3609,6 +3610,7 @@ return {
 
   return (
     <MasterDashboardClient
+snapshotStartedAt={snapshotStartedAt}
 currentUser={{
   id: user.id,
   email: user.email ?? '',

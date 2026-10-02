@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
 import ContextLink from "@/components/navigation/ContextLink";
 import { currencyLabel } from "@/lib/ui/currency-label";
 import { useDialogFocus } from "@/components/ui/useDialogFocus";
@@ -61,6 +62,7 @@ import {
   returnFromKitchenToQueueAction,
   returnToCreatedAction,
   sendToKitchenAction,
+  readKitchenDispatchAction,
 } from "@/app/app/master/dashboard/actions";
 import {
   MASTER_ORDER_DETAIL_TABS,
@@ -1287,6 +1289,7 @@ function OrderDetailPanel({
   detailError,
   actionError,
   runningAction,
+  kitchenDispatchLabel,
   onTabChange,
   onRetryDetail,
   onClose,
@@ -1305,6 +1308,7 @@ function OrderDetailPanel({
   detailError: string | null;
   actionError: string | null;
   runningAction: string | null;
+  kitchenDispatchLabel: string;
   onTabChange: (tab: DetailTab) => void;
   onRetryDetail: () => void;
   onClose: () => void;
@@ -2504,7 +2508,7 @@ function OrderDetailPanel({
                           void onDirectAction(order, action.key);
                         }}
                       >
-                        {isRunning ? "Procesando..." : action.label}
+                        {action.key === "send-kitchen" ? kitchenDispatchLabel : isRunning ? "Procesando..." : action.label}
                       </button>
                     );
                   })
@@ -3928,8 +3932,8 @@ export default function OrdersWorkspaceClient({
   focusDate,
   snapshotAt,
   activeRate,
-  orders,
-  openedOrder,
+  orders: serverOrders,
+  openedOrder: serverOpenedOrder,
   stats,
   drivers,
   deliveryPartners,
@@ -4008,6 +4012,13 @@ export default function OrdersWorkspaceClient({
       router.refresh();
     });
   }, [router]);
+
+  const kitchenDispatch = useKitchenDispatch({
+    send: sendToKitchenAction, check: readKitchenDispatchAction,
+    refresh: requestOpsRefresh, snapshotStartedAt: snapshotAt,
+  });
+  const orders = useMemo(() => serverOrders.map(kitchenDispatch.project), [serverOrders, kitchenDispatch.project]);
+  const openedOrder = serverOpenedOrder ? kitchenDispatch.project(serverOpenedOrder) : null;
 
   useEffect(() => {
     lastRefreshRequestAtRef.current = Date.now();
@@ -4477,7 +4488,10 @@ export default function OrdersWorkspaceClient({
           notes: "",
         });
       } else if (action === "send-kitchen") {
-        result = await sendToKitchenAction({ orderId: order.id });
+        const confirmation = await kitchenDispatch.run(order.id);
+        if (!confirmation) return false;
+        if (!confirmation.ok) setActionError(confirmation.message);
+        return confirmation.ok;
       } else if (action === "kitchen-take") {
         const etaMinutes = Number(payload.etaMinutes);
         if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) throw new Error("Debes indicar un ETA valido.");
@@ -5328,7 +5342,8 @@ export default function OrdersWorkspaceClient({
           }
           detailError={!selectedOrderDetailReady ? detailError : null}
           actionError={actionError}
-          runningAction={runningAction}
+          runningAction={kitchenDispatch.pending === null ? runningAction : `send-kitchen:${kitchenDispatch.pending}`}
+          kitchenDispatchLabel={kitchenDispatch.label(selectedOrder.id)}
           onTabChange={setSelectedDetailTab}
           onRetryDetail={refreshSelectedOrderDetail}
           onClose={closeOrderDetail}

@@ -3043,40 +3043,63 @@ export async function reapproveQueuedOrderAction(input: {
   }
 }
 
+async function kitchenDispatchAction(input: { orderId: number }, checkOnly: boolean): Promise<import('@/lib/orders/kitchen-dispatch').KitchenDispatchResult> {
+  const { executeKitchenDispatch } = await import('@/lib/orders/kitchen-dispatch');
+  try {
+    const { supabase, user } = await requireMasterOrAdmin();
+    if (!Number.isSafeInteger(input.orderId) || input.orderId <= 0) {
+      return { ok: false, needsCheck: false, message: 'Orden inválida.' };
+    }
+    const result = await executeKitchenDispatch({
+      send: checkOnly ? undefined : async () => {
+        const { error } = await supabase.rpc('send_to_kitchen', { p_order_id: input.orderId });
+        return { error: error?.message ?? null };
+      },
+      read: async () => {
+        const { data, error } = await supabase.from('orders')
+          .select('id,status,queued_needs_reapproval,sent_to_kitchen_at,kitchen_started_at,ready_at')
+          .eq('id', input.orderId).single();
+        if (error || !data) throw new Error(error?.message || 'No se pudo leer la orden.');
+        return {
+          id: Number(data.id), status: data.status,
+          queuedNeedsReapproval: Boolean(data.queued_needs_reapproval),
+          sentToKitchenAtISO: data.sent_to_kitchen_at,
+          kitchenStartedAtISO: data.kitchen_started_at,
+          readyAtISO: data.ready_at,
+        };
+      },
+      onCommitted: async () => {
+        const eventContext = await loadOrderEventContext(supabase, input.orderId);
+        await appendOrderEvent(supabase, {
+          orderId: input.orderId,
+          eventType: 'order_sent_to_kitchen', eventGroup: 'kitchen',
+          title: 'Enviada a cocina', message: 'Nueva orden en cola para tomar en cocina.',
+          severity: 'critical', actorUserId: user.id,
+          context: eventContext,
+          recipients: [
+            { targetRole: 'kitchen', requiresAction: true }, { targetRole: 'master' },
+            { targetUserId: eventContext?.advisorUserId },
+          ],
+        });
+      },
+    });
+    if (!result.ok) console.warn('kitchen_dispatch_confirmation', {
+      orderId: input.orderId, checkOnly, needsCheck: result.needsCheck, status: result.order?.status,
+    });
+    return result;
+  } catch (error) {
+    return { ok: false, needsCheck: true, message: error instanceof Error ? error.message : 'No se pudo confirmar el envío a cocina.' };
+  }
+}
+
+export async function readKitchenDispatchAction(input: { orderId: number }) {
+  return kitchenDispatchAction(input, true);
+}
+
 export async function sendToKitchenAction(input: {
   orderId: number;
 }) {
-  try {
-    const { supabase, user } = await requireMasterOrAdmin();
-    const eventContext = await loadOrderEventContext(supabase, input.orderId);
-
-    const { error } = await supabase.rpc('send_to_kitchen', {
-      p_order_id: input.orderId,
-    });
-
-    if (error) throw new Error(error.message);
-    await appendOrderEvent(supabase, {
-      orderId: input.orderId,
-      context: eventContext,
-      eventType: 'order_sent_to_kitchen',
-      eventGroup: 'kitchen',
-      title: 'Enviada a cocina',
-      message: 'Nueva orden en cola para tomar en cocina.',
-      severity: 'critical',
-      actorUserId: user.id,
-      recipients: [
-        { targetRole: 'kitchen', requiresAction: true },
-        { targetRole: 'master' },
-        { targetUserId: eventContext?.advisorUserId },
-      ],
-    });
-    return { ok: true as const };
-  } catch (error) {
-    return {
-      ok: false as const,
-      message: error instanceof Error ? error.message : 'Error enviando a cocina.',
-    };
-  }
+  return kitchenDispatchAction(input, false);
 }
 
 export async function returnToCreatedAction(input: {

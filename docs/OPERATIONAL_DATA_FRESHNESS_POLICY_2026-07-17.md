@@ -377,6 +377,36 @@ No cargar listas enormes por si acaso. Buscar cuando el usuario pregunte.
 
 ## 5. Impacto en Vercel
 
+### Confirmación compartida de envío a cocina (2026-10-02)
+
+- Máster Ops y Administración usan `OrdersWorkspaceClient`; Dashboard conserva
+  su interfaz, pero los tres consumen `sendToKitchenAction` y el mismo hook
+  `useKitchenDispatch`. No implementar confirmaciones optimistas por módulo.
+- El escritor sigue siendo `send_to_kitchen`: transacción existente con UPDATE
+  condicionado a `queued`, evento y tarea. No se cambian permisos ni reglas de
+  aprobación. Solo el intento cuyo RPC terminó sin error emite el aviso adicional.
+- Después del intento se lee el estado persistido con la sesión autorizada.
+  Un error por envío simultáneo no es fallo si la lectura confirma la entrada a
+  cocina. Se conserva el estado actual, incluso si cocina ya tomó/preparó la orden;
+  nunca se fuerza `confirmed` ni se inventa la fecha desde el navegador.
+- Una respuesta perdida o un envío guardado sin lectura disponible habilita
+  `Comprobar envío`, operación de lectura. No hay reenvío automático. Las consultas
+  de comprobación no generan eventos, tareas ni notificaciones.
+- La confirmación del servidor se proyecta sobre respuestas de página iniciadas
+  antes de esa lectura. `snapshotAt` del espacio compartido y `snapshotStartedAt`
+  de Dashboard se capturan antes de consultar datos, no al terminar el render.
+  Las respuestas posteriores vuelven a mandar, incluidas devoluciones legítimas
+  a cola/corrección, cancelaciones y nuevos ciclos de envío.
+- No se agrega polling, cache persistente, tabla ni migración. El coste normal
+  adicional es una lectura pequeña de la orden después de la acción.
+- Counter conserva `counter_update_pickup_schedule`: comando compuesto autorizado
+  con clave de idempotencia, bloqueo de fila y comprobante persistido; su cliente
+  espera `refreshCounter` y `refreshCounterOrder` antes de liberar la operación.
+  No sustituirlo por el envío general de Máster ni ampliar permisos de Counter.
+- Pruebas: `tests/master-ops/kitchen-dispatch.test.mts` y
+  `tests/master-ops/kitchen-dispatch-db.mjs`; estas últimas ejecutan el escritor
+  canónico en PostgreSQL aislado. Ninguna prueba envía pedidos reales.
+
 La mayor fuente de consumo en este proyecto sera normalmente:
 
 - invocaciones de funciones;

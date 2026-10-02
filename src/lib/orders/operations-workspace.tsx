@@ -732,6 +732,8 @@ export async function OrdersWorkspace({ searchParams, surface }: {
   surface: OrdersWorkspaceSurface;
 }) {
   noStore();
+  // A response may finish after a mutation even though its queries started before it.
+  const snapshotStartedAt = new Date().toISOString();
 
   const ctx = await getAuthContext();
   if (!ctx) redirect("/login");
@@ -973,7 +975,7 @@ export async function OrdersWorkspace({ searchParams, surface }: {
       currentUserName={cleanText(profile?.full_name ?? ctx.user.email, "Usuario")}
       publicVapidKey={getPublicVapidKey()}
       focusDate={focusDate}
-      snapshotAt={new Date().toISOString()}
+      snapshotAt={snapshotStartedAt}
       orders={dayOrders}
       openedOrder={openedOrder}
       roles={ctx.roles}

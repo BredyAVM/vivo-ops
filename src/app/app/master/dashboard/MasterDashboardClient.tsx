@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useKitchenDispatch } from '@/lib/orders/use-kitchen-dispatch';
 import { isPaymentMethodApplicableToAccount, getPaymentMethodRolesForAccount } from '@/lib/payments/account-rule-policy';
 import Link from 'next/link';
 import DeliveredOrderCommissionEditor from '../../commissions/_components/DeliveredOrderCommissionEditor';
@@ -87,6 +88,7 @@ import {
   reapproveQueuedOrderAction,
   returnToCreatedAction,
   sendToKitchenAction,
+  readKitchenDispatchAction,
   kitchenTakeAction,
   markReadyAction,
   outForDeliveryAction,
@@ -4463,6 +4465,7 @@ export default function MasterDashboardClient({
   advisorCommissionClosures = [],
   advisorCommissionSetupMissing = false,
   initialOrders,
+  snapshotStartedAt,
   inboxOrders = [],
   calculationOrders = [],
   calculationScope,
@@ -4505,6 +4508,7 @@ export default function MasterDashboardClient({
   advisorCommissionClosures?: AdvisorCommissionClosure[];
   advisorCommissionSetupMissing?: boolean;
   initialOrders: Order[];
+  snapshotStartedAt: string;
   inboxOrders?: Order[];
   calculationOrders?: Order[];
   calculationScope?: {
@@ -5261,31 +5265,35 @@ const [createOrderStatus, setCreateOrderStatus] = useState<'created' | 'queued'>
 const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
   const [localOrders, setLocalOrders] = useState(initialOrders);
+  const [localSnapshotStartedAt, setLocalSnapshotStartedAt] = useState(snapshotStartedAt);
+  const kitchenDispatch = useKitchenDispatch({
+    send: sendToKitchenAction, check: readKitchenDispatchAction,
+    refresh: () => router.refresh(), snapshotStartedAt: localSnapshotStartedAt,
+  });
 
   useEffect(() => {
     setLocalOrders(initialOrders);
-  }, [initialOrders]);
+    setLocalSnapshotStartedAt(snapshotStartedAt);
+  }, [initialOrders, snapshotStartedAt]);
 
-  const orders = localOrders;
+  const orders = useMemo(() => localOrders.map(kitchenDispatch.project), [localOrders, kitchenDispatch.project]);
   const dashboardOrders = useMemo(() => {
     const byId = new Map<number, Order>();
-    for (const order of inboxOrders) byId.set(order.id, order);
-    for (const order of localOrders) byId.set(order.id, order);
+    for (const order of inboxOrders) byId.set(order.id, kitchenDispatch.project(order));
+    for (const order of orders) byId.set(order.id, order);
     return Array.from(byId.values());
-  }, [inboxOrders, localOrders]);
+  }, [inboxOrders, orders, kitchenDispatch.project]);
 
   const updateLocalOrder = useCallback((orderId: number, updater: (order: Order) => Partial<Order>) => {
+    kitchenDispatch.forget(orderId);
     setLocalOrders((prev) =>
-      prev.map((order) =>
-        order.id === orderId
-          ? {
-              ...order,
-              ...updater(order),
-            }
-          : order
-      )
+      prev.map((order) => {
+        if (order.id !== orderId) return order;
+        const confirmedOrder = kitchenDispatch.project(order);
+        return { ...confirmedOrder, ...updater(confirmedOrder) };
+      })
     );
-  }, []);
+  }, [kitchenDispatch.forget, kitchenDispatch.project]);
 
   const currentOperatorLabel = getCurrentOperatorLabel(roles, currentUser);
 
@@ -7118,18 +7126,13 @@ const handleProtectOrderPrice = async (o: Order) => {
 
 const handleSendToKitchen = async (orderId: number) => {
   try {
-    const result = await sendToKitchenAction({ orderId });
-    if (result && !result.ok) {
+    const result = await kitchenDispatch.run(orderId);
+    if (!result) return;
+    if (!result.ok) {
       showToast('error', result.message || 'Error enviando a cocina.');
       return;
     }
-    const now = new Date().toISOString();
-    updateLocalOrder(orderId, () => ({
-      status: 'confirmed',
-      queuedNeedsReapproval: false,
-      sentToKitchenAtISO: now,
-    }));
-    showToast('success', 'Orden en cocina.');
+    showToast('success', result.message);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error enviando a cocina.';
     showToast('error', message);
@@ -21022,13 +21025,13 @@ onClick={() => {
           <button
             className="rounded-md border border-[#FEEF00]/60 bg-[#15120A] px-2.5 py-1.5 text-[11px] font-medium text-[#FEEF00] disabled:cursor-wait disabled:opacity-60"
             onClick={() =>
-              runOrderAction(`send-kitchen:${selectedOrder.id}`, 'Enviando...', () =>
+              runOrderAction(`send-kitchen:${selectedOrder.id}`, 'Confirmando envío…', () =>
                 handleSendToKitchen(selectedOrder.id)
               )
             }
             disabled={isOrderActionBusy}
           >
-            {getOrderActionLabel(`send-kitchen:${selectedOrder.id}`, 'Enviar a cocina')}
+            {kitchenDispatch.label(selectedOrder.id)}
           </button>
         ) : null}
 
