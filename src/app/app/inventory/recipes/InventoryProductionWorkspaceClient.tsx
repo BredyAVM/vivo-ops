@@ -102,9 +102,9 @@ type ActionFeedback = {
   message?: string | null;
 };
 
-const INPUT_CLASS = 'w-full rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm text-white outline-none focus:border-[#FEEF00]/70';
-const PRIMARY_BUTTON_CLASS = 'rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#FFF34D]';
-const SECONDARY_BUTTON_CLASS = 'rounded-xl border border-[#343442] bg-[#17171F] px-4 py-2 text-sm font-semibold text-[#D5D5DE] transition hover:border-[#FEEF00]/50';
+const INPUT_CLASS = 'w-full rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm text-white outline-none focus:border-[#FFFF00]/70';
+const PRIMARY_BUTTON_CLASS = 'rounded-xl bg-[#FFFF00] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#FFF34D]';
+const SECONDARY_BUTTON_CLASS = 'rounded-xl border border-[#343442] bg-[#17171F] px-4 py-2 text-sm font-semibold text-[#D5D5DE] transition hover:border-[#FFFF00]/50';
 
 function quantity(value: unknown) {
   return new Intl.NumberFormat('es-VE', { maximumFractionDigits: 3 }).format(Number(value ?? 0));
@@ -526,7 +526,7 @@ function RecipeSection({
             <article key={recipe.id} className="rounded-2xl border border-[#242433] bg-[#111117] p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[#FEEF00]">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[#FFFF00]">
                     {recipe.recipe_kind === 'packaging' ? 'Porcionado' : 'Preparación'}
                   </div>
                   <h4 className="mt-1 text-lg font-semibold">{recipe.output_name}</h4>

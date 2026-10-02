@@ -120,9 +120,9 @@ const dateFormatter = new Intl.DateTimeFormat('es-VE', {
   timeStyle: 'short',
 });
 
-const INPUT_CLASS = 'w-full rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm text-white outline-none focus:border-[#FEEF00]/70';
-const PRIMARY_BUTTON_CLASS = 'rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#FFF34D] disabled:cursor-not-allowed disabled:opacity-50';
-const SECONDARY_BUTTON_CLASS = 'rounded-xl border border-[#343442] bg-[#17171F] px-4 py-2 text-sm font-semibold text-[#D5D5DE] transition hover:border-[#FEEF00]/50 disabled:cursor-not-allowed disabled:opacity-50';
+const INPUT_CLASS = 'w-full rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm text-white outline-none focus:border-[#FFFF00]/70';
+const PRIMARY_BUTTON_CLASS = 'rounded-xl bg-[#FFFF00] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#FFF34D] disabled:cursor-not-allowed disabled:opacity-50';
+const SECONDARY_BUTTON_CLASS = 'rounded-xl border border-[#343442] bg-[#17171F] px-4 py-2 text-sm font-semibold text-[#D5D5DE] transition hover:border-[#FFFF00]/50 disabled:cursor-not-allowed disabled:opacity-50';
 
 function formatDate(value: string | null) {
   if (!value) return 'Sin fecha';

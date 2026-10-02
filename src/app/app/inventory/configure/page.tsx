@@ -356,7 +356,7 @@ export default async function InventoryConfigurePage({
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-[#2C2C3A] bg-[#101016] p-5">
-        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">Productos e inventario</div>
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FFFF00]">Productos e inventario</div>
         <h2 className="mt-1 text-xl font-semibold">¿Qué necesitas hacer?</h2>
         <p className="mt-2 text-sm text-[#9898A5]">Cada opción abre una sola tarea. Nada de esta pantalla modifica el saldo físico por sí solo.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -406,9 +406,9 @@ function ConfigureLink({
     <Link
       href={href}
       prefetch={false}
-      className={`rounded-xl border p-4 transition ${active ? 'border-[#FEEF00]/60 bg-[#FEEF00]/5' : 'border-[#30303E] bg-[#14141C] hover:border-[#FEEF00]/30'}`}
+      className={`rounded-xl border p-4 transition ${active ? 'border-[#FFFF00]/60 bg-[#FFFF00]/5' : 'border-[#30303E] bg-[#14141C] hover:border-[#FFFF00]/30'}`}
     >
-      <div className={active ? 'font-semibold text-[#FEEF00]' : 'font-semibold text-white'}>{title}</div>
+      <div className={active ? 'font-semibold text-[#FFFF00]' : 'font-semibold text-white'}>{title}</div>
       <p className="mt-2 text-xs leading-5 text-[#9898A5]">{children}</p>
     </Link>
   );

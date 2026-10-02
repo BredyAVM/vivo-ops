@@ -127,7 +127,7 @@ export default function DeliveryServicesClient({ rows, extras, debts, payees, ac
       </div>
       {visible.length !== scoped.length ? <p className="px-3 py-2 text-[11px] text-[#B9B9C4]">La búsqueda solo filtra esta tabla. «Pagar período» incluye todas las entregas pendientes del responsable en estas fechas.</p> : null}
       {partial ? <div className="flex flex-wrap items-center gap-3 px-3 py-2 text-xs"><span>{selected.length} entregas elegidas · {usd(batch.total)}</span><button type="button" disabled={locked || !responsible} onClick={() => setSelected(visible.filter(servicePayable).slice(0, 500).map(row => row.id))} className="min-h-9 underline">Elegir las visibles (máx. 500)</button><button type="button" disabled={locked} onClick={() => setSelected([])} className="min-h-9 underline">Quitar selección</button></div> : null}
-      <div role="region" aria-label="Detalle de entregas" tabIndex={0} className="max-h-[560px] overflow-auto focus-visible:outline-2 focus-visible:outline-[#FEEF00]">
+      <div role="region" aria-label="Detalle de entregas" tabIndex={0} className="max-h-[560px] overflow-auto focus-visible:outline-2 focus-visible:outline-[#FFFF00]">
         <table className="w-full min-w-[470px] text-left text-xs"><thead className="sticky top-0 z-10 bg-[#191920] text-[11px] text-[#B9B9C4]"><tr>
           {partial ? <th scope="col" className="w-10 px-2 py-2">Elegir</th> : null}
           <th scope="col" className="px-3 py-2">Fecha</th><th scope="col" className="px-3 py-2">Orden</th><th scope="col" className="px-3 py-2">Cliente</th>

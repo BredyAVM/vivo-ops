@@ -71,7 +71,7 @@ export default function DeliveredOrderCommissionEditor({ orderId }: { orderId: n
 
   return (
     <>
-      <button type="button" disabled={busy} onClick={open} className="rounded-xl border border-[#FEEF00]/40 px-3 py-1.5 text-xs font-semibold text-[#FEEF00] disabled:opacity-50">Ajustar comisiones</button>
+      <button type="button" disabled={busy} onClick={open} className="rounded-xl border border-[#FFFF00]/40 px-3 py-1.5 text-xs font-semibold text-[#FFFF00] disabled:opacity-50">Ajustar comisiones</button>
       {message ? <p role="status" className="w-full text-xs text-emerald-300">{message}</p> : null}
       <dialog ref={dialog} aria-labelledby={`commission-title-${orderId}`} onCancel={(event) => { if (busy) event.preventDefault(); }} className="m-auto max-h-[90dvh] w-[min(94vw,640px)] overflow-y-auto rounded-2xl border border-[#30303B] bg-[#121218] p-4 text-[#F5F5F7] backdrop:bg-black/70">
         <div className="flex items-center justify-between gap-3">
@@ -108,7 +108,7 @@ export default function DeliveredOrderCommissionEditor({ orderId }: { orderId: n
           <label className="block text-xs">Motivo del ajuste (obligatorio)
             <textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2} className="mt-1 w-full rounded-lg border border-[#30303B] bg-[#0B0B0D] p-2 text-sm" />
           </label>
-          <button type="button" onClick={save} disabled={busy || !editor.items.length} className="w-full rounded-xl bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-black disabled:opacity-50">{busy ? 'Guardando y actualizando…' : 'Guardar comisiones'}</button>
+          <button type="button" onClick={save} disabled={busy || !editor.items.length} className="w-full rounded-xl bg-[#FFFF00] px-3 py-2 text-sm font-semibold text-black disabled:opacity-50">{busy ? 'Guardando y actualizando…' : 'Guardar comisiones'}</button>
         </fieldset> : null}
         {error ? <p role="alert" className="mt-3 text-sm text-red-300">{error}</p> : null}
       </dialog>

@@ -56,7 +56,7 @@ export type InventoryActivationQueue = {
 };
 
 const inputClass =
-  'w-full rounded-lg border border-[#343444] bg-[#0D0D12] px-3 py-2 text-sm text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-50';
+  'w-full rounded-lg border border-[#343444] bg-[#0D0D12] px-3 py-2 text-sm text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-50';
 
 const openingLabels: Record<ActivationItem['opening_status'], string> = {
   pending: 'Pendiente de conteo inicial',
@@ -228,7 +228,7 @@ export default function InventoryActivationQueueClient({
                         type="button"
                         onClick={() => submitOpening(item)}
                         disabled={isPending}
-                        className="rounded-lg bg-[#FEEF00] px-3 py-2 text-xs font-bold text-black disabled:opacity-50"
+                        className="rounded-lg bg-[#FFFF00] px-3 py-2 text-xs font-bold text-black disabled:opacity-50"
                       >
                         {activeTarget === openingTarget ? 'Presentando…' : 'Presentar apertura'}
                       </button>
@@ -300,7 +300,7 @@ export default function InventoryActivationQueueClient({
                     type="button"
                     onClick={() => activateDraft({ productId: product.id, label: product.name })}
                     disabled={isPending || !diagnostics.ready}
-                    className="mt-4 rounded-lg bg-[#FEEF00] px-3 py-2 text-xs font-bold text-black disabled:cursor-not-allowed disabled:opacity-35"
+                    className="mt-4 rounded-lg bg-[#FFFF00] px-3 py-2 text-xs font-bold text-black disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     {activeTarget === productTarget ? 'Activando…' : 'Validar y activar producto'}
                   </button>

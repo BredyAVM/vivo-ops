@@ -26,6 +26,8 @@ export function analysisOrderDate(row:AnalysisOrder,basis:AnalysisFilters['basis
 }
 function finite(value:unknown){if(value===null||value===undefined||String(value).trim()==='')throw new Error('Importe no disponible.');const n=Number(value);if(!Number.isFinite(n))throw new Error('Importe inválido.');return n;}
 export function buildAnalysisRows(orders:AnalysisOrder[],states:AnalysisState[],filters:AnalysisFilters,names:Map<string,string>,clients:Map<number,string>) {
+ const ids=new Set(orders.map(o=>o.id)),seen=new Set<number>();
+ for(const s of states){const id=Number(s.order_id);if(!Number.isSafeInteger(id)||!ids.has(id)||seen.has(id))throw new Error('Respuesta financiera duplicada o fuera de la selección.');seen.add(id);}
  const byId=new Map(states.map(s=>[Number(s.order_id),s]));
  return orders.filter(o=>o.status==='delivered'&&Number(o.total_usd)>0.005).map((o):AnalysisRow=>{
   const s=byId.get(o.id);if(!s)throw new Error('Falta verificar el saldo de una orden; no se muestran totales parciales.');

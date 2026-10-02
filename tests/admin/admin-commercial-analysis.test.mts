@@ -30,6 +30,11 @@ test('cancelled, unfulfilled and zero-gift orders do not create commercial closu
  const rows=buildAnalysisRows([{...order,status:'cancelled'},{...order,status:'queued'},{...order,total_usd:0}],[],filters,new Map(),new Map());
  assert.equal(rows.length,0);assert.equal(summarizeAnalysis(rows).closures,0);
 });
+test('duplicate or out-of-scope financial rows cannot change commercial totals',()=>{
+ const s={order_id:1,total_usd:116,confirmed_paid_usd:80,pending_usd:36};
+ assert.throws(()=>buildAnalysisRows([order],[s,s],filters,new Map(),new Map()),/duplicada/);
+ assert.throws(()=>buildAnalysisRows([order],[{...s,order_id:2}],filters,new Map(),new Map()),/fuera de la selección/);
+});
 test('estimated commissions preserve discounts, fixed-item, fixed-order and no-commission rules',()=>{
  assert.equal(estimateAnalysisCommission(order,[{baseUsd:125,terms:{mode:'default',value:null}}],10),10);
  assert.equal(estimateAnalysisCommission(order,[{baseUsd:125,terms:{mode:'fixed_item',value:20}}],10),20);

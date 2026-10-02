@@ -11,7 +11,7 @@ import {clearFinancialAttempt,saveFinancialAttempt} from '@/lib/finance/financia
 type Account = { id: number; name: string; currencyCode: 'USD' | 'VES' };
 type Props = { accounts: Account[]; initialAccountId: number | null; activeRate: number | null; today: string; userId:string };
 const inputClass = 'w-full min-h-11 rounded-lg border border-[#343442] bg-[#0B0B0D] px-3 py-2 text-sm text-white';
-const buttonClass = 'inline-flex min-h-11 items-center justify-center rounded-lg border border-[#FEEF00]/50 px-4 text-sm font-semibold text-[#FEEF00] disabled:opacity-50';
+const buttonClass = 'inline-flex min-h-11 items-center justify-center rounded-lg border border-[#FFFF00]/50 px-4 text-sm font-semibold text-[#FFFF00] disabled:opacity-50';
 const native = (amount: number, currency: string) => `${currency === 'VES' ? 'Bs' : 'USD'} ${new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(amount)}`;
 
 export default function TransferForm({ accounts, initialAccountId, activeRate, today,userId }: Props) {

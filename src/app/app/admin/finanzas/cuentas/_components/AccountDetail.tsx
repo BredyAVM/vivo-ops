@@ -236,7 +236,7 @@ function MovementRows({ rows, accountId, returnHref }: { rows: AdminFinanceMovem
                 <tr key={row.id} className="hover:bg-[#17171F]">
                   <td className="px-3 py-3 text-[#BDBDC7]">{formatDate(row.movementDate)}</td>
                   <td className="px-3 py-3">
-                    <Link href={movementHref(row.id)} prefetch={false} title={title} className="block truncate font-medium text-[#D5D5DD] underline decoration-[#555563] underline-offset-2 hover:text-[#FEEF00]">{title}</Link>
+                    <Link href={movementHref(row.id)} prefetch={false} title={title} className="block truncate font-medium text-[#D5D5DD] underline decoration-[#555563] underline-offset-2 hover:text-[#FFFF00]">{title}</Link>
                     {row.operationRequestId?<Link href={`/app/admin/finanzas/cuentas/movimiento/${row.operationRequestId}`} prefetch={false} className="inline-flex min-h-8 items-center text-xs underline">Ver comprobante</Link>:null}
                     <p className="mt-0.5 truncate text-[11px] text-[#777784]">
                       {movementTypeLabels[row.movementType] || row.movementType}
@@ -266,7 +266,7 @@ function MovementRows({ rows, accountId, returnHref }: { rows: AdminFinanceMovem
                   </td>
                   <td className="px-3 py-3">
                     <StatusBadge status={row.status} label={movementStatusLabels[row.status]} />
-                    <Link href={movementHref(row.id)} prefetch={false} className="mt-1 inline-flex min-h-8 items-center text-[10px] text-[#A6A6B0] underline hover:text-[#FEEF00]">Ver detalle</Link>
+                    <Link href={movementHref(row.id)} prefetch={false} className="mt-1 inline-flex min-h-8 items-center text-[10px] text-[#A6A6B0] underline hover:text-[#FFFF00]">Ver detalle</Link>
                   </td>
                 </tr>
               );
@@ -579,7 +579,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
               })}
               prefetch={false}
               aria-current={selected ? 'page' : undefined}
-              className={`shrink-0 border-b-2 px-3 py-2.5 text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#FEEF00] ${selected ? 'border-[#FEEF00] text-white' : 'border-transparent text-[#858592] hover:text-white'}`}
+              className={`shrink-0 border-b-2 px-3 py-2.5 text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#FFFF00] ${selected ? 'border-[#FFFF00] text-white' : 'border-transparent text-[#858592] hover:text-white'}`}
             >
               {option.label}
             </Link>
@@ -601,7 +601,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
               type="date"
               name="desde"
               defaultValue={detail.fromDate}
-              className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60"
+              className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
             />
           </label>
           <label>
@@ -610,7 +610,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
               type="date"
               name="hasta"
               defaultValue={detail.toDate}
-              className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60"
+              className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
             />
           </label>
           <label>
@@ -618,7 +618,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
             <select
               name="estado"
               defaultValue={detail.status}
-              className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60"
+              className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
             >
               {statusOptions[detail.section].map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -627,7 +627,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
           </label>
           <button
             type="submit"
-            className="h-10 rounded-lg bg-[#FEEF00] px-4 text-xs font-black text-[#0B0B0D] transition hover:bg-[#fff45a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+            className="h-10 rounded-lg bg-[#FFFF00] px-4 text-xs font-black text-[#0B0B0D] transition hover:bg-[#fff45a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
           >
             Aplicar
           </button>
@@ -671,7 +671,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
             <Link
               href={detailHref(rootPath, account.id, query, { page: detail.page - 1 })}
               prefetch={false}
-              className="inline-flex min-h-9 items-center rounded-lg border border-[#30303D] px-3 text-xs font-semibold text-[#D5D5DD] hover:border-[#FEEF00]/40"
+              className="inline-flex min-h-9 items-center rounded-lg border border-[#30303D] px-3 text-xs font-semibold text-[#D5D5DD] hover:border-[#FFFF00]/40"
             >
               ← Anterior
             </Link>
@@ -681,7 +681,7 @@ export function AccountDetail({ detail, basePath }: AccountDetailProps) {
             <Link
               href={detailHref(rootPath, account.id, query, { page: detail.page + 1 })}
               prefetch={false}
-              className="inline-flex min-h-9 items-center rounded-lg border border-[#30303D] px-3 text-xs font-semibold text-[#D5D5DD] hover:border-[#FEEF00]/40"
+              className="inline-flex min-h-9 items-center rounded-lg border border-[#30303D] px-3 text-xs font-semibold text-[#D5D5DD] hover:border-[#FFFF00]/40"
             >
               Siguiente →
             </Link>

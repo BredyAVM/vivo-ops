@@ -81,7 +81,7 @@ type ComponentDraft = {
 };
 
 const inputClass =
-  'w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-50';
+  'w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-50';
 
 function emptyItemDraft(): ItemDraft {
   return {
@@ -617,7 +617,7 @@ export default function InventoryConfiguratorClient({
                   disabled={isPending}
                   className={`rounded-xl border px-3 py-3 text-left text-sm transition ${
                     policy === value
-                      ? 'border-[#FEEF00]/70 bg-[#FEEF00]/10 text-[#FEEF00]'
+                      ? 'border-[#FFFF00]/70 bg-[#FFFF00]/10 text-[#FFFF00]'
                       : 'border-[#30303F] bg-[#0D0D12] text-[#C4C4CD] hover:border-[#5A5A68]'
                   }`}
                 >
@@ -698,8 +698,8 @@ export default function InventoryConfiguratorClient({
             {success.inventoryItemId ? `Ítem #${success.inventoryItemId}. ` : ''}
             {success.reusedProduct ? 'Se reutilizó la identidad seleccionada.' : 'Se creó una identidad nueva.'}
             <div className="mt-2 flex gap-3 text-xs font-semibold">
-              <Link href="/app/inventory/products" prefetch={false} className="text-[#FEEF00]">Ver productos</Link>
-              <Link href="/app/inventory" prefetch={false} className="text-[#FEEF00]">Ver ítems</Link>
+              <Link href="/app/inventory/products" prefetch={false} className="text-[#FFFF00]">Ver productos</Link>
+              <Link href="/app/inventory" prefetch={false} className="text-[#FFFF00]">Ver ítems</Link>
             </div>
           </div>
         ) : null}
@@ -708,7 +708,7 @@ export default function InventoryConfiguratorClient({
           <button type="button" onClick={() => resetForm()} disabled={isPending} className="rounded-xl border border-[#343444] px-4 py-2.5 text-sm text-[#B9B9C4] disabled:opacity-50">
             Limpiar
           </button>
-          <button type="button" onClick={handleSubmit} disabled={isPending} className="rounded-xl bg-[#FEEF00] px-5 py-2.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={handleSubmit} disabled={isPending} className="rounded-xl bg-[#FFFF00] px-5 py-2.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50">
             {isPending ? 'Guardando…' : 'Guardar borrador seguro'}
           </button>
         </div>
@@ -719,8 +719,8 @@ export default function InventoryConfiguratorClient({
 
 function ModeButton({ active, title, description, onClick }: { active: boolean; title: string; description: string; onClick: () => void }) {
   return (
-    <button type="button" aria-pressed={active} onClick={onClick} className={`rounded-xl border p-4 text-left ${active ? 'border-[#FEEF00]/70 bg-[#FEEF00]/10' : 'border-[#30303F] bg-[#0D0D12]'}`}>
-      <span className={`block font-semibold ${active ? 'text-[#FEEF00]' : 'text-white'}`}>{title}</span>
+    <button type="button" aria-pressed={active} onClick={onClick} className={`rounded-xl border p-4 text-left ${active ? 'border-[#FFFF00]/70 bg-[#FFFF00]/10' : 'border-[#30303F] bg-[#0D0D12]'}`}>
+      <span className={`block font-semibold ${active ? 'text-[#FFFF00]' : 'text-white'}`}>{title}</span>
       <span className="mt-1 block text-xs text-[#9696A3]">{description}</span>
     </button>
   );
@@ -749,7 +749,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 function Checkbox({ checked, onChange, label, disabled }: { checked: boolean; onChange: (value: boolean) => void; label: string; disabled?: boolean }) {
   return (
     <label className="flex items-center gap-2">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} disabled={disabled} className="h-4 w-4 accent-[#FEEF00]" />
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} disabled={disabled} className="h-4 w-4 accent-[#FFFF00]" />
       <span>{label}</span>
     </label>
   );
@@ -832,7 +832,7 @@ function PresentationsEditor({ presentations, setPresentations, disabled }: { pr
     <div className="mt-5 rounded-xl border border-[#2A2A38] bg-[#0D0D12] p-4">
       <div className="flex items-center justify-between gap-3">
         <div><div className="font-semibold">Presentaciones de entrada</div><div className="mt-1 text-xs text-[#7F7F8C]">Ejemplo: bolsa = 200 UND. Siempre también se admiten unidades individuales.</div></div>
-        <button type="button" onClick={() => setPresentations((current) => [...current, { key: createKey(), name: '', baseUnits: '', allowsFractionalQuantity: false }])} disabled={disabled || presentations.length >= 20} className="rounded-lg border border-[#41414F] px-3 py-2 text-xs text-[#FEEF00] disabled:opacity-40">Agregar</button>
+        <button type="button" onClick={() => setPresentations((current) => [...current, { key: createKey(), name: '', baseUnits: '', allowsFractionalQuantity: false }])} disabled={disabled || presentations.length >= 20} className="rounded-lg border border-[#41414F] px-3 py-2 text-xs text-[#FFFF00] disabled:opacity-40">Agregar</button>
       </div>
       <div className="mt-4 space-y-3">
         {presentations.map((presentation) => (
@@ -858,8 +858,8 @@ function SelfPolicyEditor({ mode, setMode, inventoryItems, inventoryItemId, setI
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
-        <button type="button" onClick={() => setMode('existing')} disabled={disabled} className={`rounded-lg border px-3 py-2 text-sm ${mode === 'existing' ? 'border-[#FEEF00]/60 text-[#FEEF00]' : 'border-[#343444] text-[#AAAAB5]'}`}>Reutilizar ítem</button>
-        <button type="button" onClick={() => setMode('new')} disabled={disabled} className={`rounded-lg border px-3 py-2 text-sm ${mode === 'new' ? 'border-[#FEEF00]/60 text-[#FEEF00]' : 'border-[#343444] text-[#AAAAB5]'}`}>Crear ítem físico</button>
+        <button type="button" onClick={() => setMode('existing')} disabled={disabled} className={`rounded-lg border px-3 py-2 text-sm ${mode === 'existing' ? 'border-[#FFFF00]/60 text-[#FFFF00]' : 'border-[#343444] text-[#AAAAB5]'}`}>Reutilizar ítem</button>
+        <button type="button" onClick={() => setMode('new')} disabled={disabled} className={`rounded-lg border px-3 py-2 text-sm ${mode === 'new' ? 'border-[#FFFF00]/60 text-[#FFFF00]' : 'border-[#343444] text-[#AAAAB5]'}`}>Crear ítem físico</button>
       </div>
       {mode === 'existing' ? (
         <Field label="Ítem físico canónico">
@@ -881,7 +881,7 @@ function SelfPolicyEditor({ mode, setMode, inventoryItems, inventoryItemId, setI
 function ComponentsPolicyEditor({ rows, setRows, products, reusedProductId, detailUnitsLimit, setDetailUnitsLimit, disabled }: { rows: ComponentDraft[]; setRows: React.Dispatch<React.SetStateAction<ComponentDraft[]>>; products: ConfiguratorProduct[]; reusedProductId: string; detailUnitsLimit: string; setDetailUnitsLimit: (value: string) => void; disabled: boolean }) {
   return (
     <div>
-      <div className="flex items-center justify-between gap-3"><div className="text-sm text-[#AFAFBA]">Productos fijos o seleccionables que forman la venta</div><button type="button" onClick={() => setRows((current) => [...current, { key: createKey(), componentProductId: '', componentMode: 'fixed', quantity: '1', countsTowardDetailLimit: true, isRequired: true }])} disabled={disabled || rows.length >= 100} className="rounded-lg border border-[#41414F] px-3 py-2 text-xs text-[#FEEF00]">Agregar componente</button></div>
+      <div className="flex items-center justify-between gap-3"><div className="text-sm text-[#AFAFBA]">Productos fijos o seleccionables que forman la venta</div><button type="button" onClick={() => setRows((current) => [...current, { key: createKey(), componentProductId: '', componentMode: 'fixed', quantity: '1', countsTowardDetailLimit: true, isRequired: true }])} disabled={disabled || rows.length >= 100} className="rounded-lg border border-[#41414F] px-3 py-2 text-xs text-[#FFFF00]">Agregar componente</button></div>
       <div className="mt-4 space-y-3">{rows.map((row) => <div key={row.key} className="rounded-xl border border-[#2D2D3B] bg-[#0D0D12] p-3"><div className="grid gap-2 lg:grid-cols-[1fr_150px_150px_auto]"><select aria-label="Producto componente" value={row.componentProductId} onChange={(event) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, componentProductId: event.target.value } : candidate))} disabled={disabled} className={inputClass}><option value="">Seleccionar producto</option>{products.filter((product) => String(product.id) !== reusedProductId).map((product) => <option key={product.id} value={product.id}>{product.name} · {product.sku ?? `#${product.id}`}</option>)}</select><select aria-label="Modo del componente" value={row.componentMode} onChange={(event) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, componentMode: event.target.value as ComponentDraft['componentMode'], isRequired: event.target.value === 'fixed' } : candidate))} disabled={disabled} className={inputClass}><option value="fixed">Fijo</option><option value="selectable">Seleccionable</option></select><input aria-label="Cantidad del componente" type="number" min="0.0001" step="0.01" value={row.quantity} onChange={(event) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, quantity: event.target.value } : candidate))} disabled={disabled} className={inputClass} /><button type="button" onClick={() => setRows((current) => current.filter((candidate) => candidate.key !== row.key))} disabled={disabled} className="rounded-lg border border-red-400/25 px-3 py-2 text-xs text-red-200">Quitar</button></div><div className="mt-3 flex flex-wrap gap-5 text-sm text-[#B8B8C2]"><Checkbox checked={row.countsTowardDetailLimit} onChange={(value) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, countsTowardDetailLimit: value } : candidate))} disabled={disabled} label="Cuenta para el límite" /><Checkbox checked={row.isRequired} onChange={(value) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, isRequired: value } : candidate))} disabled={disabled} label="Obligatorio" /></div></div>)}</div>
       {rows.some((row) => row.componentMode === 'selectable') ? <div className="mt-4 max-w-sm"><Field label="Límite de unidades seleccionables"><input type="number" min="1" step="1" value={detailUnitsLimit} onChange={(event) => setDetailUnitsLimit(event.target.value)} disabled={disabled} className={inputClass} /></Field></div> : null}
     </div>

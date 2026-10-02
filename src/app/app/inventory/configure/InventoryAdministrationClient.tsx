@@ -155,9 +155,9 @@ type PhysicalComponentLine = {
 };
 
 const INPUT_CLASS =
-  'w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-50';
+  'w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-50';
 const PRIMARY_BUTTON =
-  'rounded-xl bg-[#FEEF00] px-4 py-2.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40';
+  'rounded-xl bg-[#FFFF00] px-4 py-2.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40';
 const SECONDARY_BUTTON =
   'rounded-xl border border-[#383847] bg-[#17171F] px-4 py-2.5 text-sm font-semibold text-[#D7D7DF] disabled:cursor-not-allowed disabled:opacity-40';
 
@@ -289,7 +289,7 @@ export default function InventoryAdministrationClient({
     <section className="rounded-2xl border border-[#2C2C3A] bg-[#101016] p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FFFF00]">
             Perfil de inventario
           </div>
           <h2 className="mt-1 text-xl font-semibold">Configurar un producto o ítem existente</h2>
@@ -360,7 +360,7 @@ export default function InventoryAdministrationClient({
               <button
                 type="button"
                 onClick={() => setProductSearch('combo ajustado')}
-                className="rounded-full border border-[#FEEF00]/30 px-2.5 py-1 font-semibold text-[#FEEF00]"
+                className="rounded-full border border-[#FFFF00]/30 px-2.5 py-1 font-semibold text-[#FFFF00]"
               >
                 Ver combos ajustados ({adjustedComboCount})
               </button>
@@ -895,13 +895,13 @@ function PhysicalConfigurationEditor({
     <div className="rounded-xl border border-[#3A3518] bg-[#17150B] p-4">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-sm font-semibold text-[#FEEF00]">Qué descuenta este producto</div>
+          <div className="text-sm font-semibold text-[#FFFF00]">Qué descuenta este producto</div>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-[#B7B39A]">
             Esta es la regla física activa. Cada cambio crea una revisión, conserva la anterior en
             el historial del producto y no altera saldos ni detiene órdenes.
           </p>
         </div>
-        <div className="rounded-full border border-[#FEEF00]/30 px-3 py-1 text-xs text-[#FEEF00]">
+        <div className="rounded-full border border-[#FFFF00]/30 px-3 py-1 text-xs text-[#FFFF00]">
           Revisión v{product.physical_revision} · {product.physical_history_count} anteriores
         </div>
       </div>
@@ -948,7 +948,7 @@ function PhysicalConfigurationEditor({
         <div className="mt-4 space-y-3">
           <div className="flex flex-wrap gap-2 rounded-xl border border-[#373322] bg-[#11100B] px-3 py-2 text-xs">
             <span className="font-semibold text-white">Composición actual:</span>
-            <span className="text-[#FEEF00]">{quantity(fixedServiceUnits)} UND de productos</span>
+            <span className="text-[#FFFF00]">{quantity(fixedServiceUnits)} UND de productos</span>
             {otherFixedUnits > 0 ? <span className="text-[#B7B39A]">+ {quantity(otherFixedUnits)} adicional(es)</span> : null}
           </div>
           {components.map((line) => (
@@ -1385,7 +1385,7 @@ function RecipeEditor({
               <div className="text-xs text-[#8D8D99]">No existe una receta activa para esta salida.</div>
             )}
             <div className="my-3 border-t border-[#2B2B38]" />
-            <div className="text-xs font-semibold uppercase tracking-wide text-[#FEEF00]">Configuración en pantalla</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-[#FFFF00]">Configuración en pantalla</div>
             <div className="mt-2 text-sm text-white">Produce {outputQuantity || '—'} {outputItem.unit_name}</div>
             <div className="mt-1 text-xs text-[#9595A2]">Tiempo: {leadTime || '0'} min · múltiplo {productionMultiple || '—'}</div>
             <div className="mt-2 space-y-1 text-xs text-[#B0B0BB]">
@@ -1446,7 +1446,7 @@ function RuleCard({ number, title, children }: { number: string; title: string; 
   return (
     <div className="rounded-xl border border-[#292938] bg-[#14141C] p-4">
       <div className="flex items-center gap-2">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FEEF00] text-xs font-black text-black">{number}</span>
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FFFF00] text-xs font-black text-black">{number}</span>
         <div className="text-sm font-semibold">{title}</div>
       </div>
       <p className="mt-2 text-xs leading-5 text-[#92929F]">{children}</p>
@@ -1456,7 +1456,7 @@ function RuleCard({ number, title, children }: { number: string; title: string; 
 
 function EditorButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`rounded-xl border px-4 py-2.5 text-sm font-semibold ${active ? 'border-[#FEEF00]/60 bg-[#2A2910] text-[#FEEF00]' : 'border-[#343443] bg-[#17171F] text-[#B7B7C1]'}`}>
+    <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`rounded-xl border px-4 py-2.5 text-sm font-semibold ${active ? 'border-[#FFFF00]/60 bg-[#2A2910] text-[#FFFF00]' : 'border-[#343443] bg-[#17171F] text-[#B7B7C1]'}`}>
       {children}
     </button>
   );
@@ -1475,7 +1475,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
   return (
     <label className="flex cursor-pointer items-start gap-2 text-xs leading-5 text-[#B7B7C1]">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-1 accent-[#FEEF00]" />
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-1 accent-[#FFFF00]" />
       <span>{label}</span>
     </label>
   );

@@ -6,7 +6,7 @@ const basePath = '/app/admin/finanzas/comisiones';
 const moneyFormat = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const dateFormat = new Intl.DateTimeFormat('es-VE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Caracas' });
 const money = (amount: number | null) => amount === null ? '—' : moneyFormat.format(amount);
-const control = 'min-h-11 rounded-xl border border-[#30303D] bg-[#111117] px-3 text-sm text-white focus-visible:outline-2 focus-visible:outline-[#FEEF00]';
+const control = 'min-h-11 rounded-xl border border-[#30303D] bg-[#111117] px-3 text-sm text-white focus-visible:outline-2 focus-visible:outline-[#FFFF00]';
 const statuses = { preliminary: 'Preliminar', closed: 'Cerrada', paid: 'Marcada pagada' };
 function href(filters: CommissionFilters, patch: Partial<CommissionFilters> = {}) {
   const f = { ...filters, page: 1, ...patch };
@@ -57,7 +57,7 @@ export default function CommissionsOverview({ data, filters }: { data: Overview;
         ['preliminary', 'Preliminares', totals.preliminary], ['closed', 'Cerradas', totals.closed],
         ['paid', 'Marcadas pagadas', totals.paid], ['issues', 'Con avisos', totals.issues],
       ] as const).map(([status, label, count]) => <Link key={status} href={href(selected, { status })} prefetch={false} className="rounded-lg border border-[#30303D] px-3 py-2 text-[#C8C8D0]">{label} · {count}</Link>)}
-        {filters.status !== 'all' || filters.q ? <Link href={href(selected, { status: 'all', q: '' })} prefetch={false} className="px-3 py-2 text-[#FEEF00]">Quitar filtros</Link> : null}
+        {filters.status !== 'all' || filters.q ? <Link href={href(selected, { status: 'all', q: '' })} prefetch={false} className="px-3 py-2 text-[#FFFF00]">Quitar filtros</Link> : null}
       </div>
       <p className="text-xs text-[#A3A3AE]">{view.period.name} · {view.count} cierres seleccionados. Son cálculos guardados, no una actualización automática de comisiones.</p>
       {totals.pendingUsd === null && view.count > 0 ? <p className="rounded-xl border border-orange-300/20 bg-orange-300/5 p-3 text-sm text-orange-200">Hay cierres cuyo vínculo de pagos falta por verificar. Los abonos nuevos muestran «Abonos vinculados»; los históricos no se concilian automáticamente.</p> : null}
@@ -68,17 +68,17 @@ export default function CommissionsOverview({ data, filters }: { data: Overview;
           <caption className="sr-only">Cálculos por asesor del período seleccionado; totales incluyen todas las páginas. Abonos identificados no equivalen a pagos conciliados.</caption>
           <thead className="bg-[#191920] text-xs text-[#A3A3AE]"><tr>{['Asesor / cierre', 'Estado', 'Generada', 'Retenida', 'Liquidación', 'Abonos identificados*'].map((label, index) => <th key={label} scope="col" className={`px-3 py-3 ${index > 1 ? 'text-right' : ''}`}>{label}</th>)}</tr></thead>
           <tbody className="divide-y divide-[#292937]">{view.rows.map(row => <tr key={row.id} className="bg-[#111117]">
-            <td className="max-w-56 px-3 py-3"><Link href={adminCommissionAuditHref(row.id, 'settlement')} prefetch={false} className="font-semibold text-white hover:text-[#FEEF00]">{row.advisorName} →</Link><p className="mt-1 text-xs text-[#A3A3AE]">#{row.id} · Cálculo {dateFormat.format(new Date(row.calculationAt))}</p></td>
+            <td className="max-w-56 px-3 py-3"><Link href={adminCommissionAuditHref(row.id, 'settlement')} prefetch={false} className="font-semibold text-white hover:text-[#FFFF00]">{row.advisorName} →</Link><p className="mt-1 text-xs text-[#A3A3AE]">#{row.id} · Cálculo {dateFormat.format(new Date(row.calculationAt))}</p></td>
             <td className="max-w-60 px-3 py-3"><RowStatus row={row} /></td>
             <td className="px-3 py-3 text-right text-white tabular-nums">{money(row.calculationBeforePeriod ? null : row.grossUsd)}</td><td className="px-3 py-3 text-right text-orange-200 tabular-nums">{money(row.calculationBeforePeriod ? null : row.retainedUsd)}{row.retainedBasis === 'legacy' ? '*' : ''}</td>
             <td className="px-3 py-3 text-right text-white tabular-nums">{money(row.calculationBeforePeriod ? null : row.payableUsd)}</td>
-            <td className="px-3 py-3 text-right"><Link href={adminCommissionAuditHref(row.id, 'payments')} prefetch={false} className="text-[#FEEF00] tabular-nums">{money(row.referencedPaidUsd)} →</Link></td>
+            <td className="px-3 py-3 text-right"><Link href={adminCommissionAuditHref(row.id, 'payments')} prefetch={false} className="text-[#FFFF00] tabular-nums">{money(row.referencedPaidUsd)} →</Link></td>
           </tr>)}</tbody></table></div>
         <div className="grid gap-3 lg:hidden">{view.rows.map(row => <article key={row.id} className="min-w-0 rounded-2xl border border-[#292937] bg-[#111117] p-3">
           <Link href={adminCommissionAuditHref(row.id, 'settlement')} prefetch={false} className="block break-words font-semibold text-white">{row.advisorName} · #{row.id} →</Link>
           <p className="my-1 text-xs text-[#A3A3AE]">Cálculo {dateFormat.format(new Date(row.calculationAt))}</p><RowStatus row={row} />
           <dl className="mt-3 grid grid-cols-2 gap-3">{[['Generada', row.calculationBeforePeriod ? null : row.grossUsd], ['Retenida', row.calculationBeforePeriod ? null : row.retainedUsd], ['Liquidación', row.calculationBeforePeriod ? null : row.payableUsd], ['Abonos identificados*', row.referencedPaidUsd]].map(([label, amount]) => <div key={String(label)} className="min-w-0"><dt className="text-[10px] text-[#A3A3AE]">{label}</dt><dd className="break-words font-semibold text-white tabular-nums">{money(amount === null ? null : Number(amount))}</dd></div>)}</dl>
-          <Link href={adminCommissionAuditHref(row.id, 'payments')} prefetch={false} className="mt-2 inline-flex min-h-11 items-center text-sm text-[#FEEF00]">Revisar pagos →</Link>
+          <Link href={adminCommissionAuditHref(row.id, 'payments')} prefetch={false} className="mt-2 inline-flex min-h-11 items-center text-sm text-[#FFFF00]">Revisar pagos →</Link>
         </article>)}</div>
       </>}
       <footer className="flex items-center justify-between gap-2 text-xs text-[#A3A3AE]">

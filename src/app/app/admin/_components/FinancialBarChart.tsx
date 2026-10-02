@@ -38,7 +38,7 @@ export default function FinancialBarChart({
   );
   const primaryTotal = rows.reduce((total, row) => total + row.primary, 0);
   const secondaryTotal = rows.reduce((total, row) => total + (row.secondary ?? 0), 0);
-  const primaryClass = primaryTone === 'emerald' ? 'bg-emerald-400' : 'bg-[#FEEF00]';
+  const primaryClass = primaryTone === 'emerald' ? 'bg-emerald-400' : 'bg-[#FFFF00]';
 
   return (
     <figure className="rounded-2xl border border-[#292937] bg-[#111117] p-5 sm:p-6">

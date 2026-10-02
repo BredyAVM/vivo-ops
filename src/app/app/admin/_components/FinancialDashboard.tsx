@@ -140,7 +140,7 @@ function MetricCard({
     <Link
       href={href}
       prefetch={false}
-      className="rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+      className="rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
     >
       {card}
     </Link>
@@ -190,7 +190,7 @@ function SectionHeading({
   return (
     <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#FEEF00]">{eyebrow}</p>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#FFFF00]">{eyebrow}</p>
         <h2 id={id} className="mt-2 text-2xl font-semibold tracking-tight text-white">{title}</h2>
       </div>
       <p className="max-w-2xl text-sm leading-6 text-[#A1A1AD]">{description}</p>
@@ -253,12 +253,12 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
       <section className="overflow-hidden rounded-[28px] border border-[#2A2A38] bg-[#111117]">
         <div className="relative px-5 py-6 sm:px-7 sm:py-8 xl:px-9 xl:py-9">
           <div
-            className="pointer-events-none absolute -right-20 -top-32 h-72 w-72 rounded-full bg-[#FEEF00]/10 blur-3xl"
+            className="pointer-events-none absolute -right-20 -top-32 h-72 w-72 rounded-full bg-[#FFFF00]/10 blur-3xl"
             aria-hidden="true"
           />
           <div className="relative flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
             <div className="max-w-3xl">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#FEEF00]">
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#FFFF00]">
                 {detail ? 'Centro financiero' : 'Inicio ejecutivo'}
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl xl:text-5xl">
@@ -276,7 +276,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                   <Link
                     href={`/app/admin/finanzas?period=${currentPeriod.key}`}
                     prefetch={false}
-                    className="flex min-h-12 items-center justify-center rounded-xl bg-[#FEEF00] px-5 text-sm font-bold text-[#0B0B0D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    className="flex min-h-12 items-center justify-center rounded-xl bg-[#FFFF00] px-5 text-sm font-bold text-[#0B0B0D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                   >
                     Actualizar cifras ahora
                   </Link>
@@ -290,14 +290,14 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                   <Link
                     href="/app/admin/finanzas/cuentas"
                     prefetch={false}
-                    className="flex min-h-12 items-center justify-center rounded-xl border border-[#3A3A49] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+                    className="flex min-h-12 items-center justify-center rounded-xl border border-[#3A3A49] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
                   >
                     Ver cuentas
                   </Link>
                   <Link
                     href="/app/admin/finanzas/pedidos"
                     prefetch={false}
-                    className="flex min-h-12 items-center justify-center rounded-xl border border-[#3A3A49] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+                    className="flex min-h-12 items-center justify-center rounded-xl border border-[#3A3A49] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
                   >
                     Pedidos por entregar
                   </Link>
@@ -306,7 +306,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                 <Link
                   href={financialDetailPath}
                   prefetch={false}
-                  className="flex min-h-12 items-center justify-center rounded-xl bg-[#FEEF00] px-5 text-sm font-bold text-[#0B0B0D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                  className="flex min-h-12 items-center justify-center rounded-xl bg-[#FFFF00] px-5 text-sm font-bold text-[#0B0B0D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                 >
                   Ver dashboard financiero
                 </Link>
@@ -329,7 +329,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                     className={[
                       'flex min-h-11 shrink-0 items-center rounded-full border px-4 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white',
                       isActive
-                        ? 'border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]'
+                        ? 'border-[#FFFF00] bg-[#FFFF00] text-[#0B0B0D]'
                         : 'border-[#393948] bg-[#17171F] text-[#CECED6] hover:border-[#5A5A6A]',
                     ].join(' ')}
                   >
@@ -474,10 +474,10 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
         <div className="mt-5 grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
           <DomainValue domain={overview.commercial}>
             {(data) => (
-              <article className="rounded-2xl border border-[#FEEF00]/25 bg-[#FEEF00]/5 p-5 sm:p-6">
+              <article className="rounded-2xl border border-[#FFFF00]/25 bg-[#FFFF00]/5 p-5 sm:p-6">
                 <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#FEEF00]">C06 · Pipeline programado</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#FFFF00]">C06 · Pipeline programado</p>
                     <p className="mt-3 text-3xl font-semibold tracking-tight text-white">{formatUsd(data.scheduledSalesUsd)}</p>
                     <p className="mt-2 text-sm text-[#C4C4CD]">
                       {integerFormatter.format(data.scheduledOrders)} orden(es) activas desde hoy hasta el cierre del período.
@@ -493,7 +493,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                 <Link
                   href={`${financialDetailPath}#commercial-detail`}
                   prefetch={false}
-                  className="mt-5 inline-flex min-h-11 items-center rounded-xl border border-[#FEEF00]/30 px-4 text-sm font-semibold text-[#FEEF00] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                  className="mt-5 inline-flex min-h-11 items-center rounded-xl border border-[#FFFF00]/30 px-4 text-sm font-semibold text-[#FFFF00] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                 >
                   Ver composición comercial →
                 </Link>
@@ -708,7 +708,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
           </section>
 
           <section className="rounded-2xl border border-[#2A2A38] bg-[#111117] p-5 sm:p-6">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#FEEF00]">Alcance de esta versión</p>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#FFFF00]">Alcance de esta versión</p>
             <h2 className="mt-2 text-xl font-semibold text-white">Lectura ejecutiva lista; operación avanzada en transición</h2>
             <p className="mt-3 max-w-4xl text-sm leading-6 text-[#A8A8B3]">
               Esta ruta ya consulta resúmenes pequeños y protegidos. Cuentas, movimientos, cierres, conciliación y tasa

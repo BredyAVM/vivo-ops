@@ -84,7 +84,7 @@ export default function ExecutiveTrendChart({ points: sourcePoints, todayKey, hi
 
       <div className="mt-2 flex flex-wrap gap-3 text-xs text-[#B7B7C2]">
         <span className="inline-flex items-center gap-2">
-          <span className="h-0.5 w-5 bg-[#FEEF00]" aria-hidden="true" />
+          <span className="h-0.5 w-5 bg-[#FFFF00]" aria-hidden="true" />
           Semana actual
         </span>
         <span className="inline-flex items-center gap-2">
@@ -131,7 +131,7 @@ export default function ExecutiveTrendChart({ points: sourcePoints, todayKey, hi
         <polyline
           points={actualPath}
           fill="none"
-          stroke="#FEEF00"
+          stroke="#FFFF00"
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth="4"
@@ -144,14 +144,14 @@ export default function ExecutiveTrendChart({ points: sourcePoints, todayKey, hi
               cy={point.y}
               r={points[index].dateKey === todayKey ? 5 : 3.5}
               fill="#0B0B0D"
-              stroke="#FEEF00"
+              stroke="#FFFF00"
               strokeWidth="3"
             />
           ) : null
         )}
         </svg>
         <div aria-hidden="true" className="flex justify-between text-[11px] text-[#A3A3AE]">
-          {points.map((point) => <span key={point.dateKey} className={point.dateKey === todayKey ? 'font-semibold text-[#FEEF00]' : ''}>{weekdayLabel(point.dateKey)}</span>)}
+          {points.map((point) => <span key={point.dateKey} className={point.dateKey === todayKey ? 'font-semibold text-[#FFFF00]' : ''}>{weekdayLabel(point.dateKey)}</span>)}
         </div>
         </div>
       </div>
@@ -159,7 +159,7 @@ export default function ExecutiveTrendChart({ points: sourcePoints, todayKey, hi
       <p className="mt-2 text-[10px] text-[#9B9BA7]">Hoy está en curso; la referencia usa días completos. No es una comparación a la misma hora.</p>
 
       <details className="mt-2 border-t border-[#292937]">
-        <summary className="min-h-11 cursor-pointer content-center text-xs text-[#BDBDC7] focus-visible:outline-2 focus-visible:outline-[#FEEF00]">Ver cifras por día</summary>
+        <summary className="min-h-11 cursor-pointer content-center text-xs text-[#BDBDC7] focus-visible:outline-2 focus-visible:outline-[#FFFF00]">Ver cifras por día</summary>
       <div className="overflow-x-auto">
       <table className="w-full text-right text-xs tabular-nums text-[#CFCFD7] [&_td]:py-1.5 [&_th]:py-1.5">
         <caption className="sr-only">{title}: acumulado actual y referencia histórica</caption>

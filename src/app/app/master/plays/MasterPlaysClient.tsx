@@ -355,9 +355,9 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-const inputClass = 'h-9 w-full rounded-xl border border-[#2A2A35] bg-[#0B0B0D] px-3 text-xs text-[#F5F5F7] outline-none transition placeholder:text-[#5F5F6D] focus:border-[#FEEF00]/70';
-const buttonSecondary = 'inline-flex h-9 items-center justify-center rounded-xl border border-[#343440] bg-[#121218] px-3 text-xs font-semibold text-[#D1D1DA] transition hover:border-[#FEEF00]/50 disabled:cursor-not-allowed disabled:opacity-45';
-const buttonPrimary = 'inline-flex h-9 items-center justify-center rounded-xl bg-[#FEEF00] px-4 text-xs font-bold text-[#0B0B0D] transition hover:bg-[#FFF45A] disabled:cursor-not-allowed disabled:opacity-45';
+const inputClass = 'h-9 w-full rounded-xl border border-[#2A2A35] bg-[#0B0B0D] px-3 text-xs text-[#F5F5F7] outline-none transition placeholder:text-[#5F5F6D] focus:border-[#FFFF00]/70';
+const buttonSecondary = 'inline-flex h-9 items-center justify-center rounded-xl border border-[#343440] bg-[#121218] px-3 text-xs font-semibold text-[#D1D1DA] transition hover:border-[#FFFF00]/50 disabled:cursor-not-allowed disabled:opacity-45';
+const buttonPrimary = 'inline-flex h-9 items-center justify-center rounded-xl bg-[#FFFF00] px-4 text-xs font-bold text-[#0B0B0D] transition hover:bg-[#FFF45A] disabled:cursor-not-allowed disabled:opacity-45';
 
 function PlayProgress({ status, hasPreview }: { status: MasterPlay['status']; hasPreview: boolean }) {
   const stage = status === 'draft' ? (hasPreview ? 2 : 1) : status === 'frozen' ? 3 : 4;
@@ -374,8 +374,8 @@ function PlayProgress({ status, hasPreview }: { status: MasterPlay['status']; ha
         const complete = step.number < stage;
         const active = step.number === stage;
         return (
-          <div key={step.number} className={`flex items-center gap-2 border-r border-[#242433] px-3 py-2 last:border-r-0 ${active ? 'bg-[#FEEF00]/[0.07]' : ''}`}>
-            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${complete ? 'bg-emerald-400 text-black' : active ? 'bg-[#FEEF00] text-black' : 'bg-[#242433] text-[#777785]'}`}>
+          <div key={step.number} className={`flex items-center gap-2 border-r border-[#242433] px-3 py-2 last:border-r-0 ${active ? 'bg-[#FFFF00]/[0.07]' : ''}`}>
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${complete ? 'bg-emerald-400 text-black' : active ? 'bg-[#FFFF00] text-black' : 'bg-[#242433] text-[#777785]'}`}>
               {complete ? '✓' : step.number}
             </span>
             <div className="min-w-0">
@@ -653,7 +653,7 @@ function PlayDefinitionForm({
               type="button"
               disabled={!editable}
               onClick={() => applyPreset(option)}
-              className={`h-8 rounded-lg px-2 text-[10px] font-semibold transition ${kind === option ? 'bg-[#FEEF00] text-black' : 'text-[#8F8F9D] hover:bg-[#18181F] hover:text-white'} disabled:opacity-50`}
+              className={`h-8 rounded-lg px-2 text-[10px] font-semibold transition ${kind === option ? 'bg-[#FFFF00] text-black' : 'text-[#8F8F9D] hover:bg-[#18181F] hover:text-white'} disabled:opacity-50`}
             >
               {KIND_LABELS[option]}
             </button>
@@ -735,7 +735,7 @@ function PlayDefinitionForm({
             <button
               type="button"
               onClick={() => setBenefitSelectionMode('single')}
-              className={`rounded-xl border px-3 py-2 text-left transition ${benefitSelectionMode === 'single' ? 'border-[#FEEF00]/70 bg-[#FEEF00]/10 text-[#FFF18B]' : 'border-[#302B10] bg-[#0D0D0A] text-[#A89F68]'}`}
+              className={`rounded-xl border px-3 py-2 text-left transition ${benefitSelectionMode === 'single' ? 'border-[#FFFF00]/70 bg-[#FFFF00]/10 text-[#FFF18B]' : 'border-[#302B10] bg-[#0D0D0A] text-[#A89F68]'}`}
             >
               <span className="block text-[11px] font-semibold">Un solo obsequio</span>
               <span className="mt-0.5 block text-[9px] opacity-70">El asesor debe escoger exactamente una alternativa.</span>
@@ -743,7 +743,7 @@ function PlayDefinitionForm({
             <button
               type="button"
               onClick={() => setBenefitSelectionMode('multiple')}
-              className={`rounded-xl border px-3 py-2 text-left transition ${benefitSelectionMode === 'multiple' ? 'border-[#FEEF00]/70 bg-[#FEEF00]/10 text-[#FFF18B]' : 'border-[#302B10] bg-[#0D0D0A] text-[#A89F68]'}`}
+              className={`rounded-xl border px-3 py-2 text-left transition ${benefitSelectionMode === 'multiple' ? 'border-[#FFFF00]/70 bg-[#FFFF00]/10 text-[#FFF18B]' : 'border-[#302B10] bg-[#0D0D0A] text-[#A89F68]'}`}
             >
               <span className="block text-[11px] font-semibold">Combinación de obsequios</span>
               <span className="mt-0.5 block text-[9px] opacity-70">El asesor puede escoger uno o varios de la lista.</span>
@@ -983,7 +983,7 @@ function PlayDefinitionForm({
                           onChange={(event) => setCompatiblePlayIds((current) => event.target.checked
                             ? [...current, candidate.id]
                             : current.filter((id) => id !== candidate.id))}
-                          className="accent-[#FEEF00]"
+                          className="accent-[#FFFF00]"
                         />
                         <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
                         <span className="text-[#666675]">{STATUS_PRESENTATION[candidate.status].label}</span>
@@ -1175,7 +1175,7 @@ function PlayDefinitionForm({
                 <input className={inputClass} type="month" value={lastGiftTo} onChange={(event) => setLastGiftTo(event.target.value)} />
               </Field>
               <label className="mt-5 flex h-9 items-center gap-2 rounded-xl border border-[#2A2A35] bg-[#0B0B0D] px-3 text-[10px] text-[#B7B7C2]">
-                <input type="checkbox" checked={includeNeverGifted} onChange={(event) => setIncludeNeverGifted(event.target.checked)} className="accent-[#FEEF00]" />
+                <input type="checkbox" checked={includeNeverGifted} onChange={(event) => setIncludeNeverGifted(event.target.checked)} className="accent-[#FFFF00]" />
                 Incluir clientes que nunca recibieron obsequio
               </label>
             </div>
@@ -1296,7 +1296,7 @@ function PublishedPlayEditor({
                     type="button"
                     disabled={alreadyIncluded}
                     onClick={() => chooseClient(client)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-2.5 py-2 text-left transition ${selected ? 'border-[#FEEF00]/60 bg-[#FEEF00]/[0.05]' : 'border-[#242433] hover:border-[#414150]'} disabled:cursor-not-allowed disabled:opacity-45`}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-2.5 py-2 text-left transition ${selected ? 'border-[#FFFF00]/60 bg-[#FFFF00]/[0.05]' : 'border-[#242433] hover:border-[#414150]'} disabled:cursor-not-allowed disabled:opacity-45`}
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-[11px] font-semibold">{client.fullName}</span>
@@ -1716,7 +1716,7 @@ export default function MasterPlaysClient({
       <header className="sticky top-0 z-40 border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <Link href="/app/master/dashboard" className="flex h-9 items-center rounded-xl border border-[#2A2A35] px-3 text-xs text-[#B7B7C2] hover:border-[#FEEF00]/50 hover:text-white">← Dashboard</Link>
+            <Link href="/app/master/dashboard" className="flex h-9 items-center rounded-xl border border-[#2A2A35] px-3 text-xs text-[#B7B7C2] hover:border-[#FFFF00]/50 hover:text-white">← Dashboard</Link>
             <div className="min-w-0">
               <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[#777785]">CRM · B. Master 3.0</div>
               <h1 className="truncate text-base font-semibold">Diseño de jugadas</h1>
@@ -1749,7 +1749,7 @@ export default function MasterPlaysClient({
                 <Link
                   key={play.id}
                   href={`/app/master/plays?play=${play.id}`}
-                  className={`mb-1 block rounded-xl border px-3 py-2.5 transition ${active ? 'border-[#FEEF00]/70 bg-[#FEEF00]/[0.06]' : 'border-transparent hover:border-[#2A2A35] hover:bg-[#16161D]'}`}
+                  className={`mb-1 block rounded-xl border px-3 py-2.5 transition ${active ? 'border-[#FFFF00]/70 bg-[#FFFF00]/[0.06]' : 'border-transparent hover:border-[#2A2A35] hover:bg-[#16161D]'}`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">

@@ -307,7 +307,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
       {count.parentCountId != null || childrenCounts.length > 0 ? (
         <div className="mt-4 flex flex-wrap gap-2 rounded-2xl border border-[#242433] bg-[#111117] p-4 text-sm">
           {count.parentCountId != null ? (
-            <Link href={`/app/inventory/counts/${count.parentCountId}`} prefetch={false} className="text-[#FEEF00]">
+            <Link href={`/app/inventory/counts/${count.parentCountId}`} prefetch={false} className="text-[#FFFF00]">
               Conteo padre · {inventoryCountFolio(count.parentCountId)}
             </Link>
           ) : null}
@@ -361,7 +361,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
                             ? line.lineStatus !== 'submitted'
                             : line.lineStatus !== 'accepted')
                         }
-                        className="h-4 w-4 accent-[#FEEF00]"
+                        className="h-4 w-4 accent-[#FFFF00]"
                       />
                     </td>
                   ) : null}
@@ -392,7 +392,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
                         }
                         disabled={isPending}
                         placeholder="Conteo ciego"
-                        className="w-36 rounded-lg border border-[#343444] bg-[#0D0D12] px-3 py-2 text-right text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-60"
+                        className="w-36 rounded-lg border border-[#343444] bg-[#0D0D12] px-3 py-2 text-right text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-60"
                       />
                     ) : formatQuantity(line.countedQuantityUnits)}
                   </td>
@@ -427,7 +427,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
               maxLength={1000}
               rows={3}
               disabled={isPending}
-              className="w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-60"
+              className="w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-60"
             />
           </label>
 
@@ -453,7 +453,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
                 type="button"
                 onClick={handleOpenCountSubmit}
                 disabled={isPending}
-                className="rounded-xl bg-[#FEEF00] px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40"
+                className="rounded-xl bg-[#FFFF00] px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40"
               >
                 {isPending ? 'Presentando…' : 'Presentar reconteo'}
               </button>

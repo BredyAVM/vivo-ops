@@ -61,7 +61,7 @@ export default function InventoryNavigation({ isAdmin }: { isAdmin: boolean }) {
         );
       })}
 
-      <details className="group relative">
+      <details className="group relative max-w-full open:w-full sm:open:w-auto">
         <summary
           className={secondaryActive
             ? 'cursor-pointer list-none rounded-xl border border-[#FFFF00]/60 bg-[#FFFF00]/10 px-3 py-2 text-sm font-semibold text-[#FFFF00] marker:hidden'
@@ -69,7 +69,7 @@ export default function InventoryNavigation({ isAdmin }: { isAdmin: boolean }) {
         >
           Más herramientas <span aria-hidden="true" className="ml-1 text-xs">▾</span>
         </summary>
-        <div className="absolute right-0 z-30 mt-2 w-64 rounded-2xl border border-[#30303E] bg-[#15151D] p-2 shadow-2xl shadow-black/50">
+        <div className="mt-2 w-full rounded-2xl border border-[#30303E] bg-[#15151D] p-2 shadow-2xl shadow-black/50 sm:absolute sm:right-0 sm:z-30 sm:w-64">
           {secondaryItems.map((item) => {
             const active = isCurrentPath(pathname, item);
             return (

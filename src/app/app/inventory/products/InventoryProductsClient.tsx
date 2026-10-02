@@ -133,13 +133,13 @@ export default function InventoryProductsClient({ products }: { products: Invent
             onChange={(event) => setSearch(event.target.value)}
             aria-label="Buscar productos"
             placeholder="Buscar producto, SKU o ítem"
-            className="min-w-[250px] rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm outline-none placeholder:text-[#696975] focus:border-[#FEEF00]/60"
+            className="min-w-[250px] rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm outline-none placeholder:text-[#696975] focus:border-[#FFFF00]/60"
           />
           <select
             value={policyFilter}
             onChange={(event) => setPolicyFilter(event.target.value as PolicyFilter)}
             aria-label="Filtrar por política de inventario"
-            className="rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm outline-none focus:border-[#FEEF00]/60"
+            className="rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm outline-none focus:border-[#FFFF00]/60"
           >
             <option value="all">Todas las políticas</option>
             <option value="self">Inventario propio</option>
@@ -183,7 +183,7 @@ export default function InventoryProductsClient({ products }: { products: Invent
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="font-semibold text-[#FEEF00]">
+                  <div className="font-semibold text-[#FFFF00]">
                     {policyLabels[product.inventoryPolicy]}
                   </div>
                   <div className="mt-1 max-w-[250px] text-xs text-[#8F8F9C]">

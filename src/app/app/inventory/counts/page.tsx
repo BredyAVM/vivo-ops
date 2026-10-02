@@ -109,7 +109,7 @@ export default async function InventoryCountsPage() {
                       <Link
                         href={`/app/inventory/counts/${count.id}`}
                         prefetch={false}
-                        className="text-[#FEEF00] hover:underline"
+                        className="text-[#FFFF00] hover:underline"
                       >
                         {inventoryCountTitle({
                           countKind: count.count_kind,
@@ -143,7 +143,7 @@ export default async function InventoryCountsPage() {
             <Link
               href="/app/inventory"
               prefetch={false}
-              className="mt-5 inline-flex rounded-xl border border-[#FEEF00]/50 px-3 py-2 text-sm font-semibold text-[#FEEF00]"
+              className="mt-5 inline-flex rounded-xl border border-[#FFFF00]/50 px-3 py-2 text-sm font-semibold text-[#FFFF00]"
             >
               Volver al catálogo
             </Link>

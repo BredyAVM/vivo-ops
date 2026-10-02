@@ -41,7 +41,7 @@ export default function AdminSignOutButton({ compact = false }: AdminSignOutButt
         disabled={isSigningOut}
         aria-label={compact ? 'Cerrar sesión' : undefined}
         className={[
-          'min-h-11 rounded-xl border border-[#323240] bg-[#17171F] px-3 py-2 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#555568] hover:bg-[#1C1C26] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00] disabled:cursor-wait disabled:opacity-60',
+          'min-h-11 rounded-xl border border-[#323240] bg-[#17171F] px-3 py-2 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#555568] hover:bg-[#1C1C26] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00] disabled:cursor-wait disabled:opacity-60',
           compact ? 'min-w-14' : 'w-full',
           error ? 'border-red-400/50 text-red-100' : '',
         ].join(' ')}

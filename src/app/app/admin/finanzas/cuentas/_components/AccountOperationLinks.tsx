@@ -7,11 +7,11 @@ export default function AccountOperationLinks({ accountId }: { accountId?: numbe
     <Link href="/app/admin/autorizaciones?tipo=expense" prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs font-medium text-[#C8C8D1] sm:min-h-8">Autorizar egresos</Link>
     {([['inflow', '+ Ingreso'], ['outflow', '− Egreso']] as const).map(([direction, label]) => (
       <Link key={direction} href={adminMovementHref(direction, accountId)} prefetch={false}
-        className="inline-flex min-h-11 items-center rounded-lg border border-[#FEEF00]/50 px-3 text-xs font-medium text-[#FEEF00] hover:bg-[#FEEF00]/10 sm:min-h-8">
+        className="inline-flex min-h-11 items-center rounded-lg border border-[#FFFF00]/50 px-3 text-xs font-medium text-[#FFFF00] hover:bg-[#FFFF00]/10 sm:min-h-8">
         {label}
       </Link>
     ))}
     <Link href={`/app/admin/finanzas/cuentas/transferencia${accountId ? `?cuenta=${accountId}` : ''}`} prefetch={false}
-      className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs font-medium text-[#C8C8D1] hover:border-[#FEEF00]/50 sm:min-h-8">Transferir</Link>
+      className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs font-medium text-[#C8C8D1] hover:border-[#FFFF00]/50 sm:min-h-8">Transferir</Link>
   </nav>;
 }

@@ -15,14 +15,14 @@ export default function AdminError({ reset }: { error: Error & { digest?: string
         <button
           type="button"
           onClick={reset}
-          className="min-h-12 rounded-xl bg-[#FEEF00] px-5 text-sm font-bold text-[#0B0B0D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+          className="min-h-12 rounded-xl bg-[#FFFF00] px-5 text-sm font-bold text-[#0B0B0D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
         >
           Intentar de nuevo
         </button>
         <Link
           href="/app/master/dashboard"
           prefetch={false}
-          className="flex min-h-12 items-center justify-center rounded-xl border border-[#343443] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+          className="flex min-h-12 items-center justify-center rounded-xl border border-[#343443] bg-[#17171F] px-5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
         >
           Abrir panel actual
         </Link>

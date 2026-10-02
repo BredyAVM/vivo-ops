@@ -55,7 +55,7 @@ export default async function InventoryReadinessPage() {
     <section className="space-y-6">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FFFF00]">
             Bloque 16
           </div>
           <h2 className="mt-1 text-2xl font-semibold">Preparación del corte canónico</h2>
@@ -125,7 +125,7 @@ export default async function InventoryReadinessPage() {
             <Link
               href="/app/inventory/recipes"
               prefetch={false}
-              className="rounded-xl border border-[#3A3A48] px-3 py-2 text-sm text-[#E5E5EA] hover:border-[#FEEF00]/60"
+              className="rounded-xl border border-[#3A3A48] px-3 py-2 text-sm text-[#E5E5EA] hover:border-[#FFFF00]/60"
             >
               Abrir producción
             </Link>
@@ -197,7 +197,7 @@ export default async function InventoryReadinessPage() {
           <Link
             href="/app/inventory/opening"
             prefetch={false}
-            className="mt-5 inline-flex rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-black"
+            className="mt-5 inline-flex rounded-xl bg-[#FFFF00] px-4 py-2 text-sm font-semibold text-black"
           >
             Ver apertura física
           </Link>
@@ -265,7 +265,7 @@ function CheckGroup({ title, description, checks }: {
 function RunbookStep({ number, title, detail }: { number: string; title: string; detail: string }) {
   return (
     <li className="flex gap-3">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#FEEF00] text-xs font-bold text-black">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#FFFF00] text-xs font-bold text-black">
         {number}
       </span>
       <div>

@@ -88,7 +88,7 @@ function PerformanceBar({ label, value, total, tone }: {
   const pct = percentage(value, total);
   const colors = {
     green: 'bg-emerald-300',
-    yellow: 'bg-[#FEEF00]',
+    yellow: 'bg-[#FFFF00]',
     orange: 'bg-orange-300',
     red: 'bg-red-300',
     gray: 'bg-[#72727F]',
@@ -108,7 +108,7 @@ function StatusBadge({ overdue }: { overdue: boolean }) {
   return overdue ? (
     <span className="inline-flex rounded-full bg-red-300/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-red-200">Vencido</span>
   ) : (
-    <span className="inline-flex rounded-full bg-[#FEEF00]/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#FFF57A]">En plazo</span>
+    <span className="inline-flex rounded-full bg-[#FFFF00]/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#FFF57A]">En plazo</span>
   );
 }
 
@@ -157,7 +157,7 @@ export default function ReceivablesOverview({ overview, filters, basePath }: Pro
                 href={hrefFor(basePath, filters, { period: key, page: 1 })}
                 prefetch={false}
                 aria-current={filters.period === key ? 'page' : undefined}
-                className={`rounded-md px-2.5 py-1.5 font-semibold ${filters.period === key ? 'bg-[#FEEF00] text-[#0B0B0D]' : 'text-[#A9A9B4] hover:text-white'}`}
+                className={`rounded-md px-2.5 py-1.5 font-semibold ${filters.period === key ? 'bg-[#FFFF00] text-[#0B0B0D]' : 'text-[#A9A9B4] hover:text-white'}`}
               >
                 {label}
               </Link>
@@ -196,11 +196,11 @@ export default function ReceivablesOverview({ overview, filters, basePath }: Pro
         <input type="hidden" name="period" value={filters.period} />
         <label>
           <span className="sr-only">Buscar orden, cliente o asesor</span>
-          <input name="q" type="search" defaultValue={filters.q} placeholder="Orden, cliente o asesor" className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-3 text-sm text-white outline-none placeholder:text-[#6F6F7C] focus:border-[#FEEF00]/60" />
+          <input name="q" type="search" defaultValue={filters.q} placeholder="Orden, cliente o asesor" className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-3 text-sm text-white outline-none placeholder:text-[#6F6F7C] focus:border-[#FFFF00]/60" />
         </label>
         <label>
           <span className="sr-only">Estado de cartera</span>
-          <select name="estado" defaultValue={filters.status} className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60">
+          <select name="estado" defaultValue={filters.status} className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60">
             <option value="all">Toda la cartera</option>
             <option value="overdue_open">Vencida</option>
             <option value="credit_open">En plazo</option>
@@ -208,13 +208,13 @@ export default function ReceivablesOverview({ overview, filters, basePath }: Pro
         </label>
         <label>
           <span className="sr-only">Ordenar cartera</span>
-          <select name="orden" defaultValue={filters.sort} className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60">
+          <select name="orden" defaultValue={filters.sort} className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60">
             <option value="age_desc">Más antiguo</option>
             <option value="pending_desc">Mayor saldo</option>
             <option value="client">Cliente</option>
           </select>
         </label>
-        <button type="submit" className="h-10 rounded-lg bg-[#FEEF00] px-4 text-xs font-black text-[#0B0B0D] hover:bg-[#fff45a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]">Aplicar</button>
+        <button type="submit" className="h-10 rounded-lg bg-[#FFFF00] px-4 text-xs font-black text-[#0B0B0D] hover:bg-[#fff45a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]">Aplicar</button>
       </form>
 
       <div className="flex min-h-6 items-center justify-between gap-3 text-xs text-[#848491]">
@@ -236,7 +236,7 @@ export default function ReceivablesOverview({ overview, filters, basePath }: Pro
                   const overdue = order.collectionStatus === 'overdue_open';
                   return (
                     <tr key={order.id} className="transition hover:bg-[#17171F]">
-                      <td className="px-3 py-3"><Link href={`/app/admin/ordenes?openOrder=${order.id}&tab=pagos`} prefetch={false} className="font-semibold text-white hover:text-[#FEEF00]">{order.orderNumber}</Link></td>
+                      <td className="px-3 py-3"><Link href={`/app/admin/ordenes?openOrder=${order.id}&tab=pagos`} prefetch={false} className="font-semibold text-white hover:text-[#FFFF00]">{`#${order.id}`}</Link></td>
                       <td className="px-3 py-3"><p className="truncate font-semibold text-[#E3E3E9]">{order.clientName}</p><p className="mt-0.5 truncate text-[11px] text-[#777784]">{order.advisorName}</p></td>
                       <td className="px-3 py-3"><StatusBadge overdue={overdue} /><p className="mt-1 text-[11px] text-[#8D8D99]">{date(order.deliveryDate)} · {order.ageDays} días</p></td>
                       <td className="px-3 py-3 font-semibold text-white tabular-nums">{money(order.totalUsd)}</td>
@@ -253,8 +253,8 @@ export default function ReceivablesOverview({ overview, filters, basePath }: Pro
             {result.orders.map((order) => {
               const overdue = order.collectionStatus === 'overdue_open';
               return (
-                <Link key={order.id} href={`/app/admin/ordenes?openOrder=${order.id}&tab=pagos`} prefetch={false} className="rounded-xl border border-[#292937] bg-[#111117] p-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]">
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-white">{order.orderNumber}</p><p className="mt-0.5 truncate text-xs text-[#A1A1AC]">{order.clientName}</p></div><StatusBadge overdue={overdue} /></div>
+                <Link key={order.id} href={`/app/admin/ordenes?openOrder=${order.id}&tab=pagos`} prefetch={false} className="rounded-xl border border-[#292937] bg-[#111117] p-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]">
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-white">{`#${order.id}`}</p><p className="mt-0.5 truncate text-xs text-[#A1A1AC]">{order.clientName}</p></div><StatusBadge overdue={overdue} /></div>
                   <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[#272734] pt-2.5 text-xs"><div><p className="text-[10px] uppercase text-[#777784]">Pendiente</p><p className={`mt-0.5 font-semibold tabular-nums ${overdue ? 'text-red-200' : 'text-orange-200'}`}>{money(order.pendingUsd)}</p></div><div><p className="text-[10px] uppercase text-[#777784]">Abonado</p><p className="mt-0.5 font-semibold text-emerald-200 tabular-nums">{money(order.confirmedPaidUsd)}</p></div><div><p className="text-[10px] uppercase text-[#777784]">Antigüedad</p><p className="mt-0.5 font-semibold text-white tabular-nums">{order.ageDays} días</p></div></div>
                 </Link>
               );

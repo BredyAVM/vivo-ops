@@ -46,8 +46,8 @@ export type InventoryEventDispatch = {
 type DispatchDraftLine = { key: string; inventoryItemId: string; quantityUnits: string };
 type Section = 'dispatch' | 'reconcile' | 'history';
 
-const INPUT_CLASS = 'w-full rounded-xl border border-[#343444] bg-[#0B0B10] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-50';
-const PRIMARY_BUTTON = 'rounded-xl bg-[#FEEF00] px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40';
+const INPUT_CLASS = 'w-full rounded-xl border border-[#343444] bg-[#0B0B10] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-50';
+const PRIMARY_BUTTON = 'rounded-xl bg-[#FFFF00] px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40';
 const SECONDARY_BUTTON = 'rounded-xl border border-[#383847] bg-[#17171F] px-4 py-2.5 text-sm font-semibold text-[#D7D7DF] disabled:opacity-40';
 
 function newLine(): DispatchDraftLine {
@@ -148,7 +148,7 @@ function DispatchForm({ items, orders }: { items: InventoryEventItem[]; orders: 
         <span className="mb-2 block">Orden del evento</span>
         <select value={orderId} onChange={(event) => setOrderId(event.target.value)} disabled={isPending} className={INPUT_CLASS}>
           <option value="">Seleccionar orden…</option>
-          {orders.map((order) => <option key={order.id} value={order.id}>{order.orderNumber} · {order.status}</option>)}
+          {orders.map((order) => <option key={order.id} value={order.id}>{`#${order.id}`} · {order.status}</option>)}
         </select>
       </label>
 
@@ -188,7 +188,7 @@ function ReconciliationSelector({ dispatches }: { dispatches: InventoryEventDisp
         <span className="mb-2 block">Despacho pendiente</span>
         <select value={dispatchId} onChange={(event) => setDispatchId(event.target.value)} className={INPUT_CLASS}>
           <option value="">Seleccionar despacho…</option>
-          {dispatches.map((candidate) => <option key={candidate.eventId} value={candidate.eventId}>{candidate.orderNumber} · {dateTime(candidate.createdAt)}</option>)}
+          {dispatches.map((candidate) => <option key={candidate.eventId} value={candidate.eventId}>{`#${candidate.orderId}`} · {dateTime(candidate.createdAt)}</option>)}
         </select>
       </label>
       {dispatch ? <ReconciliationForm key={dispatch.eventId} dispatch={dispatch} /> : (
@@ -242,7 +242,7 @@ function ReconciliationForm({ dispatch }: { dispatch: InventoryEventDispatch }) 
 
   return (
     <div className="mt-4 rounded-xl border border-[#302D3F] bg-[#15131D] p-4">
-      <div className="font-semibold">{dispatch.orderNumber}</div>
+      <div className="font-semibold">{`#${dispatch.orderId}`}</div>
       <div className="mt-3 space-y-3">
         {dispatch.lines.map((source) => {
           const line = lines.find((candidate) => candidate.inventoryItemId === source.inventoryItemId)!;
@@ -275,10 +275,10 @@ function DispatchHistory({ dispatches }: { dispatches: InventoryEventDispatch[] 
       {dispatches.map((dispatch) => (
         <article key={dispatch.eventId} className="rounded-xl border border-[#302D3F] bg-[#15131D] p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div><div className="font-semibold">{dispatch.orderNumber}</div><div className="mt-1 text-xs text-[#858591]">{dateTime(dispatch.createdAt)} · {dispatch.lines.length} ítems</div></div>
+            <div><div className="font-semibold">{`#${dispatch.orderId}`}</div><div className="mt-1 text-xs text-[#858591]">{dateTime(dispatch.createdAt)} · {dispatch.lines.length} ítems</div></div>
             <div className={dispatch.reconciled ? 'text-xs text-emerald-200' : 'text-xs text-amber-200'}>{dispatch.reconciled ? 'Conciliado' : 'Pendiente'}</div>
           </div>
-          <Link href={`/app/master/ops?openOrder=${dispatch.orderId}&tab=eventos`} prefetch={false} className="mt-3 inline-block text-xs font-semibold text-[#FEEF00] hover:underline">Ver orden</Link>
+          <Link href={`/app/master/ops?openOrder=${dispatch.orderId}&tab=eventos`} prefetch={false} className="mt-3 inline-block text-xs font-semibold text-[#FFFF00] hover:underline">Ver orden</Link>
         </article>
       ))}
     </div>

@@ -165,7 +165,7 @@ export default function InventoryOpeningClient({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Ej. tequeños, salsa o bebida"
-            className="w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-white outline-none focus:border-[#FEEF00]/70"
+            className="w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-white outline-none focus:border-[#FFFF00]/70"
           />
         </label>
         <div className="text-sm text-[#92929F]">
@@ -220,7 +220,7 @@ export default function InventoryOpeningClient({
                         }
                         disabled={isPending}
                         placeholder="Conteo ciego"
-                        className="w-40 rounded-lg border border-[#343444] bg-[#0D0D12] px-3 py-2 text-right font-semibold text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-60"
+                        className="w-40 rounded-lg border border-[#343444] bg-[#0D0D12] px-3 py-2 text-right font-semibold text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-60"
                       />
                     ) : item.openingStatus === 'pending' ? (
                       <span className="text-[#7F7F8C]">Requiere administración</span>
@@ -245,7 +245,7 @@ export default function InventoryOpeningClient({
               maxLength={1000}
               rows={3}
               disabled={isPending}
-              className="w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-60"
+              className="w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-60"
             />
           </label>
 
@@ -255,7 +255,7 @@ export default function InventoryOpeningClient({
               checked={maintenanceConfirmed}
               onChange={(event) => setMaintenanceConfirmed(event.target.checked)}
               disabled={isPending}
-              className="mt-0.5 h-4 w-4 accent-[#FEEF00]"
+              className="mt-0.5 h-4 w-4 accent-[#FFFF00]"
             />
             <span>Confirmo que no se cerrarán entregas durante esta ventana física de apertura.</span>
           </label>
@@ -275,7 +275,7 @@ export default function InventoryOpeningClient({
               type="button"
               onClick={handleSubmit}
               disabled={isPending || filledPendingCount === 0 || !maintenanceConfirmed}
-              className="rounded-xl bg-[#FEEF00] px-4 py-2.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-xl bg-[#FFFF00] px-4 py-2.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isPending ? 'Presentando…' : `Presentar ${filledPendingCount} ítems`}
             </button>

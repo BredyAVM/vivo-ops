@@ -104,7 +104,7 @@ type CaptureDraft = {
 };
 
 const inputClass =
-  'w-full rounded-lg border border-[#343444] bg-[#0D0D12] px-3 py-2 text-sm text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-50';
+  'w-full rounded-lg border border-[#343444] bg-[#0D0D12] px-3 py-2 text-sm text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-50';
 
 function emptyCapture(): CaptureDraft {
   return {
@@ -421,7 +421,7 @@ export default function InventoryReceiptWorkspaceClient({
             </label>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" onClick={submitExpectation} disabled={isPending} className="rounded-lg bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black disabled:opacity-50">
+              <button type="button" onClick={submitExpectation} disabled={isPending} className="rounded-lg bg-[#FFFF00] px-4 py-2 text-sm font-bold text-black disabled:opacity-50">
                 {isPending ? 'Guardando…' : replacesFlowId ? 'Reemplazar expectativa' : 'Guardar expectativa'}
               </button>
               {replacesFlowId ? (
@@ -491,7 +491,7 @@ export default function InventoryReceiptWorkspaceClient({
               <span className="mb-1.5 block">Nota opcional</span>
               <textarea value={receiptNotes} onChange={(event) => setReceiptNotes(event.target.value)} maxLength={1000} disabled={isPending} className={`${inputClass} min-h-20`} />
             </label>
-            <button type="button" onClick={submitReceipt} disabled={isPending || !selectedReceiptItem?.initialized} className="mt-4 rounded-lg bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black disabled:opacity-40">
+            <button type="button" onClick={submitReceipt} disabled={isPending || !selectedReceiptItem?.initialized} className="mt-4 rounded-lg bg-[#FFFF00] px-4 py-2 text-sm font-bold text-black disabled:opacity-40">
               {isPending ? 'Registrando…' : 'Registrar entrada real'}
             </button>
           </article>
@@ -676,7 +676,7 @@ function CaptureEditor({
             <button type="button" onClick={addLine} disabled={disabled || !itemId || available.length === capture.lines.length} className="rounded-lg border border-[#3A3A48] px-3 py-2 text-xs text-[#D0D0D8] disabled:opacity-35">
               Añadir presentación
             </button>
-            <div className="text-sm font-semibold text-[#FEEF00]">
+            <div className="text-sm font-semibold text-[#FFFF00]">
               Total: {formatQuantity(total)} {item?.unit_name ?? 'unidades base'}
             </div>
           </div>

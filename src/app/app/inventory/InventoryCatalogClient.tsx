@@ -127,12 +127,12 @@ export default function InventoryCatalogClient({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Buscar producto o ítem"
-            className="min-w-[240px] rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm outline-none placeholder:text-[#696975] focus:border-[#FEEF00]/60"
+            className="min-w-[240px] rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm outline-none placeholder:text-[#696975] focus:border-[#FFFF00]/60"
           />
           <select
             value={filterMode}
             onChange={(event) => setFilterMode(event.target.value as FilterMode)}
-            className="rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm outline-none focus:border-[#FEEF00]/60"
+            className="rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm outline-none focus:border-[#FFFF00]/60"
           >
             <option value="tracked">Control activo</option>
             <option value="low_stock">Nivel bajo</option>
@@ -149,7 +149,7 @@ export default function InventoryCatalogClient({
       {filterMode === 'missing_minimum' && canConfigure ? (
         <div className="flex flex-col gap-3 border-b border-sky-400/20 bg-sky-400/5 px-4 py-3 text-sm text-sky-100 sm:flex-row sm:items-center sm:justify-between">
           <span>Estos ítems operan correctamente, pero todavía no tienen definido cuándo encender su alerta de procura.</span>
-          <Link href="/app/inventory/configure?view=edit" prefetch={false} className="font-semibold text-[#FEEF00] hover:underline">
+          <Link href="/app/inventory/configure?view=edit" prefetch={false} className="font-semibold text-[#FFFF00] hover:underline">
             Configurar mínimos
           </Link>
         </div>

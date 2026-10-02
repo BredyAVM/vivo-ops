@@ -1,5 +1,10 @@
 # Administración operativa: hoja de ruta vigente
 
+Actualización del 1 de octubre: cobertura modular y límites pendientes en
+`ADMIN_MODULAR_COMPLETION_2026-10-01.md`. La configuración segura de cuentas y
+usuarios está preparada, pero su instalación en producción NO está autorizada
+ni aplicada en este corte. El panel anterior conserva esas operaciones.
+
 Actualización del 15 de septiembre: el orden vigente de los diez bloques y el
 corte de cuentas/conciliación están en `ADMIN_ACCOUNTS_RECONCILIATION_2026-09-15.md`.
 Los pendientes de este documento describen el corte del 12 y no deben usarse

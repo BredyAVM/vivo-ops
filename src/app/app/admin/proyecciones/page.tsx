@@ -41,7 +41,7 @@ export default async function ProjectionsPage({ searchParams }: {
         <label className="grid gap-1 text-xs text-[#BDBDC7]">Crecimiento esperado (%)
           <input type="number" name="growth" min="0" max="100" step="0.1" defaultValue={options.growthPct} required className={`${field} w-36`} />
         </label>
-        <button type="submit" className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-xs font-semibold text-black">Calcular referencia</button>
+        <button type="submit" className="min-h-11 rounded-lg bg-[#FFFF00] px-4 text-xs font-semibold text-black">Calcular referencia</button>
         <p className="basis-full text-[11px] text-[#9B9BA7]">Promedio semanal × (1 + crecimiento). Escenario del negocio; no modifica las metas de asesores.</p>
       </form>
       {!executive ? <p className="text-xs text-[#9B9BA7]">Elige la base y calcula cuando necesites consultarla.</p> : null}
@@ -55,8 +55,8 @@ export default async function ProjectionsPage({ searchParams }: {
           <table className="w-full text-right text-xs tabular-nums [&_td]:py-2 [&_th]:py-2">
             <thead className="text-[10px] text-[#9B9BA7]"><tr><th scope="col" className="text-left">Indicador</th><th scope="col">Promedio</th><th scope="col">Referencia</th><th scope="col">Registrado*</th></tr></thead>
             <tbody className="divide-y divide-[#272734] text-[#D8D8DF]">
-              <tr><th scope="row" className="text-left font-medium">Fact. neta</th><td>{currency.format(projection.history.reduce((sum, week) => sum + week.commercialNetUsd, 0) / projection.historyWeeks)}</td><td className="font-semibold text-[#FEEF00]">{currency.format(projection.weeklyReferenceUsd)}</td><td>{currency.format(projection.week.commercialNetUsd)}</td></tr>
-              <tr><th scope="row" className="text-left font-medium">Cierres</th><td>{number.format(projection.history.reduce((sum, week) => sum + week.closures, 0) / projection.historyWeeks)}</td><td className="font-semibold text-[#FEEF00]">{number.format(projection.weeklyReferenceClosures)}</td><td>{projection.week.closures}</td></tr>
+              <tr><th scope="row" className="text-left font-medium">Fact. neta</th><td>{currency.format(projection.history.reduce((sum, week) => sum + week.commercialNetUsd, 0) / projection.historyWeeks)}</td><td className="font-semibold text-[#FFFF00]">{currency.format(projection.weeklyReferenceUsd)}</td><td>{currency.format(projection.week.commercialNetUsd)}</td></tr>
+              <tr><th scope="row" className="text-left font-medium">Cierres</th><td>{number.format(projection.history.reduce((sum, week) => sum + week.closures, 0) / projection.historyWeeks)}</td><td className="font-semibold text-[#FFFF00]">{number.format(projection.weeklyReferenceClosures)}</td><td>{projection.week.closures}</td></tr>
             </tbody>
           </table>
           <p className="mt-2 text-[10px] text-[#9B9BA7]">*Incluye órdenes ya registradas para próximos días de esta semana. No es una proyección de utilidad ni de dinero cobrado.</p>

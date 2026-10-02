@@ -30,7 +30,7 @@ export type InventoryAdminPilotMovement = {
   createdAt: string;
 };
 
-const inputClass = 'w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FEEF00]/70 disabled:opacity-50';
+const inputClass = 'w-full rounded-xl border border-[#30303F] bg-[#0D0D12] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FFFF00]/70 disabled:opacity-50';
 
 const reasonOptions = [
   { value: 'physical_verification', label: 'Verificación física' },
@@ -137,10 +137,10 @@ export default function InventoryAdminPilotClient({
       <div className="mt-5 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <article className="rounded-2xl border border-[#292938] bg-[#111117] p-5">
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setMode('count')} className={mode === 'count' ? 'rounded-xl bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black' : 'rounded-xl border border-[#343442] px-3 py-2 text-sm font-semibold'}>
+            <button type="button" onClick={() => setMode('count')} className={mode === 'count' ? 'rounded-xl bg-[#FFFF00] px-3 py-2 text-sm font-bold text-black' : 'rounded-xl border border-[#343442] px-3 py-2 text-sm font-semibold'}>
               Conteo físico
             </button>
-            <button type="button" onClick={() => setMode('adjustment')} className={mode === 'adjustment' ? 'rounded-xl bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black' : 'rounded-xl border border-[#343442] px-3 py-2 text-sm font-semibold'}>
+            <button type="button" onClick={() => setMode('adjustment')} className={mode === 'adjustment' ? 'rounded-xl bg-[#FFFF00] px-3 py-2 text-sm font-bold text-black' : 'rounded-xl border border-[#343442] px-3 py-2 text-sm font-semibold'}>
               Ajuste administrativo
             </button>
           </div>
@@ -193,7 +193,7 @@ export default function InventoryAdminPilotClient({
           {message ? <div className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">{message}</div> : null}
           {error ? <div role="alert" className="mt-4 rounded-xl border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</div> : null}
 
-          <button type="button" onClick={submit} disabled={isPending || !selectedItem || !targetQuantity.trim()} className="mt-4 w-full rounded-xl bg-[#FEEF00] px-4 py-2.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40">
+          <button type="button" onClick={submit} disabled={isPending || !selectedItem || !targetQuantity.trim()} className="mt-4 w-full rounded-xl bg-[#FFFF00] px-4 py-2.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40">
             {isPending ? 'Registrando…' : mode === 'count' ? 'Registrar conteo y actualizar saldo' : 'Aplicar ajuste trazable'}
           </button>
         </article>

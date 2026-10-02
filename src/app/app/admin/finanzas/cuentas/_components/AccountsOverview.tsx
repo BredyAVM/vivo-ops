@@ -285,7 +285,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
             name="q"
             defaultValue={filters.q}
             placeholder="Buscar cuenta"
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-3 text-sm text-white outline-none placeholder:text-[#6F6F7C] focus:border-[#FEEF00]/60"
+            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-3 text-sm text-white outline-none placeholder:text-[#6F6F7C] focus:border-[#FFFF00]/60"
           />
         </label>
         <label>
@@ -293,7 +293,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
           <select
             name="grupo"
             defaultValue={filters.group}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60"
+            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
           >
             <option value="all">Todos los grupos</option>
             {Object.entries(FINANCE_WORKSTREAM_LABELS).map(([value, label]) => (
@@ -308,7 +308,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
           <select
             name="moneda"
             defaultValue={filters.currency}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60"
+            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
           >
             <option value="all">Toda moneda</option>
             <option value="USD">USD</option>
@@ -320,7 +320,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
           <select
             name="estado"
             defaultValue={filters.state}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60"
+            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
           >
             <option value="active">Activas</option>
             <option value="inactive">Inactivas</option>
@@ -332,7 +332,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
           <select
             name="calidad"
             defaultValue={filters.quality}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60"
+            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
           >
             <option value="all">Toda calidad</option>
             <option value="exact">Exacto</option>
@@ -346,7 +346,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
           <select
             name="orden"
             defaultValue={filters.sort}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60"
+            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
           >
             <option value="attention">Atención primero</option>
             <option value="balance_desc">Mayor saldo</option>
@@ -358,7 +358,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
           <select
             name="state"
             defaultValue={filters.attention}
-            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FEEF00]/60"
+            className="h-10 w-full rounded-lg border border-[#30303D] bg-[#17171F] px-2.5 text-xs font-semibold text-[#D6D6DE] outline-none focus:border-[#FFFF00]/60"
           >
             <option value="all">Toda atención</option>
             <option value="pending_movements">Movimientos</option>
@@ -369,7 +369,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
         </label>
         <button
           type="submit"
-          className="h-10 rounded-lg bg-[#FEEF00] px-4 text-xs font-black text-[#0B0B0D] transition hover:bg-[#fff45a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+          className="h-10 rounded-lg bg-[#FFFF00] px-4 text-xs font-black text-[#0B0B0D] transition hover:bg-[#fff45a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
         >
           Aplicar
         </button>
@@ -388,7 +388,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
         <section className="rounded-xl border border-dashed border-[#333341] px-4 py-8 text-center">
           <p className="text-sm font-semibold text-[#C8C8D1]">Sin cuentas para estos filtros</p>
           {hasFilters ? (
-            <Link href={rootPath} prefetch={false} className="mt-2 inline-flex text-xs font-semibold text-[#FEEF00]">
+            <Link href={rootPath} prefetch={false} className="mt-2 inline-flex text-xs font-semibold text-[#FFFF00]">
               Limpiar
             </Link>
           ) : null}
@@ -415,7 +415,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
                       <Link
                         href={accountHref(rootPath, account.id, filters.attention)}
                         prefetch={false}
-                        className="block rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+                        className="block rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
                       >
                         <AccountIdentity account={account} />
                       </Link>
@@ -452,7 +452,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
                 key={account.id}
                 href={accountHref(rootPath, account.id, filters.attention)}
                 prefetch={false}
-                className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] p-3 transition hover:border-[#FEEF00]/35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]"
+                className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] p-3 transition hover:border-[#FFFF00]/35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFFF00]"
               >
                 <div className="flex items-start justify-between gap-3">
                   <AccountIdentity account={account} />
@@ -498,7 +498,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
             <Link
               href={overviewHref(rootPath, filters, { page: result.page - 1 })}
               prefetch={false}
-              className="inline-flex min-h-9 items-center rounded-lg border border-[#30303D] px-3 text-xs font-semibold text-[#D5D5DD] hover:border-[#FEEF00]/40"
+              className="inline-flex min-h-9 items-center rounded-lg border border-[#30303D] px-3 text-xs font-semibold text-[#D5D5DD] hover:border-[#FFFF00]/40"
             >
               ← Anterior
             </Link>
@@ -512,7 +512,7 @@ export function AccountsOverview({ overview, filters, basePath }: AccountsOvervi
             <Link
               href={overviewHref(rootPath, filters, { page: result.page + 1 })}
               prefetch={false}
-              className="inline-flex min-h-9 items-center rounded-lg border border-[#30303D] px-3 text-xs font-semibold text-[#D5D5DD] hover:border-[#FEEF00]/40"
+              className="inline-flex min-h-9 items-center rounded-lg border border-[#30303D] px-3 text-xs font-semibold text-[#D5D5DD] hover:border-[#FFFF00]/40"
             >
               Siguiente →
             </Link>

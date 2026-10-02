@@ -12,7 +12,7 @@ const windowLabels: Record<ActiveOrderWindow, string> = {
 const moneyFormat = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const dayFormat = new Intl.DateTimeFormat('es-VE', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Caracas' });
 const cutoffFormat = new Intl.DateTimeFormat('es-VE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Caracas' });
-const control = 'min-h-11 rounded-xl border border-[#30303D] bg-[#111117] px-3 text-sm text-white focus-visible:outline-2 focus-visible:outline-[#FEEF00]';
+const control = 'min-h-11 rounded-xl border border-[#30303D] bg-[#111117] px-3 text-sm text-white focus-visible:outline-2 focus-visible:outline-[#FFFF00]';
 
 function href(filters: ActiveOrdersFilters, patch: Partial<ActiveOrdersFilters> = {}) {
   const next = { ...filters, page: 1, ...patch };
@@ -62,7 +62,7 @@ export default function ActiveOrdersOverview({ overview, filters }: { overview: 
       {filtered ? <p className="mb-2 text-xs text-[#A3A3AE]">Selección: {totals.orders} de {overview.summary.orders} pedidos</p> : null}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{cards.map(card => <article key={card.label} title={card.help} className="min-w-0 rounded-2xl border border-[#292937] bg-[#111117] p-3 sm:p-4">
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[#A3A3AE]">{card.label}</h2>
-        <p className={`mt-2 break-words text-xl font-semibold tracking-tight tabular-nums sm:text-2xl ${card.label === 'Por cobrar' ? 'text-[#FEEF00]' : 'text-white'}`}>{card.value}</p>
+        <p className={`mt-2 break-words text-xl font-semibold tracking-tight tabular-nums sm:text-2xl ${card.label === 'Por cobrar' ? 'text-[#FFFF00]' : 'text-white'}`}>{card.value}</p>
       </article>)}</div>
       <p className="mt-2 text-xs text-[#A3A3AE]">Agrupados por entrega programada; no por fecha prometida de pago. Cubierto incluye abonos y fondos aplicados.</p>
     </section>
@@ -72,7 +72,7 @@ export default function ActiveOrdersOverview({ overview, filters }: { overview: 
         const bucket = summarizeActiveOrders(orders);
         return <Link key={window} href={href(filters, { window, payment: 'all', q: '' })} prefetch={false}
           aria-current={filters.window === window ? 'page' : undefined}
-          className={`min-w-0 rounded-xl border p-3 focus-visible:outline-2 focus-visible:outline-[#FEEF00] ${filters.window === window ? 'border-[#FEEF00]/70 bg-[#FEEF00]/5' : 'border-[#292937] bg-[#111117]'}`}>
+          className={`min-w-0 rounded-xl border p-3 focus-visible:outline-2 focus-visible:outline-[#FFFF00] ${filters.window === window ? 'border-[#FFFF00]/70 bg-[#FFFF00]/5' : 'border-[#292937] bg-[#111117]'}`}>
           <span className="text-xs text-[#B7B7C2]">{windowLabels[window]} · {bucket.orders}</span>
           <p className="mt-1 font-semibold text-white tabular-nums">{moneyFormat.format(bucket.pendingUsd)}</p>
           <span className="text-[10px] text-[#A3A3AE]">por cobrar</span>
@@ -100,20 +100,20 @@ export default function ActiveOrdersOverview({ overview, filters }: { overview: 
         <table className="w-full text-left text-sm"><caption className="sr-only">Pedidos seleccionados: importes USD. Los totales incluyen todas las páginas.</caption>
           <thead className="bg-[#191920] text-xs text-[#A3A3AE]"><tr>{['Pedido / cliente', 'Agenda', 'Etapa', 'Contratado', 'Cubierto', 'Por cobrar'].map((label, index) => <th key={label} scope="col" className={`px-3 py-3 ${index > 2 ? 'text-right' : ''}`}>{label}</th>)}</tr></thead>
           <tbody className="divide-y divide-[#292937]">{result.orders.map(order => <tr key={order.id} className="bg-[#111117]">
-            <td className="max-w-64 px-3 py-3"><Link href={orderHref(order)} prefetch={false} className="font-semibold text-white hover:text-[#FEEF00]">{order.orderNumber} →</Link><p className="break-words text-[#C8C8D0]">{order.clientName}</p><p className="text-xs text-[#A3A3AE]">{order.advisorName}</p><OrderAlerts order={order} today={overview.asOfDate} /></td>
+            <td className="max-w-64 px-3 py-3"><Link href={orderHref(order)} prefetch={false} className="font-semibold text-white hover:text-[#FFFF00]">{`#${order.id}`} →</Link><p className="break-words text-[#C8C8D0]">{order.clientName}</p><p className="text-xs text-[#A3A3AE]">{order.advisorName}</p><OrderAlerts order={order} today={overview.asOfDate} /></td>
             <td className="px-3 py-3 text-[#C8C8D0]">{schedule(order)}<p className="text-xs text-[#A3A3AE]">{order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</p></td>
             <td className="px-3 py-3 text-[#C8C8D0]">{getOrderStatusLabel(order.status)}</td>
             <td className="px-3 py-3 text-right text-white tabular-nums">{moneyFormat.format(order.totalUsd)}</td>
             <td className="px-3 py-3 text-right text-emerald-200 tabular-nums">{moneyFormat.format(order.coveredUsd)}</td>
-            <td className="px-3 py-3 text-right font-semibold text-[#FEEF00] tabular-nums">{moneyFormat.format(order.pendingUsd)}</td>
+            <td className="px-3 py-3 text-right font-semibold text-[#FFFF00] tabular-nums">{moneyFormat.format(order.pendingUsd)}</td>
           </tr>)}</tbody>
         </table>
       </div>
-      <div className="grid gap-3 lg:hidden">{result.orders.map(order => <Link key={order.id} href={orderHref(order)} prefetch={false} className="min-w-0 rounded-2xl border border-[#292937] bg-[#111117] p-3 focus-visible:outline-2 focus-visible:outline-[#FEEF00]">
-        <div className="flex items-start justify-between gap-2"><p className="min-w-0 break-words font-semibold text-white">{order.orderNumber} · {order.clientName}</p><span className="text-xs text-[#B7B7C2]">{getOrderStatusLabel(order.status)} →</span></div>
+      <div className="grid gap-3 lg:hidden">{result.orders.map(order => <Link key={order.id} href={orderHref(order)} prefetch={false} className="min-w-0 rounded-2xl border border-[#292937] bg-[#111117] p-3 focus-visible:outline-2 focus-visible:outline-[#FFFF00]">
+        <div className="flex items-start justify-between gap-2"><p className="min-w-0 break-words font-semibold text-white">{`#${order.id}`} · {order.clientName}</p><span className="text-xs text-[#B7B7C2]">{getOrderStatusLabel(order.status)} →</span></div>
         <p className="mt-1 text-xs text-[#A3A3AE]">{schedule(order)} · {order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</p>
         <p className="mt-1 text-xs text-[#A3A3AE]">{order.advisorName}</p>
-        <dl className="mt-3 grid grid-cols-3 gap-2">{[['Contratado', order.totalUsd], ['Cubierto', order.coveredUsd], ['Por cobrar', order.pendingUsd]].map(([label, amount]) => <div key={label} className="min-w-0"><dt className="text-[10px] text-[#A3A3AE]">{label}</dt><dd className={`break-words text-sm font-semibold tabular-nums ${label === 'Por cobrar' ? 'text-[#FEEF00]' : 'text-white'}`}>{moneyFormat.format(Number(amount))}</dd></div>)}</dl>
+        <dl className="mt-3 grid grid-cols-3 gap-2">{[['Contratado', order.totalUsd], ['Cubierto', order.coveredUsd], ['Por cobrar', order.pendingUsd]].map(([label, amount]) => <div key={label} className="min-w-0"><dt className="text-[10px] text-[#A3A3AE]">{label}</dt><dd className={`break-words text-sm font-semibold tabular-nums ${label === 'Por cobrar' ? 'text-[#FFFF00]' : 'text-white'}`}>{moneyFormat.format(Number(amount))}</dd></div>)}</dl>
         <OrderAlerts order={order} today={overview.asOfDate} />
       </Link>)}</div>
     </>}

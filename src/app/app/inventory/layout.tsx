@@ -26,7 +26,7 @@ export default async function InventoryLayout({ children }: { children: ReactNod
           <div className="flex flex-col gap-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#FEEF00]">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#FFFF00]">
                   Vivo Ops
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">

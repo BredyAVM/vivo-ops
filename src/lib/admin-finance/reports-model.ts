@@ -21,6 +21,6 @@ export function accountsReport(data: AdminFinanceAccountsOverview) {
 export function activeOrdersReport(data: ActiveOrdersOverview) {
   return adminCsv([
     ['Corte UTC','Definición','Orden ID','Número','Cliente','Asesor','Estado','Entrega','Fecha programada Caracas','Hora programada Caracas','Total USD','Cubierto USD','Pendiente USD','Reportes por revisar USD','Requiere revisión','Calidad'],
-    ...data.orders.map(o => [data.asOf,data.definitionVersion,o.id,o.orderNumber,o.clientName,o.advisorName,o.status,o.fulfillment,o.scheduledDate,o.scheduledTime,o.totalUsd,o.coveredUsd,o.pendingUsd,o.pendingReportsUsd,o.needsReview ? 'Sí' : 'No',o.qualityCode]),
+    ...data.orders.map(o => [data.asOf,data.definitionVersion,o.id,String(o.id),o.clientName,o.advisorName,o.status,o.fulfillment,o.scheduledDate,o.scheduledTime,o.totalUsd,o.coveredUsd,o.pendingUsd,o.pendingReportsUsd,o.needsReview ? 'Sí' : 'No',o.qualityCode]),
   ]);
 }

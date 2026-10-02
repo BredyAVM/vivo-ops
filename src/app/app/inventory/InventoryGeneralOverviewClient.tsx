@@ -96,18 +96,18 @@ export default function InventoryGeneralOverviewClient({
       <section>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">Resumen operativo</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FFFF00]">Resumen operativo</div>
             <h2 className="mt-1 text-2xl font-semibold">¿Qué necesita atención hoy?</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[#9696A3]">
               Existencia física, pedidos comprometidos y entradas esperadas durante los próximos {workspace.horizon_days} días. Los números informan; no bloquean órdenes.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/app/inventory/operations" prefetch={false} className="rounded-xl border border-[#353544] px-3 py-2 text-sm text-[#D2D2DA] hover:border-[#FEEF00]/40">
+            <Link href="/app/inventory/operations" prefetch={false} className="rounded-xl border border-[#353544] px-3 py-2 text-sm text-[#D2D2DA] hover:border-[#FFFF00]/40">
               Registrar entrada
             </Link>
             {canConfigure ? (
-              <Link href="/app/inventory/adjustments" prefetch={false} className="rounded-xl border border-[#353544] px-3 py-2 text-sm text-[#D2D2DA] hover:border-[#FEEF00]/40">
+              <Link href="/app/inventory/adjustments" prefetch={false} className="rounded-xl border border-[#353544] px-3 py-2 text-sm text-[#D2D2DA] hover:border-[#FFFF00]/40">
                 Ajustar existencia
               </Link>
             ) : null}
@@ -135,9 +135,9 @@ export default function InventoryGeneralOverviewClient({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar producto o ítem"
-              className="min-w-[260px] rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2.5 text-sm outline-none placeholder:text-[#696975] focus:border-[#FEEF00]/60"
+              className="min-w-[260px] rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2.5 text-sm outline-none placeholder:text-[#696975] focus:border-[#FFFF00]/60"
             />
-            <select value={group} onChange={(event) => setGroup(event.target.value)} className="rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2.5 text-sm outline-none focus:border-[#FEEF00]/60">
+            <select value={group} onChange={(event) => setGroup(event.target.value)} className="rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2.5 text-sm outline-none focus:border-[#FFFF00]/60">
               <option value="all">Todas las familias</option>
               {groups.map((value) => <option key={value} value={value}>{GROUP_LABELS[value] ?? value}</option>)}
             </select>
@@ -195,7 +195,7 @@ export default function InventoryGeneralOverviewClient({
                     </td>
                     {canConfigure ? (
                       <td className="px-4 py-4">
-                        <Link href={`/app/inventory/configure?view=edit&itemId=${item.id}`} prefetch={false} className="font-semibold text-[#FEEF00] hover:underline">
+                        <Link href={`/app/inventory/configure?view=edit&itemId=${item.id}`} prefetch={false} className="font-semibold text-[#FFFF00] hover:underline">
                           Configurar
                         </Link>
                       </td>
@@ -262,7 +262,7 @@ function SummaryButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`rounded-2xl border p-4 text-left transition ${active ? 'border-[#FEEF00]/55 bg-[#FEEF00]/5' : 'border-[#242433] bg-[#111117] hover:border-[#3B3B49]'}`}
+      className={`rounded-2xl border p-4 text-left transition ${active ? 'border-[#FFFF00]/55 bg-[#FFFF00]/5' : 'border-[#242433] bg-[#111117] hover:border-[#3B3B49]'}`}
     >
       <div className="text-[11px] uppercase tracking-wide text-[#858591]">{label}</div>
       <div className={`mt-2 text-2xl font-semibold ${valueStyle}`}>{value}</div>

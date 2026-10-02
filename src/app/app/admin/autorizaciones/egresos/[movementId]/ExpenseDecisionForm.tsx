@@ -26,7 +26,7 @@ export default function ExpenseDecisionForm({ movementId, snapshot }: { movement
     <fieldset disabled={pending} className="space-y-3 disabled:opacity-60"><legend className="mb-2 text-sm font-semibold">Decisión sobre el egreso y su comisión</legend>
       <div className="flex flex-wrap gap-4">{([['approve', 'Aprobar'], ['reject', 'Rechazar']] as const).map(([value, label]) => <label key={value} className="flex min-h-11 items-center gap-2 text-sm"><input type="radio" name="decision" value={value} checked={decision === value} onChange={() => setDecision(value)} />{label}</label>)}</div>
       {decision === 'reject' ? <label className="block text-sm">Motivo del rechazo<textarea value={reason} onChange={e => setReason(e.target.value)} required maxLength={800} rows={3} className="mt-2 block w-full rounded-lg border border-[#30303D] bg-[#14141C] p-3" /></label> : null}
-      <button disabled={pending} className="min-h-11 rounded-lg bg-[#FEEF00] px-4 text-sm font-semibold text-black">{pending ? 'Guardando…' : decision === 'approve' ? 'Confirmar aprobación' : 'Confirmar rechazo'}</button>
+      <button disabled={pending} className="min-h-11 rounded-lg bg-[#FFFF00] px-4 text-sm font-semibold text-black">{pending ? 'Guardando…' : decision === 'approve' ? 'Confirmar aprobación' : 'Confirmar rechazo'}</button>
     </fieldset>
     {result?.status === 'error' ? <p role="alert" className="text-sm text-orange-200">{result.message}</p> : null}
   </form>;
