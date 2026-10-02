@@ -6,7 +6,7 @@ import BackLink from '@/components/navigation/BackLink';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
-import { playDateInput } from '@/lib/crm/play-dates';
+import { groupPlaysByMonth, isPlayCurrentlyActive, playDateInput, type PlayListFilter } from '@/lib/crm/play-dates';
 import { ModulePreference } from '../../ModulePreference';
 import {
   addManualPlayMemberAction,
@@ -192,6 +192,7 @@ export type MasterPlayAdvisorMonitor = {
 };
 
 type Props = {
+  today: string;
   roles: string[];
   plays: MasterPlay[];
   selectedPlay: MasterPlay | null;
@@ -1609,6 +1610,7 @@ function PlayMonitor({
 }
 
 export default function MasterPlaysClient({
+  today,
   roles,
   plays,
   selectedPlay,
@@ -1627,6 +1629,11 @@ export default function MasterPlaysClient({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [notice, setNotice] = useState<Notice>(null);
+  const [playSearch, setPlaySearch] = useState('');
+  const [playFilter, setPlayFilter] = useState<PlayListFilter>('all');
+  const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
+  const monthGroups = useMemo(() => groupPlaysByMonth(plays, today, playSearch, playFilter), [plays, today, playSearch, playFilter]);
+  const filteringPlays = playSearch.trim().length > 0 || playFilter !== 'all';
   const activeModuleKey = roles.includes('admin') ? 'admin' : 'master';
   const playCounts = useMemo(() => ({
     design: plays.filter((play) => play.status === 'draft').length,
@@ -1738,32 +1745,71 @@ export default function MasterPlaysClient({
         <aside className="h-fit overflow-hidden rounded-2xl border border-[#242433] bg-[#121218] lg:sticky lg:top-[78px]">
           <div className="border-b border-[#242433] px-3 py-3">
             <div className="text-xs font-semibold">Jugadas</div>
-            <div className="mt-0.5 text-[10px] text-[#9B9BA7]">Historial y trabajos en curso</div>
+            <div className="mt-0.5 text-[10px] text-[#B7B7C2]">Por mes · toca un mes para desplegarlo</div>
+            <input
+              type="search" aria-label="Buscar jugadas" placeholder="Buscar jugada o mes…" value={playSearch}
+              onChange={(event) => { setPlaySearch(event.target.value); setExpandedMonths({}); }}
+              className="mt-2 min-h-9 w-full rounded-lg border border-[#343442] bg-[#0B0B0D] px-2 text-xs text-[#F5F5F7]"
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <select aria-label="Filtrar jugadas por estado" value={playFilter}
+                onChange={(event) => { setPlayFilter(event.target.value as PlayListFilter); setExpandedMonths({}); }}
+                className="min-h-9 min-w-0 flex-1 rounded-lg border border-[#343442] bg-[#0B0B0D] px-2 text-xs">
+                <option value="all">Todos los estados</option>
+                <option value="active">Activas ahora</option>
+                <option value="draft">En diseño</option>
+                <option value="frozen">Lista confirmada</option>
+                <option value="paused">Pausadas</option>
+                <option value="closed">Cerradas</option>
+                <option value="cancelled">Canceladas</option>
+              </select>
+              <button type="button" className="min-h-9 shrink-0 rounded-lg px-1 text-[10px] text-[#D6D6DF] hover:text-[#FFFF00]"
+                onClick={() => setExpandedMonths(Object.fromEntries(monthGroups.map((group) => [group.key, false])))}>
+                Plegar todo
+              </button>
+            </div>
           </div>
-          <div className="max-h-[calc(100vh-150px)] overflow-y-auto p-1.5">
+          <div className="max-h-[50vh] overflow-y-auto p-1.5 lg:max-h-[calc(100vh-270px)]">
             {plays.length === 0 ? (
               <div className="px-3 py-8 text-center text-xs text-[#B7B7C2]">Aún no hay jugadas creadas.</div>
-            ) : plays.map((play) => {
-              const status = STATUS_PRESENTATION[play.status];
-              const active = selectedPlay?.id === play.id;
+            ) : monthGroups.length === 0 ? (
+              <div className="px-3 py-6 text-center text-xs text-[#B7B7C2]">No hay jugadas con esos filtros.</div>
+            ) : monthGroups.map((group) => {
+              const open = expandedMonths[group.key] ?? (filteringPlays || group.defaultOpen);
+              const activeCount = group.plays.filter((play) => isPlayCurrentlyActive(play, today)).length;
+              const allClosed = group.plays.every((play) => play.status === 'closed' || play.status === 'cancelled');
+              const containsSelected = group.plays.some((play) => play.id === selectedPlay?.id);
               return (
-                <Link
-                  key={play.id}
-                  href={`/app/master/plays?play=${play.id}`}
-                  className={`mb-1 block rounded-xl border px-3 py-2.5 transition ${active ? 'border-[#FFFF00]/70 bg-[#FFFF00]/[0.06]' : 'border-transparent hover:border-[#2A2A35] hover:bg-[#16161D]'}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-xs font-semibold">{play.name}</div>
-                      <div className="mt-1 truncate text-[9px] text-[#9B9BA7]">{dateLabel(play.startsAt)} — {dateLabel(play.endsAt)}</div>
-                    </div>
-                    <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${status.dot}`} />
+                <section key={group.key} className="mb-1">
+                  <button type="button" aria-expanded={open} aria-controls={`play-month-${group.key}`}
+                    onClick={() => setExpandedMonths((previous) => ({ ...previous, [group.key]: !open }))}
+                    className={`flex min-h-12 w-full items-center gap-2 rounded-lg border px-2 py-2 text-left hover:bg-[#1B1B24] ${containsSelected ? 'border-[#FFFF00]/30' : 'border-[#292934]'}`}>
+                    <span aria-hidden="true" className="text-[#B7B7C2]">{open ? '▾' : '▸'}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-semibold capitalize">{group.label}</span>
+                      <span className="block text-[10px] text-[#B7B7C2]">
+                        {group.plays.length} jugada{group.plays.length === 1 ? '' : 's'}
+                        {activeCount > 0 ? ` · ${activeCount} activa${activeCount === 1 ? '' : 's'}` : allClosed ? ' · Todas cerradas' : ''}
+                      </span>
+                    </span>
+                  </button>
+                  <div id={`play-month-${group.key}`} hidden={!open} className="pt-1">
+                    {group.plays.map((play) => {
+                      const status = STATUS_PRESENTATION[play.status];
+                      const selected = selectedPlay?.id === play.id;
+                      return (
+                        <Link key={play.id} href={`/app/master/plays?play=${play.id}`} aria-current={selected ? 'page' : undefined}
+                          title={`${play.name} · ${status.label} · ${summaryNumber(play, 'total')} clientes · ${dateLabel(play.startsAt)} — ${dateLabel(play.endsAt)}`}
+                          className={`flex min-h-10 items-center gap-2 rounded-lg border px-2 py-2 text-xs ${selected ? 'border-[#FFFF00]/70 bg-[#FFFF00]/[0.06]' : 'border-transparent hover:bg-[#1B1B24]'}`}>
+                          <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} />
+                          <span className="min-w-0 flex-1 truncate font-medium">{play.name}</span>
+                          <span className={`shrink-0 rounded border px-1 py-0.5 text-[9px] ${status.badge}`}>{status.label}</span>
+                          <span className="shrink-0 text-[10px] tabular-nums text-[#B7B7C2]" aria-label={`${summaryNumber(play, 'total')} clientes`}>{summaryNumber(play, 'total')}</span>
+                        </Link>
+                      );
+                    })}
                   </div>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className={`rounded-full border px-2 py-0.5 text-[9px] ${status.badge}`}>{status.label}</span>
-                    <span className="text-[9px] tabular-nums text-[#B7B7C2]">{summaryNumber(play, 'total')} clientes</span>
-                  </div>
-                </Link>
+                </section>
               );
             })}
           </div>

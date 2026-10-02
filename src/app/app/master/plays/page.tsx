@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { playDateInput } from '@/lib/crm/play-dates';
 import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import MasterPlaysClient, {
@@ -459,6 +460,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
 
   return (
     <MasterPlaysClient
+      today={playDateInput(new Date().toISOString())}
       roles={ctx.roles}
       plays={plays}
       selectedPlay={createMode ? null : selectedPlay}
