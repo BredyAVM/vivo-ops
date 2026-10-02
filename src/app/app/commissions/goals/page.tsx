@@ -1,4 +1,5 @@
-import Link from 'next/link';
+import WorkspaceForm from '@/components/navigation/WorkspaceForm';
+import Link from '@/components/navigation/ContextLink';
 import { redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { ADVISOR_GOAL_METRICS } from '@/lib/commissions/goal-engine';
@@ -462,7 +463,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                 <h2 className="mt-1 text-2xl font-semibold tracking-[-0.035em]">{selectedPeriod.name}</h2>
                 <div className="mt-1 text-xs text-[#9696A2]">Del {dateLabel(selectedPeriod.date_from)} al {dateLabel(selectedPeriod.date_to)} · corte de cobranza {simulation ? dateLabel(simulation.cutoffDate) : 'por calcular'}</div>
               </div>
-              <form className="flex w-full max-w-xl items-end gap-2" method="get">
+              <WorkspaceForm className="flex w-full max-w-xl items-end gap-2" method="get">
                 <label className="min-w-0 flex-1">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#898995]">Cambiar de período</span>
                   <select className="mt-1 h-10 w-full rounded-xl border border-[#33333E] bg-[#0E0E12] px-3 text-sm outline-none focus:border-[#F0D000]" defaultValue={String(selectedPeriod.id)} name="period">
@@ -472,7 +473,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                   </select>
                 </label>
                 <button className="h-10 rounded-xl border border-[#4A4A56] px-4 text-sm font-semibold text-[#E3E3E8] hover:border-[#F0D000] hover:text-[#F7DA66]" type="submit">Abrir</button>
-              </form>
+              </WorkspaceForm>
             </div>
 
             <div className="mt-4 flex flex-col gap-3 border-t border-[#292933] pt-4 md:flex-row md:items-center md:justify-between">
@@ -486,10 +487,10 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                   {existingNextPeriod ? (
                     <Link className="inline-flex h-9 items-center justify-center rounded-xl border border-sky-300/35 px-3 text-xs font-semibold text-sky-100" href={`/app/commissions/goals?period=${existingNextPeriod.id}`}>Abrir próximo</Link>
                   ) : (
-                    <form action={createAdvisorGoalProjectionPeriodAction}>
+                    <WorkspaceForm action={createAdvisorGoalProjectionPeriodAction}>
                       <input name="sourcePeriodId" type="hidden" value={selectedPeriod.id} />
                       <button className="h-9 rounded-xl border border-sky-300/35 px-3 text-xs font-semibold text-sky-100 hover:bg-sky-400/10" type="submit">Preparar próximo período</button>
-                    </form>
+                    </WorkspaceForm>
                   )}
                 </div>
               ) : null}
@@ -517,7 +518,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                 </div>
               </div>
 
-              <form className="mt-5" method="get">
+              <WorkspaceForm className="mt-5" method="get">
                 <input name="period" type="hidden" value={selectedPeriod?.id ?? ''} />
                 <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
                   {([
@@ -674,7 +675,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                     <button className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] hover:bg-[#FFE44F]" type="submit">Recalcular metas</button>
                   </div>
                 </div>
-              </form>
+              </WorkspaceForm>
 
               {storedConfig?.status !== 'closed' ? (
                 <div className="mt-5 border-t border-[#292933] pt-5">
@@ -687,7 +688,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                         <p><strong className="text-[#E6E6EB]">Publicar meta:</strong> la hace visible para cada asesor y envía la notificación correspondiente.</p>
                       </div>
                     </div>
-                    <form action={saveAdvisorGoalConfigurationAction} className="grid gap-3 md:grid-cols-2">
+                    <WorkspaceForm action={saveAdvisorGoalConfigurationAction} className="grid gap-3 md:grid-cols-2">
                       <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                       <input name="billingContextPct" type="hidden" value={simulation.appliedContext.billingPct} />
                       <input name="closuresContextPct" type="hidden" value={simulation.appliedContext.closuresPct} />
@@ -718,7 +719,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                         <button className="h-10 rounded-xl border border-[#6A6140] px-4 text-sm font-semibold text-[#E2D99D]" name="intent" type="submit" value="draft">Guardar borrador</button>
                         <button className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] hover:bg-[#FFE44F]" name="intent" type="submit" value="publish">Publicar meta</button>
                       </div>
-                    </form>
+                    </WorkspaceForm>
                   </div>
                   {storedConfig ? <div className="mt-4"><ConfigurationHistory audit={storedConfig.audit} /></div> : null}
                 </div>
@@ -812,10 +813,10 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                   <h2 className="text-lg font-semibold tracking-[-0.02em]">Porcentajes conectados con las liquidaciones</h2>
                   <p className="mt-1 max-w-3xl text-sm leading-6 text-[#A8B9B1]">Cada preliminar toma automáticamente el resultado de su meta publicada al actualizar. Puedes aplicar un asesor por separado y confirmar su resultado cuando termine su revisión y cobranza.</p>
                 </div>
-                <form action={applyAdvisorGoalResultAction} className="mt-4">
+                <WorkspaceForm action={applyAdvisorGoalResultAction} className="mt-4">
                   <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                   <button className="h-10 rounded-xl bg-emerald-400 px-5 text-sm font-semibold text-[#07110D] hover:bg-emerald-300" type="submit">Actualizar preliminares automáticamente</button>
-                </form>
+                </WorkspaceForm>
                   <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                     {resultAdvisors.map((advisor) => {
                       const storedGoal = storedGoalByAdvisorId.get(advisor.advisorUserId);
@@ -826,7 +827,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                         ? storedGoal.appliedCommissionPct
                         : calculatedPct;
                       return (
-                        <form action={applyAdvisorGoalResultAction} className="rounded-2xl border border-[#294037] bg-[#0B1210] p-3" key={`${advisor.advisorUserId}:${storedGoal?.revision}`}>
+                        <WorkspaceForm action={applyAdvisorGoalResultAction} className="rounded-2xl border border-[#294037] bg-[#0B1210] p-3" key={`${advisor.advisorUserId}:${storedGoal?.revision}`}>
                           <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                           <input name="advisorUserId" type="hidden" value={advisor.advisorUserId} />
                           <div className="truncate text-sm font-semibold" title={advisor.advisorName}>{advisor.advisorName}</div>
@@ -868,7 +869,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                               {block && !locked ? <p className="mt-2 text-[11px] leading-4 text-[#8FA49A]">{block}</p> : null}
                             </>;
                           })() : null}
-                        </form>
+                        </WorkspaceForm>
                       );
                     })}
                   </div>

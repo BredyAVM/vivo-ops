@@ -1,7 +1,8 @@
 'use client';
+import WorkspaceForm from '@/components/navigation/WorkspaceForm';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import Link from '@/components/navigation/ContextLink';
+import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
 import { playDateInput } from '@/lib/crm/play-dates';
@@ -635,7 +636,7 @@ function PlayDefinitionForm({
   const editable = !play || play.status === 'draft';
 
   return (
-    <form onSubmit={submit} className="space-y-4">
+    <WorkspaceForm onSubmit={submit} className="space-y-4">
       <div>
         <div className="mb-2 flex items-center justify-between gap-3">
           <div>
@@ -1190,7 +1191,7 @@ function PlayDefinitionForm({
           </button>
         </div>
       ) : null}
-    </form>
+    </WorkspaceForm>
   );
 }
 
@@ -1277,11 +1278,11 @@ function PublishedPlayEditor({
         <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
           <div className="text-xs font-semibold">Incluir un cliente manualmente</div>
           <p className="mt-0.5 text-[9px] text-[#666675]">Puede estar fuera de los filtros, pero no en otra jugada incompatible del mismo período.</p>
-          <form action="/app/master/plays" method="get" className="mt-2 flex gap-2">
+          <WorkspaceForm action="/app/master/plays" method="get" className="mt-2 flex gap-2">
             <input type="hidden" name="play" value={play.id} />
             <input name="addq" defaultValue={manualClientSearch} className={inputClass} placeholder="Nombre, teléfono o número" minLength={2} />
             <button type="submit" className={buttonSecondary}>Buscar</button>
-          </form>
+          </WorkspaceForm>
           {manualClientSearch.length >= 2 ? (
             <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
               {manualClientSuggestions.length === 0 ? (
@@ -1400,11 +1401,11 @@ function MemberList({
           <p className="mt-0.5 text-[10px] text-[#777785]">{memberCount.toLocaleString('es-VE')} clientes · ordenados por facturación</p>
           <p className="mt-1 text-[11px] text-[#B7B7C2]">Toca el nombre del cliente para ver sus órdenes y excepciones de esta jugada.</p>
         </div>
-        <form action="/app/master/plays" method="get" className="flex items-center gap-2">
+        <WorkspaceForm action="/app/master/plays" method="get" className="flex items-center gap-2">
           <input type="hidden" name="play" value={play.id} />
           <input name="q" defaultValue={search} className={`${inputClass} w-56`} placeholder="Buscar cliente" />
           <button className={buttonSecondary} type="submit">Buscar</button>
-        </form>
+        </WorkspaceForm>
       </div>
 
       {members.length === 0 ? (

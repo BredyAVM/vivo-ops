@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { commissionTermsEqual, formatOrderCommissionTerms } from '@/lib/commissions/order-commission-terms';
 import type { DeliveredCommissionChange } from '@/lib/commissions/delivered-order-commission';

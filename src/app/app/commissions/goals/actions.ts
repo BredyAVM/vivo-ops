@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
+import { redirectInWorkspace } from '@/lib/navigation/workspace-server';
 import { requireAuthContext } from '@/lib/auth';
 import { loadEligibleCommissionAdvisors } from '@/lib/commissions/advisor-eligibility';
 import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
@@ -103,12 +103,12 @@ export async function applyAdvisorGoalResultAction(formData: FormData) {
       }));
     }
   } catch (error) {
-    redirect(`/app/commissions/goals?period=${periodId}&error=${encodeURIComponent(errorMessage(error))}`);
+    return await redirectInWorkspace(`/app/commissions/goals?period=${periodId}&error=${encodeURIComponent(errorMessage(error))}`);
   }
   revalidatePath('/app/commissions');
   revalidatePath('/app/commissions/goals');
   revalidatePath('/app/advisor', 'layout');
-  redirect(`/app/commissions/goals?period=${periodId}&notice=${encodeURIComponent(intent === 'final'
+  return await redirectInWorkspace(`/app/commissions/goals?period=${periodId}&notice=${encodeURIComponent(intent === 'final'
     ? 'Resultado individual confirmado y porcentaje aplicado.'
     : `${updated} liquidaciones preliminares actualizadas con sus porcentajes individuales.`)}`);
 }
@@ -170,12 +170,12 @@ export async function createAdvisorGoalProjectionPeriodAction(formData: FormData
       notice = `${suggestion.name} quedó preparado como proyección. Todavía no publica metas ni calcula comisiones.`;
     }
   } catch (error) {
-    redirect(`/app/commissions/goals?period=${sourcePeriodId > 0 ? sourcePeriodId : ''}&error=${encodeURIComponent(errorMessage(error))}`);
+    return await redirectInWorkspace(`/app/commissions/goals?period=${sourcePeriodId > 0 ? sourcePeriodId : ''}&error=${encodeURIComponent(errorMessage(error))}`);
   }
 
   revalidatePath('/app/commissions/goals');
   revalidatePath('/app/commissions');
-  redirect(`/app/commissions/goals?period=${targetPeriodId}&notice=${encodeURIComponent(notice)}`);
+  return await redirectInWorkspace(`/app/commissions/goals?period=${targetPeriodId}&notice=${encodeURIComponent(notice)}`);
 }
 
 export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
@@ -299,11 +299,11 @@ export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
       }));
     }
   } catch (error) {
-    redirect(`/app/commissions/goals?period=${periodId > 0 ? periodId : ''}&error=${encodeURIComponent(errorMessage(error))}`);
+    return await redirectInWorkspace(`/app/commissions/goals?period=${periodId > 0 ? periodId : ''}&error=${encodeURIComponent(errorMessage(error))}`);
   }
 
   revalidatePath('/app/commissions/goals');
   revalidatePath('/app/commissions');
   revalidatePath('/app/advisor/commissions');
-  redirect(`/app/commissions/goals?period=${periodId}&notice=${encodeURIComponent(intent === 'publish' ? 'Metas publicadas con trazabilidad por asesor.' : 'Simulación guardada como borrador.')}`);
+  return await redirectInWorkspace(`/app/commissions/goals?period=${periodId}&notice=${encodeURIComponent(intent === 'publish' ? 'Metas publicadas con trazabilidad por asesor.' : 'Simulación guardada como borrador.')}`);
 }

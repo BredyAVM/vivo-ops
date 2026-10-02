@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { requireAuthContext } from '@/lib/auth';
 import type { EventWorkspace } from '@/lib/events/event-workspace';
 import EventWorkspaceClient from './EventWorkspaceClient';

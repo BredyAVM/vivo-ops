@@ -1,6 +1,6 @@
 'use client';
 import { useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { eventPaymentCommand } from '../workspace-actions';
 import { eventPaymentMethods, eventPaymentState, type EventPaymentAllocation, type EventPaymentData } from '@/lib/events/event-payments';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';

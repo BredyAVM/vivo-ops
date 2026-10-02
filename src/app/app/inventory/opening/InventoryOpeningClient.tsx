@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import Link from '@/components/navigation/ContextLink';
+import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { useMemo, useState, useTransition } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';
 import { submitInventoryOpeningAction } from '../actions';

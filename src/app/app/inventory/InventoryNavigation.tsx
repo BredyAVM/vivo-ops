@@ -1,7 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { usePathname } from 'next/navigation';
+import { sharedWorkspacePath } from '@/lib/navigation/admin-workspace';
 
 type NavigationItem = {
   href: string;
@@ -34,7 +35,7 @@ function isCurrentPath(pathname: string, item: NavigationItem) {
 }
 
 export default function InventoryNavigation({ isAdmin }: { isAdmin: boolean }) {
-  const pathname = usePathname();
+  const pathname = sharedWorkspacePath(usePathname());
   const secondaryItems = isAdmin
     ? [...SHARED_SECONDARY_ITEMS, ...ADMIN_SECONDARY_ITEMS]
     : SHARED_SECONDARY_ITEMS;

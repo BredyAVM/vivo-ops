@@ -32,6 +32,7 @@ registerHooks({
     if (specifier.startsWith('@/')) return nextResolve(new URL(`src/${specifier.slice(2)}.ts`, root).href, context);
     if (specifier === '../_lib/navigation') return nextResolve(`${specifier}.ts`, context);
     if (specifier === '../_components/AdminSectionHub') return nextResolve(`${specifier}.tsx`, context);
+    if (specifier === './return-navigation' && context.parentURL?.endsWith('/admin-workspace.ts')) return nextResolve('./return-navigation.ts', context);
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {

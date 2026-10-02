@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { requireAuthContext, resolveHomePath } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';

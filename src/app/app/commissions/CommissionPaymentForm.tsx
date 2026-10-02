@@ -1,4 +1,5 @@
 'use client';
+import WorkspaceForm from '@/components/navigation/WorkspaceForm';
 
 import { useState } from 'react';
 import { useFormStatus } from 'react-dom';
@@ -90,7 +91,7 @@ export default function CommissionPaymentForm({
   }
 
   return (
-    <form action={registerCommissionPaymentAction} className="mt-3 grid gap-3 sm:grid-cols-2">
+    <WorkspaceForm action={registerCommissionPaymentAction} className="mt-3 grid gap-3 sm:grid-cols-2">
       <input name="requestId" type="hidden" value={requestId} />
       <input name="closureId" type="hidden" value={closureId} />
       <input name="periodId" type="hidden" value={periodId} />
@@ -235,6 +236,6 @@ export default function CommissionPaymentForm({
       </div>
 
       <SubmitButton />
-    </form>
+    </WorkspaceForm>
   );
 }

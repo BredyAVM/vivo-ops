@@ -1,7 +1,7 @@
 'use client';
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { eventRequestLabel, eventOrderLabel, summarizeEventOrders, type EventWorkspace, type EventTerms, type EventRate, type EventRequest } from '@/lib/events/event-workspace';
 import { eventWorkspaceCommand } from '../workspace-actions';
 import EventPayments from './EventPayments';

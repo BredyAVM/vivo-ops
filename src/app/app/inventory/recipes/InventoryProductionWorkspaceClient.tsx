@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { parseDecimalInput } from '@/lib/number-input';
 import {
   activateAllCanonicalInventoryRecipesAction,

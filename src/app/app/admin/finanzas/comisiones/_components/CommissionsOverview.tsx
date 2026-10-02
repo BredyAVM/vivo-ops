@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { commissionPeriodView, type CommissionsOverview as Overview, type CommissionFilters, type CommissionRow } from '@/lib/admin-finance/commissions-model';
 import { adminCommissionAuditHref } from '@/lib/commissions/admin-audit';
 

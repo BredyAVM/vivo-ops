@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import type { ReactNode } from 'react';
 import { getAuthContext } from '@/lib/auth';
 import InventoryConfiguratorClient, {

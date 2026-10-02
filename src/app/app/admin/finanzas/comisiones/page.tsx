@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { requireAdminContext } from '@/lib/auth';
 import { loadCommissionsOverview, type CommissionsRpcClient } from '@/lib/admin-finance/commissions-data';
 import { normalizeCommissionFilters } from '@/lib/admin-finance/commissions-model';

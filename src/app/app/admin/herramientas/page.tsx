@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { requireAdminContext } from '@/lib/auth';
 import { legacyAdminHref } from '@/lib/admin-finance/legacy-navigation';
 import { adminPanel } from '../_components/AdminReadUi';

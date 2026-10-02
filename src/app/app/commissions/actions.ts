@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
+import { redirectInWorkspace } from '@/lib/navigation/workspace-server';
 import { requireAuthContext } from '@/lib/auth';
 import {
   getAdvisorCommissionCarryState,
@@ -511,7 +511,7 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
       notifyAdvisorCommissionPeriodReviewReady({ supabase, periodId }),
     );
   } catch (error) {
-    redirect(
+    return await redirectInWorkspace(
       `/app/commissions?period=${Number.isInteger(periodId) && periodId > 0 ? periodId : ''}&error=${encodeURIComponent(
         actionMessage(error)
       )}`
@@ -522,7 +522,7 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
   revalidatePath('/app/advisor', 'layout');
   revalidatePath('/app/advisor/inbox');
   revalidatePath('/app/advisor/commissions');
-  redirect(
+  return await redirectInWorkspace(
     `/app/commissions?period=${periodId}&notice=${encodeURIComponent(
       `${result.updated} liquidaciones actualizadas${
         result.skippedLocked > 0 ? `; ${result.skippedLocked} protegidas por estar cerradas` : ''
@@ -628,7 +628,7 @@ export async function confirmCommissionClosureAction(formData: FormData) {
       }),
     );
   } catch (error) {
-    redirect(
+    return await redirectInWorkspace(
       `/app/commissions?period=${periodId > 0 ? periodId : ''}&error=${encodeURIComponent(
         actionMessage(error)
       )}`
@@ -638,7 +638,7 @@ export async function confirmCommissionClosureAction(formData: FormData) {
   revalidatePath('/app/commissions');
   revalidatePath('/app/advisor', 'layout');
   revalidatePath('/app/advisor/inbox');
-  redirect(
+  return await redirectInWorkspace(
     `/app/commissions?period=${periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(
       'Conformidad registrada. La liquidación ya puede recibir abonos.'
     )}`
@@ -725,7 +725,7 @@ export async function reopenCommissionClosureAction(formData: FormData) {
       );
     }
   } catch (error) {
-    redirect(
+    return await redirectInWorkspace(
       `/app/commissions?period=${periodId > 0 ? periodId : ''}&error=${encodeURIComponent(
         actionMessage(error)
       )}`
@@ -736,7 +736,7 @@ export async function reopenCommissionClosureAction(formData: FormData) {
   revalidatePath('/app/advisor', 'layout');
   revalidatePath('/app/advisor/inbox');
   revalidatePath('/app/advisor/commissions');
-  redirect(
+  return await redirectInWorkspace(
     `/app/commissions?period=${periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(
       'Liquidación reabierta. Debe recalcularse y recibir una nueva conformidad.'
     )}`
@@ -788,14 +788,14 @@ export async function registerCommissionPaymentAction(formData: FormData) {
       }),
     );
   } catch (error) {
-    redirect(`/app/commissions?period=${Number.isSafeInteger(periodId) && periodId > 0 ? periodId : ''}&error=${encodeURIComponent(actionMessage(error))}`);
+    return await redirectInWorkspace(`/app/commissions?period=${Number.isSafeInteger(periodId) && periodId > 0 ? periodId : ''}&error=${encodeURIComponent(actionMessage(error))}`);
   }
   for (const path of ['/app/commissions', '/app/advisor/inbox', '/app/advisor/commissions',
     '/app/master/dashboard', '/app/admin/finanzas/comisiones', '/app/admin/finanzas/cuentas', '/app/admin/tareas']) {
     revalidatePath(path);
   }
   revalidatePath('/app/advisor', 'layout');
-  redirect(`/app/commissions?period=${Number.isSafeInteger(periodId) && periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(
+  return await redirectInWorkspace(`/app/commissions?period=${Number.isSafeInteger(periodId) && periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(
     bankFeeRegistered ? 'Abono y comisión bancaria registrados juntos.' : 'Abono registrado y vinculado a la liquidación.'
   )}`);
 }
@@ -813,10 +813,10 @@ export async function reverseCommissionPaymentAction(formData: FormData) {
     });
     if (error) throw new Error(error.message);
   } catch (error) { errorMessage = actionMessage(error); }
-  if (errorMessage) redirect(`${path}&error=${encodeURIComponent(errorMessage)}`);
+  if (errorMessage) return await redirectInWorkspace(`${path}&error=${encodeURIComponent(errorMessage)}`);
   for (const route of ['/app/commissions', `/app/commissions/${closureId}`, '/app/master/dashboard',
     '/app/admin/finanzas/comisiones', '/app/admin/finanzas/cuentas', '/app/admin/tareas', '/app/advisor/commissions']) revalidatePath(route);
-  redirect(`${path}&notice=${encodeURIComponent('Registro anulado: abono y comisión bancaria. No se realizó ninguna transferencia bancaria.')}`);
+  return await redirectInWorkspace(`${path}&notice=${encodeURIComponent('Registro anulado: abono y comisión bancaria. No se realizó ninguna transferencia bancaria.')}`);
 }
 
 function dateOnly(value: unknown, label: string) {
@@ -873,12 +873,12 @@ export async function createCommissionPeriodAction(formData: FormData) {
     if (error || !data) throw new Error(error?.message || 'No se pudo crear el periodo.');
     createdPeriodId = Number(data.id);
   } catch (error) {
-    redirect(`/app/commissions?error=${encodeURIComponent(actionMessage(error))}`);
+    return await redirectInWorkspace(`/app/commissions?error=${encodeURIComponent(actionMessage(error))}`);
   }
 
   revalidatePath('/app/commissions');
   revalidatePath('/app/master/dashboard');
-  redirect(
+  return await redirectInWorkspace(
     `/app/commissions?period=${createdPeriodId}&notice=${encodeURIComponent(
       'Periodo creado. Ya puedes generar su cálculo preliminar.'
     )}`
@@ -951,7 +951,7 @@ export async function addCommissionDeductionAction(formData: FormData) {
       snapshot: closure.snapshot,
     });
   } catch (error) {
-    redirect(
+    return await redirectInWorkspace(
       `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&error=${encodeURIComponent(
         actionMessage(error)
       )}`
@@ -959,7 +959,7 @@ export async function addCommissionDeductionAction(formData: FormData) {
   }
 
   revalidatePath('/app/commissions');
-  redirect(
+  return await redirectInWorkspace(
     `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&notice=${encodeURIComponent(
       'Deducible agregado y liquidación actualizada.'
     )}`
@@ -1000,7 +1000,7 @@ export async function deleteCommissionDeductionAction(formData: FormData) {
       snapshot: closure.snapshot,
     });
   } catch (error) {
-    redirect(
+    return await redirectInWorkspace(
       `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&error=${encodeURIComponent(
         actionMessage(error)
       )}`
@@ -1008,7 +1008,7 @@ export async function deleteCommissionDeductionAction(formData: FormData) {
   }
 
   revalidatePath('/app/commissions');
-  redirect(
+  return await redirectInWorkspace(
     `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&notice=${encodeURIComponent(
       'Deducible eliminado y liquidación actualizada.'
     )}`
@@ -1054,7 +1054,7 @@ export async function saveCommissionBootstrapAction(formData: FormData) {
       snapshot,
     });
   } catch (error) {
-    redirect(
+    return await redirectInWorkspace(
       `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&error=${encodeURIComponent(
         actionMessage(error)
       )}`
@@ -1062,7 +1062,7 @@ export async function saveCommissionBootstrapAction(formData: FormData) {
   }
 
   revalidatePath('/app/commissions');
-  redirect(
+  return await redirectInWorkspace(
     `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&notice=${encodeURIComponent(
       'Saldo arrastrado guardado y liquidación actualizada.'
     )}`

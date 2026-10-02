@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { useDeferredValue, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import {
   deleteInventoryAlertPolicyOverrideAction,
   refreshInventoryAlertsAction,
@@ -348,7 +348,7 @@ function AlertsPanel({
                   <p className="mt-2 text-xs text-[#777784]">Detectada: {formatDate(alert.first_detected_at)} · Última señal: {formatDate(alert.last_detected_at)}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  {alert.order_id ? <Link href={`/app/master/ops?openOrder=${alert.order_id}&tab=eventos`} prefetch={false} className={SECONDARY_BUTTON_CLASS}>Ver orden {alert.order_number ?? `#${alert.order_id}`}</Link> : null}
+                  {alert.order_id ? <Link href={`/app/master/ops?openOrder=${alert.order_id}&tab=eventos`} prefetch={false} className={SECONDARY_BUTTON_CLASS}>Ver orden {alert.order_id}</Link> : null}
                   {canManage && alert.status === 'open' ? <button type="button" className={SECONDARY_BUTTON_CLASS} disabled={isPending} onClick={() => onRunAction(`manage-${alert.id}`, 'La alerta quedó en gestión.', () => updateInventoryAlertStatusAction({ alertId: alert.id, action: 'manage' }))}>{pendingKey === `manage-${alert.id}` ? 'Guardando…' : 'Tomar gestión'}</button> : null}
                   {workspace.configuration.can_configure && alert.status !== 'resolved' ? <button type="button" className={SECONDARY_BUTTON_CLASS} disabled={isPending} onClick={() => onRunAction(`resolve-${alert.id}`, 'La alerta fue resuelta manualmente.', () => updateInventoryAlertStatusAction({ alertId: alert.id, action: 'resolve' }))}>{pendingKey === `resolve-${alert.id}` ? 'Guardando…' : 'Resolver'}</button> : null}
                   {workspace.configuration.can_configure && alert.status === 'resolved' ? <button type="button" className={SECONDARY_BUTTON_CLASS} disabled={isPending} onClick={() => onRunAction(`reopen-${alert.id}`, 'La alerta fue reabierta.', () => updateInventoryAlertStatusAction({ alertId: alert.id, action: 'reopen' }))}>{pendingKey === `reopen-${alert.id}` ? 'Guardando…' : 'Reabrir'}</button> : null}

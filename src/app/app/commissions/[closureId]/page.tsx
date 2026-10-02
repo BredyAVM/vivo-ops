@@ -1,4 +1,5 @@
-import Link from 'next/link';
+import WorkspaceForm from '@/components/navigation/WorkspaceForm';
+import Link from '@/components/navigation/ContextLink';
 import { notFound, redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import {
@@ -615,7 +616,7 @@ export default async function CommissionAuditPage({
             <details className="mt-4 rounded-xl border border-[#32323D] p-4 text-sm">
               <summary className="cursor-pointer">Corregir un abono registrado por error</summary>
               <p className="mt-3 text-xs text-[#A9A9B4]">Anula el registro completo, incluida su comisión bancaria, y devuelve el importe al saldo pendiente. No devuelve dinero ni realiza transferencias bancarias.</p>
-              <form action={reverseCommissionPaymentAction} className="mt-3 grid max-w-xl gap-3">
+              <WorkspaceForm action={reverseCommissionPaymentAction} className="mt-3 grid max-w-xl gap-3">
                 <input type="hidden" name="requestId" value={crypto.randomUUID()} />
                 <input type="hidden" name="closureId" value={closureId} />
                 <label>Abono<select name="paymentRequestId" required className="mt-1 block min-h-11 w-full rounded-lg border border-[#32323D] bg-[#111117] px-3">
@@ -628,7 +629,7 @@ export default async function CommissionAuditPage({
                 <label>Motivo<input name="reason" required minLength={3} maxLength={500} className="mt-1 block min-h-11 w-full rounded-lg border border-[#32323D] bg-[#111117] px-3" /></label>
                 <label className="flex items-center gap-2 text-xs"><input type="checkbox" name="confirmed" value="yes" required />Confirmo la anulación del registro completo.</label>
                 <button type="submit" className="min-h-11 rounded-lg border border-red-400/40 px-4 text-red-200">Anular abono y comisión bancaria</button>
-              </form>
+              </WorkspaceForm>
             </details>
           ) : null}
         </section>

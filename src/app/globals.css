@@ -154,3 +154,19 @@ body {
   margin-left: 8px;
   flex-shrink: 0;
 }
+
+/* Shared domain screens retain their behavior inside the compact Admin shell. */
+.admin-shared-workspace { font-size: 0.8125rem; color: #d5d5df; }
+.admin-shared-workspace main,
+.admin-shared-workspace div.min-h-screen { min-height: 0; padding: 0; background: transparent; }
+.admin-shared-workspace :is(h1, h2) { font-size: 1.125rem; line-height: 1.5; }
+.admin-shared-workspace :is(.text-2xl, .text-3xl, .text-4xl) { font-size: 1.125rem; line-height: 1.5; }
+.admin-shared-workspace .text-sm { font-size: 0.8125rem; }
+.admin-shared-workspace :is(.p-6, .p-8) { padding: 0.75rem; }
+.admin-shared-workspace :is(.py-6, .py-8) { padding-block: 0.75rem; }
+.admin-shared-workspace :is(.mt-6, .mt-8) { margin-top: 0.75rem; }
+.admin-shared-workspace .space-y-6 > :not(:last-child) { margin-bottom: 0.75rem; }
+.admin-shared-workspace :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+@media (max-width: 767px) {
+  .admin-shared-workspace :is(button, a, summary) { min-height: 44px; }
+}

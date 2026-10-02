@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { useDeferredValue, useMemo, useState } from 'react';
 import type {
   InventoryReportItem,

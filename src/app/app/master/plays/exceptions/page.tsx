@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { notFound, redirect } from 'next/navigation';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import OrderExceptionCard from './OrderExceptionCard';

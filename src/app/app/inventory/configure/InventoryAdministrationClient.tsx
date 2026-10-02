@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import type { ReactNode } from 'react';
 import { useMemo, useState, useTransition } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';

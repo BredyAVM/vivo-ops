@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+import { redirectInWorkspace } from '@/lib/navigation/workspace-server';
 
-export default function InventoryIncidentsPage() {
-  redirect('/app/inventory/alerts');
+export default async function InventoryIncidentsPage() {
+  await redirectInWorkspace('/app/inventory/alerts');
 }

@@ -52,7 +52,7 @@ test('does not prefetch the heavy operational centers from the new shell', () =>
   const navigation = read('src/app/app/admin/_lib/navigation.ts');
   const legacyLinks = navigation.match(/href: '\/app\/(?:master|inventory|commissions|events)[^']*'[\s\S]*?prefetch: (?:true|false)/g) ?? [];
 
-  assert.ok(legacyLinks.length >= 3);
+  assert.equal(legacyLinks.length, 0, 'business destinations must remain in the Admin workspace');
   assert.ok(adminNavigation.every((item) => item.prefetch === false));
   assert.match(navigation, /href: '\/app\/admin\/ordenes'[\s\S]*?prefetch: false/);
   for (const link of legacyLinks) {

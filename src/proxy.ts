@@ -2,7 +2,10 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 export async function proxy(req: NextRequest) {
-  const res = NextResponse.next();
+  const requestHeaders = new Headers(req.headers);
+  // Never trust a client-provided workspace hint. Authorization remains in auth.ts.
+  requestHeaders.set('x-vivo-workspace-path', req.nextUrl.pathname);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

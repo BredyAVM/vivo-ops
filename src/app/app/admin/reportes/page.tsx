@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import { requireAdminContext } from '@/lib/auth';
 import { adminPanel } from '../_components/AdminReadUi';
 export default async function AdminReportsPage() {

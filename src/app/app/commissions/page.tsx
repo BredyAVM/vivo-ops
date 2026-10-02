@@ -1,4 +1,5 @@
-import Link from 'next/link';
+import WorkspaceForm from '@/components/navigation/WorkspaceForm';
+import Link from '@/components/navigation/ContextLink';
 import { redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { adminCommissionAuditHref } from '@/lib/commissions/admin-audit';
@@ -705,7 +706,7 @@ export default async function CommissionAdministrationPage({
             <summary className="cursor-pointer text-xs font-semibold text-[#C9C9D1]">
               Crear otro periodo
             </summary>
-            <form action={createCommissionPeriodAction} className="mt-3 grid gap-3 border-t border-[#292933] pt-3 md:grid-cols-2 xl:grid-cols-[1fr_150px_150px_1fr_auto] xl:items-end">
+            <WorkspaceForm action={createCommissionPeriodAction} className="mt-3 grid gap-3 border-t border-[#292933] pt-3 md:grid-cols-2 xl:grid-cols-[1fr_150px_150px_1fr_auto] xl:items-end">
               <label className="block">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Nombre</span>
                 <input
@@ -746,11 +747,11 @@ export default async function CommissionAdministrationPage({
               <button className="h-10 rounded-xl border border-[#F0D000]/45 px-4 text-sm font-semibold text-[#F7DA66]" type="submit">
                 Crear periodo
               </button>
-            </form>
+            </WorkspaceForm>
           </details>
 
           {periods.length > 0 ? (
-            <form action="/app/commissions" className="mt-4 flex items-end gap-2" method="get">
+            <WorkspaceForm action="/app/commissions" className="mt-4 flex items-end gap-2" method="get">
               <label className="min-w-0 flex-1">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Cambiar de período</span>
                 <select className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]" defaultValue={String(selectedPeriod?.id ?? '')} name="period">
@@ -765,7 +766,7 @@ export default async function CommissionAdministrationPage({
                 </select>
               </label>
               <button className="h-10 rounded-xl border border-[#4A4A56] px-4 text-sm font-semibold text-[#E3E3E8] hover:border-[#F0D000] hover:text-[#F7DA66]" type="submit">Abrir</button>
-            </form>
+            </WorkspaceForm>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-[#363641] px-4 py-8 text-center text-sm text-[#A6A6B0]">
               Aún no hay periodos de comisión registrados.
@@ -794,7 +795,7 @@ export default async function CommissionAdministrationPage({
           ) : null}
 
           {selectedPeriod ? (
-            <form
+            <WorkspaceForm
               action={calculateCommissionPeriodAction}
               className="mt-4 grid gap-3 border-t border-[#24242D] pt-4 md:grid-cols-[190px_1fr_auto] md:items-end"
               id={COMMISSION_CALCULATION_FORM_ID}
@@ -829,7 +830,7 @@ export default async function CommissionAdministrationPage({
               >
                 Calcular / actualizar
               </button>
-            </form>
+            </WorkspaceForm>
           ) : null}
         </section>
 
@@ -1073,14 +1074,14 @@ export default async function CommissionAdministrationPage({
                                 <div className="flex shrink-0 items-center gap-2">
                                   <span className="font-semibold text-[#E4E4E8]">{money(deduction.amount_usd)}</span>
                                   {row.closure.status === 'preliminary' && deduction.deduction_type !== 'gift' ? (
-                                    <form action={deleteCommissionDeductionAction}>
+                                    <WorkspaceForm action={deleteCommissionDeductionAction}>
                                       <input name="closureId" type="hidden" value={row.closure.id} />
                                       <input name="deductionId" type="hidden" value={deduction.id} />
                                       <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                                       <button className="rounded-full border border-red-400/25 px-2 py-0.5 text-[10px] text-red-200" type="submit">
                                         Quitar
                                       </button>
-                                    </form>
+                                    </WorkspaceForm>
                                   ) : null}
                                 </div>
                               </div>
@@ -1094,7 +1095,7 @@ export default async function CommissionAdministrationPage({
                           <summary className="cursor-pointer text-xs font-semibold text-[#C9C9D1]">
                             Agregar deducible extraordinario
                           </summary>
-                          <form action={addCommissionDeductionAction} className="mt-3 grid gap-3 border-t border-[#292933] pt-3 sm:grid-cols-[1fr_120px_auto] sm:items-end">
+                          <WorkspaceForm action={addCommissionDeductionAction} className="mt-3 grid gap-3 border-t border-[#292933] pt-3 sm:grid-cols-[1fr_120px_auto] sm:items-end">
                             <input name="closureId" type="hidden" value={row.closure.id} />
                             <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                             <label className="block">
@@ -1121,7 +1122,7 @@ export default async function CommissionAdministrationPage({
                             <button className="h-9 rounded-xl border border-[#F0D000]/45 px-4 text-xs font-semibold text-[#F7DA66]" type="submit">
                               Agregar
                             </button>
-                          </form>
+                          </WorkspaceForm>
                         </details>
                       ) : null}
 
@@ -1137,7 +1138,7 @@ export default async function CommissionAdministrationPage({
                           <p className="mt-3 border-t border-amber-400/15 pt-3 text-xs leading-5 text-[#B9B19C]">
                             El sistema lo arrastra automáticamente. Utiliza esta corrección solo cuando administración haya validado un saldo anterior diferente; la referencia queda guardada para auditoría.
                           </p>
-                          <form action={saveCommissionBootstrapAction} className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <WorkspaceForm action={saveCommissionBootstrapAction} className="mt-3 grid gap-3 sm:grid-cols-2">
                             <input name="closureId" type="hidden" value={row.closure.id} />
                             <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                             <label className="block">
@@ -1178,7 +1179,7 @@ export default async function CommissionAdministrationPage({
                             <button className="h-9 rounded-xl border border-amber-400/35 px-4 text-xs font-semibold text-amber-100 sm:col-span-2" type="submit">
                               Guardar corrección y recalcular
                             </button>
-                          </form>
+                          </WorkspaceForm>
                         </details>
                       ) : null}
 
@@ -1224,7 +1225,7 @@ export default async function CommissionAdministrationPage({
                       ) : null}
 
                       {row.closure.status === 'preliminary' && settlementIsCurrent ? (
-                        <form action={confirmCommissionClosureAction} className="mt-4">
+                        <WorkspaceForm action={confirmCommissionClosureAction} className="mt-4">
                           <input name="closureId" type="hidden" value={row.closure.id} />
                           <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                           <button
@@ -1236,11 +1237,11 @@ export default async function CommissionAdministrationPage({
                           <p className="mt-2 text-center text-[11px] leading-4 text-[#898995]">
                             Administración registra aquí la conformidad comunicada por el asesor.
                           </p>
-                        </form>
+                        </WorkspaceForm>
                       ) : null}
 
                       {row.closure.status === 'closed' && conformityStatus !== 'confirmed' && settlementIsCurrent ? (
-                        <form action={confirmCommissionClosureAction} className="mt-4">
+                        <WorkspaceForm action={confirmCommissionClosureAction} className="mt-4">
                           <input name="closureId" type="hidden" value={row.closure.id} />
                           <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                           <button
@@ -1249,7 +1250,7 @@ export default async function CommissionAdministrationPage({
                           >
                             Completar registro de conformidad
                           </button>
-                        </form>
+                        </WorkspaceForm>
                       ) : null}
 
                       {row.closure.status === 'closed' && conformityStatus === 'confirmed' && row.paymentBalanceUsd > 0 ? (
@@ -1276,7 +1277,7 @@ export default async function CommissionAdministrationPage({
                             <summary className="cursor-pointer text-xs font-semibold text-[#AFAFBA]">
                               Corregir liquidación excepcionalmente
                             </summary>
-                            <form action={reopenCommissionClosureAction} className="mt-3 border-t border-[#292933] pt-3">
+                            <WorkspaceForm action={reopenCommissionClosureAction} className="mt-3 border-t border-[#292933] pt-3">
                               <input name="closureId" type="hidden" value={row.closure.id} />
                               <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                               <label className="block">
@@ -1294,7 +1295,7 @@ export default async function CommissionAdministrationPage({
                               >
                                 Reabrir y exigir nueva conformidad
                               </button>
-                            </form>
+                            </WorkspaceForm>
                           </details>
                         ) : (
                           <p className="mt-4 rounded-2xl border border-[#2D2D37] bg-[#111116] px-4 py-3 text-xs leading-5 text-[#9696A2]">
