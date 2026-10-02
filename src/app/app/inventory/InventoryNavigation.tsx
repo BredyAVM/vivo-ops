@@ -25,13 +25,14 @@ const SHARED_SECONDARY_ITEMS: NavigationItem[] = [
 ];
 
 const ADMIN_SECONDARY_ITEMS: NavigationItem[] = [
+  { href: '/app/admin/inventario/prices', label: 'Precios en lista' },
   { href: '/app/inventory/adjustments', label: 'Ajustes administrativos' },
   { href: '/app/inventory/readiness', label: 'Auditoría técnica' },
 ];
 
 function isCurrentPath(pathname: string, item: NavigationItem) {
   if (item.href === '/app/inventory') return pathname === item.href;
-  return pathname.startsWith(item.match ?? item.href);
+  return pathname.startsWith(sharedWorkspacePath(item.match ?? item.href));
 }
 
 export default function InventoryNavigation({ isAdmin }: { isAdmin: boolean }) {
@@ -52,8 +53,8 @@ export default function InventoryNavigation({ isAdmin }: { isAdmin: boolean }) {
             prefetch={false}
             aria-current={active ? 'page' : undefined}
             className={active
-              ? 'rounded-xl border border-[#FEEF00]/60 bg-[#FEEF00]/10 px-3 py-2 text-sm font-semibold text-[#FEEF00]'
-              : 'rounded-xl border border-[#2A2A39] bg-[#15151D] px-3 py-2 text-sm text-[#D5D5DE] transition hover:border-[#FEEF00]/45 hover:text-white'}
+              ? 'rounded-xl border border-[#FFFF00]/60 bg-[#FFFF00]/10 px-3 py-2 text-sm font-semibold text-[#FFFF00]'
+              : 'rounded-xl border border-[#2A2A39] bg-[#15151D] px-3 py-2 text-sm text-[#D5D5DE] transition hover:border-[#FFFF00]/45 hover:text-white'}
           >
             {item.label}
           </Link>
@@ -63,8 +64,8 @@ export default function InventoryNavigation({ isAdmin }: { isAdmin: boolean }) {
       <details className="group relative">
         <summary
           className={secondaryActive
-            ? 'cursor-pointer list-none rounded-xl border border-[#FEEF00]/60 bg-[#FEEF00]/10 px-3 py-2 text-sm font-semibold text-[#FEEF00] marker:hidden'
-            : 'cursor-pointer list-none rounded-xl border border-[#2A2A39] bg-[#15151D] px-3 py-2 text-sm text-[#D5D5DE] marker:hidden hover:border-[#FEEF00]/45 hover:text-white'}
+            ? 'cursor-pointer list-none rounded-xl border border-[#FFFF00]/60 bg-[#FFFF00]/10 px-3 py-2 text-sm font-semibold text-[#FFFF00] marker:hidden'
+            : 'cursor-pointer list-none rounded-xl border border-[#2A2A39] bg-[#15151D] px-3 py-2 text-sm text-[#D5D5DE] marker:hidden hover:border-[#FFFF00]/45 hover:text-white'}
         >
           Más herramientas <span aria-hidden="true" className="ml-1 text-xs">▾</span>
         </summary>
@@ -78,7 +79,7 @@ export default function InventoryNavigation({ isAdmin }: { isAdmin: boolean }) {
                 prefetch={false}
                 aria-current={active ? 'page' : undefined}
                 className={active
-                  ? 'block rounded-xl bg-[#FEEF00]/10 px-3 py-2.5 text-sm font-semibold text-[#FEEF00]'
+                  ? 'block rounded-xl bg-[#FFFF00]/10 px-3 py-2.5 text-sm font-semibold text-[#FFFF00]'
                   : 'block rounded-xl px-3 py-2.5 text-sm text-[#C8C8D2] hover:bg-white/5 hover:text-white'}
               >
                 {item.label}

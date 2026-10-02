@@ -35,6 +35,6 @@ export default async function ExpenseReviewPage({ params }: { params: Promise<{ 
       {row.reviewedAt ? <p className="text-xs text-[#B9B9C4]">Revisó {row.reviewer} · {date.format(new Date(row.reviewedAt))}{row.rejectionReason ? ` · ${row.rejectionReason}` : ''}</p> : null}
       <Link href={`/app/admin/finanzas/cuentas/${row.accountId}?vista=movements&estado=all&desde=${row.date}&hasta=${row.date}`} prefetch={false} className="inline-flex min-h-11 items-center text-sm underline">Ver historial de cuenta →</Link>
     </article>)}</div>
-    <section className={adminPanel}>{review.eligible ? <ExpenseDecisionForm key={review.snapshot} movementId={movementId} snapshot={review.snapshot} /> : <div className="space-y-2"><p className="text-sm">Este movimiento ya fue resuelto o requiere su proceso de origen. No se puede aprobar como un egreso simple.</p><Link href="/app/master/dashboard?adminSection=accounts" prefetch={false} className="inline-flex min-h-11 items-center text-sm underline">Abrir revisión financiera vigente →</Link></div>}</section>
+    <section className={adminPanel}>{review.eligible ? <ExpenseDecisionForm key={review.snapshot} movementId={movementId} snapshot={review.snapshot} /> : <div className="space-y-2"><p className="text-sm">Este movimiento ya fue resuelto o requiere su proceso de origen. No se puede aprobar como un egreso simple.</p><Link href="/app/admin/finanzas/cuentas" prefetch={false} className="inline-flex min-h-11 items-center text-sm underline">Consultar cuentas y movimientos →</Link></div>}</section>
   </div>;
 }

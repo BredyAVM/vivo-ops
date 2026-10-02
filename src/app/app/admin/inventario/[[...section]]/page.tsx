@@ -18,6 +18,7 @@ export default async function AdminInventoryPage({ params, searchParams }: Props
     if (path === 'configure') { const { default: Page } = await import('@/app/app/inventory/configure/page'); return <Page searchParams={searchParams} />; }
     if (segments.length === 2 && segments[0] === 'counts' && /^[1-9]\d*$/.test(segments[1])) { const { default: Page } = await import('@/app/app/inventory/counts/[countId]/page'); return <Page params={Promise.resolve({ countId: segments[1] })} />; }
     switch (path) {
+      case 'prices': { const {default: Page}=await import('@/app/app/admin/_components/CatalogPrices'); return <Page query={query}/>; }
       case 'products': { const { default: Page } = await import('@/app/app/inventory/products/page'); return <Page />; }
       case 'recipes': { const { default: Page } = await import('@/app/app/inventory/recipes/page'); return <Page />; }
       case 'operations': { const { default: Page } = await import('@/app/app/inventory/operations/page'); return <Page />; }

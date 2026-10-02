@@ -1,4 +1,4 @@
-import { addDateKeyDays, buildAdminFinancePeriod } from './period';
+import { addDateKeyDays, buildAdminFinancePeriod } from './period.ts';
 
 export const COLLECTIONS_PATH = '/app/admin/finanzas/cobranzas';
 export const collectionStatuses = { pending: 'Con saldo pendiente', review: 'Pagos por verificar', paid: 'Sin deuda', all: 'Todas las órdenes', cancelled: 'Canceladas' };

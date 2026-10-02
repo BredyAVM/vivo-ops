@@ -9,6 +9,11 @@ export type AdminNavigationItem = {
 };
 
 export const adminNavigation: AdminNavigationItem[] = [
+  {key:'analysis',label:'Análisis comercial',shortLabel:'Análisis',description:'Ventas netas, cierres y pagos por período',href:'/app/admin/analisis',prefetch:false,marker:'AN'},
+  {key:'clients',label:'Clientes',shortLabel:'Clientes',description:'Consultar, crear y editar clientes',href:'/app/admin/configuracion/clientes',prefetch:false,marker:'CL'},
+  {key:'users',label:'Usuarios',shortLabel:'Usuarios',description:'Equipo, estados y permisos',href:'/app/admin/configuracion/usuarios',prefetch:false,marker:'US'},
+  {key:'configuration',label:'Configuración',shortLabel:'Configurar',description:'Tasa, cuentas y tarifas',href:'/app/admin/configuracion',prefetch:false,marker:'CF'},
+  {key:'notifications',label:'Notificaciones',shortLabel:'Avisos',description:'Avisos en este dispositivo',href:'/app/admin/notificaciones',prefetch:false,marker:'AV'},
   {
     key: 'home',
     label: 'Inicio',
@@ -117,8 +122,8 @@ export function navigationItem(key: string) {
 
 export const desktopAdminNavigationGroups = [
   { key: 'operations', label: 'Operaciones', keys: ['operations', 'orders', 'authorizations', 'active-orders'] },
-  { key: 'finance', label: 'Finanzas', keys: ['finance', 'finance-summary', 'accounts', 'receivables', 'commissions', 'delivery-finance', 'projections', 'reports'] },
-  { key: 'business', label: 'Negocio', keys: ['business', 'inventory', 'events', 'plays', 'tools'] },
+  { key: 'finance', label: 'Finanzas', keys: ['finance', 'finance-summary', 'accounts', 'receivables', 'commissions', 'delivery-finance', 'analysis', 'projections', 'reports'] },
+  { key: 'business', label: 'Negocio', keys: ['business', 'inventory', 'events', 'plays', 'clients', 'users', 'configuration', 'notifications', 'tools'] },
 ].map((group) => ({ key: group.key, label: group.label, items: group.keys.map(navigationItem) }));
 
 export function activeAdminNavigationKey(pathname: string) {

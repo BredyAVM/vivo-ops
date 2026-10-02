@@ -204,6 +204,7 @@ async function loadCollectionByAdvisorId(params: {
   supabase: SupabaseServerClient;
   closures: ClosureDbRow[];
   cutoffDate: string;
+  strictCurrent?: boolean;
 }) {
   const ordersByAdvisorId = new Map<string, AdvisorGoalCollectionSnapshotOrder[]>();
   const orderIds: number[] = [];
@@ -216,8 +217,8 @@ async function loadCollectionByAdvisorId(params: {
   const entries: AdvisorGoalPaymentRegistrationEntry[] = [];
   const financialStateByOrderId = new Map<number, FinancialStateDbRow>();
 
-  for (let index = 0; index < uniqueOrderIds.length; index += 250) {
-    const chunk = uniqueOrderIds.slice(index, index + 250);
+  for (let index = 0; index < uniqueOrderIds.length; index += (params.strictCurrent?50:250)) {
+    const chunk = uniqueOrderIds.slice(index, index + (params.strictCurrent?50:250));
     const [movementsResult, reportsResult, fundResult, refundReceiptsResult, financialStatesResult, allocationsResult] = await Promise.all([
       params.supabase
         .from('money_movements')
@@ -254,6 +255,8 @@ async function loadCollectionByAdvisorId(params: {
     if (refundReceiptsResult.error) throw new Error(refundReceiptsResult.error.message);
     if (financialStatesResult.error) throw new Error(financialStatesResult.error.message);
     if (allocationsResult.error) throw new Error(allocationsResult.error.message);
+    if(params.strictCurrent && [movementsResult,reportsResult,fundResult,refundReceiptsResult,allocationsResult].some(r=>(r.data??[]).length>=1000))
+      throw new Error('El desglose de pagos es demasiado amplio. Reduce la consulta para evitar datos parciales.');
 
     for (const state of (financialStatesResult.data ?? []) as FinancialStateDbRow[]) {
       const orderId = Number(state.order_id);
@@ -332,6 +335,7 @@ async function loadCollectionByAdvisorId(params: {
     advisorId,
     orders.map((order) => {
       const state = financialStateByOrderId.get(order.orderId);
+      if(params.strictCurrent && !state)throw new Error('Falta el estado financiero actual de una orden.');
       return state ? {
         ...order,
         orderNumber: state.order_number ?? order.orderNumber,
@@ -504,4 +508,10 @@ export async function loadAdvisorGoalSimulation(params: {
     return publication ? [[String(closure.advisor_user_id), publication] as const] : [];
   }));
   return withPublishedAdvisorGoalTargets(simulation, publications, params.preserveFinal ?? true);
+}
+
+
+export async function loadCommercialCollectionForOrders(params:{supabase:SupabaseServerClient;orders:AdvisorGoalCollectionSnapshotOrder[];cutoffDate:string}){
+ const rows=await loadCollectionByAdvisorId({supabase:params.supabase,closures:[{id:0,advisor_user_id:'analysis',snapshot:{orders:params.orders}}],cutoffDate:params.cutoffDate,strictCurrent:true});
+ return rows.get('analysis')??null;
 }

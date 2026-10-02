@@ -17,7 +17,7 @@ type Shortcut = {
 
 const shortcuts: Shortcut[] = [
   { label: 'Ingreso / Egreso', marker: '$', href: '/app/admin/finanzas/cuentas/movimiento' },
-  { label: 'Pendientes', marker: 'PD', href: '/app/admin/tareas' },
+  { label: 'Aprobaciones', marker: 'AP', href: '/app/admin/autorizaciones' },
   { label: 'Delivery', marker: 'DE', href: '/app/admin/finanzas/delivery' },
   { label: 'Reportes', marker: 'RE', href: '/app/admin/reportes' },
   { label: 'Herramientas', marker: 'HE', href: '/app/admin/herramientas' },

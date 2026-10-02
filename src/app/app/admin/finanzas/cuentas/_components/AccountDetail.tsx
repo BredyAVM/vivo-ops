@@ -474,7 +474,7 @@ function Configuration({ detail }: { detail: AdminFinanceAccountDetail }) {
           </div>
         ))}
       </dl>
-      <div className="border-t border-[#292937] px-3 py-2"><Link prefetch={false} href="/app/master/dashboard?adminSection=accounts" className="inline-flex min-h-11 items-center text-xs underline">Administrar cuentas, reglas y líneas base</Link><p className="text-xs text-[#888]">Abre la configuración existente; no crea una segunda configuración.</p></div>
+      <div className="border-t border-[#292937] px-3 py-2"><Link prefetch={false} href="/app/admin/configuracion/cuentas" className="inline-flex min-h-11 items-center text-xs underline">Administrar cuentas, reglas y líneas base</Link><p className="text-xs text-[#888]">Configura nombres, permisos y saldo inicial.</p></div>
     </section>
   );
 }

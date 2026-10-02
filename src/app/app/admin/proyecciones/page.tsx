@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/navigation/ContextLink';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireAdminContext } from '@/lib/auth';
 import { loadAdminExecutiveKpiDomain } from '@/lib/admin-finance/executive-data';
