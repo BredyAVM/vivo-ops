@@ -4910,7 +4910,7 @@ export default function OrdersWorkspaceClient({
               <div className="text-center font-semibold text-[#F5F5F7]">{stats.day.cierres}</div>
               <div className="text-center font-semibold text-[#F5F5F7]">{stats.week.cierres}</div>
 
-              <div className="text-[#B7B7C2]">Fact. neta</div>
+              <div className="text-[#B7B7C2]" title="Total de órdenes facturadas, incluido impuesto. El inicio muestra el neto comercial sin impuesto.">Facturación</div>
               <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(stats.day.fact)}</div>
               <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(stats.week.fact)}</div>
 
