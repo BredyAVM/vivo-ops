@@ -81,6 +81,8 @@ test('desktop groups start closed at home and only the current group opens on de
   const accountLink = (accounts.match(/<a\b[^>]*>/g) ?? []).find((link) => /href="\/app\/admin\/finanzas\/cuentas\?/.test(link));
   assert.match(accountLink ?? '', /aria-current="page"/);
   assert.doesNotMatch(accounts, /Panel anterior|\/app\/master\/dashboard|data-prefetch="true"/);
+  const source = readFileSync(new URL('src/app/app/admin/_components/AdminNavigation.tsx', root), 'utf8');
+  assert.ok(source.includes('key={`${group.key}:${pathname}`}'), 'A different route must reopen its active group after a manual collapse');
 });
 
 test('mobile keeps its finance area active on account detail without falsely calling it the current page', () => {

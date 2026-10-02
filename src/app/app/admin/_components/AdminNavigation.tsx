@@ -53,7 +53,7 @@ export default function AdminNavigation({ variant }: { variant: 'desktop' | 'mob
     <nav aria-label="Navegación de Administración" className="grid w-full min-w-0 grid-cols-1 gap-1">
       <DesktopDestination item={navigationItem('home')} active={activeKey === 'home'} />
       {desktopAdminNavigationGroups.map((group) => (
-        <details key={`${group.key}:${activeGroup ?? 'home'}`} open={group.key === activeGroup} className="group/section min-w-0">
+        <details key={`${group.key}:${pathname}`} open={group.key === activeGroup} className="group/section min-w-0">
           <summary className={`flex min-h-9 cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-[#FFFF00] [&::-webkit-details-marker]:hidden ${group.key === activeGroup ? 'text-[#FFFF00]' : 'text-[#D0D0D8] hover:bg-[#17171F]'}`}>
             <span>{group.label}</span>
             <span aria-hidden="true" className="text-[#888895] transition-transform group-open/section:rotate-90">›</span>
