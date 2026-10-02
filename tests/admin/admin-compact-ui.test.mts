@@ -102,6 +102,13 @@ test('all financial destinations stay in Admin and disable speculative prefetch'
   assert.match(html, /autorizaciones\?tipo=payment/);
 });
 
+test('compact charts reserve space for the axis labels below their bars', () => {
+  const chart = read('src/app/app/admin/_components/FinancialBarChart.tsx');
+  assert.match(chart, /grid h-36 items-end/);
+  assert.match(chart, /flex h-28 items-end/);
+  assert.match(chart, /mt-2 truncate text-center text-\[11px\]/);
+});
+
 test('advanced collection filters remain submitted, preserve active values and never query on render', () => {
   const filters = normalizeCollectionFilters({ from: '2026-09-07', to: '2026-09-13', source: 'master', fulfillment: 'pickup', role: 'admin', basis: 'delivered' });
   const html = renderToStaticMarkup(createElement(CollectionFilters, { filters, people: [], todayIso: '2026-10-02T16:00:00Z' }));

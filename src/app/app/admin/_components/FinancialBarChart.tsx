@@ -61,7 +61,7 @@ export default function FinancialBarChart({
       </div>
 
       <div
-        className="mt-2 grid h-28 items-end gap-1.5 border-b border-[#333342] px-1 sm:gap-2"
+        className="mt-2 grid h-36 items-end gap-1.5 border-b border-[#333342] px-1 sm:gap-2"
         style={{ gridTemplateColumns: `repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))` }}
         aria-hidden="true"
       >
