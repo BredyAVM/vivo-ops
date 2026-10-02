@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 test('closure and reversal use session-authorized atomic commands', () => {
   const s=readFileSync(new URL('../../src/app/app/master/dashboard/actions.ts',import.meta.url),'utf8');
   const create=s.slice(s.indexOf('export async function createMoneyAccountClosureAction('),s.indexOf('export async function previewMoneyAccountClosureAction('));
-  const cancel=s.slice(s.indexOf('export async function rejectMoneyAccountClosureAction('),s.indexOf('export async function createMoneyAccountBaselineAction('));
+  const cancel=s.slice(s.indexOf('export async function rejectMoneyAccountClosureAction('),s.indexOf('\nexport async function ',s.indexOf('export async function rejectMoneyAccountClosureAction(')+1));
   assert.match(create,/create_account_closure_v1/);
   assert.match(cancel,/void_account_closure_v1/);
   assert.doesNotMatch(create+cancel,/\.insert\(|\.update\(|createSupabaseServiceRole/);

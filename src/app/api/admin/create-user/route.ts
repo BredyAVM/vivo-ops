@@ -45,16 +45,21 @@ export async function POST(req: Request) {
 
     if (rolesErr) return NextResponse.json({ error: rolesErr.message }, { status: 400 });
 
-    const roleList = (actorRoles ?? []).map((r: any) => String(r.role));
+    const roleList = (actorRoles ?? []).map((r) => String(r.role));
     const isMasterOrAdmin = roleList.includes("admin") || roleList.includes("master");
     if (!isMasterOrAdmin) return NextResponse.json({ error: "Only master/admin can create users" }, { status: 403 });
 
+    const {data:profile,error:profileError}=await supa.from('profiles').select('is_active').eq('id',actorUserId).single();
+    if(profileError||!profile?.is_active)return NextResponse.json({error:'Se requiere un usuario activo.'},{status:403});
     // 3) validaciones básicas
     const email = String(body.email || "").trim().toLowerCase();
     const password = String(body.password || "");
     const full_name = String(body.full_name || "").trim();
     const is_active = Boolean(body.is_active);
-    const roles = Array.isArray(body.roles) ? body.roles : [];
+    const roles = Array.isArray(body.roles) ? Array.from(new Set(body.roles)) : [];
+    const allowed:Role[]=['admin','master','advisor','kitchen','counter','driver'];
+    if(roles.some(r=>!allowed.includes(r)))return NextResponse.json({error:'Rol inválido.'},{status:400});
+    if(!roleList.includes('admin')&&roles.some(r=>r==='admin'||r==='master'))return NextResponse.json({error:'Solo Administración puede otorgar estos permisos.'},{status:403});
 
     if (!email || !email.includes("@")) return NextResponse.json({ error: "Invalid email" }, { status: 400 });
     if (!password || password.length < 6) return NextResponse.json({ error: "Password must be at least 6 chars" }, { status: 400 });
@@ -75,13 +80,14 @@ export async function POST(req: Request) {
     const newUserId = created.user.id;
 
     // 5) crear profile
-    const { error: profileErr } = await supa.from("profiles").insert({
+    const { error: profileErr } = await supa.from("profiles").upsert({
       id: newUserId,
       full_name,
       is_active,
     });
 
     if (profileErr) {
+      await supa.auth.admin.deleteUser(newUserId);
       return NextResponse.json({ error: "Profile insert failed: " + profileErr.message }, { status: 400 });
     }
 
@@ -90,6 +96,7 @@ export async function POST(req: Request) {
     const { error: rolesInsErr } = await supa.from("user_roles").insert(roleRows);
 
     if (rolesInsErr) {
+      await supa.auth.admin.deleteUser(newUserId);
       return NextResponse.json({ error: "Roles insert failed: " + rolesInsErr.message }, { status: 400 });
     }
 
@@ -101,7 +108,7 @@ export async function POST(req: Request) {
       roles,
       is_active,
     });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Unknown error" }, { status: 500 });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'No se pudo crear el usuario.' }, { status: 500 });
   }
 }

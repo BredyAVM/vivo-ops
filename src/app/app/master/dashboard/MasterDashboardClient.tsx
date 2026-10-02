@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isPaymentMethodApplicableToAccount, getPaymentMethodRolesForAccount } from '@/lib/payments/account-rule-policy';
 import Link from 'next/link';
 import DeliveredOrderCommissionEditor from '../../commissions/_components/DeliveredOrderCommissionEditor';
 import MasterClientSearchResults from '../_components/MasterClientSearchResults';
@@ -2905,42 +2906,7 @@ function isPaymentMethodCode(value: string): value is PaymentMethodCode {
   return PAYMENT_METHOD_CODES.includes(value as PaymentMethodCode);
 }
 
-function isPaymentMethodApplicableToAccount(method: PaymentMethodCode, account: MoneyAccountOption) {
-  const normalizedAccountName = normalizeLooseText(account.name);
-  if (normalizedAccountName.includes('retencion')) return method === 'retention';
 
-  if (method === 'payment_mobile') return account.currencyCode === 'VES' && ['bank', 'wallet'].includes(account.accountKind);
-  if (method === 'transfer') return account.accountKind === 'bank';
-  if (method === 'zelle') return account.currencyCode === 'USD' && account.accountKind === 'bank';
-  if (method === 'wallet_usd') return account.currencyCode === 'USD' && account.accountKind === 'wallet';
-  if (method === 'cash_usd') return account.currencyCode === 'USD' && account.accountKind === 'cash';
-  if (method === 'cash_ves') return account.currencyCode === 'VES' && account.accountKind === 'cash';
-  if (method === 'pos') return account.accountKind === 'pos';
-  if (method === 'retention') return account.accountKind === 'fund';
-  return false;
-}
-
-function getPaymentMethodRolesForAccount(method: PaymentMethodCode, account: MoneyAccountOption): AppUserRole[] {
-  if (!isPaymentMethodApplicableToAccount(method, account)) return [];
-
-  if (method === 'payment_mobile' || method === 'transfer' || method === 'zelle' || method === 'wallet_usd') {
-    return ['admin', 'master', 'advisor', 'counter'];
-  }
-
-  if (method === 'retention') {
-    return ['admin', 'master'];
-  }
-
-  if (method === 'pos') {
-    return ['admin', 'master', 'counter'];
-  }
-
-  if (method === 'cash_usd' || method === 'cash_ves') {
-    return ['admin', 'master', 'counter', 'driver'];
-  }
-
-  return ['admin', 'master'];
-}
 
 function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode): AccountRuleDraft {
   const remoteMethod =

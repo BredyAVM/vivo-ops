@@ -1,4 +1,370 @@
 'use server';
+import * as configurationCommands from '@/lib/admin-config/canonical-actions';
+export async function updateExchangeRateAction(input: Parameters<typeof configurationCommands.updateExchangeRateAction>[0]) { return configurationCommands.updateExchangeRateAction(input); }
+export async function createMoneyAccountAction(input: {
+  name: string;
+  currencyCode: 'USD' | 'VES';
+  accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
+  institutionName: string;
+  ownerName: string;
+  notes: string;
+  isActive: boolean;
+  closureDefaultTargetMoneyAccountId?: number | null;
+}) {
+  const { user, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+  const supabase = createSupabaseServiceRoleServer();
+
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('El nombre de la cuenta es obligatorio.');
+
+  const { data: insertedAccount, error } = await supabase.from('money_accounts').insert({
+    name,
+    currency_code: input.currencyCode,
+    account_kind: input.accountKind,
+    institution_name: input.institutionName.trim() || null,
+    owner_name: input.ownerName.trim() || null,
+    notes: input.notes.trim() || null,
+    is_active: input.isActive,
+    created_by_user_id: user.id,
+  }).select('id').single();
+
+  if (error) throw new Error(error.message);
+
+  const insertedAccountId = Number(insertedAccount?.id || 0);
+  if (insertedAccountId > 0) {
+    await ensureMoneyAccountClosureProfile(supabase, {
+      accountId: insertedAccountId,
+      accountKind: input.accountKind,
+      currencyCode: input.currencyCode,
+      defaultTargetMoneyAccountId: input.closureDefaultTargetMoneyAccountId ?? null,
+    });
+  }
+
+  revalidateMasterDashboardFinancialReferences();
+}
+export async function updateMoneyAccountAction(input: {
+  accountId: number;
+  name: string;
+  currencyCode: 'USD' | 'VES';
+  accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
+  institutionName: string;
+  ownerName: string;
+  notes: string;
+  isActive: boolean;
+  closureDefaultTargetMoneyAccountId?: number | null;
+}) {
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+
+  const accountId = Number(input.accountId);
+  if (!Number.isFinite(accountId) || accountId <= 0) {
+    throw new Error('Cuenta inválida.');
+  }
+
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('El nombre de la cuenta es obligatorio.');
+
+  const { error } = await supabase
+    .from('money_accounts')
+    .update({
+      name,
+      currency_code: input.currencyCode,
+      account_kind: input.accountKind,
+      institution_name: input.institutionName.trim() || null,
+      owner_name: input.ownerName.trim() || null,
+      notes: input.notes.trim() || null,
+      is_active: input.isActive,
+    })
+    .eq('id', accountId);
+
+  if (error) throw new Error(error.message);
+
+  await ensureMoneyAccountClosureProfile(supabase, {
+    accountId,
+    accountKind: input.accountKind,
+    currencyCode: input.currencyCode,
+    defaultTargetMoneyAccountId: input.closureDefaultTargetMoneyAccountId ?? null,
+  });
+
+  revalidateMasterDashboardFinancialReferences();
+}
+export async function toggleMoneyAccountActiveAction(input: Parameters<typeof configurationCommands.toggleMoneyAccountActiveAction>[0]) { return configurationCommands.toggleMoneyAccountActiveAction(input); }
+export async function updateMoneyAccountPaymentRulesAction(input: {
+  accountId: number;
+  rules: Array<{
+    role: AppUserRole;
+    paymentMethodCode: string;
+    canViewAccount: boolean;
+    canShareWithClient: boolean;
+    canReportPayment: boolean;
+    canConfirmPayment: boolean;
+    autoConfirmsReport: boolean;
+    reviewRequired: boolean;
+    reviewRoles: AppUserRole[];
+    isActive: boolean;
+  }>;
+}) {
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+
+  const accountId = Number(input.accountId);
+  if (!Number.isFinite(accountId) || accountId <= 0) {
+    throw new Error('Cuenta inválida.');
+  }
+
+  const rawRules = Array.isArray(input.rules) ? input.rules : [];
+  const now = new Date().toISOString();
+  const rows = rawRules
+    .map((rule) => {
+      const role = typeof rule.role === 'string' && APP_USER_ROLES.has(rule.role) ? rule.role : null;
+      const paymentMethodCode = normalizePaymentMethodCode(rule.paymentMethodCode);
+      if (!role || !paymentMethodCode) return null;
+
+      const autoConfirmsReport = Boolean(rule.autoConfirmsReport);
+      const reviewRequired = autoConfirmsReport ? false : Boolean(rule.reviewRequired);
+      const reviewRoles = reviewRequired ? normalizeUserRoles(rule.reviewRoles) : [];
+      const normalizedReviewRoles = reviewRequired && reviewRoles.length === 0 ? ['master', 'admin'] : reviewRoles;
+      const canReportPayment = Boolean(rule.canReportPayment);
+      const canConfirmPayment = autoConfirmsReport ? true : Boolean(rule.canConfirmPayment);
+      const canViewAccount =
+        Boolean(rule.canViewAccount) ||
+        Boolean(rule.canShareWithClient) ||
+        canReportPayment ||
+        canConfirmPayment ||
+        reviewRequired;
+
+      return {
+        money_account_id: accountId,
+        role,
+        payment_method_code: paymentMethodCode,
+        can_view_account: canViewAccount,
+        can_share_with_client: Boolean(rule.canShareWithClient),
+        can_report_payment: canReportPayment,
+        can_confirm_payment: canConfirmPayment,
+        auto_confirms_report: autoConfirmsReport,
+        review_required: reviewRequired,
+        review_roles: normalizedReviewRoles,
+        is_active: Boolean(rule.isActive),
+        updated_at: now,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+
+  if (rows.length === 0) {
+    throw new Error('No hay reglas válidas para guardar.');
+  }
+
+  const { error: deactivateError } = await supabase
+    .from('money_account_payment_rules')
+    .update({ is_active: false, updated_at: now })
+    .eq('money_account_id', accountId);
+
+  if (deactivateError) throw new Error(deactivateError.message);
+
+  const { error } = await supabase
+    .from('money_account_payment_rules')
+    .upsert(rows, { onConflict: 'money_account_id,role,payment_method_code' });
+
+  if (error) throw new Error(error.message);
+
+  revalidateMasterDashboardFinancialReferences();
+}
+export async function createMoneyAccountBaselineAction(input: {
+  moneyAccountId: number;
+  baselineDate: string;
+  countedAmount: number;
+  exchangeRateVesPerUsd: number | null;
+  reason: string;
+  notes: string;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const baselineDate = String(input.baselineDate || '').trim();
+  const countedAmount = Number(input.countedAmount || 0);
+  const reason = String(input.reason || '').trim() || null;
+  const notes = String(input.notes || '').trim() || null;
+
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+    throw new Error('Cuenta inválida.');
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(baselineDate)) {
+    throw new Error('Debes indicar una fecha válida para la línea base.');
+  }
+
+  if (!Number.isFinite(countedAmount) || countedAmount < 0) {
+    throw new Error('El saldo real no es válido.');
+  }
+
+  const { data: existingBaseline, error: existingBaselineError } = await supabase
+    .from('money_account_closure_baselines')
+    .select('id')
+    .eq('money_account_id', moneyAccountId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (existingBaselineError) throw new Error(existingBaselineError.message);
+  if (existingBaseline) {
+    throw new Error('Esta cuenta ya tiene una línea base activa.');
+  }
+
+  const { data: account, error: accountError } = await supabase
+    .from('money_accounts')
+    .select('id, currency_code')
+    .eq('id', moneyAccountId)
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
+  }
+
+  const currencyCode = String(account.currency_code || '').toUpperCase();
+  if (currencyCode !== 'USD' && currencyCode !== 'VES') {
+    throw new Error('La moneda de la cuenta no es válida.');
+  }
+
+  const exchangeRate =
+    currencyCode === 'VES' ? Number(input.exchangeRateVesPerUsd || 0) : null;
+  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate ?? NaN) || (exchangeRate ?? 0) <= 0)) {
+    throw new Error('Debes indicar una tasa válida para una línea base en Bs.');
+  }
+
+  const { data: movements, error: movementsError } = await supabase
+    .from('money_movements')
+    .select('direction, amount, amount_usd_equivalent')
+    .eq('money_account_id', moneyAccountId)
+    .eq('status', 'confirmed')
+    .lte('movement_date', baselineDate);
+
+  if (movementsError) throw new Error(movementsError.message);
+
+  let expectedAmount = 0;
+  let expectedAmountUsd = 0;
+
+  for (const movement of movements ?? []) {
+    const signed = movement.direction === 'inflow' ? 1 : -1;
+    expectedAmount += signed * toSafeNumber(movement.amount, 0);
+    expectedAmountUsd += signed * toSafeNumber(movement.amount_usd_equivalent, 0);
+  }
+
+  expectedAmount = Number(expectedAmount.toFixed(2));
+  expectedAmountUsd = Number(expectedAmountUsd.toFixed(2));
+  const countedAmountRounded = Number(countedAmount.toFixed(2));
+  const countedAmountUsd =
+    currencyCode === 'USD'
+      ? countedAmountRounded
+      : Number((countedAmountRounded / (exchangeRate ?? 1)).toFixed(2));
+  const differenceAmount = Number((countedAmountRounded - expectedAmount).toFixed(2));
+  const differenceAmountUsd = Number((countedAmountUsd - expectedAmountUsd).toFixed(2));
+
+  const { error } = await supabase.from('money_account_closure_baselines').insert({
+    money_account_id: moneyAccountId,
+    baseline_date: baselineDate,
+    baseline_at: `${baselineDate}T23:59:59-04:00`,
+    expected_amount: expectedAmount,
+    counted_amount: countedAmountRounded,
+    difference_amount: differenceAmount,
+    expected_amount_usd: expectedAmountUsd,
+    counted_amount_usd: countedAmountUsd,
+    difference_amount_usd: differenceAmountUsd,
+    currency_code: currencyCode,
+    exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+    reason,
+    notes,
+    status: 'active',
+    created_by_user_id: user.id,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+export async function createDeliveryPartnerAction(input: Parameters<typeof configurationCommands.createDeliveryPartnerAction>[0]) { return configurationCommands.createDeliveryPartnerAction(input); }
+export async function updateDeliveryPartnerAction(input: Parameters<typeof configurationCommands.updateDeliveryPartnerAction>[0]) { return configurationCommands.updateDeliveryPartnerAction(input); }
+export async function toggleDeliveryPartnerActiveAction(input: Parameters<typeof configurationCommands.toggleDeliveryPartnerActiveAction>[0]) { return configurationCommands.toggleDeliveryPartnerActiveAction(input); }
+export async function loadDeliveryPartnerRatesAction() { return configurationCommands.loadDeliveryPartnerRatesAction(); }
+export async function createDeliveryPartnerRateAction(input: Parameters<typeof configurationCommands.createDeliveryPartnerRateAction>[0]) { return configurationCommands.createDeliveryPartnerRateAction(input); }
+export async function updateDeliveryPartnerRateAction(input: Parameters<typeof configurationCommands.updateDeliveryPartnerRateAction>[0]) { return configurationCommands.updateDeliveryPartnerRateAction(input); }
+export async function toggleDeliveryPartnerRateActiveAction(input: Parameters<typeof configurationCommands.toggleDeliveryPartnerRateActiveAction>[0]) { return configurationCommands.toggleDeliveryPartnerRateActiveAction(input); }
+export async function createClientAction(input: Parameters<typeof configurationCommands.createClientAction>[0]) { return configurationCommands.createClientAction(input); }
+export async function updateClientAction(input: Parameters<typeof configurationCommands.updateClientAction>[0]) { return configurationCommands.updateClientAction(input); }
+export async function toggleClientActiveAction(input: Parameters<typeof configurationCommands.toggleClientActiveAction>[0]) { return configurationCommands.toggleClientActiveAction(input); }
+export async function updateDashboardUserAction(input: {
+  userId: string;
+  fullName: string;
+  isActive: boolean;
+  receivesCommissions: boolean;
+  roles: AppUserRole[];
+}) {
+  try {
+    const { user, roles } = await requireMasterOrAdmin();
+    requireAdminRole(roles);
+
+    const userId = String(input.userId || '').trim();
+    if (!userId) {
+      return { ok: false, error: 'Usuario invalido.' };
+    }
+
+    const nextRoles = normalizeUserRoles(input.roles);
+    if (nextRoles.length === 0) {
+      return { ok: false, error: 'Selecciona al menos un rol.' };
+    }
+
+    if (userId === user.id && !nextRoles.some((role) => role === 'admin' || role === 'master')) {
+      return { ok: false, error: 'No puedes quitarte tu propio acceso al dashboard master.' };
+    }
+
+    const adminSupabase = createSupabaseServiceRoleServer();
+    const fullName = String(input.fullName || '').trim();
+
+    const { error: profileError } = await adminSupabase
+      .from('profiles')
+      .update({
+        full_name: fullName || null,
+        is_active: Boolean(input.isActive),
+        receives_commissions:
+          nextRoles.includes('advisor') && Boolean(input.receivesCommissions),
+      })
+      .eq('id', userId);
+
+    if (profileError) return { ok: false, error: profileError.message };
+
+    const rolesToKeep = APP_USER_ROLES_VALUES.filter((role) => nextRoles.includes(role));
+    const rolesToRemove = APP_USER_ROLES_VALUES.filter((role) => !nextRoles.includes(role));
+
+    if (rolesToRemove.length > 0) {
+      const { error: deleteRolesError } = await adminSupabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userId)
+        .in('role', rolesToRemove);
+
+      if (deleteRolesError) return { ok: false, error: deleteRolesError.message };
+    }
+
+    if (rolesToKeep.length > 0) {
+      const { error: upsertRolesError } = await adminSupabase
+        .from('user_roles')
+        .upsert(
+          rolesToKeep.map((role) => ({ user_id: userId, role })),
+          { onConflict: 'user_id,role' }
+        );
+
+      if (upsertRolesError) return { ok: false, error: upsertRolesError.message };
+    }
+
+    revalidatePath('/app/master/dashboard');
+    return { ok: true };
+  } catch (error) {
+    console.error('updateDashboardUserAction failed', error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'No se pudo actualizar el usuario.',
+    };
+  }
+}
 import { buildOrderCancellationCommand, readOrderCancellationPreview, readOrderCancellationReceipt, type OrderCancellationInput } from '@/lib/domain/order-cancellation-command';
 
 import { buildPaymentConfirmationCommand, readPaymentConfirmationReceipt, type PaymentConfirmationInput } from '@/lib/domain/payment-confirmation-command';
@@ -693,80 +1059,6 @@ async function updateDashboardUserActionLegacy(input: {
   revalidatePath('/app/master/dashboard');
 }
 
-export async function updateDashboardUserAction(input: {
-  userId: string;
-  fullName: string;
-  isActive: boolean;
-  receivesCommissions: boolean;
-  roles: AppUserRole[];
-}) {
-  try {
-    const { user, roles } = await requireMasterOrAdmin();
-    requireAdminRole(roles);
-
-    const userId = String(input.userId || '').trim();
-    if (!userId) {
-      return { ok: false, error: 'Usuario invalido.' };
-    }
-
-    const nextRoles = normalizeUserRoles(input.roles);
-    if (nextRoles.length === 0) {
-      return { ok: false, error: 'Selecciona al menos un rol.' };
-    }
-
-    if (userId === user.id && !nextRoles.some((role) => role === 'admin' || role === 'master')) {
-      return { ok: false, error: 'No puedes quitarte tu propio acceso al dashboard master.' };
-    }
-
-    const adminSupabase = createSupabaseServiceRoleServer();
-    const fullName = String(input.fullName || '').trim();
-
-    const { error: profileError } = await adminSupabase
-      .from('profiles')
-      .update({
-        full_name: fullName || null,
-        is_active: Boolean(input.isActive),
-        receives_commissions:
-          nextRoles.includes('advisor') && Boolean(input.receivesCommissions),
-      })
-      .eq('id', userId);
-
-    if (profileError) return { ok: false, error: profileError.message };
-
-    const rolesToKeep = APP_USER_ROLES_VALUES.filter((role) => nextRoles.includes(role));
-    const rolesToRemove = APP_USER_ROLES_VALUES.filter((role) => !nextRoles.includes(role));
-
-    if (rolesToRemove.length > 0) {
-      const { error: deleteRolesError } = await adminSupabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', userId)
-        .in('role', rolesToRemove);
-
-      if (deleteRolesError) return { ok: false, error: deleteRolesError.message };
-    }
-
-    if (rolesToKeep.length > 0) {
-      const { error: upsertRolesError } = await adminSupabase
-        .from('user_roles')
-        .upsert(
-          rolesToKeep.map((role) => ({ user_id: userId, role })),
-          { onConflict: 'user_id,role' }
-        );
-
-      if (upsertRolesError) return { ok: false, error: upsertRolesError.message };
-    }
-
-    revalidatePath('/app/master/dashboard');
-    return { ok: true };
-  } catch (error) {
-    console.error('updateDashboardUserAction failed', error);
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : 'No se pudo actualizar el usuario.',
-    };
-  }
-}
 
 type MasterInboxStateItemInput = {
   itemId: string;
@@ -3771,34 +4063,6 @@ export async function updateCatalogItemAction(input: {
   revalidatePath('/app/inventory/configure');
 }
 
-export async function updateExchangeRateAction(input: {
-  rateBsPerUsd: number;
-  operationId: string;
-}) {
-  const { supabase } = await requireMasterOrAdmin();
-
-  const rate = Number(input.rateBsPerUsd);
-  if (!Number.isFinite(rate) || rate <= 0) {
-    throw new Error('La tasa debe ser mayor a 0.');
-  }
-
-  const operationId = String(input.operationId || '').trim();
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
-    throw new Error('No se pudo identificar de forma segura esta actualización. Intenta nuevamente.');
-  }
-
-  const { error } = await supabase.rpc('set_active_exchange_rate', {
-    p_rate_bs_per_usd: rate,
-    p_operation_id: operationId,
-    p_reason: 'Actualización diaria de la tasa general.',
-  });
-
-  if (error) throw new Error(error.message);
-
-  revalidatePath('/app/master/dashboard');
-  revalidatePath('/app/master/ops');
-  revalidatePath('/app/admin/ordenes');
-}
 
 export async function updateCatalogPricesQuickAction(input: {
   items: Array<{
@@ -3908,198 +4172,9 @@ export async function updateCatalogPricesQuickAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
-export async function createMoneyAccountAction(input: {
-  name: string;
-  currencyCode: 'USD' | 'VES';
-  accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
-  institutionName: string;
-  ownerName: string;
-  notes: string;
-  isActive: boolean;
-  closureDefaultTargetMoneyAccountId?: number | null;
-}) {
-  const { user, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
-  const supabase = createSupabaseServiceRoleServer();
 
-  const name = String(input.name || '').trim();
-  if (!name) throw new Error('El nombre de la cuenta es obligatorio.');
 
-  const { data: insertedAccount, error } = await supabase.from('money_accounts').insert({
-    name,
-    currency_code: input.currencyCode,
-    account_kind: input.accountKind,
-    institution_name: input.institutionName.trim() || null,
-    owner_name: input.ownerName.trim() || null,
-    notes: input.notes.trim() || null,
-    is_active: input.isActive,
-    created_by_user_id: user.id,
-  }).select('id').single();
 
-  if (error) throw new Error(error.message);
-
-  const insertedAccountId = Number(insertedAccount?.id || 0);
-  if (insertedAccountId > 0) {
-    await ensureMoneyAccountClosureProfile(supabase, {
-      accountId: insertedAccountId,
-      accountKind: input.accountKind,
-      currencyCode: input.currencyCode,
-      defaultTargetMoneyAccountId: input.closureDefaultTargetMoneyAccountId ?? null,
-    });
-  }
-
-  revalidateMasterDashboardFinancialReferences();
-}
-
-export async function updateMoneyAccountAction(input: {
-  accountId: number;
-  name: string;
-  currencyCode: 'USD' | 'VES';
-  accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
-  institutionName: string;
-  ownerName: string;
-  notes: string;
-  isActive: boolean;
-  closureDefaultTargetMoneyAccountId?: number | null;
-}) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
-
-  const accountId = Number(input.accountId);
-  if (!Number.isFinite(accountId) || accountId <= 0) {
-    throw new Error('Cuenta inválida.');
-  }
-
-  const name = String(input.name || '').trim();
-  if (!name) throw new Error('El nombre de la cuenta es obligatorio.');
-
-  const { error } = await supabase
-    .from('money_accounts')
-    .update({
-      name,
-      currency_code: input.currencyCode,
-      account_kind: input.accountKind,
-      institution_name: input.institutionName.trim() || null,
-      owner_name: input.ownerName.trim() || null,
-      notes: input.notes.trim() || null,
-      is_active: input.isActive,
-    })
-    .eq('id', accountId);
-
-  if (error) throw new Error(error.message);
-
-  await ensureMoneyAccountClosureProfile(supabase, {
-    accountId,
-    accountKind: input.accountKind,
-    currencyCode: input.currencyCode,
-    defaultTargetMoneyAccountId: input.closureDefaultTargetMoneyAccountId ?? null,
-  });
-
-  revalidateMasterDashboardFinancialReferences();
-}
-
-export async function toggleMoneyAccountActiveAction(input: {
-  accountId: number;
-  nextIsActive: boolean;
-}) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
-
-  const accountId = Number(input.accountId);
-  if (!Number.isFinite(accountId) || accountId <= 0) {
-    throw new Error('Cuenta inválida.');
-  }
-
-  const { error } = await supabase
-    .from('money_accounts')
-    .update({ is_active: input.nextIsActive })
-    .eq('id', accountId);
-
-  if (error) throw new Error(error.message);
-
-  revalidateMasterDashboardFinancialReferences();
-}
-
-export async function updateMoneyAccountPaymentRulesAction(input: {
-  accountId: number;
-  rules: Array<{
-    role: AppUserRole;
-    paymentMethodCode: string;
-    canViewAccount: boolean;
-    canShareWithClient: boolean;
-    canReportPayment: boolean;
-    canConfirmPayment: boolean;
-    autoConfirmsReport: boolean;
-    reviewRequired: boolean;
-    reviewRoles: AppUserRole[];
-    isActive: boolean;
-  }>;
-}) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
-
-  const accountId = Number(input.accountId);
-  if (!Number.isFinite(accountId) || accountId <= 0) {
-    throw new Error('Cuenta inválida.');
-  }
-
-  const rawRules = Array.isArray(input.rules) ? input.rules : [];
-  const now = new Date().toISOString();
-  const rows = rawRules
-    .map((rule) => {
-      const role = typeof rule.role === 'string' && APP_USER_ROLES.has(rule.role) ? rule.role : null;
-      const paymentMethodCode = normalizePaymentMethodCode(rule.paymentMethodCode);
-      if (!role || !paymentMethodCode) return null;
-
-      const autoConfirmsReport = Boolean(rule.autoConfirmsReport);
-      const reviewRequired = autoConfirmsReport ? false : Boolean(rule.reviewRequired);
-      const reviewRoles = reviewRequired ? normalizeUserRoles(rule.reviewRoles) : [];
-      const normalizedReviewRoles = reviewRequired && reviewRoles.length === 0 ? ['master', 'admin'] : reviewRoles;
-      const canReportPayment = Boolean(rule.canReportPayment);
-      const canConfirmPayment = autoConfirmsReport ? true : Boolean(rule.canConfirmPayment);
-      const canViewAccount =
-        Boolean(rule.canViewAccount) ||
-        Boolean(rule.canShareWithClient) ||
-        canReportPayment ||
-        canConfirmPayment ||
-        reviewRequired;
-
-      return {
-        money_account_id: accountId,
-        role,
-        payment_method_code: paymentMethodCode,
-        can_view_account: canViewAccount,
-        can_share_with_client: Boolean(rule.canShareWithClient),
-        can_report_payment: canReportPayment,
-        can_confirm_payment: canConfirmPayment,
-        auto_confirms_report: autoConfirmsReport,
-        review_required: reviewRequired,
-        review_roles: normalizedReviewRoles,
-        is_active: Boolean(rule.isActive),
-        updated_at: now,
-      };
-    })
-    .filter((row): row is NonNullable<typeof row> => row !== null);
-
-  if (rows.length === 0) {
-    throw new Error('No hay reglas válidas para guardar.');
-  }
-
-  const { error: deactivateError } = await supabase
-    .from('money_account_payment_rules')
-    .update({ is_active: false, updated_at: now })
-    .eq('money_account_id', accountId);
-
-  if (deactivateError) throw new Error(deactivateError.message);
-
-  const { error } = await supabase
-    .from('money_account_payment_rules')
-    .upsert(rows, { onConflict: 'money_account_id,role,payment_method_code' });
-
-  if (error) throw new Error(error.message);
-
-  revalidateMasterDashboardFinancialReferences();
-}
 
 export async function loadMoneyActivityAction(input?: {
   movementLimit?: number;
@@ -5345,240 +5420,12 @@ export async function saveInventoryRecipeAction(input: {
   return { recipeId: nextRecipeId };
 }
 
-export async function createDeliveryPartnerAction(input: {
-  name: string;
-  partnerType: string;
-  whatsappPhone: string;
-  isActive: boolean;
-}) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
 
-  const name = String(input.name || '').trim();
-  if (!name) throw new Error('El nombre del partner es obligatorio.');
-  const partnerType =
-    String(input.partnerType || '').trim() === 'direct_driver'
-      ? 'direct_driver'
-      : 'company_dispatch';
 
-  const { data, error } = await supabase
-    .from('delivery_partners')
-    .insert({
-      name,
-      partner_type: partnerType,
-      whatsapp_phone: normalizePhone(String(input.whatsappPhone || '')) || null,
-      is_active: !!input.isActive,
-    })
-    .select('id')
-    .single();
 
-  if (error) throw new Error(error.message);
-  if (!data?.id) {
-    throw new Error('No se pudo crear el partner externo.');
-  }
-  revalidatePath('/app/master/dashboard');
-}
 
-export async function updateDeliveryPartnerAction(input: {
-  partnerId: number;
-  name: string;
-  partnerType: string;
-  whatsappPhone: string;
-  isActive: boolean;
-}) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
 
-  const partnerId = Number(input.partnerId);
-  if (!Number.isFinite(partnerId) || partnerId <= 0) {
-    throw new Error('Partner inválido.');
-  }
 
-  const name = String(input.name || '').trim();
-  if (!name) throw new Error('El nombre del partner es obligatorio.');
-  const partnerType =
-    String(input.partnerType || '').trim() === 'direct_driver'
-      ? 'direct_driver'
-      : 'company_dispatch';
-
-  const { data, error } = await supabase
-    .from('delivery_partners')
-    .update({
-      name,
-      partner_type: partnerType,
-      whatsapp_phone: normalizePhone(String(input.whatsappPhone || '')) || null,
-      is_active: !!input.isActive,
-    })
-    .eq('id', partnerId)
-    .select('id')
-    .single();
-
-  if (error) throw new Error(error.message);
-  if (!data?.id) {
-    throw new Error('No se pudo actualizar el partner externo.');
-  }
-  revalidatePath('/app/master/dashboard');
-}
-
-export async function toggleDeliveryPartnerActiveAction(input: {
-  partnerId: number;
-  nextIsActive: boolean;
-}) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
-
-  const partnerId = Number(input.partnerId);
-  if (!Number.isFinite(partnerId) || partnerId <= 0) {
-    throw new Error('Partner inválido.');
-  }
-
-  const { error } = await supabase
-    .from('delivery_partners')
-    .update({ is_active: !!input.nextIsActive })
-    .eq('id', partnerId);
-
-  if (error) throw new Error(error.message);
-  revalidatePath('/app/master/dashboard');
-}
-
-export async function loadDeliveryPartnerRatesAction() {
-  const { supabase } = await requireMasterOrAdmin();
-
-  const { data, error } = await supabase
-    .from('delivery_partner_rates')
-    .select('id, partner_id, km_from, km_to, price_usd, is_active, created_at')
-    .order('partner_id', { ascending: true })
-    .order('km_from', { ascending: true });
-
-  if (error) throw new Error(error.message);
-
-  const rates = ((data ?? []) as any[]).map((row) => ({
-    id: Number(row.id),
-    partnerId: Number(row.partner_id),
-    kmFrom: toSafeNumber(row.km_from, 0),
-    kmTo: row.km_to == null ? null : toSafeNumber(row.km_to, 0),
-    priceUsd: toSafeNumber(row.price_usd, 0),
-    isActive: Boolean(row.is_active),
-    createdAt: row.created_at,
-  }));
-
-  return { rates };
-}
-
-export async function createDeliveryPartnerRateAction(input: {
-  partnerId: number;
-  kmFrom: number;
-  kmTo: number | null;
-  priceUsd: number;
-  isActive: boolean;
-}) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
-
-  const partnerId = Number(input.partnerId);
-  const kmFrom = Number(input.kmFrom);
-  const kmTo = input.kmTo == null ? null : Number(input.kmTo);
-  const priceUsd = Number(input.priceUsd);
-
-  if (!Number.isFinite(partnerId) || partnerId <= 0) {
-    throw new Error('Partner invalido.');
-  }
-  if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-    throw new Error('Km desde invalido.');
-  }
-  if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-    throw new Error('Km hasta invalido.');
-  }
-  if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-    throw new Error('Tarifa invalida.');
-  }
-
-  const { data, error } = await supabase
-    .from('delivery_partner_rates')
-    .insert({
-      partner_id: partnerId,
-      km_from: kmFrom,
-      km_to: kmTo,
-      price_usd: priceUsd,
-      is_active: !!input.isActive,
-    })
-    .select('id')
-    .single();
-
-  if (error) throw new Error(error.message);
-  if (!data?.id) {
-    throw new Error('No se pudo crear la tarifa.');
-  }
-  revalidatePath('/app/master/dashboard');
-}
-
-export async function updateDeliveryPartnerRateAction(input: {
-  rateId: number;
-  kmFrom: number;
-  kmTo: number | null;
-  priceUsd: number;
-  isActive: boolean;
-}) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
-
-  const rateId = Number(input.rateId);
-  const kmFrom = Number(input.kmFrom);
-  const kmTo = input.kmTo == null ? null : Number(input.kmTo);
-  const priceUsd = Number(input.priceUsd);
-
-  if (!Number.isFinite(rateId) || rateId <= 0) {
-    throw new Error('Tarifa invalida.');
-  }
-  if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-    throw new Error('Km desde invalido.');
-  }
-  if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-    throw new Error('Km hasta invalido.');
-  }
-  if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-    throw new Error('Tarifa invalida.');
-  }
-
-  const { data, error } = await supabase
-    .from('delivery_partner_rates')
-    .update({
-      km_from: kmFrom,
-      km_to: kmTo,
-      price_usd: priceUsd,
-      is_active: !!input.isActive,
-    })
-    .eq('id', rateId)
-    .select('id')
-    .single();
-
-  if (error) throw new Error(error.message);
-  if (!data?.id) {
-    throw new Error('No se pudo actualizar la tarifa.');
-  }
-  revalidatePath('/app/master/dashboard');
-}
-
-export async function toggleDeliveryPartnerRateActiveAction(input: {
-  rateId: number;
-  nextIsActive: boolean;
-}) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
-
-  const rateId = Number(input.rateId);
-  if (!Number.isFinite(rateId) || rateId <= 0) {
-    throw new Error('Tarifa invalida.');
-  }
-
-  const { error } = await supabase
-    .from('delivery_partner_rates')
-    .update({ is_active: !!input.nextIsActive })
-    .eq('id', rateId);
-
-  if (error) throw new Error(error.message);
-  revalidatePath('/app/master/dashboard');
-}
 
 export async function createOrderAdminAdjustmentAction(input: {
   orderId: number;
@@ -6532,99 +6379,6 @@ async function resetDeliveredOrderInventoryDeductions(
   }
 }
 
-export async function createClientAction(input: {
-  fullName: string;
-  phone: string;
-  notes: string;
-  primaryAdvisorId: string | null;
-  clientType: string;
-  isActive: boolean;
-  birthDate: string;
-  importantDate: string;
-  billingCompanyName: string;
-  billingTaxId: string;
-  billingAddress: string;
-  billingPhone: string;
-  deliveryNoteName: string;
-  deliveryNoteDocumentId: string;
-  deliveryNoteAddress: string;
-  deliveryNotePhone: string;
-  recentAddresses: Array<{ addressText: string; gpsUrl: string }>;
-  crmTags: string[];
-}) {
-  const { supabase } = await requireMasterOrAdmin();
-
-  const fullName = String(input.fullName || '').trim();
-  if (!fullName) throw new Error('El nombre del cliente es obligatorio.');
-
-  const phone = normalizePhone(String(input.phone || ''));
-  const billingPhone = normalizePhone(String(input.billingPhone || ''));
-  const deliveryNotePhone = normalizePhone(String(input.deliveryNotePhone || ''));
-
-  if (phone) {
-    const { data: existingClients, error: existingClientError } = await supabase
-      .from('clients')
-      .select('id, full_name')
-      .or(buildClientPhoneOrFilters(phone).join(','))
-      .limit(1);
-
-    if (existingClientError) throw new Error(existingClientError.message);
-    const existingClient = existingClients?.[0];
-    if (existingClient) {
-      throw new Error(`Ya existe un cliente con este telefono: ${existingClient.full_name ?? `#${existingClient.id}`}.`);
-    }
-  }
-
-  const { data: createdClient, error } = await supabase.from('clients').insert({
-    full_name: fullName,
-    phone: phone || null,
-    notes: String(input.notes || '').trim() || null,
-    primary_advisor_id: input.primaryAdvisorId || null,
-    client_type: String(input.clientType || '').trim() || null,
-    is_active: !!input.isActive,
-    birth_date: String(input.birthDate || '').trim() || null,
-    important_date: String(input.importantDate || '').trim() || null,
-    billing_company_name: String(input.billingCompanyName || '').trim() || null,
-    billing_tax_id: String(input.billingTaxId || '').trim() || null,
-    billing_address: String(input.billingAddress || '').trim() || null,
-    billing_phone: billingPhone || null,
-    delivery_note_name: String(input.deliveryNoteName || '').trim() || null,
-    delivery_note_document_id: String(input.deliveryNoteDocumentId || '').trim() || null,
-    delivery_note_address: String(input.deliveryNoteAddress || '').trim() || null,
-    delivery_note_phone: deliveryNotePhone || null,
-    recent_addresses: normalizeRecentAddresses(input.recentAddresses),
-    crm_tags: normalizeTagList(input.crmTags),
-  }).select(`
-    id,
-    full_name,
-    phone,
-    notes,
-    primary_advisor_id,
-    created_at,
-    client_type,
-    is_active,
-    birth_date,
-    important_date,
-    billing_company_name,
-    billing_tax_id,
-    billing_address,
-    billing_phone,
-    delivery_note_name,
-    delivery_note_document_id,
-    delivery_note_address,
-    delivery_note_phone,
-    recent_addresses,
-    crm_tags,
-    extra_fields,
-    fund_balance_usd,
-    updated_at
-  `).single();
-
-  if (error) throw new Error(error.message);
-  revalidatePath('/app/master/dashboard');
-
-  return createdClient;
-}
 
 export async function searchClientsAction(input: {
   query: string;
@@ -7043,103 +6797,7 @@ export async function createOrderClientQuickAction(input: {
   return { client: createdClient, alreadyExisted: false };
 }
 
-export async function updateClientAction(input: {
-  clientId: number;
-  fullName: string;
-  phone: string;
-  notes: string;
-  primaryAdvisorId: string | null;
-  clientType: string;
-  isActive: boolean;
-  birthDate: string;
-  importantDate: string;
-  billingCompanyName: string;
-  billingTaxId: string;
-  billingAddress: string;
-  billingPhone: string;
-  deliveryNoteName: string;
-  deliveryNoteDocumentId: string;
-  deliveryNoteAddress: string;
-  deliveryNotePhone: string;
-  recentAddresses: Array<{ addressText: string; gpsUrl: string }>;
-  crmTags: string[];
-}) {
-  const { supabase } = await requireMasterOrAdmin();
 
-  const clientId = Number(input.clientId);
-  if (!Number.isFinite(clientId) || clientId <= 0) {
-    throw new Error('Cliente inválido.');
-  }
-
-  const fullName = String(input.fullName || '').trim();
-  if (!fullName) throw new Error('El nombre del cliente es obligatorio.');
-
-  const phone = normalizePhone(String(input.phone || ''));
-  const billingPhone = normalizePhone(String(input.billingPhone || ''));
-  const deliveryNotePhone = normalizePhone(String(input.deliveryNotePhone || ''));
-
-  if (phone) {
-    const { data: existingClients, error: existingClientError } = await supabase
-      .from('clients')
-      .select('id, full_name')
-      .or(buildClientPhoneOrFilters(phone).join(','))
-      .neq('id', clientId)
-      .limit(1);
-
-    if (existingClientError) throw new Error(existingClientError.message);
-    const existingClient = existingClients?.[0];
-    if (existingClient) {
-      throw new Error(`Este telefono ya pertenece a ${existingClient.full_name ?? `cliente #${existingClient.id}`}.`);
-    }
-  }
-
-  const { error } = await supabase
-    .from('clients')
-    .update({
-      full_name: fullName,
-      phone: phone || null,
-      notes: String(input.notes || '').trim() || null,
-      primary_advisor_id: input.primaryAdvisorId || null,
-      client_type: String(input.clientType || '').trim() || null,
-      is_active: !!input.isActive,
-      birth_date: String(input.birthDate || '').trim() || null,
-      important_date: String(input.importantDate || '').trim() || null,
-      billing_company_name: String(input.billingCompanyName || '').trim() || null,
-      billing_tax_id: String(input.billingTaxId || '').trim() || null,
-      billing_address: String(input.billingAddress || '').trim() || null,
-      billing_phone: billingPhone || null,
-      delivery_note_name: String(input.deliveryNoteName || '').trim() || null,
-      delivery_note_document_id: String(input.deliveryNoteDocumentId || '').trim() || null,
-      delivery_note_address: String(input.deliveryNoteAddress || '').trim() || null,
-      delivery_note_phone: deliveryNotePhone || null,
-      recent_addresses: normalizeRecentAddresses(input.recentAddresses),
-      crm_tags: normalizeTagList(input.crmTags),
-    })
-    .eq('id', clientId);
-
-  if (error) throw new Error(error.message);
-  revalidatePath('/app/master/dashboard');
-}
-
-export async function toggleClientActiveAction(input: {
-  clientId: number;
-  nextIsActive: boolean;
-}) {
-  const { supabase } = await requireMasterOrAdmin();
-
-  const clientId = Number(input.clientId);
-  if (!Number.isFinite(clientId) || clientId <= 0) {
-    throw new Error('Cliente inválido.');
-  }
-
-  const { error } = await supabase
-    .from('clients')
-    .update({ is_active: !!input.nextIsActive })
-    .eq('id', clientId);
-
-  if (error) throw new Error(error.message);
-  revalidatePath('/app/master/dashboard');
-}
 
 async function createCatalogItemActionImpl(input: {
   sku: string;
@@ -7804,117 +7462,6 @@ export async function rejectMoneyAccountClosureAction(input: {
   revalidateMasterDashboardFinancialReferences();
 }
 
-export async function createMoneyAccountBaselineAction(input: {
-  moneyAccountId: number;
-  baselineDate: string;
-  countedAmount: number;
-  exchangeRateVesPerUsd: number | null;
-  reason: string;
-  notes: string;
-}) {
-  const { supabase, user } = await requireMasterOrAdmin();
-
-  const moneyAccountId = Number(input.moneyAccountId || 0);
-  const baselineDate = String(input.baselineDate || '').trim();
-  const countedAmount = Number(input.countedAmount || 0);
-  const reason = String(input.reason || '').trim() || null;
-  const notes = String(input.notes || '').trim() || null;
-
-  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
-    throw new Error('Cuenta inválida.');
-  }
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(baselineDate)) {
-    throw new Error('Debes indicar una fecha válida para la línea base.');
-  }
-
-  if (!Number.isFinite(countedAmount) || countedAmount < 0) {
-    throw new Error('El saldo real no es válido.');
-  }
-
-  const { data: existingBaseline, error: existingBaselineError } = await supabase
-    .from('money_account_closure_baselines')
-    .select('id')
-    .eq('money_account_id', moneyAccountId)
-    .eq('status', 'active')
-    .maybeSingle();
-
-  if (existingBaselineError) throw new Error(existingBaselineError.message);
-  if (existingBaseline) {
-    throw new Error('Esta cuenta ya tiene una línea base activa.');
-  }
-
-  const { data: account, error: accountError } = await supabase
-    .from('money_accounts')
-    .select('id, currency_code')
-    .eq('id', moneyAccountId)
-    .single();
-
-  if (accountError || !account) {
-    throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
-  }
-
-  const currencyCode = String(account.currency_code || '').toUpperCase();
-  if (currencyCode !== 'USD' && currencyCode !== 'VES') {
-    throw new Error('La moneda de la cuenta no es válida.');
-  }
-
-  const exchangeRate =
-    currencyCode === 'VES' ? Number(input.exchangeRateVesPerUsd || 0) : null;
-  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate ?? NaN) || (exchangeRate ?? 0) <= 0)) {
-    throw new Error('Debes indicar una tasa válida para una línea base en Bs.');
-  }
-
-  const { data: movements, error: movementsError } = await supabase
-    .from('money_movements')
-    .select('direction, amount, amount_usd_equivalent')
-    .eq('money_account_id', moneyAccountId)
-    .eq('status', 'confirmed')
-    .lte('movement_date', baselineDate);
-
-  if (movementsError) throw new Error(movementsError.message);
-
-  let expectedAmount = 0;
-  let expectedAmountUsd = 0;
-
-  for (const movement of movements ?? []) {
-    const signed = movement.direction === 'inflow' ? 1 : -1;
-    expectedAmount += signed * toSafeNumber(movement.amount, 0);
-    expectedAmountUsd += signed * toSafeNumber(movement.amount_usd_equivalent, 0);
-  }
-
-  expectedAmount = Number(expectedAmount.toFixed(2));
-  expectedAmountUsd = Number(expectedAmountUsd.toFixed(2));
-  const countedAmountRounded = Number(countedAmount.toFixed(2));
-  const countedAmountUsd =
-    currencyCode === 'USD'
-      ? countedAmountRounded
-      : Number((countedAmountRounded / (exchangeRate ?? 1)).toFixed(2));
-  const differenceAmount = Number((countedAmountRounded - expectedAmount).toFixed(2));
-  const differenceAmountUsd = Number((countedAmountUsd - expectedAmountUsd).toFixed(2));
-
-  const { error } = await supabase.from('money_account_closure_baselines').insert({
-    money_account_id: moneyAccountId,
-    baseline_date: baselineDate,
-    baseline_at: `${baselineDate}T23:59:59-04:00`,
-    expected_amount: expectedAmount,
-    counted_amount: countedAmountRounded,
-    difference_amount: differenceAmount,
-    expected_amount_usd: expectedAmountUsd,
-    counted_amount_usd: countedAmountUsd,
-    difference_amount_usd: differenceAmountUsd,
-    currency_code: currencyCode,
-    exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
-    reason,
-    notes,
-    status: 'active',
-    created_by_user_id: user.id,
-  });
-
-  if (error) throw new Error(error.message);
-
-  revalidatePath('/app/master/dashboard');
-}
 
 export async function resolveMoneyAccountReconciliationItemAction(input: {
   itemId: number;

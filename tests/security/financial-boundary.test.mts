@@ -24,6 +24,7 @@ const dashboardAction = readFileSync(
   new URL('../../src/app/app/master/dashboard/actions.ts', import.meta.url),
   'utf8',
 );
+const configurationAction = readFileSync(new URL('../../src/lib/admin-config/canonical-actions.ts', import.meta.url), 'utf8');
 
 test('quarantines the privileged legacy financial functions', () => {
   assert.match(
@@ -56,9 +57,9 @@ test('makes the daily rate change atomic, auditable and idempotent', () => {
   assert.match(migration, /previous_rate_id,[\s\S]*?previous_rate_bs_per_usd,[\s\S]*?change_reason,[\s\S]*?operation_id/);
   assert.match(migration, /update public\.products[\s\S]*?set source_price_amount = source_price_amount/);
   assert.match(dashboardAction, /await requireMasterOrAdmin\(\)/);
-  assert.match(dashboardAction, /supabase\.rpc\('set_active_exchange_rate'/);
+  assert.match(configurationAction, /supabase\.rpc\('set_active_exchange_rate'/);
   assert.doesNotMatch(
-    dashboardAction.match(/export async function updateExchangeRateAction[\s\S]*?\n}\n\nexport async function updateCatalogPricesQuickAction/)?.[0] ?? '',
+    configurationAction.match(/export async function updateExchangeRateAction[\s\S]*?\n}\n\nexport async function createMoneyAccountAction/)?.[0] ?? '',
     /\.from\('exchange_rates'\)/,
   );
 });
