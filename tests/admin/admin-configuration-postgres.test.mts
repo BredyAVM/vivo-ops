@@ -12,7 +12,7 @@ test("native configuration executes atomically with scoped privileges and exact 
     );
     await db.exec(
       readFileSync(
-        "docs/proposals/admin_configuration_atomic.NOT_APPLIED.sql",
+        "supabase/migrations/20261003171627_admin_configuration_atomic.sql",
         "utf8",
       ),
     );

@@ -26,11 +26,12 @@ const supabase={
  }},
 };
 const context=()=>{if(!state.roles.includes('admin'))throw new Error('No autorizado');return {supabase,user:{id:'current-admin'},roles:state.roles}};
-Reflect.set(globalThis,'__configurationBehavior',{context,supabase});
+const masterContext=()=>{if(!state.roles.some(r=>r==='admin'||r==='master'))throw new Error('No autorizado');return {supabase,user:{id:'current-admin'},roles:state.roles}};
+Reflect.set(globalThis,'__configurationBehavior',{context,masterContext,supabase});
 registerHooks({resolve(specifier,context,next){
  const mocks:Record<string,string>={
   'server-only':'export{};',
-  '@/lib/auth':'export async function requireAdminContext(){return globalThis.__configurationBehavior.context()} export async function requireMasterOrAdminContext(){return globalThis.__configurationBehavior.context()}',
+  '@/lib/auth':'export async function requireAdminContext(){return globalThis.__configurationBehavior.context()} export async function requireMasterOrAdminContext(){return globalThis.__configurationBehavior.masterContext()}',
   'next/cache':'export function revalidatePath(){} export function updateTag(){}',
   '@supabase/supabase-js':'export function createClient(){return globalThis.__configurationBehavior.supabase}',
   '@/lib/search/client-search':'export async function searchClientSummaries(){throw new Error("Unexpected client history")}',
@@ -69,6 +70,8 @@ test('anonymous, advisor and Master cannot load configuration or submit new acti
 test('missing migration blocks server submissions and Auth creation before any write',async()=>{
  reset();const result=await saveConfigurationAction({ok:false,message:''},form({command:'account',name:'Cuenta',currency:'USD',kind:'cash'}));assert.equal(result.ok,false);assert.match(result.message,/pendiente de activación/);
  await assert.rejects(commands.createMoneyAccountAction(account),/pendiente de activación/);
+ await assert.rejects(commands.updateMoneyAccountAction({...account,accountId:9}),/pendiente de activación/);
+ await assert.rejects(commands.toggleMoneyAccountActiveAction({accountId:9,nextIsActive:false}),/pendiente de activación/);
  await assert.rejects(commands.createDashboardUserAction({email:'test@example.com',password:'secret-test-only',fullName:'Test',isActive:true,receivesCommissions:false,roles:['advisor']}),/pendiente de activación/);
  assert.equal(state.tables.length,0);assert.equal(state.authCreates,0);assert.ok(state.calls.every(c=>c.name==='admin_configuration_capabilities_v1'));
 });
@@ -76,6 +79,19 @@ test('account configuration sends original native values and stable retry identi
  reset();state.ready=true;await commands.createMoneyAccountAction(account);await commands.createMoneyAccountAction(account);
  const calls=state.calls.filter(c=>c.name==='admin_account_configuration_v1');assert.equal(calls.length,2);assert.deepEqual(calls[0].params,calls[1].params);
  assert.deepEqual(calls[0].params,{p_input:account,p_operation_id:account.operationId});assert.equal(state.tables.length,0);
+ assert.equal(state.calls.filter(c=>c.name==='admin_configuration_capabilities_v1').length,2);
+});
+
+test('Master baseline uses the session-authorized command without requiring admin configuration access',async()=>{
+ reset();state.roles=['master'];await commands.createMoneyAccountBaselineAction({moneyAccountId:9,baselineDate:'2026-09-30',countedAmount:10,exchangeRateVesPerUsd:null,reason:'Test',notes:''});
+ assert.deepEqual(state.calls.map(c=>c.name),['admin_account_baseline_v1']);assert.equal(state.tables.length,0);
+ reset();state.roles=['advisor'];await assert.rejects(commands.createMoneyAccountBaselineAction({moneyAccountId:9,baselineDate:'2026-09-30',countedAmount:10,exchangeRateVesPerUsd:null,reason:'Test',notes:''}),/No autorizado/);assert.equal(state.calls.length,0);
+});
+
+test('account activation delegates a narrow atomic command rather than rewriting account details',async()=>{
+ reset();state.ready=true;await commands.toggleMoneyAccountActiveAction({accountId:9,nextIsActive:false});
+ const params=state.calls.find(c=>c.name==='admin_account_configuration_v1')?.params as {p_input:unknown;p_operation_id:string};
+ assert.deepEqual(params.p_input,{accountId:9,activeOnly:true,isActive:false});assert.match(params.p_operation_id,/^[0-9a-f-]{36}$/);assert.equal(state.tables.length,0);
 });
 test('account rule normalization preserves effective view, auto confirmation and default review roles',async()=>{
  reset();state.ready=true;await commands.updateMoneyAccountPaymentRulesAction({accountId:9,operationId:account.operationId,rules:[

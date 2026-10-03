@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:admin-configuration": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/admin-configuration.test.mts tests/admin/admin-configuration-behavior.test.mts tests/admin/admin-configuration-postgres.test.mts",
+    "test:admin-configuration-concurrency": "node --test tests/admin/admin-configuration-concurrency.test.mjs",
     "test:dependency-security": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/security/dependency-versions.test.mts",
     "test:admin-pwa": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/admin-pwa.test.mjs",
     "test:admin-ui": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/admin-compact-ui.test.mts",

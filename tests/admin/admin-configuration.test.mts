@@ -26,7 +26,7 @@ test('configuration fields preserve advanced client data and immutable account c
 test('new financial configuration commands are atomic, session authorized and replayable',()=>{
  const s=src('src/lib/admin-config/canonical-actions.ts');
  for(const name of ['admin_account_configuration_v1','admin_account_rules_v1','admin_account_baseline_v1','admin_user_configuration_v1'])assert.match(s,new RegExp(name));
- const sql=src('docs/proposals/admin_configuration_atomic.NOT_APPLIED.sql');
+ const sql=src('supabase/migrations/20261003171627_admin_configuration_atomic.sql');
  assert.match(sql,/security definer set search_path=''/);assert.match(sql,/assert_configuration_admin_v1/);
  assert.match(sql,/request_payload<>p_input/);assert.match(sql,/request_payload<>v_request/);assert.match(sql,/pg_advisory_xact_lock/);
  assert.match(sql,/for update/);assert.match(sql,/sum\(case when direction='inflow'/);
@@ -37,6 +37,14 @@ test('form retries retain identity for unchanged payload and cannot double-submi
  const s=src('src/components/admin/ConfigurationForm.tsx');
  assert.match(s,/attempt.current.payload!==payload/);assert.match(s,/form.set\('operationId',attempt.current.id\)/);
  assert.match(s,/if\(result.ok\)attempt.current=null/);assert.match(s,/fieldset disabled=\{pending\|\|unavailable\}/);
+});
+
+test('both administrator modules delegate all five configuration writes to one implementation',()=>{
+ const s=src('src/app/app/master/dashboard/actions.ts');
+ for(const name of ['createMoneyAccountAction','updateMoneyAccountAction','updateMoneyAccountPaymentRulesAction','createMoneyAccountBaselineAction','updateDashboardUserAction']) {
+  assert.match(s,new RegExp('export async function '+name+'\\(input: Parameters<typeof configurationCommands\\.'+name+'>\\[0\\]\\) \\{ return configurationCommands\\.'+name+'\\(input\\); \\}'));
+ }
+ assert.doesNotMatch(s,/updateDashboardUserActionLegacy|ensureMoneyAccountClosureProfile/);
 });
 test('new user creation compensates only the newly returned Auth ID and never exposes service keys',()=>{
  const s=src('src/lib/admin-config/canonical-actions.ts');

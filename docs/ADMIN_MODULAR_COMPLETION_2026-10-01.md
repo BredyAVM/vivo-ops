@@ -1,6 +1,6 @@
 # Administración modular — corte del 1 de octubre de 2026
 
-Revisiones adicionales del 2 y 3 de octubre de 2026. El administrador anterior continúa disponible. La configuración privilegiada nueva todavía no está instalada en producción; no debe retirarse la alternativa anterior.
+Revisiones adicionales del 2 y 3 de octubre de 2026. El administrador anterior continúa disponible. La configuración segura de cuentas y usuarios se instaló con autorización explícita el 3 de octubre; ambos administradores comparten los comandos de guardado.
 
 ## Alcance y decisión
 
@@ -17,7 +17,7 @@ La portada muestra indicadores y comparaciones; las áreas pesadas se consultan 
 | Aprobaciones y seguimiento | /app/admin/autorizaciones | Aprobaciones separadas de incidencias; seguimiento por dominio y consulta explícita |
 | Cuentas operativas | /app/admin/finanzas/cuentas | Ingresos, egresos, transferencias, cierre, conciliación y anulación conservan los comandos atómicos existentes |
 | Reportes de pago de clientes | /app/admin/finanzas/pagos | Consulta explícita por período, estado y número corto; 25 reportes por página; revisión en el drawer compartido de la orden |
-| Configuración de cuentas y usuarios | /app/admin/configuracion/cuentas y /usuarios | Consulta implementada; NUEVO GUARDADO BLOQUEADO hasta instalar y verificar la propuesta segura |
+| Configuración de cuentas y usuarios | /app/admin/configuracion/cuentas y /usuarios | Guardado seguro habilitado por capacidades verificadas: cuentas/perfil de cierre, activación, permisos de pago, saldo inicial y usuarios; conserva el panel anterior |
 | Tasa diaria | /app/admin/configuracion/tasa | Formulario nativo; mismo comando auditado existente; historial explícito y paginado |
 | Análisis comercial | /app/admin/analisis | Consulta por período, canal, pickup/delivery y vendedor; neto, cierres, abonado y pendiente; CSV del filtro |
 | Comisiones y metas | /app/admin/finanzas/comisiones y /operar | Reutiliza cálculo, cierres, pagos y metas existentes; no duplica reglas o liquidaciones |
@@ -27,7 +27,7 @@ La portada muestra indicadores y comparaciones; las áreas pesadas se consultan 
 | Jugadas y eventos | /app/admin/jugadas y /app/admin/eventos | Entradas bajo consulta; operación compartida con el marco administrativo |
 | Clientes | /app/admin/configuracion/clientes y /app/admin/clientes/[id] | Alta/edición completa con comandos existentes; ficha comercial consultada por separado |
 | Notificaciones | /app/admin/notificaciones | Panel compartido del dispositivo; no activa avisos ni envía pruebas automáticamente |
-| Auditoría | /app/admin/reportes/ajustes | Ajustes de órdenes por fecha/orden/responsable; nuevo historial de configuración depende de la instalación pendiente |
+| Auditoría | /app/admin/reportes/ajustes | Ajustes de órdenes por fecha/orden/responsable; historial privado de configuración disponible por consulta, con actor/antes/después |
 | KPIs y proyecciones | Inicio y /app/admin/proyecciones | Conserva indicadores compactos, comparación semanal y escenarios; no incorpora costos inexistentes como rentabilidad real |
 
 La matriz distingue implementación de verificación de escrituras reales. Las acciones monetarias, el alta de usuarios y las operaciones físicas NO se ejecutaron contra registros reales para probar esta entrega.
@@ -49,25 +49,26 @@ La matriz distingue implementación de verificación de escrituras reales. Las a
 - Precios en lista reutiliza el comando vigente, que guarda productos individualmente. Ante error se advierte que puede haber cambios parciales y debe consultarse de nuevo antes de repetir. No se promete atomicidad de ese comando legado.
 - El alta de clientes conserva sus campos personales, fiscales, de entrega, direcciones recientes y etiquetas; no escribe fondos o saldos desde el formulario.
 
-## Instalación segura pendiente: no aplicada
+## Configuración segura — instalada el 3 de octubre de 2026
 
-Propuesta: docs/proposals/admin_configuration_atomic.NOT_APPLIED.sql.
+Implementación canónica: supabase/migrations/20261003171627_admin_configuration_atomic.sql. La versión coincide con el registro real de Supabase; el archivo fue generado inicialmente con la CLI y alineado después con la versión devuelta por la instalación. La propuesta histórica conserva únicamente un enlace a esta implementación, no una segunda copia ejecutable.
 
-La revisión de seguridad impidió instalar cambios privilegiados en producción sin autorización específica. No se burló ese bloqueo y no se agregó el archivo a migrations, para evitar su ejecución automática futura.
+La instalación anterior se mantuvo bloqueada hasta recibir autorización específica. El usuario la otorgó el 3 de octubre; se instaló mediante apply_migration después de las pruebas aisladas. Se añadieron seis funciones públicas autenticadas, una comprobación privada de autorización y una tabla privada de auditoría. No se revocaron permisos globales ni se cambió la configuración de Auth.
 
-La propuesta prepara cuentas/perfil de cierre, permisos de pago, línea base y perfil/roles de usuario como operaciones transaccionales, con registro de actor/antes/después. Las operaciones de cuentas conservan identidad de reintento; los permisos financieros rechazan filas inválidas, cambios de moneda/tipo existentes y la pérdida del acceso administrativo propio.
+Las cuentas/perfil de cierre, permisos de pago, línea base y perfil/roles se guardan transaccionalmente, con actor/antes/después. Cuentas, reglas y línea base conservan identidad de reintento. La activación utiliza un comando limitado que no reemplaza otros campos de la cuenta. Se rechazan solicitudes reutilizadas con otros datos, reglas inválidas, cambios de moneda/tipo existentes y la pérdida del acceso administrativo propio.
 
-Una consulta de capacidades autenticada habilita los nuevos formularios solo cuando la instalación existe y responde con la versión esperada. Si falta o falla, la interfaz y la acción de servidor bloquean el guardado antes de escribir. Alta de Auth también se bloquea antes de crear un usuario. Se conservan sin sustituir las cinco funciones originales de configuración de cuentas, reglas, línea base y usuarios en Administrador anterior.
+Una consulta de capacidades autenticada habilita los formularios solo con la versión esperada. Si falta o falla, no hay escritura alternativa parcial ni alta de Auth. Las cinco entradas de configuración del Administrador anterior delegan ahora a los mismos comandos canónicos: crear/editar cuenta, permisos de pago, línea base y perfil/roles. El panel anterior no fue retirado. Master conserva su permiso previo de línea base mediante el RPC autorizado por sesión, sin recibir acceso administrativo a cuentas o usuarios.
 
-Pendientes necesarios para dar ESTE bloque por terminado:
+Seguridad y concurrencia verificadas:
 
-1. Obtener autorización explícita para la instalación en producción.
-2. Completar la verificación de concurrencia real entre sesiones. Las pruebas transaccionales aisladas de permisos, reintentos, fallo al final de operación y ausencia de escrituras parciales ya pasaron; no certifican todas las condiciones concurrentes de producción.
-3. Instalar mediante el mecanismo autorizado; verificar firmas, search_path y grants.
-4. Comprobar llamadas anónimas/roles no autorizados y la consulta de capacidades.
-5. Habilitar formularios y reemplazar las cinco rutas legadas solo tras verificar equivalencia. No ejecutar cambios reales para demostrar el circuito.
+1. PostgreSQL nativo en un clúster temporal, solo loopback, con sesiones independientes y datos sintéticos: reintento simultáneo sin duplicar cuenta/auditoría, payload contradictorio, reglas serializadas, activación tras edición sin perder campos y una sola línea base activa. No utiliza conexión ni credenciales de producción.
+2. Administrador revocado o desactivado mientras espera: debe rechazarse al continuar. Dos administradores que intentan retirarse mutuamente no eliminan ambos accesos. Se vuelve a verificar la autorización después de la espera.
+3. Las escrituras requieren READ COMMITTED, aislamiento normal de la aplicación comprobado en producción. REPEATABLE READ/SERIALIZABLE se rechazan explícitamente para no autorizar con una fotografía persistente de roles ya revocados.
+4. Se verificaron firmas, search_path vacío y grants en producción: anónimos/PUBLIC/service_role sin EXECUTE; authenticated con EXECUTE y comprobación interna de rol/perfil. Tabla privada con RLS y sin acceso directo para esos roles.
+5. Llamadas de lectura en transacciones read-only: anónimo rechazado por permisos; asesor rechazado por rol; administrador obtiene capacidades y consulta del historial. Las pantallas de cuentas y usuarios quedaron habilitadas en la sesión administrativa, sin enviar formularios.
+6. Antes/después: 16 cuentas, 15 perfiles de cierre, 107 reglas, 16 líneas base, 16 perfiles y 28 roles; sin cambios. Nueva auditoría vacía: no se crearon operaciones reales para comprobar el circuito. Los asesores de seguridad mantuvieron los seis avisos previos, sin nuevos avisos introducidos por esta instalación.
 
-No se declara terminada ni activada esa parte mientras falten esos pasos.
+Verificación del bloque: 605 pruebas .mts, 68 pruebas adicionales de PWA/precios/comisiones PostgreSQL aisladas y 12 comprobaciones del harness de concurrencia nativa; sin fallos ni omisiones en las ejecuciones configuradas. Compilación de producción y lint del alcance nuevo aprobados. La concurrencia usa un esquema sintético con los tipos/restricciones inspeccionados; no certifica todos los casos futuros ni hace pruebas de carga contra producción. Auth y PostgreSQL no comparten transacción: el alta compensa únicamente el usuario recién creado cuando falla la configuración; esa compensación se probó de forma simulada, sin crear usuarios reales.
 
 ## Verificación de aplicación
 

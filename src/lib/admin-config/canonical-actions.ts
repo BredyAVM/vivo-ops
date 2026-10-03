@@ -191,7 +191,6 @@ export async function createMoneyAccountAction(input: {
 }) {
   const {supabase}=await requireAdminContext();
   await requireAtomicConfiguration();
-  await requireAtomicConfiguration();
   const {error}=await supabase.rpc('admin_account_configuration_v1',{p_input:input,p_operation_id:input.operationId ?? randomUUID()});
   if(error)throw new Error(error.message);
   revalidateMasterDashboardFinancialReferences();
@@ -210,6 +209,7 @@ export async function updateMoneyAccountAction(input: {
   closureDefaultTargetMoneyAccountId?: number | null;
 }) {
   const {supabase}=await requireAdminContext();
+  await requireAtomicConfiguration();
   const {error}=await supabase.rpc('admin_account_configuration_v1',{p_input:input,p_operation_id:input.operationId ?? randomUUID()});
   if(error)throw new Error(error.message);
   revalidateMasterDashboardFinancialReferences();
@@ -219,18 +219,18 @@ export async function toggleMoneyAccountActiveAction(input: {
   accountId: number;
   nextIsActive: boolean;
 }) {
-  const { supabase, roles } = await requireMasterOrAdmin();
-  requireAdminRole(roles);
+  const { supabase } = await requireAdminContext();
+  await requireAtomicConfiguration();
 
   const accountId = Number(input.accountId);
   if (!Number.isFinite(accountId) || accountId <= 0) {
     throw new Error('Cuenta inválida.');
   }
 
-  const { error } = await supabase
-    .from('money_accounts')
-    .update({ is_active: input.nextIsActive })
-    .eq('id', accountId);
+  const { error } = await supabase.rpc('admin_account_configuration_v1', {
+    p_input: { accountId, activeOnly: true, isActive: input.nextIsActive },
+    p_operation_id: randomUUID(),
+  });
 
   if (error) throw new Error(error.message);
 
@@ -775,8 +775,10 @@ export async function createMoneyAccountBaselineAction(input: {
   reason: string;
   notes: string;
 }) {
-  const {supabase}=await requireMasterOrAdmin();
-  await requireAtomicConfiguration();
+  const {supabase,roles}=await requireMasterOrAdmin();
+  // Master retains its existing baseline permission; the RPC independently verifies
+  // the active session. A missing function fails closed without a legacy write.
+  if (roles.includes('admin')) await requireAtomicConfiguration();
   const {error}=await supabase.rpc('admin_account_baseline_v1',{p_input:input,p_operation_id:input.operationId ?? randomUUID()});
   if(error)throw new Error(error.message);
   revalidatePath('/app/master/dashboard');
