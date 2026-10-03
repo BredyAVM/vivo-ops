@@ -1,6 +1,6 @@
 # Administración modular — corte del 1 de octubre de 2026
 
-Revisión adicional del 2 de octubre de 2026. El administrador anterior continúa disponible. La configuración privilegiada nueva todavía no está instalada en producción; no debe retirarse la alternativa anterior.
+Revisiones adicionales del 2 y 3 de octubre de 2026. El administrador anterior continúa disponible. La configuración privilegiada nueva todavía no está instalada en producción; no debe retirarse la alternativa anterior.
 
 ## Alcance y decisión
 
@@ -86,9 +86,24 @@ No se declara terminada ni activada esa parte mientras falten esos pasos.
 - Se corrigió la etiqueta del tablero de órdenes: su cálculo existente suma totales con impuesto y ahora dice Facturación, no Fact. neta. La portada conserva el neto comercial sin impuesto. No se cambiaron importes guardados. La agregación del tablero todavía redondea por orden, mientras la portada conserva la precisión financiera; se debe auditar esa diferencia antes de unificar cálculos compartidos.
 - Conceptos antiguos que contienen un rastreador VO se presentan con el número corto de la orden vinculada. No se deduce el número de la parte final del rastreador ni se modifica el concepto guardado. Si no existe vínculo, se indica orden sin vínculo.
 
-## Seguridad pendiente detectada en la revisión
+## Seguridad de dependencias — revisión del 3 de octubre de 2026
 
-La revisión de dependencias reportó 14 alertas: una crítica, nueve altas, tres moderadas y una baja. Next.js 16.2.6 aparece entre las dependencias directas afectadas. Debe verificarse la aplicabilidad de los avisos y actualizarse en un bloque de seguridad con regresión y despliegue propios; no se ejecutó una actualización automática general en esta entrega. La incorporación de PGlite es solo para pruebas y no aparece entre los paquetes señalados.
+La revisión anterior reportó 14 paquetes señalados: uno crítico, nueve altos, tres moderados y uno bajo. Ese resultado era un corte histórico, no el estado actual. La nueva consulta del 3 de octubre encontró 19 antes de actualizar. Los conteos de npm son entradas de paquetes y pueden repetir una misma vulnerabilidad a través de su cadena de dependencias; no equivalen a 19 fallas explotables comprobadas.
+
+| Consulta del 3 de octubre | Antes | Después |
+| --- | --- | --- |
+| Dependencias de producción (`npm audit --omit=dev`) | 5: 1 crítica, 3 altas, 1 moderada | 0 alertas |
+| Árbol completo (`npm audit`) | 19: 1 crítica, 14 altas, 3 moderadas, 1 baja | 5 altas, todas de la misma cadena de herramientas de desarrollo |
+
+Next.js pasó de 16.2.6 a 16.3.8, junto con eslint-config-next 16.3.8. React y React DOM permanecen en 19.2.3; no se cambiaron Supabase, reglas de negocio, rutas operativas, inventario ni registros financieros. El lockfile incorpora las correcciones compatibles de dependencias transitivas. No se usó `npm audit fix --force`, ni se degradó el framework o sus herramientas a otra versión principal.
+
+Fuentes del framework: [release de Next.js 16.3.8](https://github.com/vercel/next.js/releases/tag/v16.3.8) y [aviso crítico de next/og](https://github.com/vercel/next.js/security/advisories/GHSA-vcvr-r3jv-pc5j). La búsqueda en src y scripts no encontró uso de next/og o ImageResponse; no se declara que esa vía crítica estuviera siendo explotada. Se actualizó también por los demás avisos aplicables al paquete.
+
+**Riesgo residual explícito:** eslint-config-next → @next/eslint-plugin-next → fast-glob → micromatch → braces 3.0.3. Son dependencias marcadas como desarrollo en el lockfile. El [aviso GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) no tiene versión corregida disponible en este corte. No se aceptan patrones de búsqueda externos para esas herramientas desde la aplicación; no se encontró importación en src o scripts. Esto acota su exposición, pero no corrige el paquete. Debe volver a comprobarse al actualizar las herramientas; no debe ejecutarse tooling sobre configuraciones o patrones no confiables. No se creó una excepción silenciosa ni se reemplazó el paquete por un parche propio.
+
+La compilación de Next.js 16.3 incluye el proyecto TypeScript completo, haciendo visibles errores previos de tipos en harnesses de pruebas (incluido registerHooks de Node moderno frente a tipos de Node 20). tsconfig.build.json separa esos harnesses y outputs de la compilación de aplicación, manteniendo strict y todos los controles de producción, sin ignoreBuildErrors. tsconfig.json conserva las comprobaciones del editor; la deuda de tipos de esos harnesses queda pendiente y sus pruebas se ejecutan por separado. AGENTS.md apunta a la documentación incluida con la versión instalada, siguiendo la guía del framework.
+
+Verificación de este bloque: compilación de producción con Next.js 16.3.8 y revisión estricta de TypeScript aprobadas; 602 pruebas .mts, incluidas cinco nuevas comprobaciones del lockfile/configuración, y 68 pruebas adicionales de PWA y comandos PostgreSQL aislados de precios/comisiones; sin fallos ni omisiones. El lint del alcance cambiado pasó. La revisión local verificó login visible, ausencia de overlay/errores de consola y redirección de una ruta administrativa sin sesión; no se enviaron formularios de negocio ni notificaciones reales. Los resultados de audit son del corte señalado y no garantizan ausencia de futuras alertas.
 
 La consulta de asesores de seguridad de la base también conserva advertencias previas de funciones privilegiadas, permisos y protección de contraseñas. No se aplicaron revocaciones globales ni cambios de Auth. Estos hallazgos necesitan revisión específica y no permiten declarar que toda la aplicación esté libre de vulnerabilidades.
 
