@@ -9,6 +9,7 @@ import BackLink from "@/components/navigation/BackLink";
 import { adminWorkspaceHref } from "@/lib/navigation/admin-workspace";
 import { appContextHref } from "@/lib/navigation/return-navigation";
 import DeliveredOrderCommissionEditor from "@/app/app/commissions/_components/DeliveredOrderCommissionEditor";
+const DeliveredOrderPriceEditor = dynamic(() => import("@/components/orders/DeliveredOrderPriceEditor"), { ssr: false });
 import MasterClientSearchResults from "@/app/app/master/_components/MasterClientSearchResults";
 import { ordersWorkspaceNavigation, type OrdersWorkspaceSurface } from "@/lib/orders/workspace-navigation";
 import type { ClientSearchSummary } from "@/lib/search/client-search";
@@ -3906,7 +3907,10 @@ function OrderDetailPanel({
               </div>
             ) : null}
             {isAdmin && order.status === "delivered" ? (
-              <div className="mt-3"><DeliveredOrderCommissionEditor key={order.id} orderId={Number(order.id)} /></div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <DeliveredOrderPriceEditor key={`prices-${order.id}`} orderId={Number(order.id)} onSaved={onRetryDetail} />
+                <DeliveredOrderCommissionEditor key={order.id} orderId={Number(order.id)} />
+              </div>
             ) : null}
             {actionError ? (
               <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">

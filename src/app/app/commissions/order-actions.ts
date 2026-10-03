@@ -70,6 +70,27 @@ export async function loadDeliveredOrderCommissionEditor(orderId: number) {
   }
 }
 
+async function refreshPreliminaryClosures(editor: Awaited<ReturnType<typeof loadEditor>>, affected: Array<{ id: number; periodId: number }>) {
+  for (const row of affected) {
+    const closure = editor.closures.find((item) => Number(item.id) === Number(row.id));
+    if (!closure) throw new Error('Recarga las comisiones para actualizar el cierre preliminar.');
+    if (readAdvisorGoalPublicationSnapshot(closure.snapshot)) {
+      await applyAdvisorCommissionGoalResults({ periodId: Number(row.periodId), advisorUserId: closure.advisor_user_id, intent: 'automatic' });
+    } else {
+      await generateAdvisorCommissionClosuresAction({ periodId: Number(row.periodId), advisorUserId: closure.advisor_user_id, baseCommissionPctByAdvisor: { [closure.advisor_user_id]: Number(closure.base_commission_pct) } });
+      await recalculateAdvisorCommissionSettlementsForGoal({ periodId: Number(row.periodId), closureId: Number(row.id), scheduledLiquidationDate: readAdvisorCommissionSettlementSnapshot(closure.snapshot).scheduledLiquidationDate,
+        previousSnapshotsByAdvisor: { [closure.advisor_user_id]: closure.snapshot } });
+    }
+  }
+}
+
+export async function refreshDeliveredOrderPriceCommissions(orderId: number) {
+  await requireAdminContext();
+  const editor = await loadEditor(orderId);
+  if (editor.protectedReason) throw new Error(editor.protectedReason);
+  await refreshPreliminaryClosures(editor, editor.closures.map((row) => ({ id: Number(row.id), periodId: Number(row.period_id) })));
+}
+
 export async function saveDeliveredOrderCommissionEditor(input: {
   orderId: number;
   lastModifiedAt: string | null;
@@ -91,17 +112,7 @@ export async function saveDeliveredOrderCommissionEditor(input: {
     // Only refresh existing preliminary closures. Their earned general rate,
     // carry overrides and scheduled payment date remain owned by that closure.
     const affected = (result.data?.closures ?? []) as Array<{ id: number; periodId: number }>;
-    for (const row of affected) {
-      const closure = editor.closures.find((item) => Number(item.id) === Number(row.id));
-      if (!closure) throw new Error('Recarga las comisiones para actualizar el cierre preliminar.');
-      if (readAdvisorGoalPublicationSnapshot(closure.snapshot)) {
-        await applyAdvisorCommissionGoalResults({ periodId: Number(row.periodId), advisorUserId: closure.advisor_user_id, intent: 'automatic' });
-      } else {
-        await generateAdvisorCommissionClosuresAction({ periodId: Number(row.periodId), advisorUserId: closure.advisor_user_id, baseCommissionPctByAdvisor: { [closure.advisor_user_id]: Number(closure.base_commission_pct) } });
-        await recalculateAdvisorCommissionSettlementsForGoal({ periodId: Number(row.periodId), closureId: Number(row.id), scheduledLiquidationDate: readAdvisorCommissionSettlementSnapshot(closure.snapshot).scheduledLiquidationDate,
-          previousSnapshotsByAdvisor: { [closure.advisor_user_id]: closure.snapshot } });
-      }
-    }
+    await refreshPreliminaryClosures(editor, affected);
     return { ok: true as const, message: affected.length ? 'Comisiones guardadas y cierre preliminar actualizado.' : 'Comisiones guardadas. Se aplicarán al calcular el cierre del período.' };
   } catch (error) {
     if (saved) return { ok: true as const, message: `El ajuste quedó guardado, pero falta recalcular el cierre preliminar: ${errorMessage(error)}` };
