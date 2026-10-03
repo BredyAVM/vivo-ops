@@ -7,6 +7,8 @@ import {
 } from "@/lib/admin-finance/payment-reports-data";
 import { paymentReportsHref } from "@/lib/admin-finance/payment-reports-model";
 import { AdminReadError } from "../../_components/AdminReadUi";
+import PaymentReportReview from "./PaymentReportReview";
+import { formatOrderDisplayNumber } from "@/lib/orders/order-labels";
 export const dynamic = "force-dynamic";
 const input = queryControl;
 const statusLabel: Record<string, string> = {
@@ -102,8 +104,8 @@ export default async function AdminPaymentsPage({
         </button>
       </WorkspaceForm>
       <p className="text-[11px] text-[#9B9BA7]">
-        Por fecha de operación; si falta, fecha de registro. Revisar abre la
-        orden y conserva las autorizaciones actuales.
+        Por fecha de operación; si falta, fecha de registro. Abre el reporte para
+        confirmar o rechazar el pago aquí mismo.
       </p>
       {!data.queried ? (
         <p className="text-xs text-[#BDBDC7]">
@@ -128,7 +130,7 @@ export default async function AdminPaymentsPage({
                       prefetch={false}
                       className="font-semibold text-[#FFFF00]"
                     >
-                      Orden #{row.order_id}
+                      Orden #{formatOrderDisplayNumber(row.order_id)}
                     </Link>
                     <span
                       className={
@@ -144,13 +146,6 @@ export default async function AdminPaymentsPage({
                       {amountFormat.format(Number(row.reported_amount))}
                     </span>
                   </div>
-                  <Link
-                    href={`/app/admin/ordenes?openOrder=${row.order_id}&tab=pagos`}
-                    prefetch={false}
-                    className="inline-flex min-h-11 items-center text-xs text-[#FFFF00] sm:min-h-7"
-                  >
-                    {row.status === "pending" ? "Revisar" : "Abrir orden"} →
-                  </Link>
                 </div>
                 <p className="break-words text-[11px] text-[#9B9BA7]">
                   {paymentRelation(paymentRelation(row.order).client ?? null)
@@ -166,10 +161,7 @@ export default async function AdminPaymentsPage({
                     }).format(new Date(row.created_at))}{" "}
                   · Ref. {row.reference_code ?? "—"}
                 </p>
-                <details className="mt-1">
-                  <summary className="min-h-11 cursor-pointer content-center text-xs text-[#BDBDC7] sm:min-h-7">
-                    Ver detalle del reporte
-                  </summary>
+                <PaymentReportReview reportId={Number(row.id)} orderId={Number(row.order_id)}>
                   <dl className="space-y-1 break-words text-xs text-[#BDBDC7]">
                     <div>
                       <dt className="inline text-[#9B9BA7]">Reportante: </dt>
@@ -186,7 +178,7 @@ export default async function AdminPaymentsPage({
                       <dd className="inline">{row.notes ?? "—"}</dd>
                     </div>
                   </dl>
-                </details>
+                </PaymentReportReview>
               </article>
             ))}
             {data.rows.length === 0 ? (

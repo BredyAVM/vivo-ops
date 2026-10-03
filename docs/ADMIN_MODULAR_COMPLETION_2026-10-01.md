@@ -186,6 +186,36 @@ advertencia de dependencia de useMemo preexistentes.
 
 ## Fuera de este corte (continuación)
 
+## Revisión de pagos en la lista — 3 de octubre de 2026
+
+Finanzas → Pagos de clientes conserva la consulta explícita por período y la
+paginación. «Ver reporte» abre un desglose compacto sin navegar a la orden;
+solo entonces se consulta ese reporte y el saldo de esa orden. Desde allí se
+puede confirmar el monto/cuenta reportados o rechazar con motivo obligatorio.
+La confirmación muestra primero una ventana con orden corta, monto y moneda,
+banco/cuenta, referencia, fecha y tasa cuando corresponde; Cancelar no escribe.
+La fecha y la tasa del pago pueden verificarse antes de guardar, conservando
+los seis decimales de la tasa guardada, sin reemplazarla por la tasa actual.
+
+Se reutilizan confirmPaymentReportAction (transacción financiera atómica) y
+rejectPaymentReportAction (rechazo auditado con bloqueo/validación de estado),
+mediante un adaptador financiero con autorización de administrador en cada
+lectura/decisión. No se agregan escrituras paralelas a movimientos ni saldos.
+El adaptador valida que el reporte siga pendiente y que no cambió desde su
+lectura; el comando canónico revalida estado, permisos y saldo al ejecutar.
+Se bloquean dobles envíos durante el guardado y se refresca la consulta actual
+sin perder filtros. No hay sondeo ni carga automática del historial.
+
+Los excedentes requieren una decisión explícita: dejar a favor del cliente o
+cierre por redondeo dentro del límite canónico. Para corregir cuenta/monto o
+registrar cambio ya entregado, se mantiene un acceso secundario a la orden y
+su flujo financiero completo; no se inventa una devolución desde esta lista.
+La ventana usa el manejo compartido de foco, Escape, scroll y retorno del foco.
+Las pruebas de decisiones usan datos simulados; no se confirma ni rechaza un
+pago real para verificar la pantalla.
+
+## Fuera de este corte (continuación final)
+
 Estructuras de costos, valoración económica del inventario, nómina, rentabilidad y proyecciones basadas en costos reales necesitan sus fuentes y metodología. No se deducen del saldo de cuentas ni se muestran como datos ya existentes.
 
 La importación de extractos y un historial agregado incremental de cobranza tampoco se han implementado. La cobranza sigue siendo por filtro explícito, sin escanear todo el histórico al entrar.
