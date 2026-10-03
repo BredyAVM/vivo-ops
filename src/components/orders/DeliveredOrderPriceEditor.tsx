@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { selectInputValue } from '@/lib/ui/select-input-value';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { calculateOrderTotalsSnapshot, roundMoney } from '@/lib/pricing/order-snapshots';
 import { loadDeliveredOrderPriceEditor, saveDeliveredOrderPriceEditor } from '@/lib/admin-finance/delivered-order-price-actions';
@@ -73,7 +74,7 @@ export default function DeliveredOrderPriceEditor({ orderId, onSaved }: { orderI
           <div className="min-w-0 flex-1 basis-40"><p className="break-words text-xs font-semibold">{item.qty} × {item.name}</p>
             <p className="mt-1 text-[11px] text-[#B7B7C2]">Actual {usd(item.unitPriceUsd)} / unidad{item.locked ? ' · Beneficio protegido' : ''}</p></div>
           <label className="w-28 text-xs">Precio unitario (USD)
-            <input inputMode="decimal" disabled={item.locked} value={drafts[item.id] ?? ''} onChange={(event) => { operation.current = crypto.randomUUID(); setDrafts((current) => ({ ...current, [item.id]: event.target.value })); }} className="mt-1 w-full rounded-lg border border-[#30303B] bg-[#0B0B0D] px-2 py-1.5 text-sm disabled:opacity-50" />
+            <input inputMode="decimal" disabled={item.locked} value={drafts[item.id] ?? ''} onFocus={selectInputValue} onChange={(event) => { operation.current = crypto.randomUUID(); setDrafts((current) => ({ ...current, [item.id]: event.target.value })); }} className="mt-1 w-full rounded-lg border border-[#30303B] bg-[#0B0B0D] px-2 py-1.5 text-sm disabled:opacity-50" />
           </label>
           <span className="w-full text-right text-[11px] text-[#B7B7C2]">{item.locked || !changed.includes(item) ? '' : valid ? `Bs ${roundMoney(parsed(drafts[item.id]) * editor.fxRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} / unidad` : 'Revisa el precio'}</span>
         </div>)}

@@ -5,6 +5,7 @@ import { parseDecimalInput } from "@/lib/number-input";
 import CrmOrderMinimumPanel from "./CrmOrderMinimumPanel";
 import { useDialogFocus } from "@/components/ui/useDialogFocus";
 import { currencyLabel } from "@/lib/ui/currency-label";
+import { selectInputValue } from "@/lib/ui/select-input-value";
 import CrmOrderValidityPanel from "./CrmOrderValidityPanel";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot } from "@/lib/orders/approved-price-preservation";
@@ -1800,6 +1801,7 @@ export default function MasterOpsOrderEditor({
                                     className={fieldClass()}
                                     value={item.sourcePriceCurrency === "USD" ? compact(item.sourcePriceAmount, 6) : compact(item.unitPriceUsdSnapshot, 6)}
                                     onChange={(event) => updateItemOverride(item, "USD", event.target.value)}
+                                    onFocus={selectInputValue}
                                     inputMode="decimal"
                                     placeholder="USD unit."
                                     aria-label={`Precio unitario USD: ${item.productNameSnapshot}`}
@@ -1810,6 +1812,7 @@ export default function MasterOpsOrderEditor({
                                     className={fieldClass()}
                                     value={item.sourcePriceCurrency === "VES" ? compact(item.sourcePriceAmount, 2) : compact(item.unitPriceUsdSnapshot * fxRate, 2)}
                                     onChange={(event) => updateItemOverride(item, "VES", event.target.value)}
+                                    onFocus={selectInputValue}
                                     inputMode="decimal"
                                     placeholder="Bs unit."
                                     aria-label={`Precio unitario Bs: ${item.productNameSnapshot}`}
@@ -1876,6 +1879,7 @@ export default function MasterOpsOrderEditor({
                                     <Field label="Porcentaje">
                                       <input className={fieldClass()} inputMode="decimal" aria-label={`Porcentaje de comisión: ${item.productNameSnapshot}`}
                                         value={item.adminCommissionOverrideValue ?? ""}
+                                        onFocus={selectInputValue}
                                         onChange={(event) => patchItem(item.localId, {
                                           adminCommissionOverrideValue: event.target.value.trim() ? toNumber(event.target.value, NaN) : null,
                                           adminCommissionOverrideChanged: true,

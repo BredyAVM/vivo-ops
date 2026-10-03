@@ -169,6 +169,23 @@ y componentes de cobranza/comisiones; el cargador compartido conserva cuatro
 
 ## Fuera de este corte
 
+## Entrada rápida de precios — 3 de octubre de 2026
+
+Los campos administrativos de precio unitario USD/Bs y porcentaje de comisión
+seleccionan su contenido completo al recibir foco, tanto en órdenes activas
+como en los editores de precios/comisiones de órdenes entregadas. El operador
+puede reemplazar el monto directamente por `0`; los clics posteriores conservan
+la edición normal del cursor. Se reutiliza un handler sin estado, efectos ni
+consultas. Se conserva la validación que ya admite cero, los beneficios
+protegidos, motivos y confirmación explícita del guardado. No se cambian precios
+reales para probarlo. Regresión: 617 pruebas .mts y compilación de producción
+aprobadas; tres pruebas nuevas cubren selección, conservación del cero en
+ambas monedas y conexión de los cinco campos al handler. Lint de helper y
+editores entregados aprobado; el editor activo conserva un `any` y una
+advertencia de dependencia de useMemo preexistentes.
+
+## Fuera de este corte (continuación)
+
 Estructuras de costos, valoración económica del inventario, nómina, rentabilidad y proyecciones basadas en costos reales necesitan sus fuentes y metodología. No se deducen del saldo de cuentas ni se muestran como datos ya existentes.
 
 La importación de extractos y un historial agregado incremental de cobranza tampoco se han implementado. La cobranza sigue siendo por filtro explícito, sin escanear todo el histórico al entrar.

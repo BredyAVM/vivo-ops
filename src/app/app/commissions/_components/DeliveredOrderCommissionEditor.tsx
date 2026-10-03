@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { selectInputValue } from '@/lib/ui/select-input-value';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { commissionTermsEqual, formatOrderCommissionTerms } from '@/lib/commissions/order-commission-terms';
@@ -100,7 +101,7 @@ export default function DeliveredOrderCommissionEditor({ orderId }: { orderId: n
                   </select>
                 </label>
                 {fixed ? <label className="w-24 text-xs">Porcentaje (%)
-                  <input inputMode="decimal" value={draft.value} onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: { ...current[item.id], value: event.target.value } }))} className="mt-1 w-full rounded-lg border border-[#30303B] bg-[#0B0B0D] p-2 text-sm" />
+                  <input inputMode="decimal" value={draft.value} onFocus={selectInputValue} onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: { ...current[item.id], value: event.target.value } }))} className="mt-1 w-full rounded-lg border border-[#30303B] bg-[#0B0B0D] p-2 text-sm" />
                 </label> : null}
               </div>
             </div>;
