@@ -393,3 +393,15 @@ la misma base neta operativa. No publica metas de asesores, no escribe registros
 financieros y no estima utilidad. Los detalles de semanas y cifras están
 plegados. Las consultas se paginan y fallan explícitamente al exceder el límite
 seguro en vez de mostrar sumas truncadas. No hay refresco automático del histórico.
+
+Actualización 2026-10-03: Inicio y Órdenes comparten agregador de lectura y suman
+importes precisos antes de redondear el total visible. Órdenes distingue «Total
+con impuesto» de «Fact. neta». Los gráficos/proyecciones tampoco acumulan
+subtotales diarios ya redondeados. El saldo canónico prevalece sobre cualquier
+marca histórica de redondeo: una modificación autorizada puede dejar deuda
+nueva. Se mantiene completo el pendiente por cambio excesivo, sin limitarlo al
+precio. Cobranzas usa creación/entrega y los filtros consultados, no fecha
+programada; «Pagos aplicados» es pago confirmado limitado al total por orden
+según su lector existente. «Por pagar a asesores» es obligación de comisión al
+corte guardado, no saldo vivo del cliente. Ninguna de estas cifras representa
+por sí sola entradas a las cuentas del día ni utilidad.

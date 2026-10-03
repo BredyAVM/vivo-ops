@@ -36,6 +36,17 @@ test('financial states reject missing, duplicate and unrelated answers instead o
  }
 });
 
+test('financial state batches reject malformed amounts while preserving valid numeric strings', async () => {
+  const good = { order_id: 7, total_usd: '11.004', confirmed_paid_usd: '5.003', pending_usd: '6.001' };
+  const client = (data: unknown) => ({ rpc: async () => ({ data, error: null }) }) as never;
+  assert.deepEqual(await readExecutiveFinancialStates(client([good]), [7]), [good]);
+  for (const value of [null, '', 'NaN', 'Infinity', -1, false]) {
+    for (const field of ['total_usd', 'confirmed_paid_usd', 'pending_usd']) {
+      await assert.rejects(readExecutiveFinancialStates(client([{ ...good, [field]: value }]), [7]), /saldos/);
+    }
+  }
+});
+
 test('executive pagination reads past API row caps without losing or duplicating a row', async () => {
   const data = Array.from({ length: 722 }, (_, id) => ({ id }));
   const calls: [number, number][] = [];

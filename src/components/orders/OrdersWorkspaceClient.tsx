@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
 import ContextLink from "@/components/navigation/ContextLink";
 import { currencyLabel } from "@/lib/ui/currency-label";
+import { buildOperationStats, type OperationalKpiAmounts } from "@/lib/orders/operational-kpis";
+export { buildOperationStats } from "@/lib/orders/operational-kpis";
 import { useDialogFocus } from "@/components/ui/useDialogFocus";
 import BackLink from "@/components/navigation/BackLink";
 import { adminWorkspaceHref } from "@/lib/navigation/admin-workspace";
@@ -25,8 +27,6 @@ import {
   canReturnOrderFromKitchenToQueue,
   canSendOrderToKitchen,
   isOrderPriceProtected,
-  isRecognizedBillingOrder,
-  isScheduledClosingOrder,
 } from "@/lib/domain/order-domain";
 import type {
   OrderFinancialActivity,
@@ -125,6 +125,7 @@ const MasterOpsOrderEditor = dynamic(() => import("@/app/app/master/ops/MasterOp
 
 export type PaymentVerify = MasterOrderPaymentVerify;
 export type MasterOpsOrder = MasterOrderDetailOrder & {
+  kpiAmounts?: OperationalKpiAmounts;
   clientFundUsedUsd: number;
   financialActivity?: OrderFinancialActivity[];
   integrityStatus?: MasterOpsOrderDetailPayload["integrityStatus"];
@@ -162,12 +163,7 @@ type MasterOpsMergedSearchResult = {
   source: "local" | "remote";
 };
 
-export type OperationStatsSummary = {
-  cierres: number;
-  fact: number;
-  abonadoConfirmado: number;
-  pendiente: number;
-};
+export type OperationStatsSummary = ReturnType<typeof buildOperationStats>;
 
 export type MasterOpsStats = {
   day: OperationStatsSummary;
@@ -4988,17 +4984,21 @@ export default function OrdersWorkspaceClient({
               <div className="text-center font-semibold text-[#F5F5F7]">{stats.day.cierres}</div>
               <div className="text-center font-semibold text-[#F5F5F7]">{stats.week.cierres}</div>
 
-              <div className="text-[#B7B7C2]" title="Total de órdenes facturadas, incluido impuesto. El inicio muestra el neto comercial sin impuesto.">Facturación</div>
+              <div className="text-[#B7B7C2]" title="Total de órdenes facturadas, incluido impuesto.">Total con impuesto</div>
               <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(stats.day.fact)}</div>
               <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(stats.week.fact)}</div>
 
-              <div className="text-[#B7B7C2]">Abonado</div>
-              <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(stats.day.abonadoConfirmado)}</div>
-              <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(stats.week.abonadoConfirmado)}</div>
+              <div className="text-[#B7B7C2]" title="Después de descuentos y sin impuesto; misma definición que Inicio.">Fact. neta</div>
+              <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(stats.day.factNeta)}</div>
+              <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(stats.week.factNeta)}</div>
+
+              <div className="text-[#B7B7C2]" title="Pagos confirmados de estas órdenes, no entradas a cuentas de hoy.">Abonado</div>
+              <div className="text-center font-semibold text-[#F5F5F7]">{stats.day.abonadoConfirmado === null ? "—" : fmtUSD(stats.day.abonadoConfirmado)}</div>
+              <div className="text-center font-semibold text-[#F5F5F7]">{stats.week.abonadoConfirmado === null ? "—" : fmtUSD(stats.week.abonadoConfirmado)}</div>
 
               <div className="text-[#B7B7C2]">Pendiente</div>
-              <div className="text-center font-semibold text-[#FEEF00]">{fmtUSD(stats.day.pendiente)}</div>
-              <div className="text-center font-semibold text-[#FEEF00]">{fmtUSD(stats.week.pendiente)}</div>
+              <div className="text-center font-semibold text-[#FEEF00]">{stats.day.pendiente === null ? "—" : fmtUSD(stats.day.pendiente)}</div>
+              <div className="text-center font-semibold text-[#FEEF00]">{stats.week.pendiente === null ? "—" : fmtUSD(stats.week.pendiente)}</div>
             </div>
           </Card>
 
@@ -5440,15 +5440,4 @@ export default function OrdersWorkspaceClient({
       ) : null}
     </div>
   );
-}
-
-export function buildOperationStats(orders: MasterOpsOrder[]): OperationStatsSummary {
-  const scheduledOrders = orders.filter((order) => isScheduledClosingOrder(order));
-  const billingOrders = orders.filter((order) => isRecognizedBillingOrder(order));
-  return {
-    cierres: scheduledOrders.length,
-    fact: billingOrders.reduce((sum, order) => sum + order.totalUsd, 0),
-    abonadoConfirmado: billingOrders.reduce((sum, order) => sum + order.confirmedPaidUsd, 0),
-    pendiente: billingOrders.reduce((sum, order) => sum + order.balanceUsd, 0),
-  };
 }

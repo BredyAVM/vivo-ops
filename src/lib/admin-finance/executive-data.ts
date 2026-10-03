@@ -19,6 +19,7 @@ import {
 } from './period';
 import { isRecognizedBillingOrder } from '../orders/order-sales';
 import { getOrderMoneySnapshot } from '../orders/order-money';
+import { indexKpiFinancialStates } from '../orders/operational-kpis';
 
 const EXECUTIVE_ORDER_LIMIT = 8_000;
 const EXECUTIVE_ORDER_BATCH_SIZE = 250;
@@ -201,9 +202,7 @@ export async function readExecutiveFinancialStates(supabase: ExecutiveSupabaseCl
       const {data,error}=await supabase.rpc('get_orders_financial_state',{p_order_ids:batch,p_operation_date:null,p_active_bs_rate:null});
       if(error)throw new Error(error.message||'No se pudieron consultar los saldos.');
       if(!Array.isArray(data))throw new Error('Respuesta de saldos incompleta.');
-      const selected=new Set(batch),seen=new Set<number>();
-      for(const row of data as ExecutiveFinancialStateRow[]){const id=Number(row.order_id);if(!selected.has(id)||seen.has(id))throw new Error('Respuesta de saldos fuera de la selección o duplicada.');seen.add(id);}
-      if(seen.size!==batch.length)throw new Error('No se pudieron completar todos los saldos de la selección.');
+      indexKpiFinancialStates(data as ExecutiveFinancialStateRow[], batch);
       return data as unknown as ExecutiveFinancialStateRow[];
     }));
     rows.push(...results.flat());

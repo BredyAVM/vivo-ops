@@ -1,10 +1,6 @@
-import {
-  getOrderCommercialNetUsd,
-  getOrderMoneySnapshot,
-  getOrderRoundingClosureSnapshot,
-  type OrderMoneySource,
-} from '../orders/order-money.ts';
-import { isRecognizedBillingOrder, isScheduledClosingOrder } from '../orders/order-sales.ts';
+import type { OrderMoneySource } from '../orders/order-money.ts';
+import { getOrderOperationalKpiAmounts, hasValidKpiFinancialState, roundKpiAmount,
+  sumOperationalKpis } from '../orders/operational-kpis.ts';
 import {
   addDateKeyDays,
   buildAdminFinancePeriod,
@@ -121,32 +117,19 @@ export function parseProjectionOptions(weeks: unknown, growth: unknown) {
 }
 
 function operationalTotals(orders: ExecutiveOrderRow[], states: Map<number, ExecutiveFinancialStateRow>): OperationalTotals {
-  let closures = 0;
-  let net = 0;
-  let paid = 0;
-  let pending = 0;
-  let complete = true;
-  for (const order of orders) {
-    const state = states.get(Number(order.id));
-    const totalUsd = state ? numberValue(state.total_usd) : getOrderMoneySnapshot(order).totalUsd;
-    const criteria = { status: order.status, totalUsd };
-    if (isScheduledClosingOrder(criteria)) closures += 1;
-    if (!isRecognizedBillingOrder(criteria)) continue;
-    net += getOrderCommercialNetUsd(order);
-    if (!state || state.confirmed_paid_usd === null || state.pending_usd === null ||
-      !Number.isFinite(Number(state.confirmed_paid_usd)) || !Number.isFinite(Number(state.pending_usd))) {
-      complete = false;
-      continue;
-    }
-    paid += Math.max(0, Number(state.confirmed_paid_usd));
-    pending += getOrderRoundingClosureSnapshot(order).isClosed ? 0 : Math.max(0, Number(state.pending_usd));
-  }
+  const totals = sumOperationalKpis(orders.map(order => ({ status: order.status,
+    ...getOrderOperationalKpiAmounts(order, states.get(Number(order.id))) })));
   return {
-    closures, commercialNetUsd: roundMoney(net),
-    confirmedPaidUsd: complete ? roundMoney(paid) : null,
-    pendingUsd: complete ? roundMoney(pending) : null,
-    financialStatesComplete: complete,
+    closures: totals.cierres, commercialNetUsd: totals.factNeta,
+    confirmedPaidUsd: totals.abonadoConfirmado, pendingUsd: totals.pendiente,
+    financialStatesComplete: totals.financialStatesComplete,
   };
+}
+
+function displayOperationalTotals(totals: OperationalTotals): OperationalTotals {
+  return { ...totals, commercialNetUsd: roundMoney(totals.commercialNetUsd),
+    confirmedPaidUsd: totals.confirmedPaidUsd === null ? null : roundMoney(totals.confirmedPaidUsd),
+    pendingUsd: totals.pendingUsd === null ? null : roundMoney(totals.pendingUsd) };
 }
 
 export function buildOperationalOverview(input: {
@@ -193,9 +176,10 @@ export function buildOperationalOverview(input: {
     };
   });
   return {
-    today: currentDaily[days.indexOf(todayKey)],
-    week: operationalTotals(days.flatMap((key) => byDay.get(key) ?? []), states),
-    history, trend, historyWeeks, growthPct,
+    today: displayOperationalTotals(currentDaily[days.indexOf(todayKey)]),
+    week: displayOperationalTotals(operationalTotals(days.flatMap((key) => byDay.get(key) ?? []), states)),
+    history: history.map(week => ({ ...week, commercialNetUsd: roundMoney(week.commercialNetUsd) })),
+    trend, historyWeeks, growthPct,
     weeklyReferenceUsd: roundMoney(history.reduce((sum, week) => sum + week.commercialNetUsd, 0) / historyWeeks * factor),
     weeklyReferenceClosures: Number((history.reduce((sum, week) => sum + week.closures, 0) / historyWeeks * factor).toFixed(1)),
   };
@@ -207,7 +191,7 @@ function numberValue(value: unknown) {
 }
 
 function roundMoney(value: number) {
-  return Number(value.toFixed(2));
+  return roundKpiAmount(value);
 }
 
 function caracasMinuteOfDay(value: Date) {
@@ -277,6 +261,7 @@ function summarizeOrders(input: {
   endExclusiveKey: string;
   requireFinancialState: boolean;
   commercialMinuteCutoff?: number;
+  preservePrecision?: boolean;
 }) {
   const result = emptyTotals();
   let coveredBilledOrders = 0;
@@ -296,11 +281,9 @@ function summarizeOrders(input: {
         isAtOrBeforeMinute(order, input.commercialMinuteCutoff)
     );
 
-    const money = getOrderMoneySnapshot(order);
     const financialState = input.financialStateByOrderId.get(Number(order.id));
-    const contractualTotal = financialState
-      ? Math.max(0, numberValue(financialState.total_usd))
-      : money.totalUsd;
+    const money = getOrderOperationalKpiAmounts(order, financialState);
+    const contractualTotal = money.totalUsd;
     if (isScheduledWithinWindow && order.fulfillment === 'delivery' && order.status !== 'cancelled') {
       result.deliveries += 1;
       if (order.status === 'delivered') result.deliveriesCompleted += 1;
@@ -311,23 +294,24 @@ function summarizeOrders(input: {
     result.closures += 1;
     result.billedOrders += 1;
     result.billedUsd += contractualTotal;
-    result.commercialNetUsd += getOrderCommercialNetUsd(order);
+    result.commercialNetUsd += money.commercialNetUsd;
 
     if (!input.requireFinancialState) continue;
-    if (!financialState) continue;
+    if (!hasValidKpiFinancialState(financialState)) continue;
 
     coveredBilledOrders += 1;
     const orderTotal = contractualTotal;
-    const pendingUsd = Math.min(
-      orderTotal,
-      Math.max(0, numberValue(financialState.pending_usd))
-    );
+    // Over-change can create debt above the sale price. Coverage is bounded,
+    // but the canonical collectible balance must not be capped to that price.
+    const pendingUsd = money.pendingUsd ?? 0;
     result.coveredUsd = numberValue(result.coveredUsd) + Math.max(0, orderTotal - pendingUsd);
     result.pendingUsd = numberValue(result.pendingUsd) + pendingUsd;
   }
 
-  result.billedUsd = roundMoney(result.billedUsd);
-  result.commercialNetUsd = roundMoney(result.commercialNetUsd);
+  if (!input.preservePrecision) {
+    result.billedUsd = roundMoney(result.billedUsd);
+    result.commercialNetUsd = roundMoney(result.commercialNetUsd);
+  }
   result.deliveriesPending = Math.max(0, result.deliveries - result.deliveriesCompleted);
 
   if (input.requireFinancialState) {
@@ -389,6 +373,7 @@ export function buildAdminExecutiveKpiOverview(input: {
       startKey,
       endExclusiveKey: addDateKeyDays(startKey, 7),
       requireFinancialState: false,
+      preservePrecision: true,
     });
   });
 
@@ -401,15 +386,14 @@ export function buildAdminExecutiveKpiOverview(input: {
         startKey: dateKey,
         endExclusiveKey: addDateKeyDays(dateKey, 1),
         requireFinancialState: false,
+        preservePrecision: true,
         commercialMinuteCutoff:
           weekdayIndex === currentWeekdayIndex ? currentMinuteOfDay : undefined,
       });
     });
     return {
-      billedUsd: roundMoney(samples.reduce((sum, sample) => sum + sample.billedUsd, 0) / HISTORICAL_WEEKS),
-      closures: Number(
-        (samples.reduce((sum, sample) => sum + sample.closures, 0) / HISTORICAL_WEEKS).toFixed(1)
-      ),
+      billedUsd: samples.reduce((sum, sample) => sum + sample.billedUsd, 0) / HISTORICAL_WEEKS,
+      closures: samples.reduce((sum, sample) => sum + sample.closures, 0) / HISTORICAL_WEEKS,
     };
   });
 
@@ -424,20 +408,21 @@ export function buildAdminExecutiveKpiOverview(input: {
       startKey: dateKey,
       endExclusiveKey: addDateKeyDays(dateKey, 1),
       requireFinancialState: false,
+      preservePrecision: true,
     });
-    historicalBilledUsd = roundMoney(historicalBilledUsd + historicalDaily[weekdayIndex].billedUsd);
-    historicalClosures = Number((historicalClosures + historicalDaily[weekdayIndex].closures).toFixed(1));
+    historicalBilledUsd += historicalDaily[weekdayIndex].billedUsd;
+    historicalClosures += historicalDaily[weekdayIndex].closures;
     const isObserved = dateKey <= todayKey;
     if (isObserved) {
-      currentBilledUsd = roundMoney(currentBilledUsd + currentDay.billedUsd);
+      currentBilledUsd += currentDay.billedUsd;
       currentClosures = Number((currentClosures + currentDay.closures).toFixed(1));
     }
     return {
       dateKey,
-      currentBilledUsd: isObserved ? currentBilledUsd : null,
-      historicalBilledUsd,
+      currentBilledUsd: isObserved ? roundMoney(currentBilledUsd) : null,
+      historicalBilledUsd: roundMoney(historicalBilledUsd),
       currentClosures: isObserved ? currentClosures : null,
-      historicalClosures,
+      historicalClosures: Number(historicalClosures.toFixed(1)),
     };
   });
 
@@ -459,8 +444,8 @@ export function buildAdminExecutiveKpiOverview(input: {
     today,
     week,
     historicalAverage: {
-      todayBilledUsd: historicalToday.billedUsd,
-      todayClosures: historicalToday.closures,
+      todayBilledUsd: roundMoney(historicalToday.billedUsd),
+      todayClosures: Number(historicalToday.closures.toFixed(1)),
       weekBilledUsd: roundMoney(historicalAverageWeek.billedUsd),
       weekClosures: Number(historicalAverageWeek.closures.toFixed(1)),
     },

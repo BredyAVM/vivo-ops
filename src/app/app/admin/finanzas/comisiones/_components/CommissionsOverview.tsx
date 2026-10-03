@@ -28,7 +28,7 @@ export default function CommissionsOverview({ data, filters }: { data: Overview;
     { label: 'Generada', amount: totals.grossUsd, note: 'Bruta en cálculos guardados' },
     { label: 'Retenida', amount: totals.retainedUsd, note: totals.estimatedRetentions ? `${totals.estimatedRetentions} retenciones históricas estimadas` : 'En el cálculo del período' },
     { label: 'Conformada', amount: totals.conformedUsd, note: 'Cerrada, aún sin marcar pagada' },
-    { label: 'Por pagar conciliado', amount: totals.pendingUsd, note: totals.pendingUsd === null ? 'Vínculo de pagos por verificar' : 'Solo obligaciones conformadas' },
+    { label: 'Por pagar a asesores', amount: totals.pendingUsd, note: totals.pendingUsd === null ? 'Vínculo de pagos por verificar' : 'Solo obligaciones conformadas' },
   ];
   return <div className="space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-3">

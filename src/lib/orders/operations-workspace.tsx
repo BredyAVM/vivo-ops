@@ -2,13 +2,12 @@ import "server-only";
 import { unstable_noStore as noStore } from "next/cache";
 import { redirect } from "next/navigation";
 import {
-  isRecognizedBillingOrder,
-  isScheduledClosingOrder,
   needsInitialOrderApproval,
   type FulfillmentType,
   type OrderStatus,
 } from "@/lib/domain/order-domain";
 import { formatOrderDisplayNumber } from "@/lib/orders/order-labels";
+import { buildOperationStats, getOrderOperationalKpiAmounts, indexKpiFinancialStates } from "@/lib/orders/operational-kpis";
 import { getVisibleEditableDetailLines } from "@/lib/orders/order-composer";
 import { getAuthContext, resolveHomePath } from "@/lib/auth";
 import { canOpenOrdersWorkspace, type OrdersWorkspaceSurface } from "@/lib/orders/workspace-navigation";
@@ -20,7 +19,6 @@ import MasterOpsClient, {
   type MasterOpsPaymentAccountOption,
   type MasterOpsOrder,
   type MasterOpsStats,
-  type OperationStatsSummary,
   type PaymentVerify,
 } from "@/components/orders/OrdersWorkspaceClient";
 import { canAssignMasterOpsDelivery } from "@/app/app/master/ops/operational-rules";
@@ -361,15 +359,6 @@ function mergeRows(...groups: Array<RawOrderRow[]>) {
   return Array.from(map.values());
 }
 
-function financialStateById(states: RawFinancialStateRow[]) {
-  const map = new Map<number, RawFinancialStateRow>();
-  for (const state of states) {
-    const id = Number(state.order_id);
-    if (Number.isFinite(id) && id > 0) map.set(id, state);
-  }
-  return map;
-}
-
 function extractUnitsPerServiceFromName(name: string | null | undefined) {
   const match = String(name || "").match(/\((\d+(?:[.,]\d+)?)\s*(?:und|unidad|unidades|pzas?|piezas?)\)/i);
   if (!match) return 0;
@@ -575,6 +564,7 @@ function mapOrder(
     clientOrderCount: clientStats.get(clientId)?.orderCount ?? 0,
     totalUsd,
     totalBs,
+    kpiAmounts: getOrderOperationalKpiAmounts(row, state),
     balanceUsd: row.status === "cancelled" ? 0 : Math.max(0, roundMoney(state?.pending_usd, totalUsd)),
     pendingBs:
       row.status === "cancelled"
@@ -674,17 +664,6 @@ function mapOrder(
       (row.internal_driver_user_id ? detail.profileNameById?.get(row.internal_driver_user_id) : null) ??
       (row.internal_driver_user_id ? "Interno asignado" : null),
     externalPartner: row.external_driver_name?.trim() || (row.external_partner_id ? "Externo asignado" : null),
-  };
-}
-
-function buildOperationStats(orders: MasterOpsOrder[]): OperationStatsSummary {
-  const scheduledOrders = orders.filter((order) => isScheduledClosingOrder(order));
-  const billingOrders = orders.filter((order) => isRecognizedBillingOrder(order));
-  return {
-    cierres: scheduledOrders.length,
-    fact: billingOrders.reduce((sum, order) => sum + order.totalUsd, 0),
-    abonadoConfirmado: billingOrders.reduce((sum, order) => sum + order.confirmedPaidUsd, 0),
-    pendiente: billingOrders.reduce((sum, order) => sum + order.balanceUsd, 0),
   };
 }
 
@@ -954,7 +933,8 @@ export async function OrdersWorkspace({ searchParams, surface }: {
     profileNameById,
   };
 
-  const financialStates = financialStateById((financialStateResult.data ?? []) as RawFinancialStateRow[]);
+  if (!Array.isArray(financialStateResult.data)) throw new Error("Respuesta de saldos incompleta.");
+  const financialStates = indexKpiFinancialStates(financialStateResult.data as RawFinancialStateRow[], allOrderIds);
   const clientStats = buildClientOrderStats((clientHistoryResult.data ?? []) as Array<{ id: number | string; client_id: number | string | null }>);
   const dayOrders = dayRows.map((row) => mapOrder(row, financialStates, clientStats, detailMaps));
   const weekOrders = weekRows.map((row) => mapOrder(row, financialStates, new Map(), detailMaps));

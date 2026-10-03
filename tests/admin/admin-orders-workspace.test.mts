@@ -43,7 +43,9 @@ test('Admin navigation stays native and Master keeps its original operational de
   assert.match(ui, /<ContextLink href="\/app\/events\/ongoing"/);
   assert.match(ui, /appContextHref\(adminWorkspaceHref\(item.eventHref, current\), current\)/);
   assert.match(ui, /Total de órdenes facturadas, incluido impuesto/);
-  assert.doesNotMatch(ui, />Fact\. neta</);
+  assert.match(ui, />Fact\. neta</);
+  assert.match(ui, />Total con impuesto</);
+  assert.match(ui, /stats\.week\.factNeta/);
   assert.doesNotMatch(ui, /router\.(?:push|replace)\(`?['"]?\/app\/master\/ops/);
   assert.match(ui, /router\.push\(`\$\{navigation.orders\}/);
   assert.match(ui, /query \? `\$\{navigation.orders\}\?\$\{query\}` : navigation.orders/);

@@ -43,13 +43,14 @@ test('projection keeps empty weeks, deduplicates orders, and cannot read current
   assert.equal(result.history.filter((week) => week.commercialNetUsd === 0).length, 3);
 });
 
-test('operational missing financial state is unknown; canonical rounding closure is respected', () => {
+test('operational missing state is unknown; rounding closes only through the canonical balance', () => {
   const row = order({ id: 99, date: '2026-09-09', status: 'queued', totalUsd: 10 });
   assert.equal(buildOperationalOverview({ orders: [row], financialStates: [], asOf }).today.pendingUsd, null);
   row.extra_fields = { ...row.extra_fields, payment: { rounding_close: { closed_balance_usd: 0.02 } } };
-  const result = buildOperationalOverview({ orders: [row], financialStates: [state(99, 10, 9.98, 0.02)], asOf });
+  const result = buildOperationalOverview({ orders: [row], financialStates: [state(99, 10, 9.98, 0)], asOf });
   assert.equal(result.today.pendingUsd, 0);
   assert.equal(result.today.confirmedPaidUsd, 9.98);
+  assert.equal(buildOperationalOverview({ orders: [row], financialStates: [state(99, 10, 9.98, 0.02)], asOf }).today.pendingUsd, 0.02);
   assert.equal(buildOperationalOverview({ orders: [], financialStates: [], asOf }).today.pendingUsd, 0);
 });
 

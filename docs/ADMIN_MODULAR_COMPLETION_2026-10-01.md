@@ -108,6 +108,65 @@ Verificación de este bloque: compilación de producción con Next.js 16.3.8 y r
 
 La consulta de asesores de seguridad de la base también conserva advertencias previas de funciones privilegiadas, permisos y protección de contraseñas. No se aplicaron revocaciones globales ni cambios de Auth. Estos hallazgos necesitan revisión específica y no permiten declarar que toda la aplicación esté libre de vulnerabilidades.
 
+## Coherencia de indicadores — 3 de octubre de 2026
+
+Inicio y el tablero compartido de Órdenes usan ahora el mismo agregador puro
+`src/lib/orders/operational-kpis.ts`. Se conserva la precisión de los importes
+canónicos para sumar; se redondea a dos decimales una vez al presentar cada
+total. El DTO separado `kpiAmounts` es exclusivamente de lectura: no modifica
+los importes usados por formularios, movimientos, cobros ni liquidaciones.
+Los snapshots y funciones de escritura de precios/comisiones no se cambiaron.
+
+Órdenes muestra separadamente **Total con impuesto** y **Fact. neta**. La primera
+es el total canónico de la obligación; la segunda es el neto comercial del
+snapshot después de descuentos y sin impuesto, como Inicio. Abonado son los
+pagos confirmados de las órdenes del período, no las entradas a cuentas del día.
+No se fuerza la igualdad neto = abonado + pendiente: tienen bases distintas,
+puede haber crédito aplicado, cambios, impuestos y cierres por redondeo.
+
+El saldo canónico decide si hay deuda. Una marca histórica de cierre por
+redondeo no reemplaza un saldo positivo posterior a una modificación autorizada.
+Esto corrige un supuesto del lector anterior; no reabre ni cierra órdenes en
+la base. La deuda por cambio excesivo tampoco se limita al precio de la orden:
+se conserva el saldo canónico completo, aunque la cobertura se limite al precio.
+Los lectores rechazan importes nulos, vacíos, no finitos, negativos,
+respuestas incompletas, duplicadas o ajenas al conjunto solicitado. La ausencia
+de datos no se convierte en una orden totalmente cubierta.
+
+Los gráficos operativos y financieros acumulan valores no redondeados entre
+días y semanas. Las referencias y los promedios de cierres también conservan
+precisión interna, evitando diferencias al terminar la línea. El gráfico
+operativo no observa días futuros, aunque la tarjeta semanal sí incluye órdenes
+programadas para el resto de la semana, según su contrato vigente.
+
+Cobranzas declara fecha de creación/entrega y conserva la consulta explícita
+por filtros y todas las páginas. **Pagos aplicados** sustituye la etiqueta
+ambigua «Abonado / cubierto»: es el pago confirmado limitado al total de la
+orden, según el lector SQL existente; no sustituye pendiente ni incorpora por
+su cuenta fondos del cliente. Comisiones dice **Por pagar a asesores** y mantiene
+los cierres guardados, sin reconstruirlos como deuda actual del cliente.
+
+Auditoría read-only de la semana 28/09–04/10: muestra SQL de 113 órdenes en
+estados distintos de creada/cancelada, antes del filtro de valor del KPI; neto
+comercial del snapshot USD 3.775,49, total canónico USD 3.820,12 y pagos
+confirmados USD 3.127,84. Pendiente agregado canónico USD 692,23 frente a
+USD 692,24 al redondear cada orden. Había 23 órdenes con fracciones internas;
+ninguna tenía saldo positivo junto a la marca histórica de redondeo en esta
+muestra. Son cifras al corte de la consulta, no constantes de la aplicación.
+No se cambiaron datos comerciales ni se realizaron operaciones financieras.
+La selección SQL no certifica el mismo conjunto de las tarjetas por sesión y
+fecha de corte; su propósito es comprobar el efecto aritmético del redondeo.
+
+Verificación: regresiones para impuestos/descuentos, fracciones entre días,
+gráfico frente a total semanal, crédito y deuda por cambio excesivo, estados
+creado/cancelado/obsequio, datos inválidos, lectura de batches y cierre
+histórico seguido de precio ajustado. No se agregaron consultas, sondeo,
+precarga de históricos ni dependencias.
+La regresión completa tiene 614 pruebas .mts aprobadas y compilación estricta
+de producción aprobada. Lint aprobado para el módulo nuevo, lectores ejecutivos
+y componentes de cobranza/comisiones; el cargador compartido conserva cuatro
+`any` previos al bloque, constatados contra HEAD, no introducidos por el cambio.
+
 ## Fuera de este corte
 
 Estructuras de costos, valoración económica del inventario, nómina, rentabilidad y proyecciones basadas en costos reales necesitan sus fuentes y metodología. No se deducen del saldo de cuentas ni se muestran como datos ya existentes.

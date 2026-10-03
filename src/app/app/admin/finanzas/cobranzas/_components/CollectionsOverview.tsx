@@ -31,18 +31,21 @@ function Review({ order }: { order: CollectionOrder }) {
 export default function CollectionsOverview({ data, filters }: { data: Overview; filters: CollectionFilters }) {
   return <div className="space-y-3">
     <header className="flex flex-wrap items-center justify-between gap-2">
-      <div><h1 className="text-xl font-semibold text-white">Cobranzas</h1><p className="mt-1 text-xs text-zinc-400">{data.totals.orders} órdenes · saldo actual, no cierre de comisiones</p></div>
+      <div><h1 className="text-xl font-semibold text-white">Cobranzas</h1><p className="mt-1 text-xs text-zinc-400">{data.totals.orders} órdenes · por fecha de {filters.basis === 'created' ? 'creación' : 'entrega'} · saldo actual</p></div>
       <CollectionRefresh asOf={data.asOf} />
     </header>
     <section aria-label="Totales de todas las órdenes filtradas" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
       {[
-        ['Importe de órdenes', data.totals.totalUsd, false], ['Abonado / cubierto', data.totals.coveredUsd, false],
+        ['Total con impuesto', data.totals.totalUsd, false], ['Pagos aplicados', data.totals.coveredUsd, false],
         ['Pendiente', data.totals.pendingUsd, true], ['Pagos por verificar', data.totals.reviewUsd, false],
       ].map(([label, amount, highlight]) => <article key={String(label)} className={`rounded-xl border p-3 ${highlight ? 'border-[#FFFF00]/40 bg-[#FFFF00]/5' : 'border-zinc-800 bg-[#111117]'}`}>
         <p className="text-xs text-zinc-400">{label}</p><p className={`mt-1 text-base font-semibold tabular-nums ${highlight ? 'text-[#FFFF00]' : 'text-white'}`}>{money(Number(amount))}</p>
       </article>)}
     </section>
     <CollectionFiltersForm key={JSON.stringify(filters)} filters={filters} people={data.people} todayIso={data.asOf} />
+    <details className="text-xs text-zinc-400"><summary className="cursor-pointer py-1">Cómo comparar las cifras</summary>
+      <p className="mt-1">Estos totales abarcan todas las páginas de los filtros elegidos, no solo las filas visibles. Inicio y Órdenes usan fecha programada; aquí se usa creación o entrega. Pagos aplicados se limita al total de cada orden: no incluye excedentes a favor del cliente ni sustituye el saldo pendiente canónico. Las comisiones son obligaciones con el asesor al corte de cálculo, no deuda actual del cliente.</p>
+    </details>
     {data.totals.reviewCount > 0 && <p className="rounded-lg border border-amber-200/20 bg-amber-200/5 px-3 py-2 text-xs text-amber-100">Hay {data.totals.reviewCount} pagos por verificar. No están descontados del pendiente: revisa el reporte antes de volver a cobrar.</p>}
     <div className="flex flex-wrap justify-between gap-2 text-xs text-zinc-400">
       <span>Saldos vigentes al momento de esta consulta, sin actualización automática. Canceladas no suman deuda.</span>
