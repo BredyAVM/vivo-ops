@@ -12,7 +12,7 @@ test('unit price validation: zero is valid; precision, duplicates and invalid am
 test('delivered price entry is admin-only and loads on click, not during rendering',()=>{
   const workspace=readFileSync(new URL('../../src/components/orders/OrdersWorkspaceClient.tsx',import.meta.url),'utf8');
   const ui=readFileSync(new URL('../../src/components/orders/DeliveredOrderPriceEditor.tsx',import.meta.url),'utf8');
-  const action=readFileSync(new URL('../../src/app/app/admin/orders/price-actions.ts',import.meta.url),'utf8');
+  const action=readFileSync(new URL('../../src/lib/admin-finance/delivered-order-price-actions.ts',import.meta.url),'utf8');
   assert.match(workspace,/isAdmin && order.status === "delivered"[\s\S]*?<DeliveredOrderPriceEditor/);
   assert.match(ui,/async function open\(\)[\s\S]*?loadDeliveredOrderPriceEditor\(orderId\)/);
   assert.doesNotMatch(ui,/useEffect/);assert.match(ui,/Precio unitario \(USD\)/);assert.match(ui,/formatOrderDisplayNumber\(orderId\)/);

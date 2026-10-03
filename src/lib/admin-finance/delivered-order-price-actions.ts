@@ -1,5 +1,7 @@
 'use server';
 
+// Shared financial command boundary; Admin pages contain no business queries.
+
 import { revalidatePath } from 'next/cache';
 import { requireAdminContext } from '@/lib/auth';
 import { getOrderLineTotalBs, getOrderLineTotalUsd, getOrderMoneySnapshot, roundOrderMoney } from '@/lib/orders/order-money';

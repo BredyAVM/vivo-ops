@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { calculateOrderTotalsSnapshot, roundMoney } from '@/lib/pricing/order-snapshots';
-import { loadDeliveredOrderPriceEditor, saveDeliveredOrderPriceEditor } from '@/app/app/admin/orders/price-actions';
+import { loadDeliveredOrderPriceEditor, saveDeliveredOrderPriceEditor } from '@/lib/admin-finance/delivered-order-price-actions';
 
 type Editor = Extract<Awaited<ReturnType<typeof loadDeliveredOrderPriceEditor>>, { ok: true }>['editor'];
 const usd = (value: number) => `USD ${value.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
