@@ -813,3 +813,28 @@ Las migraciones `20260829170122_inventory_protected_family_sales_v1.sql` y
 `20260829203000_inventory_protected_family_reserve_fix_v1.sql` implementan el
 contrato. El resto de las alertas y saldos negativos continúa siendo
 informativo y no bloqueante.
+
+## 32. Edición operativa antes de la salida física — 2026-10-04
+
+La política `docs/MASTER_PREHANDOFF_EDIT_POLICY_2026-10-04.md` permite a Máster
+modificar productos/cantidades de órdenes en cocina y listas, aunque estén
+pagadas o tengan precio protegido. No habilita edición normal después del
+corte `out_for_delivery` (delivery) / `delivered` (pickup).
+
+Una cantidad modificada conserva la identidad de la partida y sus precios
+unitarios. Los triggers existentes reconstruyen la composición y los
+compromisos; no se omiten triggers de inventario ni se repite `sale_out`.
+Los productos retirados/sustituidos siguen el guardado atómico compartido.
+
+Las bebidas de pickup listo usan la clasificación `products.inventory_group =
+'beverages'`: agregar/aumentar únicamente bebidas no reinicia preparación en
+cocina. Esto no elimina su vínculo físico, compromiso ni consumo al retirar.
+Agregar/aumentar comida conserva la vuelta a cocina del contrato de Counter.
+
+Un producto histórico inactivo puede reducirse o retirarse, nunca aumentarse
+ni venderse nuevamente. Las jugadas CRM y la suspensión comercial vigente
+mantienen sus validaciones. Las incidencias físicas continúan siendo trazadas
+y no bloqueantes según el contrato existente.
+
+Migración: `20261004190450_prehandoff_operational_item_changes.sql`. No crea
+tablas/columnas, modifica saldos históricos ni cambia el corte físico.

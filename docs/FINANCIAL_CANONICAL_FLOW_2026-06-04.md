@@ -429,6 +429,25 @@ Eliminar calculos duplicados en pantallas. La UI solo muestra:
 
 ## Reglas de no regresion
 
+### Modificación de productos en órdenes pagadas — 2026-10-04
+
+La protección por pago del 90 % o manual protege los términos económicos, no
+bloquea la composición operativa de una orden antes de su salida física.
+Máster puede reducir/retirar/sustituir productos conservando los precios
+unitarios autorizados; no se altera el movimiento de pago recibido.
+
+Si queda excedente, `store_operational_order_excess_v1` usa exclusivamente
+`get_order_financial_state`, bloquea orden/cliente y registra el crédito en el
+ledger de fondo, vinculado a los reportes confirmados de origen. Las obligaciones
+de cambio y retiros pendientes no se acreditan otra vez. El reintento no duplica
+el excedente; la falta de vínculos históricos suficientes exige conciliación,
+nunca un crédito inferido. La devolución posterior utiliza el comando canónico
+de fondo y queda registrada como un momento separado del pago y del crédito.
+
+Contrato completo y pruebas: `MASTER_PREHANDOFF_EDIT_POLICY_2026-10-04.md`.
+
+### Invariantes
+
 - Ningun pago confirmado puede existir sin movimiento contable real.
 - Ningun movimiento `voided` puede contar en saldos.
 - Ningun fondo puede cambiar sin `client_fund_movements`.

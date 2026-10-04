@@ -31,6 +31,7 @@ import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rule
 import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicates';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from '@/lib/orders/approved-price-preservation';
+import { preservedOperationalSnapshot } from '@/lib/orders/operational-edit-pricing';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { searchClientSummaries } from '@/lib/search/client-search';
@@ -8358,14 +8359,14 @@ export async function updateOrderAction(input: {
 
   const approvedPricesById = new Map((previousOrderItems ?? []).map((row) => [Number(row.id), storedApprovedPriceLine(row)]));
   const hasApprovedPrices = (previousOrderItems ?? []).some((row) => row.admin_price_override_usd != null);
-  if (!isAdmin && (hasUnauthorizedPriceChange(input.items, [...approvedPricesById.values()]) ||
+  if (!isAdmin && (hasUnauthorizedPriceChange(input.items, [...approvedPricesById.values()], true) ||
     (hasApprovedPrices && (Number(input.selectedClientId) !== Number(currentOrder.client_id) ||
       source !== currentOrder.source ||
       (input.attributedAdvisorUserId ?? null) !== (currentOrder.attributed_advisor_id ?? null))))) {
     return { ok: false as const, code: 'approved_price_changed', message: APPROVED_PRICE_CHANGE_MESSAGE };
   }
   const preservedPriceById = new Map(input.items.flatMap((item) => {
-    const snapshot = !isAdmin ? preservedApprovedPriceSnapshot(item, approvedPricesById.get(Number(item.orderItemId))) : null;
+    const snapshot = !isAdmin ? preservedApprovedPriceSnapshot(item, approvedPricesById.get(Number(item.orderItemId)), true) ?? preservedOperationalSnapshot(item, approvedPricesById.get(Number(item.orderItemId))) : null;
     return snapshot ? [[Number(item.orderItemId), snapshot] as const] : [];
   }));
 

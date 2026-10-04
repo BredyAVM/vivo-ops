@@ -9,6 +9,7 @@ import { selectInputValue } from "@/lib/ui/select-input-value";
 import CrmOrderValidityPanel from "./CrmOrderValidityPanel";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot } from "@/lib/orders/approved-price-preservation";
+import { preservedOperationalSnapshot } from "@/lib/orders/operational-edit-pricing";
 import {
   buildComponentDetailLines,
   getVisibleEditableDetailLines,
@@ -433,6 +434,13 @@ export default function MasterOpsOrderEditor({
 
   const activeRate = data?.activeRate ?? fallbackActiveRate ?? null;
   const pricingChanged = isCreateMode || isMasterOpsOrderPricingChanged(data?.order, form);
+  const commercialTermsChanged = Boolean(form && data?.order && (
+    form.discountEnabled !== data.order.discountEnabled ||
+    !closeNumber(form.discountEnabled ? form.discountPct : 0, data.order.discountEnabled ? data.order.discountPct : 0) ||
+    form.hasInvoice !== data.order.hasInvoice ||
+    !closeNumber(form.hasInvoice ? form.invoiceTaxPct : 0, data.order.hasInvoice ? data.order.invoiceTaxPct : 0) ||
+    !closeNumber(form.fxRate, data.order.fxRate)
+  ));
   const requestedFxRate = Math.max(0, toNumber(form?.fxRate, 0));
   const fxRate = pricingChanged
     ? Math.max(0, toNumber(activeRate, 0))
@@ -470,7 +478,7 @@ export default function MasterOpsOrderEditor({
   const calculatedItems = useMemo(
     () => (form?.items ?? []).map((item) => {
       const original = data?.order.items.find((row) => row.orderItemId === item.orderItemId);
-      const preserved = !isAdmin ? preservedApprovedPriceSnapshot(item, original) : null;
+      const preserved = !isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null;
       return preserved ? { ...item, unitPriceUsdSnapshot: preserved.unitUsd, lineTotalUsd: preserved.lineUsd,
         unitPriceBsSnapshot: preserved.unitBs, lineTotalBsSnapshot: preserved.lineBs } : recalculateItem(item, fxRate);
     }),
@@ -526,6 +534,11 @@ export default function MasterOpsOrderEditor({
     data.order.selectedClientId === form?.selectedClientId
       ? Math.max(0, toNumber(data.order.clientFundAmountUsd, 0))
       : 0;
+  const effectiveFundAmount = form?.useClientFund && data?.order &&
+    form.selectedClientId === data.order.selectedClientId &&
+    closeNumber(form.clientFundAmountUsd, data.order.clientFundAmountUsd)
+      ? Math.min(toNumber(form.clientFundAmountUsd, 0), totals.totalUsd)
+      : toNumber(form?.clientFundAmountUsd, 0);
   const validationIssues = form
     ? getMasterOpsOrderEditorValidationIssues({
         source: form.source,
@@ -556,7 +569,9 @@ export default function MasterOpsOrderEditor({
             adminPriceOverrideUsd: validateOverride ? item.adminPriceOverrideUsd : null,
             validateConfiguration:
               !original || original.productId !== item.productId || detailsChanged,
-            allowInactiveCatalog: Boolean(original) && !linePricingChanged,
+            allowInactiveCatalog: Boolean(original) && (!linePricingChanged ||
+              (original!.productId === item.productId && item.qty <= original!.qty &&
+                original!.adminPriceOverrideUsd === item.adminPriceOverrideUsd)),
           };
         }),
         catalogItems: data?.catalogItems ?? [],
@@ -569,17 +584,18 @@ export default function MasterOpsOrderEditor({
         paymentRequiresChange: form.paymentRequiresChange,
         paymentChangeFor: form.paymentChangeFor,
         useClientFund: form.useClientFund,
-        clientFundAmountUsd: form.clientFundAmountUsd,
+        clientFundAmountUsd: String(effectiveFundAmount),
         clientFundAvailableUsd: (form.client?.fundBalanceUsd ?? 0) + restorableClientFundUsd,
         orderTotalUsd: totals.totalUsd,
         isAdmin,
         isPriceProtected: form.isPriceProtected,
         pricingChanged,
+        commercialTermsChanged,
         isAdvancedEdit: requiresEditReason,
         adminEditReason,
       })
     : [];
-  if (!isAdmin && form && hasUnauthorizedPriceChange(form.items, data?.order.items ?? [])) {
+  if (!isAdmin && form && hasUnauthorizedPriceChange(form.items, data?.order.items ?? [], true)) {
     validationIssues.push({ code: "price_override", message: APPROVED_PRICE_CHANGE_MESSAGE });
   }
   if (isAdmin && form) {
@@ -1059,8 +1075,8 @@ export default function MasterOpsOrderEditor({
         paymentChangeFor: form.paymentChangeFor,
         paymentChangeCurrency: form.paymentChangeCurrency,
         paymentNote: form.paymentNote,
-        useClientFund: form.useClientFund,
-        clientFundAmountUsd: form.useClientFund ? form.clientFundAmountUsd : "",
+        useClientFund: form.useClientFund && effectiveFundAmount > 0,
+        clientFundAmountUsd: form.useClientFund ? String(effectiveFundAmount) : "",
         hasDeliveryNote: form.hasDeliveryNote,
         hasInvoice: form.hasInvoice,
         invoiceDataNote: [

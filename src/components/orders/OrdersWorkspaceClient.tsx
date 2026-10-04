@@ -92,6 +92,7 @@ import {
   loadMasterOpsPaymentSuggestionAction,
   selectMasterOpsOrderInventoryRouteAction,
   settleMasterOpsClientFundPayoutAction,
+  storeMasterOpsOrderExcessAction,
   type MasterOpsOrderDetailPayload,
   type MasterOpsOrderChangeEvent,
   type MasterOpsOrderInventoryPreview,
@@ -236,6 +237,7 @@ type DirectActionKey =
   | "protect-price"
   | "apply-fund"
   | "deliver-fund-change"
+  | "store-order-excess"
   | "close-rounding"
   | "add-note"
   | "cancel-order"
@@ -250,6 +252,7 @@ type MoneyLinePayload = {
 };
 type DirectActionPayload = {
   reason?: string;
+  onExcessStored?: (amountUsd: number) => void;
   recalculatePricing?: boolean;
   etaMinutes?: number | null;
   notes?: string;
@@ -1413,6 +1416,8 @@ function OrderDetailPanel({
   const defaultPayoutAccount =
     moneyPayoutOptions.find((option) => option.currencyCode === "USD") ?? moneyPayoutOptions[0] ?? null;
   const clientFundAvailableUsd = Math.max(0, Number(order.clientFundBalanceUsd || 0));
+  const canResolveOrderExcess = !isIncompleteOrder && activeTab === "pagos" &&
+    ["created", "queued", "confirmed", "in_kitchen", "ready"].includes(order.status) && Number(order.overpaidUsd || 0) > 0.005;
   const suggestedFundApplyUsd = Math.min(order.balanceUsd, clientFundAvailableUsd);
   const priceProtected = isOrderPriceProtected(order);
   const canProtectPrice =
@@ -2526,7 +2531,7 @@ function OrderDetailPanel({
               canProtectPrice ||
               canReturnQueue ||
               canApplyClientFund ||
-              canPayoutClientFund ||
+              canPayoutClientFund || canResolveOrderExcess ||
               canCloseRounding ||
               canCancelOrder) ? (
               <div className="mt-3 border-t border-[#242433] pt-3">
@@ -2642,6 +2647,30 @@ function OrderDetailPanel({
                     >
                       Aplicar fondo
                     </button>
+                  ) : null}
+                  {canResolveOrderExcess ? (
+                    <div className="w-full rounded-xl border border-sky-500/30 bg-sky-500/10 p-3">
+                      <div className="text-[12px] font-semibold text-sky-100">Saldo a favor de la orden: {formatMasterOrderUSD(order.overpaidUsd || 0)}</div>
+                      <p className="mt-1 text-[11px] text-sky-100/80">Puedes conservarlo en fondo o devolverlo al cliente. Los pagos recibidos no se modifican.</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button type="button" disabled={busy} className="rounded-lg border border-sky-400/50 px-3 py-1.5 text-[12px] text-sky-100"
+                          onClick={() => void onDirectAction(order, "store-order-excess", { reason: "Saldo a favor de la orden conservado por solicitud del cliente" })}>Guardar en fondo</button>
+                        <button type="button" disabled={busy || !defaultPayoutAccount} className="rounded-lg border border-sky-400/50 px-3 py-1.5 text-[12px] text-sky-100"
+                          onClick={async () => {
+                            let creditedAmount = 0;
+                            const ok = await onDirectAction(order, "store-order-excess", {
+                              reason: "Saldo a favor de la orden preparado para devolver al cliente",
+                              onExcessStored: (amountUsd) => { creditedAmount = amountUsd; },
+                            });
+                            if (ok && creditedAmount > 0) {
+                              fundPayoutRequestRef.current = null;
+                              setFundPayoutLines([newMoneyLineDraft(defaultPayoutAccount, creditedAmount, activeRate, order)]);
+                              setFundPayoutNotes("Devolución del saldo a favor tras modificar el pedido");
+                              setFundPayoutBoxOpen(true);
+                            }
+                          }}>Devolver diferencia</button>
+                      </div>
+                    </div>
                   ) : null}
                   {canPayoutClientFund ? (
                     <button
@@ -4689,6 +4718,10 @@ export default function OrdersWorkspaceClient({
           amountUsd,
           notes: payload.notes?.trim() || null,
         });
+      } else if (action === "store-order-excess") {
+        const stored = await storeMasterOpsOrderExcessAction({ orderId: order.id, reason: payload.reason || "Saldo a favor tras modificar el pedido" });
+        result = stored;
+        if (stored.ok) payload.onExcessStored?.(stored.amountUsd);
       } else if (action === "deliver-fund-change") {
         const lines = (payload.moneyLines ?? []).map((line) => ({
           moneyAccountId: Number(line.moneyAccountId || 0),

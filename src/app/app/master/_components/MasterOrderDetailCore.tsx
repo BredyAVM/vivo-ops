@@ -89,6 +89,7 @@ export type MasterOrderDetailOrder = {
   totalBs: number | null;
   balanceUsd: number;
   confirmedPaidUsd: number;
+  overpaidUsd?: number;
   paymentVerify: MasterOrderPaymentVerify;
   deliveryAtISO: string;
   createdAtISO: string;

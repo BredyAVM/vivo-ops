@@ -1,6 +1,7 @@
 import { parseEditableDetailLines } from "@/lib/orders/order-composer";
 import { parseDecimalInput } from "@/lib/number-input";
 import { isMasterOpsOrderPaymentMethod } from "./order-editor-payment";
+import { requiresProtectedPriceAuthorization } from "@/lib/orders/operational-edit-pricing";
 
 export type MasterOpsOrderEditorValidationIssue = {
   code:
@@ -86,6 +87,7 @@ export type MasterOpsOrderEditorValidationInput = {
   isAdmin?: boolean;
   isPriceProtected?: boolean;
   pricingChanged?: boolean;
+  commercialTermsChanged?: boolean;
   isAdvancedEdit?: boolean;
   adminEditReason?: string | null;
 };
@@ -294,10 +296,10 @@ export function getMasterOpsOrderEditorValidationIssues(
     }
   }
 
-  if (input.isPriceProtected && input.pricingChanged && !input.isAdmin) {
+  if (requiresProtectedPriceAuthorization({ isAdmin: Boolean(input.isAdmin), isPriceProtected: Boolean(input.isPriceProtected), commercialTermsChanged: Boolean(input.commercialTermsChanged) })) {
     issues.push({
       code: "price_protection",
-      message: "El precio está protegido; solo admin puede cambiar productos, cantidades o totales.",
+      message: "El precio está protegido; solo admin puede cambiar descuentos, impuestos o la tasa manualmente. Los productos y cantidades sí pueden modificarse antes de entregar.",
     });
   }
 

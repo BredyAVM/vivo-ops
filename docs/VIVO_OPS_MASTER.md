@@ -6,6 +6,24 @@
 
 ---
 
+## Política vigente de modificación antes de la salida física (2026-10-04)
+
+Contrato canónico: `docs/MASTER_PREHANDOFF_EDIT_POLICY_2026-10-04.md`.
+Máster puede modificar productos y cantidades en cocina/listo, incluso con
+pagos confirmados, sin otorgar precios especiales ni renegociar los términos
+protegidos. El corte es despacho de delivery / retiro de pickup. Counter mantiene
+edición de pickup; las bebidas no reinician cocina por sí solas.
+
+SQL compartido: `app_private.order_item_operational_quantity_v1`, guardado
+`app_private.update_order_core_atomic_v1`, guards de partidas y planificación
+`counter_build_pickup_item_plan`. El comando
+`store_operational_order_excess_v1` registra el excedente confirmado en el ledger
+de fondo con sus reportes de origen; la devolución conserva el comando existente.
+Migración: `20261004190450_prehandoff_operational_item_changes.sql`. No hay tablas
+o columnas nuevas ni escrituras de reparación histórica.
+
+---
+
 ## 1) Stack y estructura del proyecto
 
 * **Repo/Workspace:** `vivo-suite/vivo-ops`

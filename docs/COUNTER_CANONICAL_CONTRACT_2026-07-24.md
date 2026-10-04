@@ -295,12 +295,20 @@ Reglas:
 - toda reducción o retiro exige un motivo;
 - Counter no puede cancelar completamente la orden;
 - el total y el saldo financiero se recalculan en servidor;
-- si la modificación agrega o aumenta productos, el pedido vuelve a cocina para
-  preparar y verificar el cambio;
+- si la modificación agrega o aumenta productos que requieren cocina, el pedido
+  vuelve a cocina para preparar y verificar el cambio;
+- desde 2026-10-04, agregar/aumentar únicamente bebidas identificadas por
+  `products.inventory_group = 'beverages'` conserva el estado listo; cambiar
+  Pepsi por Coca-Cola no reinicia cocina ni concede permiso para precios manuales;
 - una reducción de un pedido ya listo se informa a cocina y conserva la
   trazabilidad del operador;
 - si la reducción produce un saldo a favor, su devolución mantiene la regla de
   autorización financiera definida para reembolsos.
+
+Las protecciones manuales de precio no bloquean una modificación operativa
+válida de pickup antes de retirarlo. Se conservan los términos unitarios y la
+auditoría, incluyendo órdenes pagadas. Contrato compartido:
+`MASTER_PREHANDOFF_EDIT_POLICY_2026-10-04.md`.
 
 ### 8.3 Delivery
 

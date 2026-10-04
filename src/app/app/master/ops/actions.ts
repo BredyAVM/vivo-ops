@@ -18,6 +18,7 @@ import {
 import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from "@/lib/orders/approved-price-preservation";
+import { preservedOperationalSnapshot } from "@/lib/orders/operational-edit-pricing";
 import {
   cancelOrderAction,
   confirmPaymentReportAction,
@@ -2130,7 +2131,8 @@ async function prepareMasterOpsOrderSave(
     if (!liveProduct) {
       throw new Error(`${String(item.productNameSnapshot || "El producto")} ya no existe en el catálogo.`);
     }
-    if (linePricingChanged && liveProduct.is_active === false) {
+    const retainsInactiveQuantity = Boolean(existingItem) && !productChanged && !overrideChanged && Number(item.qty) <= Number(existingItem?.qty);
+    if (linePricingChanged && liveProduct.is_active === false && !retainsInactiveQuantity) {
       throw new Error(`${String(liveProduct.name || item.productNameSnapshot)} ya no está activo en el catálogo.`);
     }
 
@@ -2156,7 +2158,7 @@ async function prepareMasterOpsOrderSave(
       unitPriceUsdSnapshot = newCrmChoice.unitPriceUsdSnapshot;
       adminPriceOverrideUsd = null;
       adminPriceOverrideReason = null;
-    } else if (existingItem && !linePricingChanged) {
+    } else if (existingItem && !productChanged && !overrideChanged) {
       sourcePriceCurrency = existingItem.pricing_origin_currency === "VES" ? "VES" : "USD";
       sourcePriceAmount = toNumber(existingItem.pricing_origin_amount, 0);
       unitPriceUsdSnapshot = toNumber(existingItem.unit_price_usd_snapshot, 0);
@@ -2211,7 +2213,7 @@ async function prepareMasterOpsOrderSave(
       ), isAdmin),
       editableDetailLines: normalizedDetailLines(item.editableDetailLines),
       validateConfiguration: isNewLine || productChanged || detailsChanged,
-      allowInactiveCatalog: Boolean(existingItem) && !linePricingChanged,
+      allowInactiveCatalog: Boolean(existingItem) && (!linePricingChanged || retainsInactiveQuantity),
       validateOverride: isNewLine || overrideChanged,
       crmPlayMemberId:
         newCrmChoice?.crmPlayMemberId ?? (existingItem?.crm_play_member_id == null ? null : Number(existingItem.crm_play_member_id)),
@@ -2270,9 +2272,10 @@ async function prepareMasterOpsOrderSave(
     }
   }
 
+  const commercialTermsChanged = totalsConfigurationChanged || (requestedRateChanged && !itemPricingChanged);
   if (currentOrder && isPriceProtected && pricingChanged) {
-    if (!isAdmin) {
-      throw new Error("El precio de esta orden está protegido. Solo admin puede cambiar sus totales.");
+    if (!isAdmin && commercialTermsChanged) {
+      throw new Error("El precio está protegido. Solo admin puede cambiar descuentos, impuestos o la tasa manualmente.");
     }
     if (String((input as MasterOpsOrderUpdateInput).adminEditReason || "").trim().length < 4) {
       throw new Error("Indica el motivo para modificar una orden con precio protegido.");
@@ -2280,11 +2283,12 @@ async function prepareMasterOpsOrderSave(
   }
 
   const approvedPricesById = new Map(existingItems.map((row) => [Number(row.id), storedApprovedPriceLine(row)]));
-  if (!isAdmin && hasUnauthorizedPriceChange(preparedItems, [...approvedPricesById.values()])) {
+  if (!isAdmin && hasUnauthorizedPriceChange(preparedItems, [...approvedPricesById.values()], true)) {
     throw new Error(APPROVED_PRICE_CHANGE_MESSAGE);
   }
   const recalculatedItems = preparedItems.map((item) => {
-    const preserved = !isAdmin ? preservedApprovedPriceSnapshot(item, approvedPricesById.get(Number(item.orderItemId))) : null;
+    const original = approvedPricesById.get(Number(item.orderItemId));
+    const preserved = !isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null;
     const snapshot = preserved ?? calculateOrderLineSnapshot({
       sourceCurrency: item.sourcePriceCurrency,
       sourceAmount: item.sourcePriceAmount,
@@ -2309,6 +2313,12 @@ async function prepareMasterOpsOrderSave(
     discountPct: requestedDiscountPct,
     invoiceTaxPct: requestedTaxPct,
   });
+  // Reducing an order must restore the now-unneeded portion of its applied fund.
+  const originalFund = toNumber(currentPayment.client_fund_used_usd, 0);
+  const adjustsExistingFund = Boolean(currentOrder && input.useClientFund &&
+    Number(input.selectedClientId) === Number(currentOrder.client_id) &&
+    closeNumber(input.clientFundAmountUsd, originalFund));
+  const effectiveFundAmount = adjustsExistingFund ? Math.min(originalFund, totals.totalUsd) : toNumber(input.clientFundAmountUsd, 0);
 
   const catalogItems = ((productsResult.data ?? []) as MasterOpsSaveCatalogRow[]).map((product) => ({
     id: Number(product.id),
@@ -2331,6 +2341,7 @@ async function prepareMasterOpsOrderSave(
   const validationIssues = getMasterOpsOrderEditorValidationIssues({
     ...input,
     paymentMethod,
+    clientFundAmountUsd: String(effectiveFundAmount),
     items: recalculatedItems.map((item) => ({
       ...item,
       adminPriceOverrideUsd: item.validateOverride ? item.adminPriceOverrideUsd : null,
@@ -2349,6 +2360,7 @@ async function prepareMasterOpsOrderSave(
     isAdmin,
     isPriceProtected,
     pricingChanged,
+    commercialTermsChanged,
     isAdvancedEdit:
       mode === "edit" &&
       (Boolean(currentOrder && !["created", "queued"].includes(currentOrder.status)) ||
@@ -2381,6 +2393,8 @@ async function prepareMasterOpsOrderSave(
   return {
     ...input,
     paymentMethod,
+    useClientFund: input.useClientFund && effectiveFundAmount > 0,
+    clientFundAmountUsd: String(effectiveFundAmount),
     fxRate: String(effectiveFxRate),
     items: recalculatedItems.map(stripMasterOpsOrderItem),
   };
@@ -2391,6 +2405,20 @@ export async function createMasterOpsOrderAction(input: MasterOpsOrderCreateInpu
   return createOrderAction(prepared as DashboardCreateOrderInput);
 }
 
+export async function storeMasterOpsOrderExcessAction(input: { orderId: number; reason: string }) {
+  const ctx = await requireMasterOrAdminContext();
+  const { data, error } = await ctx.supabase.rpc("store_operational_order_excess_v1", {
+    p_order_id: Number(input.orderId), p_reason: input.reason.trim(),
+  });
+  if (error) return { ok: false as const, message: error.message };
+  if (data?.ok !== true) return { ok: false as const, message: "No se pudo verificar el saldo a favor." };
+  revalidatePath("/app/master/ops");
+  revalidatePath("/app/admin/ordenes");
+  revalidatePath("/app/counter");
+  revalidatePath("/app/advisor");
+  return { ok: true as const, amountUsd: Number(data.amountUsd || 0) };
+}
+
 export async function updateMasterOpsOrderAction(input: MasterOpsOrderUpdateInput) {
   let prepared: Awaited<ReturnType<typeof prepareMasterOpsOrderSave>>;
   try {
@@ -2398,6 +2426,9 @@ export async function updateMasterOpsOrderAction(input: MasterOpsOrderUpdateInpu
   } catch (error) {
     if (error instanceof Error && error.message === APPROVED_PRICE_CHANGE_MESSAGE) {
       return { ok: false as const, code: "approved_price_changed", message: APPROVED_PRICE_CHANGE_MESSAGE };
+    }
+    if (error instanceof Error && error.message.startsWith("El precio está protegido.")) {
+      return { ok: false as const, code: "price_protection", message: error.message };
     }
     throw error;
   }

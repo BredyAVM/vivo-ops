@@ -1,6 +1,6 @@
 /** Existing approval is evidence, not permission to grant a new special price. */
 export const APPROVED_PRICE_CHANGE_MESSAGE =
-  'Solo Administración puede cambiar una línea con precio especial. Puedes modificar la entrega conservando sus productos, cantidades y precios autorizados.';
+  'Solo Administración puede cambiar un precio especial o trasladarlo a otro producto. Puedes retirar productos o cambiar cantidades conservando sus precios autorizados.';
 
 type Numeric = number | string | null;
 export type ApprovedPriceLine = {
@@ -60,19 +60,20 @@ function detailSignature(lines: string[]) {
   return JSON.stringify(lines.map((line) => line.trim()).filter(Boolean).sort());
 }
 
-export function hasUnauthorizedPriceChange(next: ApprovedPriceLine[], previous: ApprovedPriceLine[]) {
+export function hasUnauthorizedPriceChange(next: ApprovedPriceLine[], previous: ApprovedPriceLine[], operational = false) {
   const byId = new Map(previous.map((item) => [item.orderItemId, item]));
   return next.some((item) => item.adminPriceOverrideUsd != null &&
-    !preservedApprovedPriceSnapshot(item, byId.get(item.orderItemId))) ||
+    !preservedApprovedPriceSnapshot(item, byId.get(item.orderItemId), operational)) ||
     previous.some((item) => item.adminPriceOverrideUsd != null &&
-      !next.some((candidate) => preservedApprovedPriceSnapshot(candidate, item)));
+      !(operational && !item.crmPlayMemberId && !next.some(candidate => candidate.orderItemId === item.orderItemId)) &&
+      !next.some((candidate) => preservedApprovedPriceSnapshot(candidate, item, operational)));
 }
 
 /** Compare approved terms by persisted identity; never trust browser approval metadata or totals. */
-export function preservedApprovedPriceSnapshot(next: ApprovedPriceLine, previous?: ApprovedPriceLine) {
+export function preservedApprovedPriceSnapshot(next: ApprovedPriceLine, previous?: ApprovedPriceLine, operational = false) {
   if (!previous || previous.adminPriceOverrideUsd == null || !previous.orderItemId ||
     next.orderItemId !== previous.orderItemId || next.productId !== previous.productId ||
-    next.qty !== previous.qty || next.sourcePriceCurrency !== previous.sourcePriceCurrency ||
+    (next.qty !== previous.qty && (!operational || previous.crmPlayMemberId)) || next.sourcePriceCurrency !== previous.sourcePriceCurrency ||
     next.sourcePriceAmount !== previous.sourcePriceAmount ||
     next.adminPriceOverrideUsd !== previous.adminPriceOverrideUsd ||
     (next.adminPriceOverrideReason ?? '').trim() !== (previous.adminPriceOverrideReason ?? '').trim() ||
@@ -82,8 +83,11 @@ export function preservedApprovedPriceSnapshot(next: ApprovedPriceLine, previous
     detailSignature(next.editableDetailLines) !== detailSignature(previous.editableDetailLines)) return null;
   const values = [previous.unitPriceUsdSnapshot, previous.lineTotalUsd, previous.unitPriceBsSnapshot, previous.lineTotalBsSnapshot];
   if (values.some((value) => value == null || !Number.isFinite(value) || value < 0)) return null;
+  if (!Number.isFinite(next.qty) || next.qty <= 0 || previous.qty <= 0) return null;
   return {
-    unitUsd: previous.unitPriceUsdSnapshot, lineUsd: previous.lineTotalUsd,
-    unitBs: previous.unitPriceBsSnapshot!, lineBs: previous.lineTotalBsSnapshot!,
+    unitUsd: previous.unitPriceUsdSnapshot,
+    lineUsd: next.qty === previous.qty ? previous.lineTotalUsd : Math.round(previous.lineTotalUsd / previous.qty * next.qty * 100) / 100,
+    unitBs: previous.unitPriceBsSnapshot!,
+    lineBs: next.qty === previous.qty ? previous.lineTotalBsSnapshot! : Math.round(previous.unitPriceBsSnapshot! * next.qty * 100) / 100,
   };
 }
