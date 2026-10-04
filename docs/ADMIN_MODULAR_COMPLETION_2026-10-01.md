@@ -16,7 +16,7 @@ La portada muestra indicadores y comparaciones; las áreas pesadas se consultan 
 | Órdenes | /app/admin/ordenes | Conserva el tablero compartido y ajustes administrativos por permiso/estado; no se sustituyeron comandos de órdenes |
 | Aprobaciones y seguimiento | /app/admin/autorizaciones | Aprobaciones separadas de incidencias; seguimiento por dominio y consulta explícita |
 | Cuentas operativas | /app/admin/finanzas/cuentas | Ingresos, egresos, transferencias, cierre, conciliación y anulación conservan los comandos atómicos existentes |
-| Reportes de pago de clientes | /app/admin/finanzas/pagos | Consulta explícita por período, estado y número corto; 25 reportes por página; revisión en el drawer compartido de la orden |
+| Reportes de pago de clientes | /app/admin/finanzas/pagos | Consulta explícita por período, estado y número corto; 25 reportes por página; confirmar/rechazar/anular desde un detalle compacto en la lista; orden como acceso secundario |
 | Configuración de cuentas y usuarios | /app/admin/configuracion/cuentas y /usuarios | Guardado seguro habilitado por capacidades verificadas: cuentas/perfil de cierre, activación, permisos de pago, saldo inicial y usuarios; conserva el panel anterior |
 | Tasa diaria | /app/admin/configuracion/tasa | Formulario nativo; mismo comando auditado existente; historial explícito y paginado |
 | Análisis comercial | /app/admin/analisis | Consulta por período, canal, pickup/delivery y vendedor; neto, cierres, abonado y pendiente; CSV del filtro |
@@ -215,6 +215,40 @@ Las pruebas de decisiones usan datos simulados; no se confirma ni rechaza un
 pago real para verificar la pantalla.
 
 ## Fuera de este corte (continuación final)
+
+## Anulación desde Pagos de clientes — 3 de octubre de 2026
+
+Al abrir un reporte confirmado se consulta únicamente su movimiento y grupo
+vinculado. La vista diferencia el monto inicialmente reportado del monto
+realmente confirmado; este último conserva cuenta, moneda, referencia y fecha
+guardadas. La ventana de anulación muestra también los movimientos asociados,
+incluidas comisiones o cambios en otras cuentas, sin sustituirlos por un monto
+convertido a la tasa actual.
+
+La cuenta y el movimiento se derivan del vínculo persistido reporte/orden en
+el servidor. Se verifica la fotografía del reporte y la huella del grupo al
+enviar, y se reutiliza voidAccountMovementAction/void_financial_movement_v1.
+No se escribe directamente el estado del reporte ni se altera un saldo desde
+esta nueva pantalla. Se conserva el rechazo canónico ante fondos utilizados,
+dependencias, grupos incompletos o cierres que requieren su flujo específico.
+Anular requiere motivo y confirmación final; abrir o cancelar no escribe.
+La anulación no devuelve físicamente dinero ni cancela la orden.
+
+Pruebas del adaptador y lectores reales con base/sesión simuladas cubren
+monto reportado distinto del confirmado, cuentas distintas, vínculos ajenos,
+grupos truncados, tarifas adicionales, cambios concurrentes, permisos,
+dependencias y fallo de invalidación después del recibo confirmado. No se
+anulan pagos reales para comprobar este recorrido.
+
+## Comprobación de instalación y avisos — 3 de octubre de 2026
+
+El usuario confirmó que utiliza iPhone, que VIVO Admin está instalado y que
+recibe notificaciones. Esta es evidencia de uso real aportada por el usuario,
+no una prueba física ejecutada por el agente. No se envió un aviso de prueba
+adicional ni se solicitó contraseña. La revisión de adaptación móvil de los
+formularios sigue siendo una comprobación separada.
+
+## Fuera de este corte (cierre)
 
 Estructuras de costos, valoración económica del inventario, nómina, rentabilidad y proyecciones basadas en costos reales necesitan sus fuentes y metodología. No se deducen del saldo de cuentas ni se muestran como datos ya existentes.
 

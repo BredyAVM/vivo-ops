@@ -49,6 +49,8 @@ registerHooks({ resolve(specifier, context, next) {
     '@/lib/auth': 'export async function requireAdminContext(){return globalThis.__inlinePaymentReview.context()}',
     'next/cache': 'export function revalidatePath(...v){globalThis.__inlinePaymentInvalidations.push(v)}',
     '@/app/app/master/dashboard/actions': 'export async function confirmPaymentReportAction(v){return globalThis.__inlinePaymentReview.confirm(v)};export async function rejectPaymentReportAction(v){return globalThis.__inlinePaymentReview.reject(v)}',
+    './payment-void-data': 'export async function readPaymentVoidPreview(){throw new Error("Pago sin vínculo verificado")}',
+    './movement-detail-actions': 'export async function voidAccountMovementAction(){throw new Error("Fuera del alcance de aprobación")}',
   };
   if (mocks[specifier]) return { url: 'data:text/javascript,' + encodeURIComponent(mocks[specifier]), shortCircuit: true };
   if (specifier === '@/lib/admin-finance/payment-review-model')

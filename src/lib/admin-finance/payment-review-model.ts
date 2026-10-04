@@ -9,11 +9,22 @@ export type PaymentReviewReport = {
   reported_exchange_rate_ves_per_usd: number | string | null;
   reference_code: string | null; payer_name: string | null; notes: string | null;
   review_notes: string | null;
+  confirmed_movement_id?: number | null;
+};
+export type PaymentVoidPreview = {
+  accountId: number; movementId: number; fingerprint: string;
+  accountName: string; amount: number; currency: 'USD' | 'VES';
+  reference: string | null; date: string; blocked: string | null;
+  movements: Array<{ id: number; accountName: string; amount: number;
+    currency: 'USD' | 'VES'; direction: 'inflow' | 'outflow';
+    type: string; orderId: number | null }>;
 };
 export type PaymentReviewContext = {
   report: PaymentReviewReport;
   pendingUsd: number | null;
   accountName: string;
+  voidPreview?: PaymentVoidPreview | null;
+  voidUnavailable?: string | null;
 };
 export type PaymentReviewDecision = {
   reportId: number; orderId: number; reportSnapshot: string;
@@ -34,7 +45,8 @@ export function paymentReviewSnapshot(report: PaymentReviewReport) {
     report.reported_money_account_id, report.reported_currency_code,
     String(report.reported_amount), report.reported_exchange_rate_ves_per_usd == null
       ? null : String(report.reported_exchange_rate_ves_per_usd),
-    report.operation_date, report.reference_code, report.payer_name, report.notes]);
+    report.operation_date, report.reference_code, report.payer_name, report.notes,
+    report.confirmed_movement_id ?? null]);
 }
 export function paymentReviewConfirmation(report: PaymentReviewReport,
   input: Extract<PaymentReviewDecision, { decision: 'confirm' }>,

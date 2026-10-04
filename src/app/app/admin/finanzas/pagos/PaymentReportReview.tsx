@@ -8,6 +8,7 @@ import { paymentReviewDate, paymentReviewSnapshot, type PaymentReviewContext, ty
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { useDialogFocus } from '@/components/ui/useDialogFocus';
 import { loadAdminPaymentReviewAction, reviewAdminPaymentAction } from './actions';
+import PaymentReportVoid from './PaymentReportVoid';
 
 const money = new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const labels: Record<string, string> = { pending: 'Por revisar', confirmed: 'Confirmado', rejected: 'Rechazado' };
@@ -107,7 +108,15 @@ export default function PaymentReportReview({ reportId, orderId, children }: {
           <span className="tabular-nums">Monto reportado: {report.reported_currency_code === 'VES' ? 'Bs' : 'USD'} {money.format(Number(report.reported_amount))}</span>
           {context?.pendingUsd != null ? <span className="tabular-nums">Por cobrar en la orden: USD {money.format(context.pendingUsd)}</span> : null}
         </div>
-        {report.status !== 'pending' ? <p className="break-words text-[#BDBDC7]">{report.review_notes || 'Este reporte ya fue revisado.'}</p> : <>
+        {report.status !== 'pending' ? <>
+          <p className="break-words text-[#BDBDC7]">{report.review_notes || 'Este reporte ya fue revisado.'}</p>
+          {context?.voidPreview ? <PaymentReportVoid report={report} preview={context.voidPreview} onVoided={reason => {
+            setContext({ ...context, voidPreview: null, report: { ...report, status: 'rejected', confirmed_movement_id: null,
+              review_notes: `Pago anulado: ${reason}` } });
+            setNotice('Pago anulado. Se conserva el historial; el saldo de la orden se recalcula.');
+          }} /> : null}
+          {context?.voidUnavailable ? <p className="text-orange-200">{context.voidUnavailable}</p> : null}
+        </> : <>
           {rejecting ? <form onSubmit={event => { event.preventDefault(); submit('reject'); }} className="space-y-2">
             <label className="grid gap-1 text-[11px] text-[#B7B7C2]">Motivo del rechazo
               <textarea required maxLength={2000} autoFocus rows={2} value={reason} onChange={event => setReason(event.target.value)}

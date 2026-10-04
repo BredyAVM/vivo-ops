@@ -105,7 +105,7 @@ export default async function AdminPaymentsPage({
       </WorkspaceForm>
       <p className="text-[11px] text-[#9B9BA7]">
         Por fecha de operación; si falta, fecha de registro. Abre el reporte para
-        confirmar o rechazar el pago aquí mismo.
+        confirmar, rechazar o anular un pago confirmado aquí mismo.
       </p>
       {!data.queried ? (
         <p className="text-xs text-[#BDBDC7]">
@@ -142,6 +142,7 @@ export default async function AdminPaymentsPage({
                       {statusLabel[row.status] ?? row.status}
                     </span>
                     <span className="font-semibold tabular-nums text-[#DEDEE6]">
+                      Reportado:{" "}
                       {row.reported_currency_code === "VES" ? "Bs" : "USD"}{" "}
                       {amountFormat.format(Number(row.reported_amount))}
                     </span>
