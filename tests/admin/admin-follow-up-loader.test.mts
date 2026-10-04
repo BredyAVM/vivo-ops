@@ -43,3 +43,24 @@ test('follow-up does not fetch the approval queue and legacy links preserve filt
   assert.match(legacy, /bandeja.*seguimiento/);
   assert.match(legacy, /searchParams/);
 });
+
+test('follow-up uses common compact filters and native currency labels', () => {
+  const source = read('src/app/app/admin/_components/AdminFollowUp.tsx');
+  assert.match(source, /queryControl, queryPanel, queryPrimary/);
+  assert.match(source, /grid-cols-1/);
+  assert.match(source, /currencyLabel\(row.currency\)/);
+  assert.doesNotMatch(source, /setInterval|useEffect/);
+});
+
+test('order review presents honest before/now data compactly and preserves contextual return', () => {
+  const source = read('src/app/app/admin/autorizaciones/ordenes/[orderId]/page.tsx');
+  assert.match(source, /navigation\/ContextLink/); assert.match(source, /<BackLink fallbackHref="\/app\/admin\/autorizaciones"/);
+  assert.doesNotMatch(source, /returnTo: '\/app\/admin\/autorizaciones'/);
+  assert.doesNotMatch(source, /text-xl|text-2xl|text-lg font-semibold tabular/);
+  assert.match(source, />Antes<\/span>/); assert.match(source, />Ahora<\/span>/);
+  assert.match(source, /no se reconstruye un importe anterior/);
+  assert.match(source, /grid-cols-1 gap-2 sm:grid-cols-2/);
+  const form = read('src/app/app/admin/autorizaciones/ordenes/[orderId]/OrderReviewForm.tsx');
+  assert.match(form, /queryAction, queryControl, queryPrimary/);
+  assert.doesNotMatch(form, /text-sm/);
+});

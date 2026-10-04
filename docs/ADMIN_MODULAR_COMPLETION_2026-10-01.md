@@ -250,6 +250,23 @@ formularios sigue siendo una comprobación separada.
 
 ## Fuera de este corte (cierre)
 
+## Revisión compacta de aprobaciones — 3 de octubre de 2026
+
+Seguimiento reutiliza los filtros compactos compartidos y presenta Bs/USD,
+sin consultar otros dominios al seleccionar uno. La revisión de órdenes
+mantiene total, abonado confirmado, fondo y pendiente como cifras separadas,
+con tamaños pequeños y nombres que se ajustan al ancho. Los cambios
+conservados se muestran como Antes/Ahora en columnas en computadora y
+apilados en teléfono. Si el evento histórico no guardó valores anteriores,
+se advierte; no se inventan cifras. Se conserva el detalle desplegable.
+
+Volver respeta la ruta previa y sus filtros. Entrar al editor desde esta
+revisión utiliza la navegación contextual común para regresar a la revisión,
+no a una bandeja general sin el filtro. No se modificaron consultas, permisos,
+comandos de aprobación/ratificación ni reglas financieras.
+
+## Fuera de este corte (pendientes estructurales)
+
 Estructuras de costos, valoración económica del inventario, nómina, rentabilidad y proyecciones basadas en costos reales necesitan sus fuentes y metodología. No se deducen del saldo de cuentas ni se muestran como datos ya existentes.
 
 La importación de extractos y un historial agregado incremental de cobranza tampoco se han implementado. La cobranza sigue siendo por filtro explícito, sin escanear todo el histórico al entrar.
