@@ -1,4 +1,5 @@
 'use client';
+import { countsTowardCrmMinimum, dailyBenefitConflict } from '@/lib/crm/benefit-eligibility';
 
 import { type FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -1641,7 +1642,7 @@ export default function AdvisorOrderComposer({
         fxRate: fxRateNumber,
         fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
       });
-      return sum + snapshot.lineUsd;
+      return countsTowardCrmMinimum({ productName: item.product_name_snapshot, isCrmBenefit: Boolean(item.crm_benefit), lineUsd: snapshot.lineUsd }) ? sum + snapshot.lineUsd : sum;
     }, 0);
     return Number((subtotal * (1 - (discountEnabled ? discountPctNumber : 0) / 100)).toFixed(2));
   }, [discountEnabled, discountPctNumber, draftItems, fxRateNumber]);
@@ -3107,9 +3108,12 @@ export default function AdvisorOrderComposer({
 
   function applyCrmBenefitDraftItem(nextItem: DraftItem, editingLocalId: string | null, context = crmContext) {
     setDraftItems((current) => {
-      const selectionBase = context?.benefitSelectionMode === 'single'
-        ? current.filter((item) => !item.crm_benefit || item.localId === editingLocalId)
+      const channelItems = context?.benefitFulfillment === 'delivery_zone_1'
+        ? current.filter((item) => item.crm_benefit || !isDeliveryCatalogItemName(item.product_name_snapshot))
         : current;
+      const selectionBase = context?.benefitSelectionMode === 'single'
+        ? channelItems.filter((item) => !item.crm_benefit || item.localId === editingLocalId)
+        : channelItems;
 
       if (editingLocalId && selectionBase.some((item) => item.localId === editingLocalId)) {
         return selectionBase.map((item) => item.localId === editingLocalId
@@ -3123,6 +3127,15 @@ export default function AdvisorOrderComposer({
 
   function selectCrmBenefitProduct(playBenefitId: number, playBenefitUpgradeId: number | null, context = crmContext) {
     if (!context) return;
+    const conflict = context.recurrenceMode === 'daily'
+      ? dailyBenefitConflict(context.dailyUses ?? [], deliveryDate || getTodayInputValue(), existingOrderId) : null;
+    if (conflict) { setError(`El beneficio de ese día ya está reservado o entregado en la orden #${conflict.orderId}. Selecciona otro día.`); return; }
+    if (context.benefitFulfillment === 'pickup' && fulfillment !== 'pickup') {
+      setError('Esta jugada requiere retirar el pedido en el local.'); return;
+    }
+    if (context.benefitFulfillment === 'delivery_zone_1' && fulfillment !== 'delivery') {
+      setError('Esta jugada requiere delivery zona 1. Selecciona delivery para aplicarla.'); return;
+    }
     const benefit = context.benefits.find((option) => option.playBenefitId === playBenefitId);
     if (!benefit) return;
     const upgrade = playBenefitUpgradeId == null
@@ -4256,6 +4269,7 @@ export default function AdvisorOrderComposer({
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B7AA53]">Cliente en jugada</div>
                 <div className="mt-1 text-sm font-semibold text-[#FFF18B]">{crmContext.playName}</div>
+                {crmContext.recurrenceMode === 'daily' ? <p className="mt-1 text-[11px] text-[#D8CC82]">Un beneficio por cliente y por día de entrega. Puede repetir en días distintos. Compra mínima en productos pagados, sin delivery ni obsequios.{crmContext.benefitFulfillment === 'pickup' ? ' Solo retiro en el local.' : crmContext.benefitFulfillment === 'delivery_zone_1' ? ' Solo delivery zona 1: confirma el destino.' : ''}</p> : null}
                 <p className={`mt-1 text-xs ${crmPurchaseEligible ? 'text-[#7CE0A9]' : 'text-[#F7DA66]'}`}>
                   {crmPurchaseEligible && crmFulfillments.length === 0
                     ? crmContext.benefitSelectionMode === 'single'

@@ -44,6 +44,8 @@ export type SavePlayDraftInput = {
   benefitSelectionMode: PlayBenefitSelectionMode;
   purchaseRequirementMode: PlayPurchaseRequirementMode;
   minimumOrderAmountUsd?: number | null;
+  recurrenceMode?: 'once' | 'daily';
+  benefitFulfillment?: 'any' | 'pickup' | 'delivery_zone_1';
   overlapPolicy: PlayOverlapPolicy;
   compatiblePlayIds?: number[];
   benefitStackPolicy: PlayBenefitStackPolicy;
@@ -424,6 +426,9 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       excludedClientIds = readExcludedClientIds(currentPlay.rules_snapshot);
     }
 
+    const recurrenceMode = input.recurrenceMode === 'daily' ? 'daily' : 'once';
+    const benefitFulfillment = ['pickup', 'delivery_zone_1'].includes(input.benefitFulfillment ?? '') ? input.benefitFulfillment : 'any';
+    if (recurrenceMode === 'daily' && benefitSelectionMode !== 'single') throw new Error('Una jugada diaria permite un beneficio por cliente y por día.');
     const rulesSnapshot = rulesFromInput(input, excludedClientIds);
     const payload = {
       name,
@@ -437,6 +442,8 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       gift_quantity: Number(primaryBenefit.quantity.toFixed(3)),
       planned_budget_usd: plannedBudgetUsd == null ? null : Number(plannedBudgetUsd.toFixed(2)),
       benefit_selection_mode: benefitSelectionMode,
+      benefit_recurrence_mode: recurrenceMode,
+      benefit_fulfillment: benefitFulfillment,
       purchase_requirement_mode: purchaseRequirementMode,
       minimum_order_amount_usd: minimumOrderAmountUsd == null
         ? null

@@ -61,7 +61,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         id, series_key, version, name, description, status, rules_snapshot,
         selection_summary, metric_window, gift_product_id, gift_quantity,
         planned_budget_usd, benefit_selection_mode, purchase_requirement_mode,
-        minimum_order_amount_usd, advisor_guidance, message_template,
+        minimum_order_amount_usd, benefit_recurrence_mode, benefit_fulfillment, advisor_guidance, message_template,
         overlap_policy, benefit_stack_policy, evaluation_window_days,
         copied_from_play_id, pricing_exchange_rate_ves_per_usd, pricing_snapshot_at,
         starts_at, ends_at, snapshot_at, activated_at, closed_at, created_at
@@ -191,6 +191,8 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     plannedBudgetUsd: row.planned_budget_usd == null ? null : Number(row.planned_budget_usd),
     benefitSelectionMode: String(row.benefit_selection_mode) as MasterPlay['benefitSelectionMode'],
     purchaseRequirementMode: String(row.purchase_requirement_mode) as MasterPlay['purchaseRequirementMode'],
+    recurrenceMode: row.benefit_recurrence_mode === 'daily' ? 'daily' : 'once',
+    benefitFulfillment: String(row.benefit_fulfillment) as MasterPlay['benefitFulfillment'],
     minimumOrderAmountUsd: row.minimum_order_amount_usd == null ? null : Number(row.minimum_order_amount_usd),
     overlapPolicy: String(row.overlap_policy) as MasterPlay['overlapPolicy'],
     compatiblePlayIds: compatiblePlayIdsByPlay.get(Number(row.id)) ?? [],

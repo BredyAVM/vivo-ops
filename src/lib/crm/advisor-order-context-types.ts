@@ -1,6 +1,9 @@
 export type AdvisorCrmOrderContext = {
   playMemberId: number;
   playName: string;
+  recurrenceMode?: 'once' | 'daily';
+  benefitFulfillment?: 'any' | 'pickup' | 'delivery_zone_1';
+  dailyUses?: Array<{ day: string; orderId: number }>;
   benefitSelectionMode: 'single' | 'multiple';
   selectedPlayBenefitIds: number[];
   purchaseRequirementMode: 'none' | 'minimum_order';

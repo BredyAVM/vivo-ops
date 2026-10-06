@@ -1,4 +1,5 @@
 "use client";
+import { countsTowardCrmMinimum, dailyBenefitConflict, isDeliveryProduct } from "@/lib/crm/benefit-eligibility";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { parseDecimalInput } from "@/lib/number-input";
@@ -489,7 +490,7 @@ export default function MasterOpsOrderEditor({
   const crmAdvisorMatches = Boolean(currentCrmContext?.advisorUserId &&
     form?.attributedAdvisorUserId === currentCrmContext.advisorUserId);
   const crmAdvisor = data?.advisors.find((advisor) => advisor.id === currentCrmContext?.advisorUserId);
-  const crmCommercialSubtotal = calculatedItems.filter((item) => !item.crmPlayMemberId)
+  const crmCommercialSubtotal = calculatedItems.filter((item) => countsTowardCrmMinimum({ productName: item.productNameSnapshot, sku: item.skuSnapshot, isCrmBenefit: Boolean(item.crmPlayMemberId), lineUsd: item.lineTotalUsd }))
     .reduce((sum, item) => sum + item.lineTotalUsd, 0) * (1 - (form?.discountEnabled ? toNumber(form.discountPct, 0) : 0) / 100);
   const crmMinimum = currentCrmContext?.purchaseRequirementMode === "minimum_order"
     ? Number(currentCrmContext.minimumOrderAmountUsd || 0) : 0;
@@ -786,13 +787,24 @@ export default function MasterOpsOrderEditor({
   function appendCrmItem(item: MasterOpsEditOrderItem) {
     setForm((current) => current ? {
       ...current,
-      items: [...current.items.filter((existing) => !existing.crmPlayMemberId ||
-        (currentCrmContext?.benefitSelectionMode === "multiple" && existing.crmPlayBenefitId !== item.crmPlayBenefitId)), item],
+      items: [...current.items.filter((existing) =>
+        (currentCrmContext?.benefitFulfillment !== 'delivery_zone_1' || !isDeliveryProduct(existing.productNameSnapshot, existing.skuSnapshot)) &&
+        (!existing.crmPlayMemberId ||
+        (currentCrmContext?.benefitSelectionMode === "multiple" && existing.crmPlayBenefitId !== item.crmPlayBenefitId))), item],
     } : current);
   }
 
   function addCrmBenefit(benefitId: number, upgradeId: number | null = null) {
     if (!form || !currentCrmContext || !crmAdvisorMatches || hasPersistedCrmBenefit) return;
+    const conflict = currentCrmContext.recurrenceMode === 'daily'
+      ? dailyBenefitConflict(currentCrmContext.dailyUses ?? [], form.deliveryDate, data?.order.id) : null;
+    if (conflict) { setError(`El beneficio de ese día ya está reservado o entregado en la orden #${conflict.orderId}.`); return; }
+    if (currentCrmContext.benefitFulfillment === 'pickup' && form.fulfillment !== 'pickup') {
+      setError('Esta jugada requiere retirar el pedido en el local.'); return;
+    }
+    if (currentCrmContext.benefitFulfillment === 'delivery_zone_1' && form.fulfillment !== 'delivery') {
+      setError('Esta jugada requiere delivery zona 1.'); return;
+    }
     if (!crmPurchaseEligible) { setError(`Completa la compra mínima de ${money(crmMinimum)} para aplicar el beneficio.`); return; }
     try {
       const choice = resolveCrmOrderBenefit(currentCrmContext, benefitId, upgradeId);

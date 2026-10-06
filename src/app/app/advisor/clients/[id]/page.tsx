@@ -85,6 +85,7 @@ type PlayRecord = {
   benefit_selection_mode: 'single' | 'multiple';
   purchase_requirement_mode: 'none' | 'minimum_order';
   minimum_order_amount_usd: number | string | null;
+  benefit_recurrence_mode: 'once' | 'daily';
 };
 
 type PlayMemberRow = {
@@ -327,7 +328,7 @@ export default async function AdvisorClientProfilePage({
           id, name, description, status, starts_at, ends_at,
           advisor_guidance, message_template,
           gift_product_id, gift_quantity, benefit_selection_mode,
-          purchase_requirement_mode, minimum_order_amount_usd
+          purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode
         )
       `)
       .eq('client_id', clientId)
@@ -451,7 +452,7 @@ export default async function AdvisorClientProfilePage({
     : null;
   const primaryOrderHref = selectedMemberReservation
     ? `/app/advisor/orders/${numberValue(selectedMemberReservation.order_id)}`
-    : selectedMember && selectedPlay && isPlayActive && selectedMember.benefit_status === 'available'
+    : selectedMember && selectedPlay && isPlayActive && (selectedMember.benefit_status === 'available' || selectedPlay.benefit_recurrence_mode === 'daily')
       ? `/app/advisor/new?client=${clientId}&playMember=${numberValue(selectedMember.id)}`
       : `/app/advisor/new?client=${clientId}`;
 
@@ -551,6 +552,7 @@ export default async function AdvisorClientProfilePage({
             ) : null}
             <div className="rounded-[16px] border border-[#2A3040] bg-[#0D1017] px-3.5 py-3 text-xs leading-5 text-[#AAB2C5]">
               <div className="mb-2 font-medium text-[#F5F7FB]">Beneficio para este cliente</div>
+              {selectedPlay.benefit_recurrence_mode === 'daily' ? <p className="mb-2 text-[#F7DA66]">Un beneficio por día de entrega. Puede repetir en días distintos durante la vigencia; cada pedido debe cumplir la compra mínima y el canal.</p> : null}
               <ClientBenefitSelector
                 key={`${selectedMember.id}-${selectedBenefitIds.join('-') || 'none'}`}
                 playMemberId={numberValue(selectedMember.id)}
@@ -559,7 +561,7 @@ export default async function AdvisorClientProfilePage({
                 selectionMode={selectedPlay.benefit_selection_mode || 'single'}
                 purchaseRequirementMode={selectedPlay.purchase_requirement_mode || 'none'}
                 minimumOrderAmountUsd={selectedPlay.minimum_order_amount_usd == null ? null : numberValue(selectedPlay.minimum_order_amount_usd)}
-                isActive={isPlayActive && selectedMember.benefit_status === 'available'}
+                isActive={isPlayActive && (selectedMember.benefit_status === 'available' || selectedPlay.benefit_recurrence_mode === 'daily')}
               />
               {selectedMember.benefit_status !== 'redeemed' && selectedMember.next_follow_up_at ? (
                 <div className="mt-1 text-[#F7DA66]">Próximo seguimiento: {dateTimeLabel(selectedMember.next_follow_up_at)}</div>

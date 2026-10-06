@@ -17,6 +17,7 @@ type PlayRow = {
   benefit_selection_mode: 'single' | 'multiple';
   purchase_requirement_mode: 'none' | 'minimum_order';
   minimum_order_amount_usd: number | string | null;
+  benefit_recurrence_mode: 'once' | 'daily';
 };
 
 type ClientRow = {
@@ -417,7 +418,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     .select(`
       id, name, description, status, rules_snapshot, advisor_guidance,
       starts_at, ends_at, gift_product_id, gift_quantity,
-      benefit_selection_mode, purchase_requirement_mode, minimum_order_amount_usd
+      benefit_selection_mode, purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode
     `)
     // Draft and frozen plays remain private to the master dashboard.
     .in('status', ['active', 'paused'])
@@ -586,6 +587,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
           </span>
           <span className="rounded-full border border-[#31513F] bg-[#10251A] px-2 py-0.5 font-semibold text-[#7CE0A9]">
             {benefitCreditLabel(benefitOptions, selectedPlay.benefit_selection_mode)}
+            {selectedPlay.benefit_recurrence_mode === 'daily' ? <span className="text-[#F7DA66]">Un beneficio por día de entrega</span> : null}
           </span>
           <span className="rounded-full border border-[#2A3040] px-2 py-0.5">
             Cargo según selección: {benefitOptions.length === 0

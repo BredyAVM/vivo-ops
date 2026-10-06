@@ -42,11 +42,10 @@ async function loadCrmOrderContext({
       ),
       play:crm_plays!crm_play_members_play_id_fkey(
         id, name, status, starts_at, ends_at, benefit_selection_mode,
-        purchase_requirement_mode, minimum_order_amount_usd
+        purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode, benefit_fulfillment
       )
     `)
     .eq('client_id', clientId)
-    .eq('benefit_status', 'available')
     .neq('workflow_status', 'removed')
     .order('id', { ascending: false });
 
@@ -61,7 +60,7 @@ async function loadCrmOrderContext({
 
   const activeMember = (memberRows ?? []).find((candidate) => {
     const play = firstRelated(candidate.play as RelatedRow);
-    return Boolean(play) && isPlayOrderAvailableAt({
+    return Boolean(play) && (candidate.benefit_status === 'available' || play?.benefit_recurrence_mode === 'daily') && isPlayOrderAvailableAt({
       status: String(play?.status ?? ''),
       startsAt: play?.starts_at == null ? null : String(play.starts_at),
       endsAt: play?.ends_at == null ? null : String(play.ends_at),
@@ -150,7 +149,17 @@ async function loadCrmOrderContext({
     .map((selection) => Number(selection.play_benefit_id))
     .filter((benefitId) => availableBenefitIds.has(benefitId));
 
+  let dailyUses: Array<{ day: string; orderId: number }> = [];
+  if (play.benefit_recurrence_mode === 'daily') {
+    const { data: uses, error: usesError } = await supabase.from('crm_play_redemptions')
+      .select('benefit_day, order_id').eq('play_member_id', activeMemberId).in('status', ['reserved', 'redeemed']);
+    if (usesError) throw new Error(usesError.message);
+    dailyUses = (uses ?? []).filter((use) => use.benefit_day).map((use) => ({ day: String(use.benefit_day), orderId: Number(use.order_id) }));
+  }
   return {
+    recurrenceMode: play.benefit_recurrence_mode === 'daily' ? 'daily' : 'once',
+    benefitFulfillment: play.benefit_fulfillment as 'any' | 'pickup' | 'delivery_zone_1',
+    dailyUses,
     advisorUserId: activeMember.advisor_id_snapshot == null ? null : String(activeMember.advisor_id_snapshot),
     playMemberId: activeMemberId,
     playName: String(play.name || 'Jugada activa'),

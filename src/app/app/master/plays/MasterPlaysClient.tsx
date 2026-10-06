@@ -61,6 +61,8 @@ export type MasterPlay = {
   benefitSelectionMode: PlayBenefitSelectionMode;
   purchaseRequirementMode: PlayPurchaseRequirementMode;
   minimumOrderAmountUsd: number | null;
+  recurrenceMode: 'once' | 'daily';
+  benefitFulfillment: 'any' | 'pickup' | 'delivery_zone_1';
   overlapPolicy: PlayOverlapPolicy;
   compatiblePlayIds: number[];
   benefitStackPolicy: PlayBenefitStackPolicy;
@@ -407,6 +409,7 @@ function PlayDefinitionForm({
   onSubmit: (input: SavePlayDraftInput) => void;
 }) {
   const today = useMemo(() => caracasToday(), []);
+  const fallbackBenefit = benefits.find((benefit) => benefit.id === play?.giftProductId) ?? benefits[0];
   const rules = play?.rules ?? {};
   const [name, setName] = useState(play?.name ?? '');
   const [description, setDescription] = useState(play?.description ?? '');
@@ -425,16 +428,18 @@ function PlayDefinitionForm({
         upgradeProductIds: option.upgrades.map((upgrade) => String(upgrade.productId)),
       }))
     : [{
-        productId: benefits[0] ? String(benefits[0].id) : '',
+        productId: fallbackBenefit ? String(fallbackBenefit.id) : '',
         quantity: '1',
-        unitBenefitValueUsd: benefits[0] ? String(benefits[0].referenceValueUsd) : '0',
-        unitAdvisorCostUsd: benefits[0] ? String(benefits[0].referenceAdvisorCostUsd) : '0',
-        unitCompanyCostUsd: benefits[0] ? String(benefits[0].referenceCompanyCostUsd) : '0',
+        unitBenefitValueUsd: fallbackBenefit ? String(fallbackBenefit.referenceValueUsd) : '0',
+        unitAdvisorCostUsd: fallbackBenefit ? String(fallbackBenefit.referenceAdvisorCostUsd) : '0',
+        unitCompanyCostUsd: fallbackBenefit ? String(fallbackBenefit.referenceCompanyCostUsd) : '0',
         upgradeProductIds: [] as string[],
       }]);
   const [benefitSelectionMode, setBenefitSelectionMode] = useState<PlayBenefitSelectionMode>(play?.benefitSelectionMode ?? 'single');
   const [purchaseRequirementMode, setPurchaseRequirementMode] = useState<PlayPurchaseRequirementMode>(play?.purchaseRequirementMode ?? 'none');
   const [minimumOrderAmount, setMinimumOrderAmount] = useState(play?.minimumOrderAmountUsd == null ? '' : String(play.minimumOrderAmountUsd));
+  const [recurrenceMode, setRecurrenceMode] = useState<'once' | 'daily'>(play?.recurrenceMode ?? 'once');
+  const [benefitFulfillment, setBenefitFulfillment] = useState<'any' | 'pickup' | 'delivery_zone_1'>(play?.benefitFulfillment ?? 'any');
   const [overlapPolicy, setOverlapPolicy] = useState<PlayOverlapPolicy>(play?.overlapPolicy ?? 'exclusive');
   const [compatiblePlayIds, setCompatiblePlayIds] = useState<number[]>(play?.compatiblePlayIds ?? []);
   const [benefitStackPolicy, setBenefitStackPolicy] = useState<PlayBenefitStackPolicy>(play?.benefitStackPolicy ?? 'one_per_order');
@@ -606,6 +611,8 @@ function PlayDefinitionForm({
         upgradeProductIds: option.upgradeProductIds.map(Number),
       })),
       benefitSelectionMode,
+      recurrenceMode,
+      benefitFulfillment,
       purchaseRequirementMode,
       minimumOrderAmountUsd: purchaseRequirementMode === 'minimum_order' && minimumOrderAmount !== ''
         ? Number(minimumOrderAmount)
@@ -744,7 +751,7 @@ function PlayDefinitionForm({
             </button>
             <button
               type="button"
-              onClick={() => setBenefitSelectionMode('multiple')}
+              onClick={() => { setBenefitSelectionMode('multiple'); setRecurrenceMode('once'); }}
               className={`rounded-xl border px-3 py-2 text-left transition ${benefitSelectionMode === 'multiple' ? 'border-[#FFFF00]/70 bg-[#FFFF00]/10 text-[#FFF18B]' : 'border-[#302B10] bg-[#0D0D0A] text-[#A89F68]'}`}
             >
               <span className="block text-[11px] font-semibold">Combinación de obsequios</span>
@@ -929,7 +936,7 @@ function PlayDefinitionForm({
               <span className="block text-[11px] font-semibold">Condicionada a compra</span>
               <span className="mt-0.5 block text-[9px] opacity-65">La orden debe alcanzar un monto mínimo.</span>
             </button>
-            <Field label="Compra mínima USD" hint="Orden actual">
+            <Field label="Compra mínima USD" hint="Productos pagados, sin delivery ni beneficios">
               <input
                 className={inputClass}
                 type="number"
@@ -943,6 +950,27 @@ function PlayDefinitionForm({
               />
             </Field>
           </div>
+        </div>
+
+        <div className="grid gap-3 rounded-2xl border border-[#2A2A35] p-3 sm:grid-cols-2">
+          <Field label="Frecuencia del beneficio" hint="Día de entrega, hora de Venezuela">
+            <select className={inputClass} value={recurrenceMode} onChange={(event) => {
+              const mode = event.target.value as 'once' | 'daily';
+              setRecurrenceMode(mode);
+              if (mode === 'daily') setBenefitSelectionMode('single');
+            }}>
+              <option value="once">Una vez durante la jugada</option>
+              <option value="daily">Una vez por cliente y por día</option>
+            </select>
+          </Field>
+          <Field label="Canal requerido para aplicar" hint="Condición del pedido">
+            <select className={inputClass} value={benefitFulfillment} onChange={(event) => setBenefitFulfillment(event.target.value as typeof benefitFulfillment)}>
+              <option value="any">Retiro o delivery</option>
+              <option value="pickup">Solo retiro en el local</option>
+              <option value="delivery_zone_1">Solo delivery zona 1</option>
+            </select>
+          </Field>
+          {recurrenceMode === 'daily' ? <p className="text-[10px] text-[#A89F68] sm:col-span-2">Puede repetir en días distintos durante la vigencia. Una reserva pendiente ocupa ese día; al cancelar o retirar el beneficio se libera.</p> : null}
         </div>
 
         <div className="rounded-2xl border border-orange-400/20 bg-orange-400/[0.04] p-3">
@@ -1886,14 +1914,14 @@ export default function MasterPlaysClient({
                             {selectedBudgetStatus === 'within' ? 'Dentro del presupuesto' : selectedBudgetStatus === 'exceeds' ? 'Supera el presupuesto' : 'Presupuesto por definir'}
                           </span>
                         </div>
-                        <p className="mt-1 text-[10px] text-blue-100/55">Empresa y asesor se calculan con los valores congelados en esta jugada.</p>
+                        <p className="mt-1 text-[10px] text-blue-100/55">{selectedPlay.recurrenceMode === 'daily' ? 'Estimación de una ronda: un beneficio por cliente. Las repeticiones en otros días aumentan la inversión; no es el costo total del mes.' : 'Empresa y asesor se calculan con los valores congelados en esta jugada.'}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-right sm:grid-cols-4">
                         <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Disponible</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedPlay.plannedBudgetUsd == null ? '—' : moneyFormatter.format(selectedPlay.plannedBudgetUsd)}</div></div>
                         <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Inversión estimada</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedProjectedCostMin == null || selectedProjectedCostMax == null ? '—' : selectedProjectedCostMin === selectedProjectedCostMax ? moneyFormatter.format(selectedProjectedCostMax) : `${moneyFormatter.format(selectedProjectedCostMin)} — ${moneyFormatter.format(selectedProjectedCostMax)}`}</div></div>
                         <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Cargo asesores</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedAdvisorChargeMin == null || selectedAdvisorChargeMax == null ? '—' : selectedAdvisorChargeMin === selectedAdvisorChargeMax ? moneyFormatter.format(selectedAdvisorChargeMax) : `${moneyFormatter.format(selectedAdvisorChargeMin)} — ${moneyFormatter.format(selectedAdvisorChargeMax)}`}</div></div>
-                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Saldo conservador</div><div className={`mt-0.5 text-xs font-semibold tabular-nums ${selectedBudgetBalance != null && selectedBudgetBalance < 0 ? 'text-red-200' : 'text-blue-50'}`}>{selectedBudgetBalance == null ? '—' : moneyFormatter.format(selectedBudgetBalance)}</div></div>
-                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Capacidad máxima</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedBudgetCapacity == null ? '—' : `${Math.trunc(selectedBudgetCapacity).toLocaleString('es-VE')} clientes`}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">{selectedPlay.recurrenceMode === 'daily' ? 'Saldo tras una ronda' : 'Saldo conservador'}</div><div className={`mt-0.5 text-xs font-semibold tabular-nums ${selectedBudgetBalance != null && selectedBudgetBalance < 0 ? 'text-red-200' : 'text-blue-50'}`}>{selectedBudgetBalance == null ? '—' : moneyFormatter.format(selectedBudgetBalance)}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Capacidad máxima</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedBudgetCapacity == null ? '—' : `${Math.trunc(selectedBudgetCapacity).toLocaleString('es-VE')} ${selectedPlay.recurrenceMode === 'daily' ? 'beneficios' : 'clientes'}`}</div></div>
                       </div>
                     </div>
                     <div className="mt-2 text-[9px] text-blue-100/40">

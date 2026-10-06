@@ -1,4 +1,5 @@
 "use server";
+import { countsTowardCrmMinimum } from "@/lib/crm/benefit-eligibility";
 
 import { revalidatePath } from "next/cache";
 import { isCrmOnlyCatalogProduct } from "@/lib/crm/play-order";
@@ -2374,7 +2375,7 @@ async function prepareMasterOpsOrderSave(
 
   if (newCrmContext) {
     const commercialSubtotalUsd = recalculatedItems
-      .filter((item) => !item.crmPlayMemberId)
+      .filter((item) => countsTowardCrmMinimum({ productName: item.productNameSnapshot, sku: item.skuSnapshot, isCrmBenefit: Boolean(item.crmPlayMemberId), lineUsd: item.lineTotalUsd }))
       .reduce((sum, item) => sum + item.lineTotalUsd, 0) * (1 - requestedDiscountPct / 100);
     validateMasterCrmBenefitSelection({
       context: newCrmContext,
