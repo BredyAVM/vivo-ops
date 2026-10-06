@@ -49,9 +49,23 @@ export default function AdvisorCalendarStrip({
       <div className="grid grid-cols-[minmax(0,1fr)_52px] items-center gap-2">
         <label className="relative block h-10 min-w-0 overflow-hidden rounded-[14px] border border-[#232632] bg-[#0F131B]">
           <span className="sr-only">Seleccionar fecha</span>
-          <span aria-hidden="true" className="pointer-events-none flex h-full min-w-0 items-center px-3 pr-8 text-[13px] font-semibold text-[#F5F7FB]">
+          <span aria-hidden="true" className="pointer-events-none flex h-full min-w-0 items-center px-3 pr-10 text-[13px] font-semibold text-[#F5F7FB]">
             <span className="block min-w-0 truncate">{formatDayLabel(optimisticDayKey)}</span>
           </span>
+          <svg
+            aria-hidden="true"
+            focusable="false"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#E2E6EF]"
+          >
+            <rect x="3" y="5" width="18" height="16" rx="2" />
+            <path d="M16 3v4M8 3v4M3 11h18" />
+          </svg>
           <input
             type="date"
             value={optimisticDayKey}
