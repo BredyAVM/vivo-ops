@@ -170,6 +170,7 @@ test('CRM benefits reserve on item creation and become financial only on order d
   assert.match(lifecycle, /update_order_core_atomic_v2/);
 
   const context = readFileSync(new URL('../../src/lib/crm/advisor-order-context.ts', import.meta.url), 'utf8');
-  assert.match(context, /\.eq\('benefit_status', 'available'\)/);
+  assert.match(context, /candidate\.benefit_status === 'available' \|\| play\?\.benefit_recurrence_mode === 'daily'/);
+  assert.doesNotMatch(context, /\.eq\('benefit_status', 'available'\)/);
   assert.doesNotMatch(context, /\['available', 'reserved'\]/);
 });
