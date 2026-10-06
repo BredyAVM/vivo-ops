@@ -7,6 +7,8 @@ import ClientBenefitSelector from './ClientBenefitSelector';
 import ClientFollowUpPanel from './ClientFollowUpPanel';
 import PlayMessageCard from './PlayMessageCard';
 import WhatsAppContactButton from './WhatsAppContactButton';
+import PlayConditionsCard from '../../plays/PlayConditionsCard';
+import { playLastDayLabel } from '@/lib/crm/play-conditions';
 
 type ClientProfile = {
   client_id: number | string;
@@ -86,6 +88,7 @@ type PlayRecord = {
   purchase_requirement_mode: 'none' | 'minimum_order';
   minimum_order_amount_usd: number | string | null;
   benefit_recurrence_mode: 'once' | 'daily';
+  benefit_fulfillment: 'any' | 'pickup' | 'delivery_zone_1';
 };
 
 type PlayMemberRow = {
@@ -131,6 +134,12 @@ type PlayBenefitRow = {
   product_id: number | string;
   quantity: number | string;
   unit_advisor_cost_usd: number | string;
+  unit_benefit_value_usd: number | string;
+  upgrades: Array<{
+    id: number | string;
+    customer_difference_usd_snapshot: number | string | null;
+    product: { name: string } | Array<{ name: string }> | null;
+  }> | null;
   product: { name: string; sku: string | null } | Array<{ name: string; sku: string | null }> | null;
 };
 
@@ -328,7 +337,7 @@ export default async function AdvisorClientProfilePage({
           id, name, description, status, starts_at, ends_at,
           advisor_guidance, message_template,
           gift_product_id, gift_quantity, benefit_selection_mode,
-          purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode
+          purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode, benefit_fulfillment
         )
       `)
       .eq('client_id', clientId)
@@ -379,7 +388,11 @@ export default async function AdvisorClientProfilePage({
     selectedPlay
       ? ctx.supabase
           .from('crm_play_benefits')
-          .select('id, product_id, quantity, unit_advisor_cost_usd, product:products!crm_play_benefits_product_id_fkey(name, sku)')
+          .select(`id, product_id, quantity, unit_advisor_cost_usd, unit_benefit_value_usd,
+            product:products!crm_play_benefits_product_id_fkey(name, sku),
+            upgrades:crm_play_benefit_upgrades!crm_play_benefit_upgrades_benefit_fkey(
+              id, customer_difference_usd_snapshot, product:products!crm_play_benefit_upgrades_target_product_id_fkey(name)
+            )`)
           .eq('play_id', Number(selectedPlay.id))
           .order('sort_order', { ascending: true })
           .order('id', { ascending: true })
@@ -419,6 +432,13 @@ export default async function AdvisorClientProfilePage({
       sku: product?.sku ?? null,
       quantity: numberValue(option.quantity),
       unitAdvisorCostUsd: numberValue(option.unit_advisor_cost_usd),
+      advisorCostUsd: numberValue(option.unit_advisor_cost_usd) * numberValue(option.quantity),
+      benefitValueUsd: numberValue(option.unit_benefit_value_usd) * numberValue(option.quantity),
+      upgrades: (option.upgrades ?? []).map((upgrade) => ({
+        id: numberValue(upgrade.id),
+        name: one(upgrade.product)?.name?.trim() || 'Ampliación',
+        customerDifferenceUsd: numberValue(upgrade.customer_difference_usd_snapshot),
+      })),
     };
   });
   const selectedBenefitIds = (benefitSelectionsResult.data ?? [])
@@ -530,6 +550,7 @@ export default async function AdvisorClientProfilePage({
               ? <StatusBadge label="Obsequio entregado" tone="success" />
               : <StatusBadge label={memberStageLabel(selectedMember)} tone={workflowTone(selectedMember.workflow_status)} />}
           >
+            <div className="mb-3"><PlayConditionsCard play={selectedPlay} benefits={benefitOptions} defaultOpen={false} /></div>
             {selectedPlay.message_template ? (
               <div className="mb-3">
                 <PlayMessageCard
@@ -541,7 +562,7 @@ export default async function AdvisorClientProfilePage({
                     ? benefitOptions.filter((option) => selectedBenefitIds.includes(option.id))
                     : benefitOptions
                   ).map((option) => `${option.quantity} × ${option.name}`).join(' o ') || 'tu beneficio'}
-                  validityLabel={selectedPlay.ends_at ? `antes del ${dateLabel(selectedPlay.ends_at)}` : 'durante esta jugada'}
+                  validityLabel={playLastDayLabel(selectedPlay.ends_at)}
                   whatsappBaseHref={whatsappHref}
                   playMemberId={numberValue(selectedMember.id)}
                   isActive={isPlayActive}
@@ -552,7 +573,6 @@ export default async function AdvisorClientProfilePage({
             ) : null}
             <div className="rounded-[16px] border border-[#2A3040] bg-[#0D1017] px-3.5 py-3 text-xs leading-5 text-[#AAB2C5]">
               <div className="mb-2 font-medium text-[#F5F7FB]">Beneficio para este cliente</div>
-              {selectedPlay.benefit_recurrence_mode === 'daily' ? <p className="mb-2 text-[#F7DA66]">Un beneficio por día de entrega. Puede repetir en días distintos durante la vigencia; cada pedido debe cumplir la compra mínima y el canal.</p> : null}
               <ClientBenefitSelector
                 key={`${selectedMember.id}-${selectedBenefitIds.join('-') || 'none'}`}
                 playMemberId={numberValue(selectedMember.id)}

@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { EmptyBlock, StatusBadge } from '../advisor-ui';
+import PlayConditionsCard from './PlayConditionsCard';
+import { playValidityLabel } from '@/lib/crm/play-conditions';
 
 type PlayRow = {
   id: number | string;
@@ -18,6 +20,7 @@ type PlayRow = {
   purchase_requirement_mode: 'none' | 'minimum_order';
   minimum_order_amount_usd: number | string | null;
   benefit_recurrence_mode: 'once' | 'daily';
+  benefit_fulfillment: 'any' | 'pickup' | 'delivery_zone_1';
 };
 
 type ClientRow = {
@@ -75,13 +78,6 @@ type MemberRow = {
 
 type ViewFilter = 'all' | 'pending' | 'follow_up' | 'contacted' | 'responded' | 'launched' | 'converted';
 type SearchParams = Promise<{ play?: string; view?: string }>;
-
-const dateFormatter = new Intl.DateTimeFormat('es-VE', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-  timeZone: 'America/Caracas',
-});
 
 const dateTimeFormatter = new Intl.DateTimeFormat('es-VE', {
   day: '2-digit',
@@ -194,20 +190,6 @@ function playCriteria(rules: Record<string, unknown> | null | undefined) {
   if (fulfillment === 'pickup') criteria.push('Ha usado pickup');
   if (fulfillment === 'delivery') criteria.push('Ha usado delivery');
   return criteria;
-}
-
-function benefitCreditLabel(options: BenefitOption[], selectionMode: PlayRow['benefit_selection_mode']) {
-  const values = options.map((option) => option.benefitValueUsd).filter((value) => value > 0);
-  if (values.length === 0) return 'Sin crédito aplicable';
-  if (values.length === 1) return `Crédito $${values[0]?.toFixed(2)}`;
-  if (selectionMode === 'multiple') return `Crédito hasta $${values.reduce((sum, value) => sum + value, 0).toFixed(2)}`;
-  return `Crédito $${Math.min(...values).toFixed(2)}–$${Math.max(...values).toFixed(2)}`;
-}
-
-function dateLabel(value: string | null | undefined) {
-  if (!value) return 'Sin fecha';
-  const parsed = new Date(value.length === 10 ? `${value}T12:00:00-04:00` : value);
-  return Number.isNaN(parsed.getTime()) ? value : dateFormatter.format(parsed);
 }
 
 function dateTimeLabel(value: string | null | undefined) {
@@ -418,7 +400,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     .select(`
       id, name, description, status, rules_snapshot, advisor_guidance,
       starts_at, ends_at, gift_product_id, gift_quantity,
-      benefit_selection_mode, purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode
+      benefit_selection_mode, purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode, benefit_fulfillment
     `)
     // Draft and frozen plays remain private to the master dashboard.
     .in('status', ['active', 'paused'])
@@ -509,7 +491,6 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     upgrades: upgradesByBenefit.get(numberValue(option.id)) ?? [],
   }));
   const selectionCriteria = playCriteria(selectedPlay.rules_snapshot);
-  const availableUpgrades = benefitOptions.flatMap((option) => option.upgrades);
 
   // This is a server-only request snapshot used to classify due follow-ups consistently.
   // eslint-disable-next-line react-hooks/purity
@@ -565,7 +546,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-[#F5F7FB]">{selectedPlay.name}</h2>
             <p className="mt-0.5 truncate text-[10px] text-[#747E91]">
-              {dateLabel(selectedPlay.starts_at)} — {dateLabel(selectedPlay.ends_at)}
+              {playValidityLabel(selectedPlay)}
             </p>
           </div>
           <div className="max-w-[52%] truncate rounded-full border border-[#564511] bg-[#2A2209] px-2.5 py-1 text-right text-[10px] font-medium text-[#F7DA66]">
@@ -579,38 +560,12 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
         <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[#AAB2C5]">
           {selectedPlay.description?.trim() || 'Reconocimiento preparado para este grupo de clientes.'}
         </p>
-        <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] text-[#AAB2C5]">
-          <span className="rounded-full border border-[#2A3040] px-2 py-0.5">
-            {selectedPlay.purchase_requirement_mode === 'minimum_order'
-              ? `Compra mínima $${numberValue(selectedPlay.minimum_order_amount_usd).toFixed(2)}`
-              : 'Sin compra mínima'}
-          </span>
-          <span className="rounded-full border border-[#31513F] bg-[#10251A] px-2 py-0.5 font-semibold text-[#7CE0A9]">
-            {benefitCreditLabel(benefitOptions, selectedPlay.benefit_selection_mode)}
-            {selectedPlay.benefit_recurrence_mode === 'daily' ? <span className="text-[#F7DA66]">Un beneficio por día de entrega</span> : null}
-          </span>
-          <span className="rounded-full border border-[#2A3040] px-2 py-0.5">
-            Cargo según selección: {benefitOptions.length === 0
-              ? '$0.00'
-              : selectedPlay.benefit_selection_mode === 'multiple'
-                ? `hasta $${benefitOptions.reduce((sum, option) => sum + option.advisorCostUsd, 0).toFixed(2)}`
-                : `$${Math.min(...benefitOptions.map((option) => option.advisorCostUsd)).toFixed(2)}–$${Math.max(...benefitOptions.map((option) => option.advisorCostUsd)).toFixed(2)}`}
-          </span>
+        <div className="mt-2">
+          <PlayConditionsCard play={selectedPlay} benefits={benefitOptions} />
         </div>
 
-        {availableUpgrades.length > 0 ? (
-          <div className="mt-2 flex min-w-0 items-start gap-1.5 rounded-[9px] border border-[#2A3040] bg-[#0D1017] px-2 py-1.5 text-[9px] leading-4">
-            <span className="shrink-0 font-semibold uppercase tracking-[0.08em] text-[#F7DA66]">Ampliable</span>
-            <span className="min-w-0 text-[#B7BECC]">
-              {availableUpgrades.map((upgrade) => (
-                `${upgrade.name} +$${upgrade.customerDifferenceUsd.toFixed(2)}`
-              )).join(' · ')} · paga el cliente
-            </span>
-          </div>
-        ) : null}
-
-        <div className="mt-2 grid gap-1.5 sm:grid-cols-3">
-          <details className="group rounded-[10px] border border-[#2A3040] bg-[#0D1017] open:border-[#3B4355] sm:open:col-span-3">
+        <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+          <details className="group rounded-[10px] border border-[#2A3040] bg-[#0D1017] open:border-[#3B4355] sm:open:col-span-2">
             <summary className="flex h-8 cursor-pointer list-none items-center justify-between gap-2 px-2.5 text-[10px] font-semibold text-[#D6DAE4] [&::-webkit-details-marker]:hidden">
               <span>Quiénes aplican</span>
               <span className="text-[#747E91] transition group-open:rotate-180" aria-hidden="true">⌄</span>
@@ -627,33 +582,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
             </div>
           </details>
 
-          <details className="group rounded-[10px] border border-[#2A3040] bg-[#0D1017] open:border-[#3B4355] sm:open:col-span-3">
-            <summary className="flex h-8 cursor-pointer list-none items-center justify-between gap-2 px-2.5 text-[10px] font-semibold text-[#D6DAE4] [&::-webkit-details-marker]:hidden">
-              <span>Beneficio y uso</span>
-              <span className="text-[#747E91] transition group-open:rotate-180" aria-hidden="true">⌄</span>
-            </summary>
-            <div className="space-y-1.5 border-t border-[#232632] px-2.5 py-2">
-              {benefitOptions.length === 0 ? (
-                <p className="text-[9px] text-[#8B93A7]">La jugada no tiene beneficios configurados.</p>
-              ) : benefitOptions.map((option) => (
-                <div key={option.id} className="rounded-[8px] border border-[#292E3B] bg-[#121620] px-2 py-1.5 text-[9px] text-[#C5CBD8]">
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <span className="font-semibold text-[#F5F7FB]">{option.quantity.toLocaleString('es-VE')} × {option.name}</span>
-                    <span>Crédito ${option.benefitValueUsd.toFixed(2)} · cargo ${option.advisorCostUsd.toFixed(2)}</span>
-                  </div>
-                  {option.upgrades.length > 0 ? (
-                    <p className="mt-1 text-[#9FA8BA]">
-                      Puede entregar el base o aplicar el crédito a {option.upgrades.map((upgrade) => (
-                        `${upgrade.name} (+$${upgrade.customerDifferenceUsd.toFixed(2)})`
-                      )).join(' · ')}. La diferencia la paga el cliente.
-                    </p>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </details>
-
-          <details className="group rounded-[10px] border border-[#2A3040] bg-[#0D1017] open:border-[#3B4355] sm:open:col-span-3">
+          <details className="group rounded-[10px] border border-[#2A3040] bg-[#0D1017] open:border-[#3B4355] sm:open:col-span-2">
             <summary className="flex h-8 cursor-pointer list-none items-center justify-between gap-2 px-2.5 text-[10px] font-semibold text-[#D6DAE4] [&::-webkit-details-marker]:hidden">
               <span>Cómo abordarla</span>
               <span className="text-[#747E91] transition group-open:rotate-180" aria-hidden="true">⌄</span>
