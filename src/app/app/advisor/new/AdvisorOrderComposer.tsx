@@ -14,6 +14,7 @@ import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/play-order';
 import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persistence';
+import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
 import { shouldResolveCatalogGift } from '@/lib/crm/catalog-gift';
 import {
@@ -80,6 +81,8 @@ type ProductRow = {
   units_per_service: number | null;
   is_detail_editable: boolean | null;
   detail_units_limit: number | null;
+  inventory_group?: string | null;
+  internal_rider_pay_usd?: number | string | null;
 };
 
 type ProductAvailability = {
@@ -1680,6 +1683,15 @@ export default function AdvisorOrderComposer({
       ),
     [draftItems, effectiveDraftPricing, fxRateNumber]
   );
+  const displayDraftItems = sortOrderItemsByPriority(
+    draftItems.map((item, index) => ({ item, index })),
+    ({ item }) => ({
+      productType: item.product_type,
+      productName: item.product_name_snapshot,
+      inventoryGroup: productById.get(item.product_id)?.inventory_group,
+      internalRiderPayUsd: Number(productById.get(item.product_id)?.internal_rider_pay_usd || 0),
+    }),
+  );
   const catalogPriceDriftItems = useMemo(() => {
     if (!isEditingOrder || fxRateNumber <= 0) return [];
     if (!advisorRecalculationMode) return [];
@@ -2015,7 +2027,7 @@ export default function AdvisorOrderComposer({
         supabase
           .from('products')
           .select(
-            'id, sku, name, is_active, extra_fields, type, base_price_usd, source_price_currency, source_price_amount, units_per_service, is_detail_editable, detail_units_limit'
+            'id, sku, name, is_active, extra_fields, type, base_price_usd, source_price_currency, source_price_amount, units_per_service, is_detail_editable, detail_units_limit, inventory_group, internal_rider_pay_usd'
           )
           .order('name', { ascending: true }),
         supabase
@@ -3580,7 +3592,7 @@ export default function AdvisorOrderComposer({
     if (draftItems.length === 0) {
       parts.push('- Sin items cargados');
     } else {
-      for (const item of draftItems) {
+      for (const { item } of displayDraftItems) {
         const lineBs =
           item.source_price_currency === 'VES'
             ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
@@ -3660,7 +3672,7 @@ export default function AdvisorOrderComposer({
     if (draftItems.length === 0) {
       parts.push('- Sin items cargados');
     } else {
-      for (const item of draftItems) {
+      for (const { item } of displayDraftItems) {
         const lineBs =
           item.source_price_currency === 'VES'
             ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
@@ -3729,9 +3741,15 @@ export default function AdvisorOrderComposer({
       clientPhone,
       receiverName,
       receiverPhone,
-      lines: draftItems.map((item) => ({
+      lines: displayDraftItems.map(({ item }) => ({
         text: formatDraftItemWhatsAppLine(item, fxRateNumber),
         detailLines: getVisibleDetailLines(item.editable_detail_lines),
+        priority: {
+          productType: item.product_type,
+          productName: item.product_name_snapshot,
+          inventoryGroup: productById.get(item.product_id)?.inventory_group,
+          internalRiderPayUsd: Number(productById.get(item.product_id)?.internal_rider_pay_usd || 0),
+        },
       })),
       price: {
         subtotalBs: draftSubtotalBs,
@@ -4777,8 +4795,8 @@ export default function AdvisorOrderComposer({
                 </div>
               ) : null}
 
-              {draftItems.map((item, idx) => {
-                const snapshot = draftItemSnapshots[idx];
+              {displayDraftItems.map(({ item, index }) => {
+                const snapshot = draftItemSnapshots[index];
                 const catalogProduct = productById.get(item.product_id);
                 const itemIsConfigurable = Boolean(catalogProduct?.is_detail_editable)
                   || productComponents.some((row) =>

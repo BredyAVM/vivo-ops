@@ -1,6 +1,9 @@
+import { sortOrderItemsByPriority, type OrderItemPriorityInput } from './order-item-priority.ts';
+
 export type WhatsAppSummaryLine = {
   text: string;
   detailLines?: string[];
+  priority?: OrderItemPriorityInput;
 };
 
 export type WhatsAppSummaryDocument = {
@@ -301,13 +304,14 @@ export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) 
   if (input.lines.length === 0) {
     parts.push('- Sin items cargados');
   } else {
-    input.lines.forEach((line, index) => {
+    const lines = sortOrderItemsByPriority(input.lines, (line) => line.priority ?? { productName: line.text });
+    lines.forEach((line, index) => {
       parts.push(line.text);
       for (const detail of line.detailLines ?? []) {
         const normalized = clean(detail);
         if (normalized) parts.push(`    - ${normalized}`);
       }
-      if (index < input.lines.length - 1) parts.push('');
+      if (index < lines.length - 1) parts.push('');
     });
   }
 

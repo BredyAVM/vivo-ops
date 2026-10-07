@@ -11,6 +11,7 @@ import {
 } from '@/lib/orders/order-labels';
 import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
+import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import {
   mapOrderFinancialActivity,
   type OrderFinancialActivityType,
@@ -133,10 +134,14 @@ type OrderItemRow = {
     | {
         type: 'product' | 'combo' | 'service' | 'promo' | 'gambit' | null;
         units_per_service: number | null;
+        inventory_group?: string | null;
+        internal_rider_pay_usd?: number | string | null;
       }[]
     | {
         type: 'product' | 'combo' | 'service' | 'promo' | 'gambit' | null;
         units_per_service: number | null;
+        inventory_group?: string | null;
+        internal_rider_pay_usd?: number | string | null;
       }
     | null;
 };
@@ -509,6 +514,16 @@ function buildWhatsAppInvoiceLines(order: OrderRow, check = '') {
   return lines;
 }
 
+function orderItemPriorityInput(item: OrderItemRow) {
+  const product = Array.isArray(item.product) ? item.product[0] : item.product;
+  return {
+    productType: product?.type,
+    productName: item.product_name_snapshot,
+    inventoryGroup: product?.inventory_group,
+    internalRiderPayUsd: Number(product?.internal_rider_pay_usd || 0),
+  };
+}
+
 function buildWhatsAppOrderSummary({
   order,
   items,
@@ -614,6 +629,7 @@ function buildCleanWhatsAppOrderSummary({
     lines: items.map((item) => ({
       text: lineTextWhatsAppStyle(item, fxRate),
       detailLines: getVisibleEditableDetailLines(item.notes),
+      priority: orderItemPriorityInput(item),
     })),
     price: {
       subtotalBs: pricing.subtotalBs,
@@ -897,7 +913,7 @@ export default async function AdvisorOrderDetailPage({
   ] = await Promise.all([
       ctx.supabase
         .from('order_items')
-        .select('id, product_id, qty, product_name_snapshot, line_total_usd, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, notes, product:products(type, units_per_service)')
+        .select('id, product_id, qty, product_name_snapshot, line_total_usd, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, notes, product:products(type, units_per_service, inventory_group, internal_rider_pay_usd)')
         .eq('order_id', orderId)
         .order('id', { ascending: true }),
       ctx.supabase
@@ -931,7 +947,7 @@ export default async function AdvisorOrderDetailPage({
         .maybeSingle(),
     ]);
 
-  const items = (itemsResult.data ?? []) as OrderItemRow[];
+  const items = sortOrderItemsByPriority((itemsResult.data ?? []) as OrderItemRow[], orderItemPriorityInput);
   const payments = (paymentsResult.data ?? []) as PaymentReportRow[];
   if (financialActivityResult.error) {
     console.warn('read_order_financial_activity skipped in advisor order detail', financialActivityResult.error.message);

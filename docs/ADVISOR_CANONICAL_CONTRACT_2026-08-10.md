@@ -48,6 +48,16 @@ Este documento fija los límites operativos del módulo Asesor para que futuras 
 - Editar o repetir desde el detalle vuelve primero al detalle y luego a la pantalla de origen.
 - Solo debe existir una acción visible de volver en el encabezado; las tarjetas no deben duplicarla.
 
+## Presentacion de los items del pedido
+
+- Crear, editar, repetir, consultar y exportar a WhatsApp usan la misma regla de `src/lib/orders/order-item-priority.ts`.
+- Orden de lectura: servicios, combos, obsequios y otros productos principales; luego salsas, bebidas y siempre delivery al final.
+- La familia del catalogo (`inventory_group`) identifica salsas y bebidas. Las lineas sin familia disponible utilizan el nombre snapshot como compatibilidad historica.
+- Los componentes y notas de un combo permanecen debajo de su linea principal; no se extraen como items independientes.
+- La ordenacion es visual y estable dentro de cada grupo. No modifica IDs, precios, cantidades, componentes, redenciones CRM ni posiciones persistidas.
+- Los calculos indexados de un borrador conservan su indice original al presentar las lineas ordenadas.
+- WhatsApp recibe metadatos de clasificacion junto con cada linea; nunca separa el precio o los detalles del producto al ordenar.
+
 ## Notificaciones y seguimiento
 
 - La fuente canónica del inbox del asesor es `order_timeline_events` junto con `order_timeline_event_recipients`.

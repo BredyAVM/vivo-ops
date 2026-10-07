@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { sortOrderItemsByPriority } from "@/lib/orders/order-item-priority";
 import CrmOrderValidityPanel from "../ops/CrmOrderValidityPanel";
 import {
   formatOrderDisplayNumber,
@@ -242,33 +243,11 @@ export function masterOrderPaymentChangeText(
 }
 
 export function masterOrderMainLines(lines: MasterOrderDetailLine[]) {
-  const services: MasterOrderDetailLine[] = [];
-  const extras: MasterOrderDetailLine[] = [];
-  const delivery: MasterOrderDetailLine[] = [];
-
-  for (const line of lines) {
-    const lower = line.name.toLowerCase();
-    const isDelivery = Boolean(line.isDelivery) || lower.startsWith("delivery");
-    if (isDelivery) {
-      delivery.push(line);
-      continue;
-    }
-
-    const isExtra =
-      lower.includes("salsa") ||
-      lower.includes("aderezo") ||
-      lower.includes("crema") ||
-      lower.includes("pepsi") ||
-      lower.includes("coca") ||
-      lower.includes("malta") ||
-      lower.includes("jugo") ||
-      lower.includes("dondy");
-
-    if (isExtra) extras.push(line);
-    else services.push(line);
-  }
-
-  return [...services, ...extras, ...delivery];
+  return sortOrderItemsByPriority(lines, (line) => ({
+    productType: line.productType,
+    productName: line.name,
+    isDelivery: line.isDelivery,
+  }));
 }
 
 export function masterOrderLineText(line: MasterOrderDetailLine) {
@@ -310,6 +289,11 @@ export function buildMasterOrderWhatsAppSummary(order: MasterOrderDetailOrder) {
     lines: masterOrderMainLines(order.lines).map((line) => ({
       text: masterOrderLineText(line),
       detailLines: line.editableDetailLines ?? [],
+      priority: {
+        productType: line.productType,
+        productName: line.name,
+        isDelivery: line.isDelivery,
+      },
     })),
     price: {
       subtotalBs,
