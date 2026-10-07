@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('published Focus amendment changes only channel and copy, audits it, and restores the guard', async () => {
   const db = new PGlite();
   try {
-    const guard = readFileSync(new URL('./fixtures/published-play-guard-20261007.sql',import.meta.url),'utf8');
+    const guard = readFileSync(new URL('./fixtures/published-play-guard-20261007.sql',import.meta.url),'utf8').replaceAll('\r\n','\n');
     const types = {id:'bigint',starts_at:'timestamptz',ends_at:'timestamptz',minimum_order_amount_usd:'numeric',
       activated_by_user_id:'uuid',rules_snapshot:'jsonb',selection_summary:'jsonb'};
     const fields = [...new Set([...guard.matchAll(/(?:old|new)\.([a-z_]+)/g)].map(m=>m[1]))];
@@ -23,7 +23,7 @@ test('published Focus amendment changes only channel and copy, audits it, and re
       insert into crm_plays(id,name,status,benefit_fulfillment) values (2,'Focus Zona 1','active','delivery_zone_1');`);
     const original = (await db.query("select pg_get_functiondef('app_private.crm_play_guard_v1()'::regprocedure) def")).rows[0].def;
     const before = (await db.query('select to_jsonb(p) v from crm_plays p order by id')).rows;
-    await db.exec(readFileSync(new URL('../../supabase/migrations/20261007131740_crm_focus_pickup_paid_delivery_amendment.sql',import.meta.url),'utf8'));
+    await db.exec(readFileSync(new URL('../../supabase/migrations/20261007131740_crm_focus_pickup_paid_delivery_amendment.sql',import.meta.url),'utf8').replaceAll('\r\n','\n'));
     const after = (await db.query('select to_jsonb(p) v from crm_plays p order by id')).rows;
     assert.equal(after[0].v.benefit_fulfillment,'any');
     assert.equal(after[0].v.minimum_order_amount_usd,10);
