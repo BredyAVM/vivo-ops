@@ -1056,6 +1056,9 @@ function PlayDefinitionForm({
           <div className="mb-3">
             <h3 className="text-xs font-semibold text-[#E7E7ED]">Condiciones comerciales</h3>
             <p className="mt-0.5 text-[10px] text-[#9B9BA7]">Deja un campo vacío cuando no quieras usar ese límite.</p>
+            {!play || play.status === 'draft' || (play.startsAt && new Date(play.startsAt).getTime() >= new Date('2026-10-01T04:00:00Z').getTime()) ? (
+              <p className="mt-2 text-[10px] text-amber-100/80">Descanso mensual automático: se excluye a quienes recibieron la propuesta de cualquier jugada el mes anterior. Estar en una lista o recibir solo un saludo no los excluye.</p>
+            ) : null}
           </div>
           <div className="mb-3 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3">
             <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

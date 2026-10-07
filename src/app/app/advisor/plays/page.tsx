@@ -142,9 +142,13 @@ function rangeLabel(from: unknown, to: unknown) {
   return '';
 }
 
-function playCriteria(rules: Record<string, unknown> | null | undefined) {
+function playCriteria(rules: Record<string, unknown> | null | undefined, startsAt: string | null) {
   if (!rules) return [];
   const criteria: string[] = [];
+  // Do not claim a newly introduced rule was applied to old frozen snapshots.
+  if (startsAt && new Date(startsAt).getTime() >= new Date('2026-10-01T04:00:00Z').getTime()) {
+    criteria.push('Sin propuesta de jugada durante el mes anterior');
+  }
   const minPurchases = optionalNumber(rules.min_purchase_count);
   const maxPurchases = optionalNumber(rules.max_purchase_count);
   if (minPurchases != null && minPurchases > 0 && maxPurchases != null) {
@@ -490,7 +494,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     name: one(option.product)?.name?.trim() || 'Beneficio',
     upgrades: upgradesByBenefit.get(numberValue(option.id)) ?? [],
   }));
-  const selectionCriteria = playCriteria(selectedPlay.rules_snapshot);
+  const selectionCriteria = playCriteria(selectedPlay.rules_snapshot, selectedPlay.starts_at);
 
   // This is a server-only request snapshot used to classify due follow-ups consistently.
   // eslint-disable-next-line react-hooks/purity
