@@ -35,8 +35,9 @@ test('daily gifts: real PostgreSQL reservations, days, cancellation, channels an
       create table app_private.crm_order_minimum_exceptions(order_id bigint,play_member_id bigint,benefit_fingerprint text,minimum_authorized_usd numeric,reason text,approved_at timestamptz,approved_by uuid);
       create table app_private.crm_order_validity_exceptions(id bigint,order_id bigint,play_member_id bigint,benefit_fingerprint text,authorized_through date,reason text,approved_at timestamptz,approved_by uuid);
     `);
-    await db.exec(readFileSync(new URL('./fixtures/daily-benefit-installed-functions.sql',import.meta.url),'utf8'));
-    await db.exec(readFileSync(new URL('../../supabase/migrations/20261006141222_crm_daily_benefits_and_paid_products_minimum.sql',import.meta.url),'utf8'));
+    // PostgreSQL textual-function anchors use LF; Git may check SQL out as CRLF on Windows.
+    await db.exec(readFileSync(new URL('./fixtures/daily-benefit-installed-functions.sql',import.meta.url),'utf8').replaceAll('\r\n','\n'));
+    await db.exec(readFileSync(new URL('../../supabase/migrations/20261006141222_crm_daily_benefits_and_paid_products_minimum.sql',import.meta.url),'utf8').replaceAll('\r\n','\n'));
     await db.exec(`
       create trigger crm_order_items_guard before insert or update on order_items for each row execute function app_private.crm_order_item_guard_v1();
       create trigger crm_order_items_reserve_benefit after insert on order_items for each row when(new.crm_play_member_id is not null) execute function app_private.crm_reserve_order_item_benefit_v1();
@@ -94,7 +95,7 @@ test('daily gifts: real PostgreSQL reservations, days, cancellation, channels an
     await assert.rejects(()=>order(11,tomorrow,3,'delivery'),/reservado/i);
     // The installed deferred minimum guard also rejects an invalid NEW order,
     // not just its eventual delivery. Gift-first insert order remains atomic.
-    const minimumMigration=readFileSync(new URL('../../supabase/migrations/20260930125941_crm_order_minimum_lifecycle_guard.sql',import.meta.url),'utf8');
+    const minimumMigration=readFileSync(new URL('../../supabase/migrations/20260930125941_crm_order_minimum_lifecycle_guard.sql',import.meta.url),'utf8').replaceAll('\r\n','\n');
     const deferredDefinition=minimumMigration.slice(minimumMigration.indexOf('create or replace function app_private.crm_order_minimum_deferred_guard_v1()'),minimumMigration.indexOf('create or replace function app_private.crm_lock_order_minimum_edit_v1()'));
     await db.exec(deferredDefinition);
     await db.exec(`create constraint trigger crm_order_minimum_after_order after insert or update on orders deferrable initially deferred for each row execute function app_private.crm_order_minimum_deferred_guard_v1();
@@ -105,5 +106,13 @@ test('daily gifts: real PostgreSQL reservations, days, cancellation, channels an
     assert.equal(Number((await db.query("select sum(advisor_charge_usd) v from crm_play_redemptions where status='redeemed'")).rows[0].v),0.5);
     await assert.rejects(()=>db.exec("update crm_play_redemptions set benefit_day=benefit_day+1 where order_id=1"),/reserva diaria/i);
     assert.equal((await db.query("select has_function_privilege('authenticated','app_private.crm_sync_daily_order_day_v1()','execute') v")).rows[0].v,false);
+    // Approved Focus Pickup flexibility: paid shipping does not block the Dondy,
+    // does not count toward the minimum, and does not bypass the daily limit.
+    await db.exec("update crm_plays set benefit_fulfillment='any' where id=1");
+    await order(7,nextDay,1,'delivery',10,2);
+    assert.equal(Number((await state(7)).commercialUsd),10);
+    assert.equal(Number((await db.query('select line_total_usd from order_items where id=72')).rows[0].line_total_usd),2);
+    await assert.rejects(()=>order(13,nextDay,1,'delivery',10,2),/reservado|unique/i);
+    await assert.rejects(()=>order(14,nextDay,2,'pickup'),/zona 1/i);
   } finally { await db.close(); }
 });
