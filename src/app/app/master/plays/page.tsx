@@ -71,11 +71,9 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .limit(100),
     ctx.supabase
       .from('products')
-      .select('id, name, sku, type, base_price_usd, extra_fields, advisor_gift_cost_usd:extra_fields->>advisor_gift_cost_usd')
-      .eq('is_active', true)
-      .in('type', ['product', 'combo', 'promo', 'gambit', 'service'])
+      .select('id, name, sku, type, is_active, base_price_usd, extra_fields, advisor_gift_cost_usd:extra_fields->>advisor_gift_cost_usd')
       .order('name', { ascending: true })
-      .limit(300),
+      .limit(1000),
     ctx.supabase
       .from('profiles')
       .select('id, full_name, is_active')
@@ -442,7 +440,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     });
   }
 
-  const benefits: PlayBenefit[] = (productsResult.data ?? []).filter(allowsCrmCatalogProduct).map((row) => {
+  const benefits: PlayBenefit[] = (productsResult.data ?? []).filter(row => row.is_active && ['product', 'combo', 'promo', 'gambit', 'service'].includes(row.type)).filter(allowsCrmCatalogProduct).map((row) => {
     const configuredGiftCost = numberValue(row.advisor_gift_cost_usd, Number.NaN);
     const basePrice = Math.max(0, numberValue(row.base_price_usd, 0));
     const advisorCost = Number.isFinite(configuredGiftCost) && configuredGiftCost >= 0
@@ -467,6 +465,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       plays={plays}
       selectedPlay={createMode ? null : selectedPlay}
       benefits={benefits}
+      historyProducts={(productsResult.data ?? []).map(row => ({ id: Number(row.id), name: String(row.name), sku: row.sku == null ? null : String(row.sku), active: Boolean(row.is_active) }))}
       members={members}
       memberCount={memberCount}
       memberPage={page}

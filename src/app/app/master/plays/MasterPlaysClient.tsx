@@ -7,6 +7,7 @@ import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWork
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
 import { readOfferRestMode, type OfferRestMode } from '@/lib/crm/offer-rest';
+import { type PurchasedProductMode } from '@/lib/crm/purchased-products';
 import { groupPlaysByMonth, isPlayCurrentlyActive, playDateInput, type PlayListFilter } from '@/lib/crm/play-dates';
 import { ModulePreference } from '../../ModulePreference';
 import {
@@ -134,7 +135,7 @@ export type ManualPlayClientSuggestion = {
 
 export type PlayAmendment = {
   id: number;
-  type: 'message_updated' | 'member_added' | 'member_removed' | 'advisor_excluded';
+  type: 'message_updated' | 'member_added' | 'member_removed' | 'advisor_excluded' | 'criteria_corrected';
   clientId: number | null;
   clientName: string | null;
   advisorId: string | null;
@@ -200,6 +201,7 @@ type Props = {
   plays: MasterPlay[];
   selectedPlay: MasterPlay | null;
   benefits: PlayBenefit[];
+  historyProducts: Array<{ id: number; name: string; sku: string | null; active: boolean }>;
   members: MasterPlayMember[];
   memberCount: number;
   memberPage: number;
@@ -398,6 +400,7 @@ function PlayDefinitionForm({
   play,
   plays,
   benefits,
+  historyProducts,
   activeAdvisors,
   busy,
   onSubmit,
@@ -405,6 +408,7 @@ function PlayDefinitionForm({
   play: MasterPlay | null;
   plays: MasterPlay[];
   benefits: PlayBenefit[];
+  historyProducts: Props['historyProducts'];
   activeAdvisors: PlayAdvisorOption[];
   busy: boolean;
   onSubmit: (input: SavePlayDraftInput) => void;
@@ -462,6 +466,9 @@ function PlayDefinitionForm({
   const [offerRestDays, setOfferRestDays] = useState(String(rules.offer_rest_days ?? 30));
   const [offerRestFrom, setOfferRestFrom] = useState(stringValue(rules.offer_rest_from));
   const [offerRestTo, setOfferRestTo] = useState(stringValue(rules.offer_rest_to));
+  const [purchasedProductIds, setPurchasedProductIds] = useState<number[]>(() => Array.isArray(rules.purchased_product_ids) ? rules.purchased_product_ids.map(Number) : []);
+  const [purchasedProductMode, setPurchasedProductMode] = useState<PurchasedProductMode>(rules.purchased_product_mode === 'all' ? 'all' : 'any');
+  const [productHistorySearch, setProductHistorySearch] = useState('');
   const [anniversaryMode, setAnniversaryMode] = useState<PlayAnniversaryMode>(() => {
     const storedMode = stringValue(rules.anniversary_mode);
     if (storedMode === 'include' || storedMode === 'exclude') return storedMode;
@@ -644,6 +651,8 @@ function PlayDefinitionForm({
       offerRestDays: offerRestMode === 'days' ? Number(offerRestDays) : null,
       offerRestFrom,
       offerRestTo,
+      purchasedProductIds,
+      purchasedProductMode,
       anniversaryMode,
       anniversaryMonth: anniversaryMonth === '' ? null : Number(anniversaryMonth),
       fulfillment,
@@ -1096,6 +1105,33 @@ function PlayDefinitionForm({
             </div>
             <p className="mt-2 text-[10px] text-amber-100/70">{offerRestMode === 'days' ? `Se revisan los ${offerRestDays || '…'} días completos anteriores al ${startsOn || 'inicio de la jugada'}.` : offerRestMode === 'dates' ? 'Se incluyen ambos días completos, en hora de Venezuela.' : offerRestMode === 'previous_month' ? 'Conserva el mes calendario anterior al inicio de esta jugada.' : 'No se excluye por propuestas previas; las demás condiciones siguen vigentes.'}</p>
           </div>
+          <details className="mb-3 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3" open={purchasedProductIds.length > 0}>
+            <summary className="cursor-pointer text-[11px] font-semibold text-sky-100">Pedidos con estos productos · {purchasedProductIds.length === 0 ? 'sin filtro' : `${purchasedProductIds.length} seleccionados`}</summary>
+            <p className="mt-2 text-[10px] text-[#9B9BA7]">Busca en compras válidas históricas y actuales hasta el corte de la lista. Se combina con todos los demás filtros. No busca por el nombre ni por componentes internos de un combo.</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <Field label="Productos requeridos">
+                <select className={inputClass} value={purchasedProductMode} onChange={event => setPurchasedProductMode(event.target.value as PurchasedProductMode)}>
+                  <option value="any">Cualquiera de los seleccionados</option>
+                  <option value="all">Todos, incluso en pedidos distintos</option>
+                </select>
+              </Field>
+              <Field label="Buscar producto o código">
+                <input className={inputClass} value={productHistorySearch} onChange={event => setProductHistorySearch(event.target.value)} placeholder="Ej. Delivery Zona 1" />
+              </Field>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {historyProducts.filter(product => purchasedProductIds.includes(product.id)).map(product => <span key={product.id} className="rounded-full border border-sky-300/30 px-2 py-1 text-[10px] text-sky-100">{product.name}</span>)}
+            </div>
+            <div className="mt-2 max-h-36 overflow-y-auto rounded-lg border border-[#2A2A35] p-2">
+              {historyProducts.filter(product => `${product.name} ${product.sku ?? ''}`.toLocaleLowerCase('es').includes(productHistorySearch.toLocaleLowerCase('es'))).map(product => (
+                <label key={product.id} className="flex items-center gap-2 py-1 text-[10px] text-[#D8D8E0]">
+                  <input type="checkbox" checked={purchasedProductIds.includes(product.id)} onChange={event => setPurchasedProductIds(current => event.target.checked ? [...current, product.id] : current.filter(id => id !== product.id))} className="accent-sky-300" />
+                  <span>{product.name}{product.active ? '' : ' · inactivo'}</span>
+                </label>
+              ))}
+            </div>
+            <button type="button" className="mt-2 text-[10px] text-sky-200 underline" onClick={() => setPurchasedProductIds([])}>Quitar filtro de productos</button>
+          </details>
           <div className="mb-3 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3">
             <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -1301,6 +1337,7 @@ function PublishedPlayEditor({
     member_added: 'Cliente incluido',
     member_removed: 'Cliente retirado',
     advisor_excluded: 'Asesor retirado',
+    criteria_corrected: 'Selección corregida',
   };
 
   function chooseClient(client: ManualPlayClientSuggestion) {
@@ -1682,6 +1719,7 @@ export default function MasterPlaysClient({
   plays,
   selectedPlay,
   benefits,
+  historyProducts,
   members,
   memberCount,
   memberPage,
@@ -1993,6 +2031,7 @@ export default function MasterPlaysClient({
                     play={selectedPlay}
                     plays={plays}
                     benefits={benefits}
+                    historyProducts={historyProducts}
                     activeAdvisors={activeAdvisors}
                     busy={pending}
                     onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
@@ -2010,6 +2049,7 @@ export default function MasterPlaysClient({
                       play={selectedPlay}
                       plays={plays}
                       benefits={benefits}
+                      historyProducts={historyProducts}
                       activeAdvisors={activeAdvisors}
                       busy={pending}
                       onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
@@ -2093,6 +2133,7 @@ export default function MasterPlaysClient({
                 play={null}
                 plays={plays}
                 benefits={benefits}
+                historyProducts={historyProducts}
                 activeAdvisors={activeAdvisors}
                 busy={pending}
                 onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
