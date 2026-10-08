@@ -5,6 +5,7 @@ import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { adminCommissionAuditHref } from '@/lib/commissions/admin-audit';
 import { readAdvisorCommissionCarryOverride } from '@/lib/commissions/carry-state';
 import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
+import { commissionCalculationTimestamp, commissionCalculationTimeLabel, latestPreliminaryCalculation } from '@/lib/commissions/calculation-feedback';
 import {
   ADVISOR_COMMISSION_BANK_FEE_DESCRIPTION_PREFIX,
   ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX,
@@ -31,6 +32,7 @@ import {
 import CommissionPaymentForm, {
   type CommissionPaymentAccountOption,
 } from './CommissionPaymentForm';
+import CommissionCalculationButton from './CommissionCalculationButton';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -819,17 +821,17 @@ export default async function CommissionAdministrationPage({
                     ? 'Al actualizar, cada preliminar toma automáticamente el resultado actual de su meta. Las excepciones manuales y los resultados finales se conservan.'
                     : 'Ajusta el porcentaje dentro de la tarjeta de cada asesor y luego actualiza el período. Los cierres confirmados permanecen protegidos.'}
               </p>
-              <button
-                className="h-10 rounded-xl bg-[#FFFF00] px-5 text-sm font-semibold text-[#111113] transition enabled:hover:bg-[#FFE44F] disabled:cursor-not-allowed disabled:opacity-40"
+              <CommissionCalculationButton
                 disabled={
                   selectedPeriod.status !== 'open' ||
                   advisorLoadFailed ||
                   !hasEditableCommissionRate
                 }
-                type="submit"
-              >
-                Calcular / actualizar
-              </button>
+                lastCalculatedLabel={commissionCalculationTimeLabel(latestPreliminaryCalculation(closures))}
+              />
+              <p className="text-[11px] leading-4 text-[#92929E] md:col-span-3">
+                Solo se recalculan los preliminares. Los cierres cerrados o pagados conservan su cálculo; esto no es una actualización en tiempo real.
+              </p>
             </WorkspaceForm>
           ) : null}
         </section>
@@ -844,8 +846,8 @@ export default async function CommissionAdministrationPage({
               <h2 className="text-lg font-semibold tracking-[-0.02em]">Preparar relación por asesor</h2>
               <p className="mt-1 text-sm leading-6 text-[#A6A6B0]">
                 {selectedGoalConfig?.status === 'published' || selectedGoalConfig?.status === 'closed'
-                  ? '“Calcular / actualizar” conecta los porcentajes individuales de las metas con sus liquidaciones preliminares.'
-                  : 'Define el porcentaje individual en cada tarjeta y utiliza “Calcular / actualizar” para generar los preliminares.'}
+                  ? '“Actualizar y calcular” conecta los porcentajes individuales de las metas con sus liquidaciones preliminares.'
+                  : 'Define el porcentaje individual en cada tarjeta y utiliza “Actualizar y calcular” para generar los preliminares.'}
               </p>
             </div>
             {advisorLoadFailed ? (
@@ -950,6 +952,10 @@ export default async function CommissionAdministrationPage({
                           <div className="mt-1 text-xs text-[#92929E]">
                             {numberValue(row.closure.delivered_orders_count)} pedidos entregados
                           </div>
+                          <p className="mt-1 text-[11px] leading-4 text-[#92929E]">
+                            Último cálculo: {commissionCalculationTimeLabel(commissionCalculationTimestamp(row.closure))}
+                            {row.closure.status !== 'preliminary' ? ' · Protegido' : ''}
+                          </p>
                           {row.goal && row.goal.status !== 'draft' ? <div className="mt-1 text-xs text-[#92929E]">
                             {row.goal.rateOverrideReason ? `Excepción manual: ${row.goal.rateOverrideReason}`
                               : row.goal.status === 'final' ? 'Resultado individual confirmado.'
