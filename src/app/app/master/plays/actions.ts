@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
+import { offerRestRules, type OfferRestInput } from '@/lib/crm/offer-rest';
 
 const PLAY_KINDS = ['anniversary', 'loyalty', 'new_client', 'reconnect', 'seasonal', 'custom'] as const;
 const FULFILLMENT_FILTERS = ['any', 'pickup', 'delivery'] as const;
@@ -30,7 +31,7 @@ export type PlayBenefitInput = {
   upgradeProductIds: number[];
 };
 
-export type SavePlayDraftInput = {
+export type SavePlayDraftInput = OfferRestInput & {
   playId?: number | null;
   name: string;
   description?: string;
@@ -252,6 +253,7 @@ function rulesFromInput(input: SavePlayDraftInput, excludedClientIds: number[]) 
   }
 
   return {
+    ...offerRestRules(input),
     play_type: normalizeKind(input.kind),
     min_purchase_count: minPurchaseCount,
     max_purchase_count: maxPurchaseCount,

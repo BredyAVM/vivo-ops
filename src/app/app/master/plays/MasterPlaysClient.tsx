@@ -6,6 +6,7 @@ import BackLink from '@/components/navigation/BackLink';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
+import { readOfferRestMode, type OfferRestMode } from '@/lib/crm/offer-rest';
 import { groupPlaysByMonth, isPlayCurrentlyActive, playDateInput, type PlayListFilter } from '@/lib/crm/play-dates';
 import { ModulePreference } from '../../ModulePreference';
 import {
@@ -457,6 +458,10 @@ function PlayDefinitionForm({
   const [lastGiftFrom, setLastGiftFrom] = useState(play ? monthInput(stringValue(rules.last_gift_from)) : '');
   const [lastGiftTo, setLastGiftTo] = useState(play ? monthInput(stringValue(rules.last_gift_to)) : '');
   const [includeNeverGifted, setIncludeNeverGifted] = useState(play ? rules.include_never_gifted !== false : true);
+  const [offerRestMode, setOfferRestMode] = useState<OfferRestMode>(() => play ? readOfferRestMode(rules) : 'days');
+  const [offerRestDays, setOfferRestDays] = useState(String(rules.offer_rest_days ?? 30));
+  const [offerRestFrom, setOfferRestFrom] = useState(stringValue(rules.offer_rest_from));
+  const [offerRestTo, setOfferRestTo] = useState(stringValue(rules.offer_rest_to));
   const [anniversaryMode, setAnniversaryMode] = useState<PlayAnniversaryMode>(() => {
     const storedMode = stringValue(rules.anniversary_mode);
     if (storedMode === 'include' || storedMode === 'exclude') return storedMode;
@@ -635,6 +640,10 @@ function PlayDefinitionForm({
       lastGiftFrom: monthStart(lastGiftFrom),
       lastGiftTo: monthEnd(lastGiftTo),
       includeNeverGifted,
+      offerRestMode,
+      offerRestDays: offerRestMode === 'days' ? Number(offerRestDays) : null,
+      offerRestFrom,
+      offerRestTo,
       anniversaryMode,
       anniversaryMonth: anniversaryMonth === '' ? null : Number(anniversaryMonth),
       fulfillment,
@@ -1056,9 +1065,36 @@ function PlayDefinitionForm({
           <div className="mb-3">
             <h3 className="text-xs font-semibold text-[#E7E7ED]">Condiciones comerciales</h3>
             <p className="mt-0.5 text-[10px] text-[#9B9BA7]">Deja un campo vacío cuando no quieras usar ese límite.</p>
-            {!play || play.status === 'draft' || (play.startsAt && new Date(play.startsAt).getTime() >= new Date('2026-10-01T04:00:00Z').getTime()) ? (
-              <p className="mt-2 text-[10px] text-amber-100/80">Descanso mensual automático: se excluye a quienes recibieron la propuesta de cualquier jugada el mes anterior. Estar en una lista o recibir solo un saludo no los excluye.</p>
-            ) : null}
+          </div>
+          <div className="mb-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.04] p-3">
+            <h4 className="text-[11px] font-semibold text-amber-100">Descanso entre propuestas</h4>
+            <p className="mt-1 text-[10px] text-[#9B9BA7]">Excluye a quienes recibieron la propuesta de cualquier jugada durante el período elegido. Un saludo o estar en una lista no cuenta.</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <Field label="Excluir propuestas anteriores">
+                <select className={inputClass} value={offerRestMode} onChange={(event) => setOfferRestMode(event.target.value as OfferRestMode)}>
+                  <option value="none">Sin exclusión por propuestas</option>
+                  <option value="days">Cantidad de días</option>
+                  <option value="dates">Rango de fechas</option>
+                  <option value="previous_month">Mes anterior (regla original)</option>
+                </select>
+              </Field>
+              {offerRestMode === 'days' ? (
+                <Field label="Días anteriores al inicio" hint="Días completos">
+                  <input className={inputClass} type="number" min="1" max="3650" step="1" value={offerRestDays} onChange={(event) => setOfferRestDays(event.target.value)} required />
+                </Field>
+              ) : null}
+              {offerRestMode === 'dates' ? (
+                <>
+                  <Field label="Propuesta lanzada desde">
+                    <input className={inputClass} type="date" value={offerRestFrom} onChange={(event) => setOfferRestFrom(event.target.value)} required />
+                  </Field>
+                  <Field label="Propuesta lanzada hasta">
+                    <input className={inputClass} type="date" min={offerRestFrom || undefined} value={offerRestTo} onChange={(event) => setOfferRestTo(event.target.value)} required />
+                  </Field>
+                </>
+              ) : null}
+            </div>
+            <p className="mt-2 text-[10px] text-amber-100/70">{offerRestMode === 'days' ? `Se revisan los ${offerRestDays || '…'} días completos anteriores al ${startsOn || 'inicio de la jugada'}.` : offerRestMode === 'dates' ? 'Se incluyen ambos días completos, en hora de Venezuela.' : offerRestMode === 'previous_month' ? 'Conserva el mes calendario anterior al inicio de esta jugada.' : 'No se excluye por propuestas previas; las demás condiciones siguen vigentes.'}</p>
           </div>
           <div className="mb-3 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3">
             <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

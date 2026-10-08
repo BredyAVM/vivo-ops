@@ -4,6 +4,7 @@ import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { EmptyBlock, StatusBadge } from '../advisor-ui';
 import PlayConditionsCard from './PlayConditionsCard';
 import { playValidityLabel } from '@/lib/crm/play-conditions';
+import { offerRestLabel } from '@/lib/crm/offer-rest';
 
 type PlayRow = {
   id: number | string;
@@ -145,10 +146,8 @@ function rangeLabel(from: unknown, to: unknown) {
 function playCriteria(rules: Record<string, unknown> | null | undefined, startsAt: string | null) {
   if (!rules) return [];
   const criteria: string[] = [];
-  // Do not claim a newly introduced rule was applied to old frozen snapshots.
-  if (startsAt && new Date(startsAt).getTime() >= new Date('2026-10-01T04:00:00Z').getTime()) {
-    criteria.push('Sin propuesta de jugada durante el mes anterior');
-  }
+  const rest = offerRestLabel(rules, startsAt);
+  if (rest) criteria.push(rest);
   const minPurchases = optionalNumber(rules.min_purchase_count);
   const maxPurchases = optionalNumber(rules.max_purchase_count);
   if (minPurchases != null && minPurchases > 0 && maxPurchases != null) {
