@@ -838,3 +838,20 @@ y no bloqueantes según el contrato existente.
 
 Migración: `20261004190450_prehandoff_operational_item_changes.sql`. No crea
 tablas/columnas, modifica saldos históricos ni cambia el corte físico.
+
+## 33. Bebida incorporada al envío en camino — 2026-10-08
+
+Máster/Admin pueden incorporar una bebida normal ya incluida físicamente en el
+envío mediante `master_append_dispatched_beverage_v1`. No se habilita edición
+general después del corte. El resolver canónico filtra fuentes por la nueva
+partida y registra únicamente su `sale_out`; jamás reproduce la venta completa
+ni vuelve a consumir productos anteriores. Los compromisos regenerados se cierran
+como `fulfilled`. Faltantes permiten saldo negativo; fallas/rutas ausentes producen
+incidencia crítica `beverage_append`, con operación y partida para conciliación,
+sin revertir el cobro. No se oculta una falla como consumo aplicado.
+
+Los intentos físicos parciales se revierten juntos y un reintento de la misma
+incorporación no duplica partida, cobro ni inventario. El comando no repara salidas
+históricas. La conciliación de la bebida debe hacerse por su partida, no mediante
+repetición del despacho original. Contrato completo y verificación:
+`docs/MASTER_DISPATCHED_BEVERAGE_APPEND_2026-10-08.md`.
