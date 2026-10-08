@@ -74,8 +74,22 @@ Migración aplicada: `20261008221501_master_append_paid_beverage.sql`.
 Pruebas aisladas: `tests/master-ops/beverage-append-db.mjs` (18 comprobaciones con
 guards reales de precio), más regresiones de obsequios y edición previa al corte.
 
-Caso 3166 consultado en producción: total inicial Bs 26.450, Lipton Limón 1,5 Lts
-de catálogo Bs 5.175, sin descuento/impuesto. La prueba equivalente produce
-Bs 31.625 / USD 36,16, manteniendo el pedido en camino. La consulta inicial y las
-pruebas no modifican la orden real; su incorporación requiere la acción autorizada
-en la aplicación y lectura posterior para confirmar el resultado.
+Caso 3166 ejecutado y verificado en producción el 2026-10-08, a las 18:20 de
+Caracas, mediante sesión autenticada y acción autorizada en Máster Ops:
+
+- Se incorporó una Lipton Limón 1,5 Lts de catálogo, Bs 5.175; partida `14374`.
+- Total anterior Bs 26.450 / USD 30,24; nuevo Bs 31.625 / USD 36,16, sin
+  descuento/impuesto. El estado permaneció `out_for_delivery`.
+- Las tres partidas originales permanecieron idénticas (checksum previo/posterior
+  `4f5d3ae2ff2d3b21df2f0ece82a607d7`). No se añadieron ni alteraron reportes o
+  movimientos de pago. La liquidación `798`, sin entradas de custodia, se conservó.
+- Inventario registró exclusivamente `sale_out` de una botella, movimiento
+  `14845`, artículo físico `35`. Las dos salidas del despacho original no se
+  repitieron; resultado `inventory_status = applied`.
+- Evento de auditoría `30825`, con motivo, actor, totales y destinatarios de
+  Cocina, Counter, asesor y motorizado. Operación idempotente
+  `083f81a2-46bc-4363-aad0-5f279bf74983`.
+- El detalle visible confirmó la partida nueva y el total. El pendiente USD
+  mostrado por el estado financiero canónico fue USD 36,15: conserva su cálculo
+  preciso propio, distinto del total USD redondeado por partidas. No se forzó
+  una igualdad artificial ni se modificó ese eje financiero compartido.
