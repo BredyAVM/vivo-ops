@@ -7,7 +7,7 @@ import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWork
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
 import { readOfferRestMode, type OfferRestMode } from '@/lib/crm/offer-rest';
-import { type PurchasedProductMode } from '@/lib/crm/purchased-products';
+import { type PurchasedProductMode, type PurchasedProductScope } from '@/lib/crm/purchased-products';
 import { groupPlaysByMonth, isPlayCurrentlyActive, playDateInput, type PlayListFilter } from '@/lib/crm/play-dates';
 import { ModulePreference } from '../../ModulePreference';
 import {
@@ -468,6 +468,7 @@ function PlayDefinitionForm({
   const [offerRestTo, setOfferRestTo] = useState(stringValue(rules.offer_rest_to));
   const [purchasedProductIds, setPurchasedProductIds] = useState<number[]>(() => Array.isArray(rules.purchased_product_ids) ? rules.purchased_product_ids.map(Number) : []);
   const [purchasedProductMode, setPurchasedProductMode] = useState<PurchasedProductMode>(rules.purchased_product_mode === 'all' ? 'all' : 'any');
+  const [purchasedProductScope, setPurchasedProductScope] = useState<PurchasedProductScope>(rules.purchased_product_scope === 'latest_delivery' ? 'latest_delivery' : 'any_purchase');
   const [productHistorySearch, setProductHistorySearch] = useState('');
   const [anniversaryMode, setAnniversaryMode] = useState<PlayAnniversaryMode>(() => {
     const storedMode = stringValue(rules.anniversary_mode);
@@ -653,6 +654,7 @@ function PlayDefinitionForm({
       offerRestTo,
       purchasedProductIds,
       purchasedProductMode,
+      purchasedProductScope,
       anniversaryMode,
       anniversaryMonth: anniversaryMonth === '' ? null : Number(anniversaryMonth),
       fulfillment,
@@ -1107,12 +1109,18 @@ function PlayDefinitionForm({
           </div>
           <details className="mb-3 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3" open={purchasedProductIds.length > 0}>
             <summary className="cursor-pointer text-[11px] font-semibold text-sky-100">Pedidos con estos productos · {purchasedProductIds.length === 0 ? 'sin filtro' : `${purchasedProductIds.length} seleccionados`}</summary>
-            <p className="mt-2 text-[10px] text-[#9B9BA7]">Busca en compras válidas históricas y actuales hasta el corte de la lista. Se combina con todos los demás filtros. No busca por el nombre ni por componentes internos de un combo.</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <p className="mt-2 text-[10px] text-[#9B9BA7]">{purchasedProductScope === 'latest_delivery' ? 'Primero identifica el último pedido válido de tipo delivery hasta el corte de la lista y después comprueba sus productos. Las compras posteriores por pickup no lo sustituyen.' : 'Busca en compras válidas históricas y actuales hasta el corte de la lista.'} Se combina con los demás filtros. No busca por el nombre ni por componentes internos de un combo.</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <Field label="Buscar en">
+                <select className={inputClass} value={purchasedProductScope} onChange={event => setPurchasedProductScope(event.target.value as PurchasedProductScope)}>
+                  <option value="any_purchase">Cualquier compra del historial</option>
+                  <option value="latest_delivery">Último pedido de tipo delivery</option>
+                </select>
+              </Field>
               <Field label="Productos requeridos">
                 <select className={inputClass} value={purchasedProductMode} onChange={event => setPurchasedProductMode(event.target.value as PurchasedProductMode)}>
                   <option value="any">Cualquiera de los seleccionados</option>
-                  <option value="all">Todos, incluso en pedidos distintos</option>
+                  <option value="all">{purchasedProductScope === 'latest_delivery' ? 'Todos en ese último delivery' : 'Todos, incluso en pedidos distintos'}</option>
                 </select>
               </Field>
               <Field label="Buscar producto o código">
