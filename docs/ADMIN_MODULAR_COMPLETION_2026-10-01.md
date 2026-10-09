@@ -301,3 +301,41 @@ comisiones y bebidas adicionales. Compilación de producción y tipos estrictos
 aprobados. Lint del alcance nuevo sin alertas; los componentes consumidores
 existentes conservan seis advertencias previas, sin errores. No se ejecutaron
 migraciones ni escrituras de catálogo, pedidos, inventario o dinero para probar.
+
+## Protección de ítems sin cambios — 9 de octubre de 2026
+
+Primer tramo de la protección comercial: los editores compartidos de Admin,
+Master y Asesor conservan los importes USD/Bs certificados de una línea cuyo
+producto, cantidad y condiciones no cambiaron. Una modificación de fecha o
+nota no reconstruye esa línea con el catálogo ni con una tasa nueva. Los
+ajustes administrativos conservan identidad, responsable, fecha y motivo;
+un cambio explícito de precio, incluido cero, sigue su autorización habitual.
+
+La protección se comprueba nuevamente contra los ítems persistidos en servidor,
+no contra el precio enviado por el navegador. Se amplían lecturas ya existentes,
+sin consultas automáticas adicionales. El núcleo atómico mantiene sus controles
+de rol, propietario, estado, concurrencia, CRM e inventario. Su ruta retenida
+no escribe ítems idénticos; una edición de nota no puede alterar otros campos.
+
+Migración instalada: `20261009155720_preserve_existing_order_commercial_snapshots.sql`.
+No activa precios, hace rellenos históricos ni registra pagos o inventario.
+Comparación antes/después idéntica para catálogo activo y pedidos testigo #2534
+y #3166. La función auxiliar es privada, sin privilegios de definidor y sin
+ejecución anónima. La revisión de Supabase no añadió avisos: permanecen los 340
+hallazgos previos de seguridad y 224 de rendimiento, fuera del alcance de esta
+entrega; no equivalen a una certificación completa del sistema.
+Referencias de revisión: [permisos de funciones](https://supabase.com/docs/guides/database/functions)
+y [avisos de seguridad](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable).
+
+Verificación: 693 pruebas .mts y 22 comprobaciones PostgreSQL aisladas aprobadas,
+también con las definiciones actuales de las funciones de producción. Los casos
+cubren cambios de catálogo, aprobaciones previas, ceros, importes de línea no
+reconstruibles desde el unitario redondeado, permisos y sellos falsificados.
+Tipos estrictos y compilación de producción aprobados. Lint nuevo sin alertas;
+los consumidores antiguos mantienen sus 47 errores y 16 advertencias previos,
+sin incremento. No se guardó una orden real para verificar el editor.
+
+Pendiente antes de activar USD: preservar la conversión de borradores y
+presupuestos, separar cantidades antiguas y añadidas del mismo producto,
+definir versión/fecha de corte y cobranza de ventas nuevas/mixtas, y recalcular
+las jugadas con precio. Esta entrega no declara completa esa transición.

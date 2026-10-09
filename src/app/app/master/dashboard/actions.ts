@@ -31,7 +31,7 @@ import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rule
 import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicates';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from '@/lib/orders/approved-price-preservation';
-import { preservedOperationalSnapshot } from '@/lib/orders/operational-edit-pricing';
+import { preservedOperationalSnapshot, preservedUnchangedPriceSnapshot } from '@/lib/orders/operational-edit-pricing';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { searchClientSummaries } from '@/lib/search/client-search';
@@ -8366,7 +8366,9 @@ export async function updateOrderAction(input: {
     return { ok: false as const, code: 'approved_price_changed', message: APPROVED_PRICE_CHANGE_MESSAGE };
   }
   const preservedPriceById = new Map(input.items.flatMap((item) => {
-    const snapshot = !isAdmin ? preservedApprovedPriceSnapshot(item, approvedPricesById.get(Number(item.orderItemId)), true) ?? preservedOperationalSnapshot(item, approvedPricesById.get(Number(item.orderItemId))) : null;
+    const original = approvedPricesById.get(Number(item.orderItemId));
+    const snapshot = preservedUnchangedPriceSnapshot(item, original) ??
+      (!isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null);
     return snapshot ? [[Number(item.orderItemId), snapshot] as const] : [];
   }));
 

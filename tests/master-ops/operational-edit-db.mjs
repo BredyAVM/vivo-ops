@@ -43,6 +43,12 @@ await db.exec(`create trigger price_guard before insert or update or delete on o
   create trigger set_pricing before insert or update on order_items for each row execute function public.trg_order_items_set_pricing();
   create trigger crm_guard before insert or update on order_items for each row execute function app_private.crm_order_item_guard_v1();`);
 await db.exec(read('supabase/migrations/20261004190450_prehandoff_operational_item_changes.sql'));
+// Optional read-only production definitions, executed only in this isolated DB.
+if (process.env.VIVO_COMMERCIAL_RETENTION_FIXTURE) {
+  await db.exec(readFileSync(process.env.VIVO_COMMERCIAL_RETENTION_FIXTURE,'utf8'));
+  await db.exec("insert into exchange_rates(is_active,effective_at,rate_bs_per_usd) values(true,now(),871.37)");
+}
+await db.exec(read('supabase/migrations/20261009155720_preserve_existing_order_commercial_snapshots.sql'));
 const rows = async (sql,args=[]) => (await db.query(sql,args)).rows;
 let checks=0;
 const check = async (name,fn) => { await db.exec('begin'); try { await fn(); checks++; console.log('PASS '+name); } finally { await db.exec('rollback'); } };
@@ -158,6 +164,74 @@ await check('beverage-only additions or swaps do not send a ready pickup back to
   const kitchenPlan=(await rows('select public.counter_build_pickup_item_plan(1,$1::jsonb,$2::jsonb) plan',[
     JSON.stringify(items.map(item=>({item_id:item.id,qty:item.qty}))),JSON.stringify([{product_id:70,qty:1}])]))[0].plan;
   assert.equal(kitchenPlan.needsKitchen,true);
+});
+await check('Admin date-only edit retains approved identity, exact USD/Bs, approver/date and linked evidence',async()=>{
+  await db.exec("select set_config('test.role','admin',true)");
+  await save(items);
+  assert.deepEqual(await rows('select * from order_items order by id'),previous);
+  assert.equal((await rows('select count(*) n from test_item_writes'))[0].n,0);
+  assert.equal((await rows('select count(*) n from test_audit where item_id is not null'))[0].n,2);
+});
+await check('Admin saves an ordinary VES line byte-for-byte after catalog switches to USD',async()=>{
+  await db.exec("select set_config('test.role','admin',true); update products set name='Bebida',sku='BEB',source_price_currency='VES',source_price_amount=2300,base_price_usd=2.64 where id=70; insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,unit_price_usd_snapshot,line_total_usd,unit_price_bs_snapshot,line_total_bs_snapshot) values(1,70,3,'VES',2300,2.64,7.92,2300,6900); update products set source_price_currency='USD',source_price_amount=2.5,base_price_usd=2.5 where id=70; delete from test_item_writes");
+  const normal=(await rows('select * from order_items where product_id=70'))[0];
+  await save([...items,{...normal,order_item_id:normal.id}]);
+  assert.deepEqual((await rows('select * from order_items where id=$1',[normal.id]))[0],normal);
+  assert.equal((await rows('select count(*) n from test_item_writes'))[0].n,0);
+});
+await check('Advisor keeps ordinary snapshots and identity on its own created order after catalog changes',async()=>{
+  await db.exec("select set_config('test.role','admin',true); update products set name='Bebida',sku='BEB',source_price_currency='VES',source_price_amount=2300,base_price_usd=2.64 where id=70; insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,unit_price_usd_snapshot,line_total_usd,unit_price_bs_snapshot,line_total_bs_snapshot) values(1,70,3,'VES',2300,2.64,7.92,2300,6900); delete from order_items where product_id<>70; update orders set status='created' where id=1; update products set source_price_currency='USD',source_price_amount=2.5,base_price_usd=2.5 where id=70; select set_config('test.role','advisor',true),set_config('test.uid','00000000-0000-0000-0000-000000000002',true); delete from test_item_writes");
+  const normal=(await rows('select * from order_items where product_id=70'))[0];
+  const result=(await rows('select app_private.update_order_core_atomic_v1(1,null,$1::jsonb,$2::jsonb) result',[
+    JSON.stringify({...patch,status:'created'}),JSON.stringify([{...normal,order_item_id:normal.id}])]))[0].result;
+  assert.deepEqual(result.item_ids,[normal.id]);
+  assert.deepEqual((await rows('select * from order_items where id=$1',[normal.id]))[0],normal);
+  assert.equal((await rows('select count(*) n from test_item_writes'))[0].n,0);
+});
+await check('note-only edit preserves certified non-unit-rounded line total',async()=>{
+  await db.exec("select set_config('test.role','admin',true); update products set name='Producto',sku='PRD',source_price_currency='USD',source_price_amount=3.1,base_price_usd=3.1 where id=70; insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,unit_price_usd_snapshot,line_total_usd,unit_price_bs_snapshot,line_total_bs_snapshot) values(1,70,3,'USD',3.1,3.1,9.3,2701.247,8103.741)");
+  // Seed certified historical evidence, not a result recomputed by today's trigger.
+  // This database and its trigger suspension are isolated from production.
+  await db.exec('alter table order_items disable trigger user; update order_items set line_total_usd=9.31 where product_id=70; alter table order_items enable trigger user');
+  const normal=(await rows('select * from order_items where product_id=70'))[0];
+  assert.equal(Number(normal.line_total_usd),9.31);
+  assert.notEqual(Number(normal.line_total_usd),Number(normal.unit_price_usd_snapshot)*Number(normal.qty));
+  await save([...items,{...normal,order_item_id:normal.id,notes:'Empaque aparte'}]);
+  const updated=(await rows('select * from order_items where id=$1',[normal.id]))[0];
+  assert.equal(updated.line_total_usd,normal.line_total_usd);
+  assert.equal(updated.line_total_bs_snapshot,normal.line_total_bs_snapshot);
+  assert.equal(updated.notes,'Empaque aparte');
+});
+await check('real Admin price correction to zero remains allowed; unaffected approval is untouched',async()=>{
+  await db.exec("select set_config('test.role','admin',true)");
+  const result=await save([items[0],{...items[1],pricing_origin_currency:'USD',pricing_origin_amount:0,
+    unit_price_usd_snapshot:0,line_total_usd:0,unit_price_bs_snapshot:0,line_total_bs_snapshot:0,
+    admin_price_override_usd:0,admin_price_override_reason:'Corrección autorizada'}]);
+  assert.equal(result.item_count,2);
+  assert.deepEqual((await rows('select * from order_items where id=1'))[0],previous[0]);
+  assert.equal(Number((await rows('select line_total_usd from order_items where product_id=200'))[0].line_total_usd),0);
+});
+await check('retention predicate rejects copied CRM or changed economic evidence',async()=>{
+  for(const change of [{qty:3},{unit_price_usd_snapshot:9},{line_total_usd:9},{pricing_origin_currency:'USD'},
+    {pricing_origin_amount:9},{unit_price_bs_snapshot:9},{line_total_bs_snapshot:9},{crm_play_benefit_id:1},
+    {admin_price_override_reason:'Nueva aprobación'},{notes:'Composición diferente'},
+    {admin_price_override_by_user_id:'00000000-0000-0000-0000-000000000099'},
+    {admin_price_override_at:'2030-01-01'},{override_approved_by:'00000000-0000-0000-0000-000000000099'}]) {
+    const result=(await rows('select app_private.order_item_same_commercial_terms_v1($1::jsonb,$2::jsonb) retained',[
+      JSON.stringify(previous[1]),JSON.stringify({...previous[1],...change})]))[0].retained;
+    assert.equal(result,false);
+  }
+});
+await check('forged Admin approval stamps are ignored on the retained core path',async()=>{
+  await db.exec("select set_config('test.role','admin',true)");
+  await save(items.map(item=>({...item,admin_price_override_by_user_id:'00000000-0000-0000-0000-000000000099',
+    admin_price_override_at:'2030-01-01'})));
+  assert.deepEqual(await rows('select * from order_items order by id'),previous);
+});
+await check('new pure private helper has no anonymous execution and no definer powers',async()=>{
+  const privilege=(await rows("select has_function_privilege('anon','app_private.order_item_same_commercial_terms_v1(jsonb,jsonb)','EXECUTE') as anon, has_function_privilege('authenticated','app_private.order_item_same_commercial_terms_v1(jsonb,jsonb)','EXECUTE') as authenticated, p.prosecdef as definer, p.proconfig as config from pg_proc p where p.oid='app_private.order_item_same_commercial_terms_v1(jsonb,jsonb)'::regprocedure"))[0];
+  assert.equal(privilege.anon,false);assert.equal(privilege.authenticated,true);assert.equal(privilege.definer,false);
+  assert.deepEqual(privilege.config,['search_path=""']);
 });
 console.log(`${checks} operational database checks passed`);
 await db.close();

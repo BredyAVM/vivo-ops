@@ -19,7 +19,7 @@ import {
 import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from "@/lib/orders/approved-price-preservation";
-import { preservedOperationalSnapshot } from "@/lib/orders/operational-edit-pricing";
+import { preservedOperationalSnapshot, preservedUnchangedPriceSnapshot } from "@/lib/orders/operational-edit-pricing";
 import {
   cancelOrderAction,
   confirmPaymentReportAction,
@@ -2291,7 +2291,8 @@ async function prepareMasterOpsOrderSave(
   }
   const recalculatedItems = preparedItems.map((item) => {
     const original = approvedPricesById.get(Number(item.orderItemId));
-    const preserved = !isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null;
+    const preserved = preservedUnchangedPriceSnapshot(item, original) ??
+      (!isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null);
     const snapshot = preserved ?? calculateOrderLineSnapshot({
       sourceCurrency: item.sourcePriceCurrency,
       sourceAmount: item.sourcePriceAmount,

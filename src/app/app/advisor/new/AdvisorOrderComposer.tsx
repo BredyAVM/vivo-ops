@@ -12,6 +12,8 @@ import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone
 import { normalizeRemoteSearchValue, normalizeSearchValue, splitSearchTokens } from '@/lib/search/normalize-search';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import { storedApprovedPriceLine, type ApprovedPriceLine } from '@/lib/orders/approved-price-preservation';
+import { preservedUnchangedPriceSnapshot } from '@/lib/orders/operational-edit-pricing';
 import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/play-order';
 import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persistence';
 import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
@@ -261,6 +263,10 @@ type ExistingOrderItemRow = {
   pricing_origin_amount: number | string | null;
   unit_price_usd_snapshot: number | string | null;
   line_total_usd: number | string | null;
+  unit_price_bs_snapshot: number | string | null;
+  line_total_bs_snapshot: number | string | null;
+  admin_price_override_usd: number | string | null;
+  admin_price_override_reason: string | null;
   sku_snapshot: string | null;
   product_name_snapshot: string | null;
   notes: string | null;
@@ -1577,6 +1583,7 @@ export default function AdvisorOrderComposer({
   const copyingQuoteRef = useRef(false);
   const savingOrderRef = useRef(false);
   const orderCreationRequestRef = useRef<string | null>(null);
+  const originalItemPricesRef = useRef(new Map<number, ApprovedPriceLine>());
   const savingDraftRef = useRef(false);
   const crmLookupRequestRef = useRef(0);
   const [itemJustAdded, setItemJustAdded] = useState(false);
@@ -1670,16 +1677,25 @@ export default function AdvisorOrderComposer({
   }), [crmPurchaseEligible, draftItems, isEditingOrder]);
   const draftItemSnapshots = useMemo(
     () =>
-      draftItems.map((item, index) =>
-        calculateOrderLineSnapshot({
+      draftItems.map((item, index) => {
+        const preserved = isEditingOrder && !advisorRecalculationMode
+          ? preservedUnchangedPriceSnapshot({
+              orderItemId: item.persistedOrderItemId, productId: item.product_id, qty: item.qty,
+              sourcePriceCurrency: item.source_price_currency, sourcePriceAmount: item.source_price_amount,
+              adminPriceOverrideUsd: null, adminPriceOverrideReason: null,
+              editableDetailLines: item.editable_detail_lines, crmPlayMemberId: item.crm_benefit?.playMemberId,
+              unitPriceUsdSnapshot: item.unit_price_usd_snapshot, lineTotalUsd: item.line_total_usd,
+            }, originalItemPricesRef.current.get(Number(item.persistedOrderItemId)))
+          : null;
+        return preserved ?? calculateOrderLineSnapshot({
           sourceCurrency: effectiveDraftPricing[index]?.sourceCurrency ?? item.source_price_currency,
           sourceAmount: effectiveDraftPricing[index]?.sourceAmount ?? Number(item.source_price_amount || 0),
           quantity: Number(item.qty || 0),
           fxRate: fxRateNumber,
           fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
-        })
-      ),
-    [draftItems, effectiveDraftPricing, fxRateNumber]
+        });
+      }),
+    [draftItems, effectiveDraftPricing, fxRateNumber, isEditingOrder, advisorRecalculationMode]
   );
   const displayDraftItems = sortOrderItemsByPriority(
     draftItems.map((item, index) => ({ item, index })),
@@ -2057,7 +2073,7 @@ export default function AdvisorOrderComposer({
             supabase
               .from('order_items')
               .select(
-                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, sku_snapshot, product_name_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, product:products(type, units_per_service)'
+                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, sku_snapshot, product_name_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, product:products(type, units_per_service)'
               )
               .eq('order_id', Number(sourceOrderId))
               .order('id', { ascending: true }),
@@ -2162,6 +2178,9 @@ export default function AdvisorOrderComposer({
 
           const orderClient = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
           const existingOrderItems = (existingItemsResult?.data ?? []) as ExistingOrderItemRow[];
+          originalItemPricesRef.current = isRepeatingOrder ? new Map() : new Map(
+            existingOrderItems.map((item) => [Number(item.id), storedApprovedPriceLine(item)]),
+          );
           const redemptionStatusByOrderItemId = new Map(
             ((existingRedemptionsResult?.data ?? []) as ExistingCrmRedemptionRow[])
               .map((redemption) => [Number(redemption.order_item_id), redemption.status] as const)
@@ -3526,7 +3545,9 @@ export default function AdvisorOrderComposer({
           editable_detail_lines: detailLines,
         } satisfies DraftItem
       : {
-          ...buildDraftItem(configProduct, configQty, detailLines),
+          ...(editingItem && editingItem.product_id === configProduct.id && editingItem.qty === configQty
+            ? { ...editingItem, editable_detail_lines: detailLines }
+            : buildDraftItem(configProduct, configQty, detailLines)),
           persistedOrderItemId: editingItem?.persistedOrderItemId,
           crm_benefit: editingItem?.crm_benefit,
         } satisfies DraftItem;

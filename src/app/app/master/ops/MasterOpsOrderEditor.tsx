@@ -10,7 +10,7 @@ import { selectInputValue } from "@/lib/ui/select-input-value";
 import CrmOrderValidityPanel from "./CrmOrderValidityPanel";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot } from "@/lib/orders/approved-price-preservation";
-import { preservedOperationalSnapshot } from "@/lib/orders/operational-edit-pricing";
+import { preservedOperationalSnapshot, preservedUnchangedPriceSnapshot } from "@/lib/orders/operational-edit-pricing";
 import {
   buildComponentDetailLines,
   getVisibleEditableDetailLines,
@@ -480,7 +480,8 @@ export default function MasterOpsOrderEditor({
   const calculatedItems = useMemo(
     () => (form?.items ?? []).map((item) => {
       const original = data?.order.items.find((row) => row.orderItemId === item.orderItemId);
-      const preserved = !isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null;
+      const preserved = preservedUnchangedPriceSnapshot(item, original) ??
+        (!isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null);
       return preserved ? { ...item, unitPriceUsdSnapshot: preserved.unitUsd, lineTotalUsd: preserved.lineUsd,
         unitPriceBsSnapshot: preserved.unitBs, lineTotalBsSnapshot: preserved.lineBs } : recalculateItem(item, fxRate);
     }),

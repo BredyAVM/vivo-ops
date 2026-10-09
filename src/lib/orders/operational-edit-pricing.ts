@@ -1,4 +1,20 @@
 import type { ApprovedPriceLine } from './approved-price-preservation';
+import { preservedApprovedPriceSnapshot } from './approved-price-preservation.ts';
+
+/**
+ * Opening an editor is not a new quotation. All roles retain the certified
+ * snapshots of an unchanged line, including Admin. Never infer Bs from rounded
+ * USD, and never treat a copied/new line as evidence of an old agreement.
+ * Quantity increases and explicit repricing are separate commercial decisions.
+ */
+export function preservedUnchangedPriceSnapshot(next: ApprovedPriceLine, previous?: ApprovedPriceLine) {
+  if (!previous || next.qty !== previous.qty) return null;
+  if (previous.adminPriceOverrideUsd != null) return preservedApprovedPriceSnapshot(next, previous);
+  if (next.crmPlayMemberId || previous.crmPlayMemberId ||
+    next.crmPlayBenefitId || previous.crmPlayBenefitId ||
+    next.crmPlayBenefitUpgradeId || previous.crmPlayBenefitUpgradeId) return null;
+  return preservedOperationalSnapshot(next, previous);
+}
 
 /** Operational quantities do not renegotiate the prices of retained products. */
 export function preservedOperationalSnapshot(next: ApprovedPriceLine, previous?: ApprovedPriceLine) {
