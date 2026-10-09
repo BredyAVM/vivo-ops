@@ -21,7 +21,7 @@ export type OrderPaymentQuote = {
   pendingBs: number;
   exchangeRate: number;
   activeRate: number;
-  collectionMode: 'snapshot_quote' | 'post_delivery_usd';
+  collectionMode: 'snapshot_quote' | 'post_delivery_usd' | 'native_usd';
   generatedAt: string;
   operationDate: string;
   pendingReportsCount: number;
@@ -63,7 +63,7 @@ export function buildOrderPaymentQuote(input: {
   const { state, orderId, activeRate, now } = input;
   if (Number(state.order_id) !== orderId) throw new Error('La cotización no corresponde a esta orden.');
   if (!Number.isFinite(activeRate) || activeRate <= 0) throw new Error('No hay una tasa vigente válida.');
-  if (state.collection_mode !== 'snapshot_quote' && state.collection_mode !== 'post_delivery_usd') {
+  if (state.collection_mode !== 'snapshot_quote' && state.collection_mode !== 'post_delivery_usd' && state.collection_mode !== 'native_usd') {
     throw new Error('La orden requiere revisar su regla de cobranza antes de cotizar.');
   }
   // These are certified balances. Never rebuild Bs from the displayed, rounded USD balance.
@@ -87,6 +87,7 @@ export function buildOrderPaymentQuote(input: {
   ];
   if (pendingUsd === 0 && pendingBs === 0) parts.push('Sin deuda pendiente.');
   if (state.collection_mode === 'snapshot_quote') parts.push('Se conserva el monto en bolívares acordado para esta orden.');
+  if (state.collection_mode === 'native_usd') parts.push('El saldo en USD se conserva; solo su equivalente en Bs cambia con la tasa vigente.');
   if (pendingReportsCount > 0) parts.push('Hay pagos por revisar; todavía no están descontados de este saldo.');
   parts.push('Esta consulta no registra un pago.');
   return { orderId, orderLabel, pendingUsd, pendingBs, exchangeRate, activeRate,

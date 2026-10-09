@@ -401,3 +401,30 @@ añadidos. El lint del alcance nuevo pasó; los archivos heredados mantienen los
 
 Antes de activar siguen pendientes la regla de cobranza de ventas nuevas/mixtas,
 los importes de las seis jugadas con precio y la activación/validación final.
+
+## Cobranza USD por versión — 9 de octubre de 2026
+
+Bloque 3: `20261009182000_native_usd_order_collection_policy.sql`, instalada.
+Decisión confirmada: ventas nuevas tienen principal USD fijo; solo el saldo
+pendiente se convierte a la tasa de la operación. Los abonos conservan su USD
+histórico. No hay congelación de Bs ni plazo automático de crédito para ellas.
+Las órdenes existentes, incluso de origen USD, conservan la regla anterior.
+
+La activación sigue deshabilitada hasta completar jugadas y catálogo. Tres
+tablas privadas, sin acceso directo de aplicación y con RLS de denegación,
+registran el corte y las creaciones nuevas. No se confía en banderas del cliente.
+La conversión certificada de un presupuesto anterior conserva también su regla
+de cobranza; los presupuestos nuevos usarán USD fijo y tasa vigente. Un bloqueo
+transaccional coordina la creación con el corte del catálogo.
+
+Cotización y captura de pagos usan la misma regla; incluso el excedente de un
+pago posterior al cierre conserva la tasa propia del pago. Se mantiene el cierre
+auditado de residuos inferiores a un centavo, sin inventar dinero en banco/caja.
+Las pantallas nuevas no deducen la tasa dividiendo importes ya redondeados.
+
+Verificación: 700 pruebas .mts, suite PostgreSQL aislada con funciones reales,
+tipos y compilación de producción aprobados. Los 23 campos del estado financiero
+de ocho órdenes testigo fueron idénticos antes/después; catálogo, presupuestos y
+órdenes conservaron sus hashes. Seguridad: los 342 avisos previos no cambiaron;
+solo se añaden tres avisos informativos por RLS sin políticas en tablas privadas
+deliberadamente inaccesibles. No se registraron operaciones reales de prueba.

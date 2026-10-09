@@ -3028,6 +3028,8 @@ function OrderDetailPanel({
                             ? `Presupuesto congelado: se conserva ${formatMasterOrderBs(effectivePaymentSuggestion.pendingBs)} pendiente de la orden.`
                             : paymentCollectionMode === "post_delivery_usd"
                               ? "Cobranza dolarizada: la fecha de operacion es posterior a la entrega y usa la tasa activa."
+                              : paymentCollectionMode === "native_usd"
+                                ? "Precio fijo en USD: solo el saldo pendiente se convierte a la tasa de la operación. Los abonos anteriores se conservan."
                               : `Monto sugerido segun el estado financiero de la orden: ${formatMasterOrderBs(effectivePaymentSuggestion.pendingBs)}.`}
                         {paymentSuggestionError ? (
                           <div className="mt-1 text-amber-300">

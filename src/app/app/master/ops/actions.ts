@@ -945,7 +945,9 @@ export async function loadMasterOpsPaymentSuggestionAction(input: {
       : null;
     const snapshotRateValue = Number(state.snapshot_rate_bs_per_usd);
     const exchangeRate =
-      pendingBs != null && pendingBs > 0.005 && pendingUsd > 0.005
+      state.collection_mode === "native_usd"
+        ? activeRate
+        : pendingBs != null && pendingBs > 0.005 && pendingUsd > 0.005
         ? Number((pendingBs / pendingUsd).toFixed(4))
         : state.snapshot_rate_bs_per_usd != null && Number.isFinite(snapshotRateValue) && snapshotRateValue > 0
           ? Number(snapshotRateValue.toFixed(4))

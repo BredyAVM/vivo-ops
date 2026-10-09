@@ -47,6 +47,17 @@ test('only current debt is quoted, with pending report warning and short order n
   assert.doesNotMatch(quote.text, /TOTAL.*pedido/);
 });
 
+test('new native USD orders quote only the unpaid USD at the current FX before delivery too', () => {
+  const quote = buildOrderPaymentQuote({ orderId: 2934, activeRate: 900, now,
+    state: { ...state, collection_mode: 'native_usd', pending_usd: 9, pending_bs: 8100 } });
+  assert.equal(quote.exchangeRate, 900);
+  assert.equal(quote.pendingUsd, 9);
+  assert.equal(quote.pendingBs, 8100);
+  assert.match(quote.text, /Tasa vigente/);
+  assert.match(quote.text, /saldo en USD se conserva/);
+  assert.doesNotMatch(quote.text, /Se conserva el monto en bolívares acordado/);
+});
+
 test('Caracas date is used across UTC midnight', () => {
   assert.equal(quoteOperationDate(new Date('2026-10-10T02:00:00Z')), '2026-10-09');
   assert.equal(quoteOperationDate(new Date('2026-10-10T04:00:00Z')), '2026-10-10');
