@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition, type ReactNode } from 'react';
 import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { paymentCollectionValueRate } from '@/lib/orders/collection-policy';
 import { CounterAmountReview } from './CounterAmountReview';
 import { COUNTER_AMOUNT_HINT, formatCounterAmount, parseCounterAmount } from './amount-review';
 import {
@@ -132,8 +133,7 @@ function canonicalPaymentAmount(currency: 'USD' | 'VES', quote: CounterPaymentQu
 }
 
 function paymentValueRate(quote: CounterPaymentQuote) {
-  if (quote.collectionMode === 'post_delivery_usd') return quote.exchangeRate;
-  return quote.snapshotRate || quote.exchangeRate;
+  return paymentCollectionValueRate(quote);
 }
 
 function createPaymentDraft(

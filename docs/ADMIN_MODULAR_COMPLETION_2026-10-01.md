@@ -452,3 +452,49 @@ obsequios cero y permisos; 700 pruebas .mts, tipos y compilación aprobados.
 Los hashes de todas las ampliaciones, líneas CRM y redenciones permanecieron
 idénticos antes/después. Seguridad: 345 avisos, sin nuevos respecto al bloque 3.
 Queda activar el catálogo y verificar la experiencia publicada.
+
+## Activación de catálogo USD — 9 de octubre de 2026
+
+Bloque 5: `20261009183635_activate_native_usd_catalog.sql`, instalada.
+Corte efectivo: 09/10/2026 a las 14:36:35 de Caracas (18:36:35 UTC).
+Los 111 productos activos quedan nativos USD: 79 precios aprobados, seis
+ampliaciones de jugadas y 26 obsequios/ítems de precio cero. Se conservan los
+dos precios que ya eran USD. Cada precio anterior y nuevo queda en una tabla
+de auditoría privada; no se crean transferencias ni movimientos de inventario.
+
+La activación exige que ningún precio aprobado haya cambiado y se revierte
+completa ante inconsistencias. El corte y las altas de órdenes/presupuestos se
+coordinan transaccionalmente. Las órdenes anteriores no se enrolan; presupuestos
+guardados previamente conservan sus precios y su regla al convertirse después.
+Las unidades nuevas añadidas a una orden anterior usan el catálogo vigente,
+separadas de las unidades ya acordadas. Los ajustes administrativos siguen
+disponibles para excepciones explícitas.
+
+La comprobación final identificó y corrigió el reconocimiento del modo nativo
+USD en el reporte del asesor y el cobro de mostrador. Ambos reutilizan el estado
+financiero que ya consultaban: los abonos conservan su valor USD y solo el saldo
+pendiente utiliza la tasa vigente. No se añaden lecturas históricas ni consultas
+al escribir. Las pantallas de órdenes y cotización de pago usan la misma regla.
+Las notas WhatsApp conservan el presupuesto original; la cotización de pago
+actualiza explícitamente el saldo a pagar, su equivalente Bs y la tasa vigente.
+
+Comprobación de datos reales: los 23 campos financieros de ocho órdenes testigo
+permanecieron idénticos; presupuestos #835/#842/#843 y órdenes #2534/#3166
+conservaron sus hashes. Todas las configuraciones de ampliación, líneas CRM y
+redenciones conservaron sus hashes. La consulta publicada de Loyal muestra
+ampliaciones USD 1,50/2,50 y la lista de precios muestra moneda USD y montos
+aprobados. No se guardaron órdenes, pagos ni operaciones de prueba en producción.
+
+Seguridad: los 345 avisos previos no cambiaron; únicamente se añade un aviso
+informativo de RLS sin políticas para la auditoría privada, inaccesible desde
+la aplicación. Se comprobaron 706 pruebas .mts y las suites PostgreSQL aisladas
+de presupuestos, edición, cobranza, CRM y activación, incluyendo reversión ante
+precio desactualizado y conservación del historial. El lint del último alcance
+no tiene errores y conserva cuatro advertencias heredadas en el detalle asesor.
+La configuración general de tipos de pruebas conserva incompatibilidades
+anteriores; la compilación productiva usa `tsconfig.build.json` con control
+estricto del código de aplicación.
+
+Operación: recargar las pantallas ya abiertas antes de iniciar pedidos nuevos
+para que no conserven el catálogo cargado antes del corte. No hay que volver
+a registrar pagos ni recrear las órdenes existentes.

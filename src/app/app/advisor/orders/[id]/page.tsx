@@ -169,6 +169,7 @@ type RawOrderFinancialStateRow = {
   rejected_reports_count: number | string | null;
   pending_usd: number | string | null;
   pending_bs: number | string | null;
+  collection_mode: string | null;
 };
 
 type RawTimelineEvent = {
@@ -1284,6 +1285,7 @@ export default async function AdvisorOrderDetailPage({
             activeBsRate={activeBsRate}
             snapshotBsRate={snapshotBsRate}
             deliveryReferenceDate={deliveryReferenceDate}
+            nativeUsdCollection={financialState?.collection_mode === 'native_usd'}
             whatsappSummary={whatsappSummary}
             whatsappContactHref={whatsappContactHref}
             preferWhatsApp={shouldHighlightWhatsApp}

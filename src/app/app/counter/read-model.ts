@@ -1,4 +1,5 @@
 import 'server-only';
+import { normalizePaymentCollectionMode } from '@/lib/orders/collection-policy';
 
 import {
   getOrderMoneySnapshot,
@@ -191,10 +192,7 @@ function mapCounterPaymentQuote(value: unknown): CounterPaymentQuote {
     pendingBs: roundOrderMoney(quote.pendingBs),
     exchangeRate: toNumber(quote.exchangeRate, 0),
     snapshotRate: toNumber(quote.snapshotRate, 0),
-    collectionMode:
-      collectionMode === 'snapshot_quote' || collectionMode === 'post_delivery_usd'
-        ? collectionMode
-        : 'closed',
+    collectionMode: normalizePaymentCollectionMode(collectionMode),
   };
 }
 

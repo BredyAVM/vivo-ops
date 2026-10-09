@@ -8,6 +8,7 @@ import OrderPaymentQuoteButton from '@/components/orders/OrderPaymentQuoteButton
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { parseDecimalInput } from '@/lib/number-input';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
+import { paymentCollectionGuidance } from '@/lib/orders/collection-policy';
 import {
   getPaymentReportRequirements,
   isAdvisorPaymentReportMethod,
@@ -76,20 +77,8 @@ function operationDateIsAfterDeliveryDate(operationDate: string | null | undefin
   return effectiveOperationDate.localeCompare(deliveryDate) > 0;
 }
 
-function getPaymentCollectionMode(operationDate: string | null | undefined, deliveryReferenceDate: string | null | undefined) {
-  if (operationDateIsAfterDeliveryDate(operationDate, deliveryReferenceDate)) {
-    return {
-      key: 'post_delivery_usd',
-      label: 'Cobranza dolarizada',
-      description: 'La fecha de operacion es posterior a la entrega: el saldo Bs se calcula con la tasa activa.',
-    } as const;
-  }
-
-  return {
-    key: 'snapshot_quote',
-    label: 'Presupuesto snapshot',
-    description: 'Se mantiene el monto Bs congelado del presupuesto.',
-  } as const;
+function getPaymentCollectionMode(operationDate: string | null | undefined, deliveryReferenceDate: string | null | undefined, nativeUsd: boolean) {
+  return paymentCollectionGuidance(nativeUsd, operationDateIsAfterDeliveryDate(operationDate, deliveryReferenceDate));
 }
 
 function inputClass(multiline = false) {
@@ -149,6 +138,7 @@ export default function OrderDetailActions({
   activeBsRate,
   snapshotBsRate,
   deliveryReferenceDate,
+  nativeUsdCollection = false,
   whatsappSummary,
   whatsappContactHref,
   preferWhatsApp = false,
@@ -172,6 +162,7 @@ export default function OrderDetailActions({
   activeBsRate: number;
   snapshotBsRate: number;
   deliveryReferenceDate: string | null;
+  nativeUsdCollection?: boolean;
   whatsappSummary: string;
   whatsappContactHref?: string;
   preferWhatsApp?: boolean;
@@ -231,12 +222,12 @@ export default function OrderDetailActions({
   );
   const availablePaymentMethods = selectedAccount?.paymentMethodCodes?.length ? selectedAccount.paymentMethodCodes : [];
   const paymentRequirements = getPaymentReportRequirements(reportPaymentMethod);
-  const collectionMode = getPaymentCollectionMode(operationDate, deliveryReferenceDate);
+  const collectionMode = getPaymentCollectionMode(operationDate, deliveryReferenceDate, nativeUsdCollection);
   const useSnapshotQuote = collectionMode.key === 'snapshot_quote';
   const suggestedVesAmount = getSuggestedAccountAmount(balanceUsd, balanceBs, 'VES', activeBsRate, useSnapshotQuote);
   const getSuggestedPaymentAmount = useCallback(
     (currencyCode: string | null | undefined, nextOperationDate = operationDate) => {
-      const nextMode = getPaymentCollectionMode(nextOperationDate, deliveryReferenceDate);
+      const nextMode = getPaymentCollectionMode(nextOperationDate, deliveryReferenceDate, nativeUsdCollection);
       return getSuggestedAccountAmount(
         balanceUsd,
         balanceBs,
@@ -245,20 +236,20 @@ export default function OrderDetailActions({
         nextMode.key === 'snapshot_quote',
       );
     },
-    [activeBsRate, balanceBs, balanceUsd, deliveryReferenceDate, operationDate],
+    [activeBsRate, balanceBs, balanceUsd, deliveryReferenceDate, operationDate, nativeUsdCollection],
   );
   const getSuggestedPaymentExchangeRate = useCallback(
     (currencyCode: string | null | undefined, nextOperationDate = operationDate) => {
       if (currencyCode !== 'VES') return '';
 
-      const nextMode = getPaymentCollectionMode(nextOperationDate, deliveryReferenceDate);
+      const nextMode = getPaymentCollectionMode(nextOperationDate, deliveryReferenceDate, nativeUsdCollection);
       if (nextMode.key === 'snapshot_quote' && snapshotBsRate > 0) {
         return String(Number(snapshotBsRate.toFixed(4)));
       }
 
       return activeBsRate > 0 ? String(Number(activeBsRate.toFixed(4))) : '';
     },
-    [activeBsRate, deliveryReferenceDate, operationDate, snapshotBsRate],
+    [activeBsRate, deliveryReferenceDate, operationDate, snapshotBsRate, nativeUsdCollection],
   );
   const whatsappButtonClass = preferWhatsApp
     ? 'inline-flex h-9 items-center justify-center rounded-full bg-[#25D366] px-3.5 text-xs font-semibold text-[#07150C]'

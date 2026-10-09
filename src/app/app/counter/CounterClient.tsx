@@ -223,7 +223,7 @@ export type CounterPaymentQuote = {
   pendingBs: number;
   exchangeRate: number;
   snapshotRate: number;
-  collectionMode: 'snapshot_quote' | 'post_delivery_usd' | 'closed';
+  collectionMode: 'snapshot_quote' | 'post_delivery_usd' | 'native_usd' | 'closed';
 };
 
 export type CounterInvoiceSnapshot = {
