@@ -38,8 +38,8 @@ export default function OrderPaymentQuoteButton({ orderId }: { orderId: number }
     catch { setError('No se pudo copiar. Puedes seleccionar el texto de abajo.'); }
   }
 
-  return <div className="relative max-w-full" onKeyDown={event => {
-    if (open && event.key === 'Escape') { event.stopPropagation(); close(); }
+  return <div className="relative max-w-full" onKeyDownCapture={event => {
+    if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
   }}>
     <button ref={triggerRef} type="button" onClick={consult} disabled={pending} aria-expanded={open} aria-controls={open ? regionId : undefined}
       className="inline-flex min-h-11 items-center rounded-lg border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-2 text-xs font-semibold text-[#FEEF00] disabled:opacity-50 sm:min-h-9">

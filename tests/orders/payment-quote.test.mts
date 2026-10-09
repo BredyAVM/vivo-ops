@@ -123,12 +123,14 @@ test('every click reads fresh rate and debt, without a cache or a financial writ
   assert.match(component, /loadOrderPaymentQuoteAction\(\{ orderId \}\)/);
 });
 
-test('quote actions are compact, mobile touch targets and Escape preserves the parent drawer', () => {
+test('quote actions expose mobile touch targets and capture Escape before the parent document handler', () => {
   const component = readFileSync(new URL('../../src/components/orders/OrderPaymentQuoteButton.tsx', import.meta.url), 'utf8');
   const workspace = readFileSync(new URL('../../src/components/orders/OrdersWorkspaceClient.tsx', import.meta.url), 'utf8');
   assert.match(component, /min-h-11/);
   assert.match(component, /sm:min-h-9/);
   assert.match(component, /event.key === 'Escape'/);
+  assert.match(component, /onKeyDownCapture=/);
+  assert.match(component, /event.preventDefault\(\)/);
   assert.match(component, /event.stopPropagation\(\)/);
   assert.match(component, /triggerRef.current\?\.focus\(\)/);
   assert.match(workspace, /flex max-w-full flex-wrap items-center justify-end gap-2 self-end/);
