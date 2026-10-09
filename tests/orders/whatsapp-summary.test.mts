@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildWhatsAppOrderSummaryText, sanitizeWhatsAppCustomerNote, formatWhatsAppItemPrice,
-  formatWhatsAppBs, formatWhatsAppExchangeRate } from "../../src/lib/orders/whatsapp-summary.ts";
+  formatWhatsAppBs, formatWhatsAppExchangeRate, getWhatsAppLineUnits,
+  cleanWhatsAppUnitsFromName } from "../../src/lib/orders/whatsapp-summary.ts";
 
 test("removes the internal master reapproval marker from a customer note", () => {
   assert.equal(
@@ -58,16 +59,37 @@ test('legacy WhatsApp callers without metadata also keep delivery last', () => {
   assert.equal(lines[0].text, '1 Delivery Zona 2: Bs 100');
 });
 
-test('USD item unit price and line subtotal are explicit, including half services and gifts', () => {
+test('USD items show only their whole-line total, including multiple/half services and gifts', () => {
   assert.equal(formatWhatsAppItemPrice(1, 14), '$14.00');
-  assert.equal(formatWhatsAppItemPrice(2, 28), '$14.00 c/u · $28.00');
-  assert.equal(formatWhatsAppItemPrice(.5, 7), '$14.00 c/u · $7.00');
+  assert.equal(formatWhatsAppItemPrice(2, 28), '$28.00');
+  assert.equal(formatWhatsAppItemPrice(4, 52.53), '$52.53');
+  assert.equal(formatWhatsAppItemPrice(.5, 7), '$7.00');
+  assert.equal(formatWhatsAppItemPrice('1.5', '21'), '$21.00');
   assert.equal(formatWhatsAppItemPrice(1, 0), '$0.00');
+  assert.equal(formatWhatsAppItemPrice(4, 0), '$0.00');
   assert.throws(() => formatWhatsAppItemPrice(0, 14));
   assert.throws(() => formatWhatsAppItemPrice(1, Number.NaN));
   assert.throws(() => formatWhatsAppItemPrice(1, null));
   assert.throws(() => formatWhatsAppItemPrice(1, ''));
   assert.throws(() => formatWhatsAppItemPrice(null, 14));
+});
+
+test('four services keep 100 pieces and their agreed line total without unit-price round trips', () => {
+  const qty = 4;
+  const name = 'Mini Tequeños Fritos (25 und)';
+  const pieces = getWhatsAppLineUnits({ qty, name, unitsPerService: 25 });
+  const text = buildWhatsAppOrderSummaryText({
+    clientName: 'Cliente', fulfillment: 'pickup', deliveryText: 'Hoy',
+    lines: [{ text: `${qty} Serv. ${cleanWhatsAppUnitsFromName(name)} (${pieces} und): ${formatWhatsAppItemPrice(qty, 52.53)}` }],
+    price: { totalUsd: 52.53, totalBs: 45997.8945 },
+    exchangeRate: 875.65, calculatedAt: '2026-10-09T19:00:00Z',
+  });
+  assert.match(text, /4 Serv\. Mini Tequeños Fritos \(100 und\): \$52\.53/);
+  assert.doesNotMatch(text, /c\/u|\$13\.13/);
+  assert.match(text, /\*TOTAL USD:\* \$52\.53/);
+  assert.match(text, /\*Equivalente en bolívares:\* Bs 45\.997,89/);
+  assert.match(text, /\*Tasa del presupuesto:\* 875,65 Bs\/USD/);
+  assert.match(text, /\*Calculado:\* 09\/10\/2026/);
 });
 
 test('WhatsApp shows certified total Bs, USD, real FX and Caracas calculation timestamp', () => {

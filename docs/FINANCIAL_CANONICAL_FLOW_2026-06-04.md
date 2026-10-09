@@ -91,6 +91,9 @@ del precio actual del catálogo ni de una bandera enviada por la pantalla.
 - La cotización WhatsApp original conserva su tasa de presupuesto. La opción
   de cotizar el pago actual muestra el USD pendiente, el equivalente Bs y la
   tasa vigente sin registrar ni confirmar pagos.
+- Cada ítem de WhatsApp muestra cantidad, producto, unidades cuando aplican
+  y el importe USD total de esa línea, nunca precio unitario ni `c/u`.
+  El cierre conserva total USD, equivalente Bs, tasa y fecha/hora del cálculo.
 - Las ampliaciones de jugadas nuevas son Single 8/10 menos Single 6: con el
   catálogo aprobado, USD 1,50 / USD 2,50. Reservas, redenciones y condiciones
   anteriores no se reescriben; obsequios de precio cero siguen en cero.

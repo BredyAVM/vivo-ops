@@ -100,8 +100,9 @@ export function formatWhatsAppItemPrice(quantity: number | string | null, lineTo
   if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(total) || total < 0) {
     throw new Error('El ítem no tiene una cantidad o un precio USD válido.');
   }
-  const subtotal = formatWhatsAppUsd(total);
-  return qty === 1 ? subtotal : `${formatWhatsAppUsd(total / qty)} c/u · ${subtotal}`;
+  // The customer summary shows the certified whole-line amount, never a
+  // reconstructed unit price or a second multiplication by quantity.
+  return formatWhatsAppUsd(total);
 }
 
 export function formatWhatsAppExchangeRate(value: number) {
