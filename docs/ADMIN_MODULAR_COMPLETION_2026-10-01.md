@@ -339,3 +339,32 @@ Pendiente antes de activar USD: preservar la conversión de borradores y
 presupuestos, separar cantidades antiguas y añadidas del mismo producto,
 definir versión/fecha de corte y cobranza de ventas nuevas/mixtas, y recalcular
 las jugadas con precio. Esta entrega no declara completa esa transición.
+
+## Conversión de presupuestos acordados — 9 de octubre de 2026
+
+Bloque 1 de la transición USD: `20261009161328_preserve_agreed_draft_conversion.sql`.
+El asesor envía la identidad de cada línea guardada; la base la contrasta con
+evidencia privada vinculada al presupuesto, asesor, cliente, cantidad, precio y
+tasa. No acepta un indicador de confianza del navegador ni permite trasladar
+la cotización a otro cliente. Los importes completos USD/Bs se conservan, sin
+reconstruir el USD de la línea a partir del unitario redondeado. Las jugadas
+siguen su validación independiente y los eventos su contrato administrativo.
+
+La conversión, sus reservas temporales y el cierre del borrador pertenecen a
+una sola transacción. Los reintentos no duplican órdenes; una falla revierte
+también el estado del borrador. La tabla de evidencia no tiene acceso directo
+de usuarios o anónimos, y las funciones privadas cierran el search_path y
+verifican propiedad/rol. Dos avisos informativos `rls_enabled_no_policy` son
+intencionales para estas tablas privadas sin acceso de lectura o escritura;
+los otros 340 avisos de seguridad permanecen sin cambios.
+
+Comprobación real: todos los ítems ordinarios de los presupuestos abiertos
+tienen evidencia; el catálogo, tres presupuestos testigo y pedidos #2534/#3166
+mantuvieron hashes idénticos antes/después. No se registró ninguna operación
+financiera o de inventario. El conector de migraciones devolvió una sesión
+expirada en dos intentos, ambos sin aplicar cambios; la instalación alternativa
+registró SQL e historial juntos en una transacción, y se verificó su versión.
+
+Verificación: 693 pruebas existentes, 14 casos PostgreSQL aislados, tipos y
+compilación de producción aprobados. El catálogo USD aún no está activado.
+Quedan separación de cantidades, cobranza por versión, jugadas y activación.

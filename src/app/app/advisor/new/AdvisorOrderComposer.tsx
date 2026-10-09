@@ -4185,6 +4185,7 @@ export default function AdvisorOrderComposer({
 
         return {
           orderItemId: item.persistedOrderItemId ?? null,
+          draftPriceAgreementKey: activeDraftId && !isEditingOrder ? item.localId : null,
           productId: Number(item.product_id),
           qty: Number(item.qty || 0),
           sourcePriceCurrency: effectivePricing?.sourceCurrency ?? item.source_price_currency,

@@ -24,6 +24,7 @@ const STALE_ORDER_EDIT_MESSAGE =
 
 type ReplaceAdvisorOrderItemInput = {
   orderItemId: number | null;
+  draftPriceAgreementKey?: string | null;
   productId: number;
   qty: number;
   sourcePriceCurrency: 'VES' | 'USD';
@@ -1129,6 +1130,7 @@ export async function createAdvisorOrderAction(input: CreateAdvisorOrderInput) {
 
       return {
         product_id: productId,
+        draft_price_agreement_key: draftId == null ? null : String(item.draftPriceAgreementKey || '').slice(0, 200) || null,
         qty,
         pricing_origin_currency: item.sourcePriceCurrency === 'VES' ? 'VES' : 'USD',
         pricing_origin_amount: sourcePriceAmount,
