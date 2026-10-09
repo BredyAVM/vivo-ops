@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { playDateInput } from '@/lib/crm/play-dates';
+import { isPlayFollowUpDue } from '@/lib/crm/play-member-presentation';
 import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import MasterPlaysClient, {
@@ -392,6 +393,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
           id, play_id, client_id, advisor_id_snapshot, first_purchase_on,
           last_purchase_on, purchase_count, net_revenue_usd, average_ticket_usd,
           last_gift_on, days_since_last_purchase, workflow_status, benefit_status,
+          contacted_at, responded_at, play_launched_at, next_follow_up_at,
           client:clients!inner(id, full_name, phone),
           advisor:profiles!crm_play_members_advisor_id_snapshot_fkey(id, full_name)
         `, { count: 'exact' })
@@ -416,6 +418,9 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .range(from, to);
     if (membersResult.error) throw new Error(membersResult.error.message);
 
+    // Request-time deadline on a force-dynamic server page; never evaluated in the client render.
+    // eslint-disable-next-line react-hooks/purity
+    const memberStatusAt = Date.now();
     members = (membersResult.data ?? []).map((row) => {
       const client = one(row.client);
       const advisor = one(row.advisor);
@@ -436,6 +441,10 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         daysSinceLastPurchase: row.days_since_last_purchase == null ? null : Number(row.days_since_last_purchase),
         workflowStatus: String(row.workflow_status),
         benefitStatus: String(row.benefit_status),
+        contactedAt: row.contacted_at == null ? null : String(row.contacted_at),
+        respondedAt: row.responded_at == null ? null : String(row.responded_at),
+        playLaunchedAt: row.play_launched_at == null ? null : String(row.play_launched_at),
+        followUpDue: isPlayFollowUpDue(row.next_follow_up_at == null ? null : String(row.next_follow_up_at), memberStatusAt),
       };
     });
   }

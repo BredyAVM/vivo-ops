@@ -6,6 +6,7 @@ import BackLink from '@/components/navigation/BackLink';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
+import { workflowPresentation } from '@/lib/crm/play-member-presentation';
 import { readOfferRestMode, type OfferRestMode } from '@/lib/crm/offer-rest';
 import { type PurchasedProductMode, type PurchasedProductScope } from '@/lib/crm/purchased-products';
 import { groupPlaysByMonth, isPlayCurrentlyActive, playDateInput, type PlayListFilter } from '@/lib/crm/play-dates';
@@ -117,6 +118,10 @@ export type MasterPlayMember = {
   daysSinceLastPurchase: number | null;
   workflowStatus: string;
   benefitStatus: string;
+  contactedAt: string | null;
+  respondedAt: string | null;
+  playLaunchedAt: string | null;
+  followUpDue: boolean;
 };
 
 export type PlayAdvisorOption = {
@@ -1514,6 +1519,7 @@ function MemberList({
           <h2 className="text-sm font-semibold">2. Revisar lista</h2>
           <p className="mt-0.5 text-[10px] text-[#B7B7C2]">{memberCount.toLocaleString('es-VE')} clientes · ordenados por facturación</p>
           <p className="mt-1 text-[11px] text-[#B7B7C2]">Toca el nombre del cliente para ver sus órdenes y excepciones de esta jugada.</p>
+          <p className="mt-1 text-[10px] text-[#9B9BA7]">Seguimiento: mismos colores y estados que ve el asesor.</p>
         </div>
         <WorkspaceForm action="/app/master/plays" method="get" className="flex items-center gap-2">
           <input type="hidden" name="play" value={play.id} />
@@ -1532,46 +1538,55 @@ function MemberList({
           <div className="hidden grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px] gap-3 bg-[#0D0D11] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#9B9BA7] lg:grid">
             <span>Cliente</span><span>Asesor</span><span className="text-right">Cierres</span><span className="text-right">Facturación</span><span className="text-right">Sin comprar</span><span className="text-right">Últ. obsequio</span><span />
           </div>
-          {members.map((member) => (
-            <div key={member.id} className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 lg:grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px]">
-              <div className="min-w-0">
-                <Link
-                  href={`/app/master/plays/exceptions?client=${member.clientId}&member=${member.id}`}
-                  prefetch={false}
-                  aria-label={`Ver órdenes y excepciones de ${member.clientName}`}
-                  className="group block rounded-md py-1 outline-none hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-amber-300"
-                >
-                  <span className="block truncate text-xs font-semibold text-amber-100 underline decoration-amber-200/40 underline-offset-2 group-hover:text-amber-200">{member.clientName}</span>
-                  <span className="block text-[10px] text-[#B7B7C2]">Órdenes y excepciones →</span>
-                </Link>
-                <div className="mt-0.5 truncate text-[9px] text-[#9B9BA7]">#{member.clientId} · última {dateLabel(member.lastPurchaseOn)}</div>
+          {members.map((member) => {
+            const presentation = workflowPresentation(
+              member.workflowStatus, member.followUpDue, member.benefitStatus,
+              member.contactedAt, member.respondedAt, member.playLaunchedAt,
+            );
+            return (
+              <div key={member.id} className={`grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-l-4 px-3 py-2 lg:grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px] ${presentation.row}`}>
+                <div className="min-w-0">
+                  <Link
+                    href={`/app/master/plays/exceptions?client=${member.clientId}&member=${member.id}`}
+                    prefetch={false}
+                    aria-label={`Ver órdenes y excepciones de ${member.clientName}: ${presentation.label}`}
+                    className="group block rounded-md py-1 outline-none hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-amber-300"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${presentation.dot}`} />
+                      <span className="truncate text-xs font-semibold text-amber-100 underline decoration-amber-200/40 underline-offset-2 group-hover:text-amber-200">{member.clientName}</span>
+                    </span>
+                    <span className={`mt-1 inline-flex max-w-full rounded-full border px-1.5 py-0.5 text-[9px] leading-none ${presentation.chip}`}>{presentation.label}</span>
+                  </Link>
+                  <div className="mt-0.5 truncate text-[9px] text-[#9B9BA7]">#{member.clientId} · última {dateLabel(member.lastPurchaseOn)}</div>
+                </div>
+                <div className="hidden min-w-0 truncate text-[11px] text-[#B7B7C2] lg:block">{member.advisorName}</div>
+                <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.purchaseCount}</div>
+                <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{moneyFormatter.format(member.netRevenueUsd)}</div>
+                <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.daysSinceLastPurchase == null ? '—' : `${member.daysSinceLastPurchase} d`}</div>
+                <div className="hidden text-right text-[10px] tabular-nums text-[#D5D5DD] lg:block">{dateLabel(member.lastGiftOn)}</div>
+                {play.status === 'draft' || (['frozen', 'active', 'paused'].includes(play.status) && member.benefitStatus !== 'redeemed') ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onRemove(member)}
+                    title={play.status === 'draft' ? 'Retirar de esta prueba' : 'Retirar de la publicación'}
+                    aria-label={`Retirar a ${member.clientName} de esta jugada`}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-500/20 text-sm text-red-300 transition hover:bg-red-500/10 disabled:opacity-40"
+                  >
+                    ×
+                  </button>
+                ) : (
+                  <span className="text-center text-[10px] text-emerald-300" title={member.benefitStatus === 'redeemed' ? 'Beneficio ya utilizado: se conserva el historial' : undefined}>
+                    {member.benefitStatus === 'redeemed' ? '✓' : ''}
+                  </span>
+                )}
+                <div className="col-span-2 flex flex-wrap gap-1 text-[9px] text-[#8F8F9D] lg:hidden">
+                  <span>{member.advisorName}</span><span>·</span><span>{member.purchaseCount} cierres</span><span>·</span><span>{moneyFormatter.format(member.netRevenueUsd)}</span><span>·</span><span>{member.daysSinceLastPurchase ?? '—'} d</span><span>·</span><span>obsequio {dateLabel(member.lastGiftOn)}</span>
+                </div>
               </div>
-              <div className="hidden min-w-0 truncate text-[11px] text-[#B7B7C2] lg:block">{member.advisorName}</div>
-              <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.purchaseCount}</div>
-              <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{moneyFormatter.format(member.netRevenueUsd)}</div>
-              <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.daysSinceLastPurchase == null ? '—' : `${member.daysSinceLastPurchase} d`}</div>
-              <div className="hidden text-right text-[10px] tabular-nums text-[#D5D5DD] lg:block">{dateLabel(member.lastGiftOn)}</div>
-              {play.status === 'draft' || (['frozen', 'active', 'paused'].includes(play.status) && member.benefitStatus !== 'redeemed') ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onRemove(member)}
-                  title={play.status === 'draft' ? 'Retirar de esta prueba' : 'Retirar de la publicación'}
-                  aria-label={`Retirar a ${member.clientName} de esta jugada`}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-500/20 text-sm text-red-300 transition hover:bg-red-500/10 disabled:opacity-40"
-                >
-                  ×
-                </button>
-              ) : (
-                <span className="text-center text-[10px] text-emerald-300" title={member.benefitStatus === 'redeemed' ? 'Beneficio ya utilizado: se conserva el historial' : undefined}>
-                  {member.benefitStatus === 'redeemed' ? '✓' : ''}
-                </span>
-              )}
-              <div className="col-span-2 flex flex-wrap gap-1 text-[9px] text-[#8F8F9D] lg:hidden">
-                <span>{member.advisorName}</span><span>·</span><span>{member.purchaseCount} cierres</span><span>·</span><span>{moneyFormatter.format(member.netRevenueUsd)}</span><span>·</span><span>{member.daysSinceLastPurchase ?? '—'} d</span><span>·</span><span>obsequio {dateLabel(member.lastGiftOn)}</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
