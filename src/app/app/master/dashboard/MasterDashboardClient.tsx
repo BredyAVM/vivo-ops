@@ -62,6 +62,8 @@ import {
   parseEditableDetailLines,
 } from '@/lib/orders/order-composer';
 import { getOrderCommercialNetUsd } from '@/lib/orders/order-money';
+import { orderDetailCollectionSnapshot } from '@/lib/orders/detail-money-presentation';
+import { paymentCollectionGuidance } from '@/lib/orders/collection-policy';
 import { summarizeAdvisorNewClients } from '@/lib/commissions/commercial-criteria';
 import {
   commissionTermsEqual,
@@ -187,6 +189,8 @@ type OrderLine = {
   unitsPerService: number;
   priceBs: number;
   lineTotalUsd: number;
+  lineTotalBs?: number | null;
+  pricingOriginCurrency?: 'USD' | 'VES' | null;
   crmPlayName?: string | null;
   crmBenefitStatus?: 'reserved' | 'redeemed' | null;
   crmBenefitCreditUsd?: number | null;
@@ -1109,6 +1113,9 @@ type Order = {
   totalUsd: number;
   balanceUsd: number;
   totalBs: number;
+  pendingBs?: number | null;
+  paymentCollectionMode?: string | null;
+  paymentStateOperationDate?: string | null;
   paymentVerify: PaymentVerify;
   confirmedPaidUsd: number;
   pendingReportedUsd: number;
@@ -2723,6 +2730,13 @@ function getOrderPaymentBalanceBsAmount(
 ) {
   if (order.balanceUsd <= 0.005) return 0;
 
+  const operationKey = operationDate || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(currentTimeMs);
+  const canonical = orderDetailCollectionSnapshot(order, operationKey);
+  if (canonical) return canonical.pendingBs;
+  if (order.paymentCollectionMode === 'native_usd') {
+    return activeBsRate > 0 ? Number((order.balanceUsd * activeBsRate).toFixed(2)) : 0;
+  }
+
   if (operationDatePassedDeliveryGraceDay(order, operationDate, currentTimeMs) && activeBsRate > 0) {
     return Number((order.balanceUsd * activeBsRate).toFixed(2));
   }
@@ -2744,6 +2758,15 @@ function getOrderPaymentBalanceExchangeRate(
   currentTimeMs: number,
   operationDate?: string | null
 ) {
+  if (order.paymentCollectionMode === 'native_usd') {
+    return activeBsRate > 0 ? Number(activeBsRate.toFixed(4)) : 0;
+  }
+  const operationKey = operationDate || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(currentTimeMs);
+  const canonical = orderDetailCollectionSnapshot(order, operationKey);
+  if (canonical?.mode === 'post_delivery_usd') return activeBsRate > 0 ? Number(activeBsRate.toFixed(4)) : 0;
+  if (canonical?.mode === 'snapshot_quote' && Number(order.editMeta?.fxRate) > 0) {
+    return Number(Number(order.editMeta.fxRate).toFixed(4));
+  }
   const balanceBs = getOrderPaymentBalanceBsAmount(order, activeBsRate, currentTimeMs, operationDate);
   if (balanceBs > 0 && order.balanceUsd > 0.005) {
     return Number((balanceBs / order.balanceUsd).toFixed(4));
@@ -2769,6 +2792,8 @@ function getOrderCollectionMode(
 ) {
   if (order.balanceUsd <= 0.005) return null;
 
+  if (order.paymentCollectionMode === 'native_usd') return paymentCollectionGuidance(true, false);
+
   if (operationDatePassedDeliveryGraceDay(order, operationDate, currentTimeMs) && activeBsRate > 0) {
     return {
       key: 'post_delivery_usd',
@@ -2779,7 +2804,7 @@ function getOrderCollectionMode(
 
   return {
     key: 'snapshot_quote',
-    label: 'Presupuesto snapshot',
+    label: 'Monto Bs acordado',
     description: 'Se mantiene el monto Bs congelado del presupuesto.',
   } as const;
 }
@@ -3110,6 +3135,9 @@ function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
     clientOrderCount: order.clientOrderCount,
     totalUsd: order.totalUsd,
     totalBs: order.totalBs,
+    pendingBs: order.pendingBs,
+    paymentCollectionMode: order.paymentCollectionMode,
+    paymentStateOperationDate: order.paymentStateOperationDate,
     balanceUsd: order.balanceUsd,
     confirmedPaidUsd: order.confirmedPaidUsd,
     paymentVerify: order.paymentVerify,
@@ -3158,6 +3186,8 @@ function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
       unitsPerService: line.unitsPerService,
       priceBs: line.priceBs,
       lineTotalUsd: line.lineTotalUsd,
+      lineTotalBs: line.lineTotalBs,
+      pricingOriginCurrency: line.pricingOriginCurrency,
       crmPlayName: line.crmPlayName ?? null,
       crmBenefitStatus: line.crmBenefitStatus ?? null,
       crmBenefitCreditUsd: line.crmBenefitCreditUsd ?? null,

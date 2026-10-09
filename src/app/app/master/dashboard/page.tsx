@@ -124,6 +124,9 @@ type RawOrderItemRow = {
   qty: number | string;
   unit_price_usd_snapshot: number | string;
   line_total_usd: number | string;
+  pricing_origin_currency: string | null;
+  unit_price_bs_snapshot: number | string | null;
+  line_total_bs_snapshot: number | string | null;
   product_name_snapshot: string;
   sku_snapshot: string | null;
   notes: string | null;
@@ -3405,6 +3408,8 @@ const lines = rowItems.map((item) => {
     qty,
     unitsPerService,
     priceBs: unitPriceBs,
+    pricingOriginCurrency: item.pricing_origin_currency === 'USD' ? 'USD' as const : item.pricing_origin_currency === 'VES' ? 'VES' as const : null,
+    lineTotalBs: item.line_total_bs_snapshot == null ? null : toNumber(item.line_total_bs_snapshot, 0),
     lineTotalUsd: toNumber(item.line_total_usd, 0),
     crmPlayName: crmRedemption?.play_name_snapshot?.trim() || null,
     crmBenefitStatus: crmRedemption?.status ?? null,
@@ -3456,6 +3461,9 @@ return {
       totalUsd,
       balanceUsd,
       totalBs,
+      pendingBs: financialState?.pending_bs == null ? null : Math.max(0, roundMoney(financialState.pending_bs)),
+      paymentCollectionMode: financialState?.collection_mode ?? null,
+      paymentStateOperationDate: financialState?.effective_operation_date ?? null,
       paymentVerify,
       confirmedPaidUsd,
       pendingReportedUsd: financialState

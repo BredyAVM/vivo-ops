@@ -158,6 +158,8 @@ type MasterOpsDetailItemRow = {
   product_id: number | string | null;
   qty: number | string | null;
   unit_price_bs_snapshot: number | string | null;
+  pricing_origin_currency: string | null;
+  line_total_bs_snapshot: number | string | null;
   line_total_usd: number | string | null;
   product_name_snapshot: string | null;
   notes: string | null;
@@ -374,6 +376,8 @@ export async function loadMasterOpsOrderDetailAction(input: {
           product_id,
           qty,
           unit_price_bs_snapshot,
+          pricing_origin_currency,
+          line_total_bs_snapshot,
           line_total_usd,
           product_name_snapshot,
           notes
@@ -554,6 +558,8 @@ export async function loadMasterOpsOrderDetailAction(input: {
             ? productUnits
             : extractMasterOpsUnitsPerService(productName),
         priceBs: roundOpsMoney(item.unit_price_bs_snapshot),
+        pricingOriginCurrency: item.pricing_origin_currency === 'USD' ? 'USD' : item.pricing_origin_currency === 'VES' ? 'VES' : null,
+        lineTotalBs: item.line_total_bs_snapshot == null ? null : roundOpsMoney(item.line_total_bs_snapshot),
         lineTotalUsd: roundOpsMoney(item.line_total_usd),
         crmPlayName: crmRedemption?.play_name_snapshot?.trim() || null,
         crmBenefitStatus: crmRedemption?.status ?? null,

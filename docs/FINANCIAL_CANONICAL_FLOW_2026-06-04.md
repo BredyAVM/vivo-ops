@@ -94,6 +94,11 @@ del precio actual del catálogo ni de una bandera enviada por la pantalla.
 - Cada ítem de WhatsApp muestra cantidad, producto, unidades cuando aplican
   y el importe USD total de esa línea, nunca precio unitario ni `c/u`.
   El cierre conserva total USD, equivalente Bs, tasa y fecha/hora del cálculo.
+- El detalle compartido de Máster, Admin y dashboard anterior presenta en USD
+  los ítems nacidos en USD; los anteriores VES mantienen su moneda acordada.
+  La tasa y el equivalente del presupuesto se distinguen del saldo Bs para
+  cobrar, que se toma del estado financiero certificado, sin reconvertir
+  abonos, reconstruir totales ni alterar la versión comercial.
 - Las ampliaciones de jugadas nuevas son Single 8/10 menos Single 6: con el
   catálogo aprobado, USD 1,50 / USD 2,50. Reservas, redenciones y condiciones
   anteriores no se reescriben; obsequios de precio cero siguen en cero.

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { orderDetailCollectionSnapshot, orderDetailLineBs, orderDetailLineCurrency, orderDetailPrimaryCurrency } from "@/lib/orders/detail-money-presentation";
 import { sortOrderItemsByPriority } from "@/lib/orders/order-item-priority";
 import CrmOrderValidityPanel from "../ops/CrmOrderValidityPanel";
 import {
@@ -29,6 +30,8 @@ export type MasterOrderDetailLine = {
   unitsPerService: number;
   priceBs: number;
   lineTotalUsd: number;
+  lineTotalBs?: number | null;
+  pricingOriginCurrency?: 'USD' | 'VES' | null;
   crmPlayName?: string | null;
   crmBenefitStatus?: 'reserved' | 'redeemed' | null;
   crmBenefitCreditUsd?: number | null;
@@ -91,6 +94,9 @@ export type MasterOrderDetailOrder = {
   totalBs: number | null;
   balanceUsd: number;
   confirmedPaidUsd: number;
+  pendingBs?: number | null;
+  paymentCollectionMode?: string | null;
+  paymentStateOperationDate?: string | null;
   overpaidUsd?: number;
   paymentVerify: MasterOrderPaymentVerify;
   deliveryAtISO: string;
@@ -260,7 +266,7 @@ export function masterOrderLineText(line: MasterOrderDetailLine, displayCurrency
   const isDelivery = Boolean(line.isDelivery) || line.name.toLowerCase().startsWith("delivery");
   const bs = displayCurrency === 'USD'
     ? formatWhatsAppItemPrice(line.qty, line.lineTotalUsd)
-    : formatMasterOrderBs(line.qty * line.priceBs);
+    : formatMasterOrderBs(orderDetailLineBs(line));
 
   if (isDelivery) return `${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
 
@@ -526,6 +532,16 @@ export function MasterOrderDetailBody({
 
   if (activeTab === "detalle") {
     const lines = masterOrderMainLines(order.lines);
+    const primaryCurrency = orderDetailPrimaryCurrency(lines, order.paymentCollectionMode);
+    const collection = orderDetailCollectionSnapshot(order);
+    const summaryAmount = (usd: number, bs: number | null) => (
+      <span className="min-w-0 text-right tabular-nums">
+        {primaryCurrency === 'USD' ? formatMasterOrderUSD(usd) : bs == null ? 'Bs —' : formatMasterOrderBs(bs)}
+        <span className="ml-2 text-[11px] font-normal text-[#B7B7C2]">
+          {primaryCurrency === 'USD' ? bs == null ? 'Bs —' : formatMasterOrderBs(bs) : formatMasterOrderUSD(usd)}
+        </span>
+      </span>
+    );
     return (
       <div className="mt-4 rounded-xl border border-[#242433] bg-[#121218] p-3">
         <div className="text-sm font-semibold text-[#F5F5F7]">Pedido</div>
@@ -544,7 +560,7 @@ export function MasterOrderDetailBody({
           ) : (
             lines.map((line, index) => (
               <div key={`${line.name}-${index}`} className="leading-5">
-                <div className="text-[#F5F5F7]">{masterOrderLineText(line)}</div>
+                <div className="text-[#F5F5F7]">{masterOrderLineText(line, orderDetailLineCurrency(line, order.paymentCollectionMode))}</div>
                 <MasterOrderCrmBenefitBadge line={line} />
                 {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
@@ -560,30 +576,55 @@ export function MasterOrderDetailBody({
 
         <div className="mt-3 space-y-1 border-t border-[#242433] pt-3 text-xs">
           <div className="flex items-center justify-between text-[#8A8A96]">
-            <span>Tasa snapshot</span>
+            <span>Tasa del presupuesto</span>
             <span>{order.fxRate != null && order.fxRate > 0 ? formatMasterOrderRateBs(order.fxRate) : "--"}</span>
           </div>
           <div className="flex items-center justify-between text-[#B7B7C2]">
             <span>Subtotal</span>
-            <span>{formatMasterOrderBs(order.subtotalBs ?? order.totalBs ?? 0)} / {formatMasterOrderUSD(order.subtotalUsd ?? order.totalUsd)}</span>
+            {summaryAmount(order.subtotalUsd ?? order.totalUsd, order.subtotalBs ?? order.totalBs ?? null)}
           </div>
           {order.discountAmountUsd > 0.005 || order.discountAmountBs > 0.5 ? (
             <div className="flex items-center justify-between text-orange-300">
               <span>Descuento{order.discountPct != null ? ` (${order.discountPct}%)` : ""}</span>
-              <span>-{formatMasterOrderBs(order.discountAmountBs)} / -{formatMasterOrderUSD(order.discountAmountUsd)}</span>
+              {summaryAmount(-order.discountAmountUsd, -order.discountAmountBs)}
             </div>
           ) : null}
           {order.invoiceTaxAmountUsd > 0.005 || order.invoiceTaxAmountBs > 0.5 ? (
             <div className="flex items-center justify-between text-sky-300">
               <span>IVA{order.invoiceTaxPct != null ? ` (${order.invoiceTaxPct}%)` : ""}</span>
-              <span>+{formatMasterOrderBs(order.invoiceTaxAmountBs)} / +{formatMasterOrderUSD(order.invoiceTaxAmountUsd)}</span>
+              {summaryAmount(order.invoiceTaxAmountUsd, order.invoiceTaxAmountBs)}
             </div>
           ) : null}
           <div className="flex items-center justify-between text-sm font-semibold text-[#F5F5F7]">
-            <span>Total</span>
-            <span>{formatMasterOrderBs(order.totalBs ?? 0)} / {formatMasterOrderUSD(order.totalUsd)}</span>
+            <span>{primaryCurrency === 'USD' ? 'Total USD' : 'Total acordado Bs'}</span>
+            {summaryAmount(order.totalUsd, order.totalBs)}
+          </div>
+          <div className="text-right text-[11px] text-[#B7B7C2]">
+            {primaryCurrency === 'USD' ? 'Bs: equivalente del presupuesto' : 'USD: equivalente del presupuesto'}
           </div>
         </div>
+
+        {order.status !== 'cancelled' ? (
+          <div className="mt-3 border-t border-[#242433] pt-3 text-xs tabular-nums">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-1 rounded-lg bg-emerald-500/5 px-2 py-1.5">
+                <span className="text-[#B7B7C2]">Abonado USD</span>
+                <span className="font-medium text-emerald-300">{formatMasterOrderUSD(order.confirmedPaidUsd)}</span>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-1 rounded-lg bg-amber-500/5 px-2 py-1.5">
+                <span className="text-[#B7B7C2]">Pendiente USD</span>
+                <span className="font-medium text-[#FFFF00]">{formatMasterOrderUSD(order.balanceUsd)}</span>
+              </div>
+            </div>
+            {order.balanceUsd > 0.005 && collection && collection.mode !== 'closed' ? (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <span className="text-[#B7B7C2]">{collection.label}</span>
+                <span className="font-medium text-[#FFFF00]">{formatMasterOrderBs(collection.pendingBs)}</span>
+                {collection.operationDate ? <span className="w-full text-right text-[11px] text-[#B7B7C2]">Cálculo: {collection.operationDate.split('-').reverse().join('/')}</span> : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {order.notes?.trim() ? (
           <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
