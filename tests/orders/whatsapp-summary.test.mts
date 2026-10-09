@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildWhatsAppOrderSummaryText, sanitizeWhatsAppCustomerNote } from "../../src/lib/orders/whatsapp-summary.ts";
+import { buildWhatsAppOrderSummaryText, sanitizeWhatsAppCustomerNote, formatWhatsAppItemPrice,
+  formatWhatsAppBs, formatWhatsAppExchangeRate } from "../../src/lib/orders/whatsapp-summary.ts";
 
 test("removes the internal master reapproval marker from a customer note", () => {
   assert.equal(
@@ -55,4 +56,34 @@ test('legacy WhatsApp callers without metadata also keep delivery last', () => {
   assert.ok(text.indexOf('1 Tequenos') < text.indexOf('1 Pepsi'));
   assert.ok(text.indexOf('1 Pepsi') < text.indexOf('1 Delivery'));
   assert.equal(lines[0].text, '1 Delivery Zona 2: Bs 100');
+});
+
+test('USD item unit price and line subtotal are explicit, including half services and gifts', () => {
+  assert.equal(formatWhatsAppItemPrice(1, 14), '$14.00');
+  assert.equal(formatWhatsAppItemPrice(2, 28), '$14.00 c/u · $28.00');
+  assert.equal(formatWhatsAppItemPrice(.5, 7), '$14.00 c/u · $7.00');
+  assert.equal(formatWhatsAppItemPrice(1, 0), '$0.00');
+  assert.throws(() => formatWhatsAppItemPrice(0, 14));
+  assert.throws(() => formatWhatsAppItemPrice(1, Number.NaN));
+  assert.throws(() => formatWhatsAppItemPrice(1, null));
+  assert.throws(() => formatWhatsAppItemPrice(1, ''));
+  assert.throws(() => formatWhatsAppItemPrice(null, 14));
+});
+
+test('WhatsApp shows certified total Bs, USD, real FX and Caracas calculation timestamp', () => {
+  const input = {
+    clientName: 'Cliente', fulfillment: 'pickup' as const, deliveryText: 'Hoy',
+    lines: [{ text: `1 Mini: ${formatWhatsAppItemPrice(1, 14)}` }],
+    price: { totalUsd: 14, totalBs: 11500.73 }, exchangeRate: 817.7, calculatedAt: '2026-10-10T02:00:00Z',
+  };
+  const before = JSON.stringify(input);
+  const text = buildWhatsAppOrderSummaryText(input);
+  assert.match(text, /1 Mini: \$14\.00/);
+  assert.match(text, /\*TOTAL USD:\* \$14\.00/);
+  assert.match(text, /11\.500,73/);
+  assert.match(text, /817,70 Bs\/USD/);
+  assert.match(text, /09\/10\/2026/);
+  assert.equal(JSON.stringify(input), before);
+  assert.equal(formatWhatsAppBs(11500.73), 'Bs 11.500,73');
+  assert.equal(formatWhatsAppExchangeRate(860.2345), '860,2345 Bs/USD');
 });

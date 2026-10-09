@@ -45,6 +45,8 @@ export type WhatsAppOrderSummaryInput = {
   receiverPhone?: string | null;
   lines: WhatsAppSummaryLine[];
   price: WhatsAppSummaryPrice;
+  exchangeRate?: number | null;
+  calculatedAt?: string | null;
   fulfillment: 'pickup' | 'delivery';
   deliveryText: string;
   deliveryDateText?: string | null;
@@ -83,17 +85,40 @@ export function formatWhatsAppUsd(value: number) {
 
 export function formatWhatsAppBs(value: number) {
   const amount = Number(value);
-  const rounded = Math.round(Number.isFinite(amount) ? amount : 0);
-  const chars = String(rounded).split('');
-  let output = '';
+  return `Bs ${new Intl.NumberFormat('es-VE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0)}`;
+}
 
-  for (let index = 0; index < chars.length; index += 1) {
-    const indexFromEnd = chars.length - index;
-    output += chars[index];
-    if (indexFromEnd > 1 && indexFromEnd % 3 === 1) output += '.';
+export function formatWhatsAppItemPrice(quantity: number | string | null, lineTotalUsd: number | string | null) {
+  if (quantity == null || lineTotalUsd == null || String(quantity).trim() === '' || String(lineTotalUsd).trim() === '') {
+    throw new Error('El ítem no conserva una cantidad o un precio USD.');
   }
+  const qty = Number(quantity);
+  const total = Number(lineTotalUsd);
+  if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(total) || total < 0) {
+    throw new Error('El ítem no tiene una cantidad o un precio USD válido.');
+  }
+  const subtotal = formatWhatsAppUsd(total);
+  return qty === 1 ? subtotal : `${formatWhatsAppUsd(total / qty)} c/u · ${subtotal}`;
+}
 
-  return `Bs ${output}`;
+export function formatWhatsAppExchangeRate(value: number) {
+  if (!Number.isFinite(value) || value <= 0) throw new Error('La tasa de la cotización no es válida.');
+  return `${new Intl.NumberFormat('es-VE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(value)} Bs/USD`;
+}
+
+export function formatWhatsAppCalculationTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error('La fecha de la cotización no es válida.');
+  return new Intl.DateTimeFormat('es-VE', {
+    timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  }).format(date);
 }
 
 export function formatWhatsAppQuantity(value: number | string | null | undefined) {
@@ -329,7 +354,12 @@ export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) 
       `*IVA (${Number(price.invoiceTaxPct || 0)}%):* ${formatWhatsAppBs(Number(price.invoiceTaxAmountBs || 0))} / ${formatWhatsAppUsd(Number(price.invoiceTaxAmountUsd || 0))}`
     );
   }
-  parts.push(`*TOTAL:* ${formatWhatsAppBs(price.totalBs)} / ${formatWhatsAppUsd(price.totalUsd)}`);
+  parts.push(`*TOTAL USD:* ${formatWhatsAppUsd(price.totalUsd)}`);
+  parts.push(`*Equivalente en bolívares:* ${formatWhatsAppBs(price.totalBs)}`);
+  if (input.exchangeRate != null && input.exchangeRate > 0) {
+    parts.push(`*Tasa del presupuesto:* ${formatWhatsAppExchangeRate(input.exchangeRate)}`);
+  }
+  if (input.calculatedAt) parts.push(`*Calculado:* ${formatWhatsAppCalculationTime(input.calculatedAt)}`);
 
   parts.push('');
   parts.push(`*Entrega:* ${input.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);

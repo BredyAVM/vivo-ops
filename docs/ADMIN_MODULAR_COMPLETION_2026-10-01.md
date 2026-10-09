@@ -272,3 +272,25 @@ Estructuras de costos, valoración económica del inventario, nómina, rentabili
 La importación de extractos y un historial agregado incremental de cobranza tampoco se han implementado. La cobranza sigue siendo por filtro explícito, sin escanear todo el histórico al entrar.
 
 El panel antiguo continúa disponible hasta completar y verificar la cobertura operativa pendiente.
+
+## Preparación de precios USD — 9 de octubre de 2026
+
+Primera entrega, sin activar precios: propuesta explícita para las 79 referencias
+regulares activas auditadas, consultable por páginas desde Inventario → Precios.
+Los obsequios conservan cero; las jugadas con precio requieren recalcularse.
+Un producto cuyo precio cambió desde la auditoría se marca para revisión, no se
+convierte automáticamente por nombre ni por coincidencia de importe.
+
+El formato compartido de WhatsApp muestra precios de ítems y total en USD,
+equivalente certificado en Bs, tasa del presupuesto y fecha/hora en Caracas.
+No reconstruye el total Bs a partir del total USD redondeado. El botón compartido
+«Cotizar pago de hoy» consulta una sola orden y la tasa vigente bajo demanda,
+con autenticación y alcance por rol/asesor. Respeta la regla financiera vigente:
+monto Bs acordado antes de cobranza, saldo USD convertido después de entrega.
+No registra pagos, no perdona saldos ni modifica condiciones por consultar.
+
+La transición aún no está activada: faltan versión/fecha de corte y protección
+de órdenes, borradores, presupuestos y acuerdos anteriores; separación de unidades
+anteriores y agregadas (incluso del mismo producto); regla de cobranza USD para
+ventas nuevas y órdenes mixtas; recálculo de jugadas y activación verificada.
+Un ajuste administrativo de precio no cambia por sí mismo esa regla de cobranza.

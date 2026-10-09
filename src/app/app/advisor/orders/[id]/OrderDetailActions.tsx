@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import OrderPaymentQuoteButton from '@/components/orders/OrderPaymentQuoteButton';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { parseDecimalInput } from '@/lib/number-input';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
@@ -383,6 +384,7 @@ export default function OrderDetailActions({
       ) : null}
 
       <div className="flex flex-wrap gap-2">
+        {canReportPayment ? <OrderPaymentQuoteButton key={orderId} orderId={orderId} /> : null}
         {whatsappContactHref ? (
           <a
             href={whatsappContactHref}

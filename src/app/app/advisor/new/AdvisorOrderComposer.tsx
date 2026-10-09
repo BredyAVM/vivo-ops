@@ -22,6 +22,7 @@ import {
   cleanWhatsAppUnitsFromName,
   formatWhatsAppBs,
   formatWhatsAppDateVE,
+  formatWhatsAppItemPrice,
   formatWhatsAppQuantity,
   formatWhatsAppTimeAmPm,
   getWhatsAppLineUnits,
@@ -594,16 +595,13 @@ function isHiddenDetailLine(line: string) {
   return isInternalOrderDetailLine(line);
 }
 
-function formatDraftItemWhatsAppLine(item: DraftItem, fxRateNumber: number) {
-  const lineBs =
-    item.source_price_currency === 'VES'
-      ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
-      : Number(item.line_total_usd || 0) * fxRateNumber;
+function formatDraftItemWhatsAppLine(item: DraftItem) {
+  const price = formatWhatsAppItemPrice(item.qty, item.line_total_usd);
   const normalizedName = normalizeSnapshotText(item.product_name_snapshot) || 'Item';
   const isDelivery = isDeliveryCatalogItemName(normalizedName);
 
   if (isDelivery) {
-    return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${formatBsWhatsApp(lineBs)}`;
+    return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${price}`;
   }
 
   const units = getWhatsAppLineUnits({
@@ -614,10 +612,10 @@ function formatDraftItemWhatsAppLine(item: DraftItem, fxRateNumber: number) {
   if (units !== null) {
     const cleanName = cleanWhatsAppUnitsFromName(normalizedName);
     const servicePrefix = item.product_type === 'service' ? 'Serv. ' : '';
-    return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${servicePrefix}${cleanName} (${formatWhatsAppQuantity(units)} und): ${formatBsWhatsApp(lineBs)}`;
+    return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${servicePrefix}${cleanName} (${formatWhatsAppQuantity(units)} und): ${price}`;
   }
 
-  return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${formatBsWhatsApp(lineBs)}`;
+  return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${price}`;
 }
 
 function toSafeNumber(value: unknown, fallback = 0) {
@@ -3742,7 +3740,7 @@ export default function AdvisorOrderComposer({
       receiverName,
       receiverPhone,
       lines: displayDraftItems.map(({ item }) => ({
-        text: formatDraftItemWhatsAppLine(item, fxRateNumber),
+        text: formatDraftItemWhatsAppLine(item),
         detailLines: getVisibleDetailLines(item.editable_detail_lines),
         priority: {
           productType: item.product_type,
@@ -3763,6 +3761,8 @@ export default function AdvisorOrderComposer({
         totalBs: finalTotalBs,
         totalUsd: finalTotalUsd,
       },
+      exchangeRate: fxRateNumber,
+      calculatedAt: new Date().toISOString(),
       fulfillment,
       deliveryText: isAsap ? `${deliveryDayLabel} - Lo antes posible` : `${deliveryDayLabel} - ${deliveryHourLabel}`,
       deliveryDateText: formatWhatsAppDateVE(effectiveDeliveryDate),

@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import OrderPaymentQuoteButton from "@/components/orders/OrderPaymentQuoteButton";
 import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
 import ContextLink from "@/components/navigation/ContextLink";
 import { currencyLabel } from "@/lib/ui/currency-label";
@@ -2115,7 +2116,9 @@ function OrderDetailPanel({
                   </div>
                 ) : null}
               </div>
-              <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
+              <div className="flex max-w-full flex-wrap items-center justify-end gap-2 self-end sm:max-w-[55%] sm:self-start">
+                {!isIncompleteOrder && !detailLoading && order.status !== "cancelled" && (isAdmin || roles.includes("master"))
+                  ? <OrderPaymentQuoteButton key={order.id} orderId={order.id} /> : null}
                 <button
                   className={[
                     "rounded-xl border bg-[#0B0B0D] px-3 py-2 text-sm hover:border-[#FEEF00]/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[#242433]",

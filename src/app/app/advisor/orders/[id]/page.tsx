@@ -20,6 +20,7 @@ import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
   formatWhatsAppDateVE,
+  formatWhatsAppItemPrice,
   formatWhatsAppQuantity,
   formatWhatsAppTimeAmPm,
   getWhatsAppLineUnits,
@@ -391,12 +392,14 @@ function getOrderTotalUsdForSummary(order: OrderRow) {
   return getOrderMoneySnapshot(order).totalUsd;
 }
 
-function lineTextWhatsAppStyle(item: OrderItemRow, fxRate: number) {
+function lineTextWhatsAppStyle(item: OrderItemRow, fxRate: number, displayCurrency: 'USD' | 'VES' = 'VES') {
   const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
   const normalizedName = safeText(item.product_name_snapshot, 'Item');
   const isDelivery = normalizedName.toLowerCase().startsWith('delivery');
   const lineTotalBs = getLineTotalBs(item, fxRate);
-  const priceLabel = isDelivery && lineTotalBs <= 0.005 ? 'Delivery obsequiado' : formatBs(lineTotalBs);
+  const priceLabel = displayCurrency === 'USD'
+    ? item.line_total_usd == null ? 'USD por verificar' : formatWhatsAppItemPrice(item.qty, item.line_total_usd)
+    : isDelivery && lineTotalBs <= 0.005 ? 'Delivery obsequiado' : formatBs(lineTotalBs);
 
   if (isDelivery) {
     return `- ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${priceLabel}`;
@@ -410,10 +413,10 @@ function lineTextWhatsAppStyle(item: OrderItemRow, fxRate: number) {
   if (units !== null) {
     const cleanName = cleanWhatsAppUnitsFromName(normalizedName);
     const servicePrefix = relatedProduct?.type === 'service' ? 'Serv. ' : '';
-    return `- ${formatWhatsAppQuantity(item.qty)} ${servicePrefix}${cleanName} (${formatWhatsAppQuantity(units)} und): ${formatBs(lineTotalBs)}`;
+    return `- ${formatWhatsAppQuantity(item.qty)} ${servicePrefix}${cleanName} (${formatWhatsAppQuantity(units)} und): ${priceLabel}`;
   }
 
-  return `- ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${formatBs(lineTotalBs)}`;
+  return `- ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${priceLabel}`;
 }
 
 function deliveryText(
@@ -620,14 +623,14 @@ function buildCleanWhatsAppOrderSummary({
 
   return buildWhatsAppOrderSummaryText({
     title: 'Resumen de Pedido',
-    orderLabel: String(order.id),
+    orderLabel: formatOrderDisplayNumber(order.id),
     advisorName: advisorLabel,
     clientName: order.client?.full_name?.trim() || 'Cliente',
     clientPhone: order.client?.phone,
     receiverName: order.extra_fields?.receiver?.name ?? order.receiver_name,
     receiverPhone: order.extra_fields?.receiver?.phone ?? order.receiver_phone,
     lines: items.map((item) => ({
-      text: lineTextWhatsAppStyle(item, fxRate),
+      text: lineTextWhatsAppStyle(item, fxRate, 'USD'),
       detailLines: getVisibleEditableDetailLines(item.notes),
       priority: orderItemPriorityInput(item),
     })),
@@ -643,6 +646,8 @@ function buildCleanWhatsAppOrderSummary({
       totalBs: pricing.totalBs,
       totalUsd: pricing.totalUsd,
     },
+    exchangeRate: fxRate,
+    calculatedAt: new Date().toISOString(),
     fulfillment: order.fulfillment,
     deliveryText: deliveryFullText || deliveryText(order.extra_fields?.schedule),
     deliveryDateText: formatWhatsAppDateVE(order.extra_fields?.schedule?.date),

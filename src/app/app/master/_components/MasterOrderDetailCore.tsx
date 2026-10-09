@@ -13,6 +13,7 @@ import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
   formatWhatsAppDateVE,
+  formatWhatsAppItemPrice,
   formatWhatsAppQuantity,
   formatWhatsAppTimeAmPm,
   getWhatsAppLineUnits,
@@ -250,14 +251,16 @@ export function masterOrderMainLines(lines: MasterOrderDetailLine[]) {
   }));
 }
 
-export function masterOrderLineText(line: MasterOrderDetailLine) {
+export function masterOrderLineText(line: MasterOrderDetailLine, displayCurrency: 'USD' | 'VES' = 'VES') {
   const units = getWhatsAppLineUnits({
     qty: line.qty,
     name: line.name,
     unitsPerService: line.unitsPerService,
   });
   const isDelivery = Boolean(line.isDelivery) || line.name.toLowerCase().startsWith("delivery");
-  const bs = formatMasterOrderBs(line.qty * line.priceBs);
+  const bs = displayCurrency === 'USD'
+    ? formatWhatsAppItemPrice(line.qty, line.lineTotalUsd)
+    : formatMasterOrderBs(line.qty * line.priceBs);
 
   if (isDelivery) return `${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
 
@@ -287,7 +290,7 @@ export function buildMasterOrderWhatsAppSummary(order: MasterOrderDetailOrder) {
     receiverName: order.receiverName,
     receiverPhone: order.receiverPhone,
     lines: masterOrderMainLines(order.lines).map((line) => ({
-      text: masterOrderLineText(line),
+      text: masterOrderLineText(line, 'USD'),
       detailLines: line.editableDetailLines ?? [],
       priority: {
         productType: line.productType,
@@ -307,6 +310,8 @@ export function buildMasterOrderWhatsAppSummary(order: MasterOrderDetailOrder) {
       totalBs: order.totalBs ?? 0,
       totalUsd: order.totalUsd,
     },
+    exchangeRate: order.fxRate,
+    calculatedAt: new Date().toISOString(),
     fulfillment: order.fulfillment,
     deliveryText: `${deliveryDateText} - ${deliveryTimeText}`,
     deliveryDateText,
