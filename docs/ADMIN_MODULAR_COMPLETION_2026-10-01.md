@@ -294,3 +294,10 @@ de órdenes, borradores, presupuestos y acuerdos anteriores; separación de unid
 anteriores y agregadas (incluso del mismo producto); regla de cobranza USD para
 ventas nuevas y órdenes mixtas; recálculo de jugadas y activación verificada.
 Un ajuste administrativo de precio no cambia por sí mismo esa regla de cobranza.
+
+Verificación de esta primera entrega: 683 pruebas .mts aprobadas sin fallos ni
+omisiones, incluida la regresión integrada con los cambios ya publicados de
+comisiones y bebidas adicionales. Compilación de producción y tipos estrictos
+aprobados. Lint del alcance nuevo sin alertas; los componentes consumidores
+existentes conservan seis advertencias previas, sin errores. No se ejecutaron
+migraciones ni escrituras de catálogo, pedidos, inventario o dinero para probar.

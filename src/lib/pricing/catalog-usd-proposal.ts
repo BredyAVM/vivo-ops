@@ -104,4 +104,3 @@ export function proposedCatalogUsdPrice(product: CatalogProposalProduct): Catalo
   }
   return { kind: 'proposed', amountUsd: entry.nextUsd };
 }
-
