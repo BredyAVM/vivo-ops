@@ -68,7 +68,46 @@ total_orden_usd
 = saldo_pendiente_usd
 ```
 
+### Versión comercial USD para ventas nuevas (2026-10-09)
+
+Corte autorizado: **2026-10-09 14:36:35 America/Caracas**. La versión se
+certifica en la base de datos al crear la orden; no se infiere de su moneda,
+del precio actual del catálogo ni de una bandera enviada por la pantalla.
+
+- Las ventas nuevas nacen con precio USD fijo. La tasa vigente convierte
+  únicamente el saldo pendiente a Bs, incluso antes y durante la entrega.
+  No tienen un monto Bs congelado ni tres días automáticos de tasa fija.
+- Un pedido de USD 14 con USD 5 abonados conserva USD 9 pendientes. Si cambia
+  la tasa, se cobran `9 × tasa vigente` Bs. No se revalorizan los USD 5 previos.
+- Un abono VES mantiene la cobertura USD certificada con la tasa de su propia
+  operación. Cambiar la tasa no cambia el importe real de caja/banco.
+- Todas las órdenes existentes conservan la versión anterior, incluidas las
+  que ya tenían productos USD, acuerdos administrativos y pedidos agendados.
+  Los presupuestos/borradores guardados antes del corte conservan sus términos
+  y su versión al convertirse posteriormente en una orden.
+- Una línea anterior no se reescribe al consultar o editar otra parte del
+  pedido. Productos o unidades adicionales usan el catálogo vigente en líneas
+  separadas; los ajustes administrativos explícitos conservan su trazabilidad.
+- La cotización WhatsApp original conserva su tasa de presupuesto. La opción
+  de cotizar el pago actual muestra el USD pendiente, el equivalente Bs y la
+  tasa vigente sin registrar ni confirmar pagos.
+- Las ampliaciones de jugadas nuevas son Single 8/10 menos Single 6: con el
+  catálogo aprobado, USD 1,50 / USD 2,50. Reservas, redenciones y condiciones
+  anteriores no se reescriben; obsequios de precio cero siguen en cero.
+
+`get_order_financial_state` devuelve `collection_mode = native_usd` mientras
+existe saldo de una venta de esta versión. Counter, asesor, Máster y Admin
+deben reconocer ese modo y reutilizar el estado canónico. La regla auditada
+de residuos inferiores a USD 0,01 sigue vigente y no crea dinero ficticio.
+
+Implementación y comprobaciones: `docs/ADMIN_MODULAR_COMPLETION_2026-10-01.md`,
+apartados Cobranza USD por versión, Diferencias de jugadas y Activación.
+
 ### Construccion del snapshot por moneda de origen
+
+Las reglas de protección Bs y de cobranza posterior a la entrega descritas a
+continuación corresponden a la **versión anterior**. No sustituyen la regla
+`native_usd` de ventas nuevas definida arriba.
 
 El snapshot Bs de la orden se construye por linea y debe conservar la moneda en la que nacio el precio del producto (`pricing_origin_currency` y `pricing_origin_amount`):
 
@@ -398,7 +437,7 @@ Primer SQL propuesto:
 
 - `docs/ORDER_FINANCIAL_STATE_RPC_2026-06-04.sql`
 
-Esta funcion recibe opcionalmente `p_operation_date` y `p_active_bs_rate` para respetar la regla de pagos en bolivares: antes o durante el dia de entrega usa el snapshot Bs congelado; despues del dia de entrega puede calcular cobranza dolarizada con tasa activa.
+Esta funcion recibe opcionalmente `p_operation_date` y `p_active_bs_rate` para respetar la versión comercial: en órdenes anteriores, antes o durante el día de entrega usa el snapshot Bs congelado y después puede calcular cobranza dolarizada; en ventas `native_usd`, convierte únicamente el pendiente USD con la tasa vigente sin depender del día de entrega.
 
 ### Fase 3 - Rehacer confirmacion/anulacion
 
