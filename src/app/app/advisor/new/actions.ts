@@ -16,7 +16,7 @@ import {
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { normalizeOrderDetailForSave, type DetailComponent } from '@/lib/orders/order-detail-persistence';
 import { storedApprovedPriceLine } from '@/lib/orders/approved-price-preservation';
-import { preservedUnchangedPriceSnapshot } from '@/lib/orders/operational-edit-pricing';
+import { preservedAgreedPriceSnapshot } from '@/lib/orders/operational-edit-pricing';
 import { sendPushToRoleDevices } from '@/lib/push';
 
 const STALE_ORDER_EDIT_MESSAGE =
@@ -1272,7 +1272,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
   const { data: existingItems, error: existingItemsError } = await adminSupabase
     .from('order_items')
-    .select('id, product_id, product_name_snapshot, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id')
+    .select('id, product_id, product_name_snapshot, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id')
     .eq('order_id', orderId);
 
   if (existingItemsError) {
@@ -1282,8 +1282,8 @@ export async function replaceAdvisorOrderItemsAction(input: {
   // Re-read persisted evidence, never browser totals or a product-name match.
   const originalPrices = new Map((existingItems ?? []).map((item) => [Number(item.id), storedApprovedPriceLine(item)]));
   for (const [index, item] of input.items.entries()) {
-    const snapshot = preservedUnchangedPriceSnapshot({ ...item, adminPriceOverrideUsd: null, adminPriceOverrideReason: null },
-      originalPrices.get(Number(item.orderItemId)));
+    const snapshot = preservedAgreedPriceSnapshot({ ...item, adminPriceOverrideUsd: null, adminPriceOverrideReason: null },
+      originalPrices.get(Number(item.orderItemId)), Number((order.extra_fields as { pricing?: { fx_rate?: number | string } } | null)?.pricing?.fx_rate || 0));
     if (!snapshot) continue;
     Object.assign(itemsPayload[index], { unit_price_usd_snapshot: snapshot.unitUsd, line_total_usd: snapshot.lineUsd,
       unit_price_bs_snapshot: snapshot.unitBs, line_total_bs_snapshot: snapshot.lineBs });

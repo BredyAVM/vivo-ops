@@ -368,3 +368,36 @@ registró SQL e historial juntos en una transacción, y se verificó su versión
 Verificación: 693 pruebas existentes, 14 casos PostgreSQL aislados, tipos y
 compilación de producción aprobados. El catálogo USD aún no está activado.
 Quedan separación de cantidades, cobranza por versión, jugadas y activación.
+
+## Cantidades antiguas y añadidas — 9 de octubre de 2026
+
+Bloque 2 de la transición USD: `20261009173444_split_historical_and_added_order_quantities.sql`.
+El editor compartido separa las unidades añadidas si el catálogo cambió de
+moneda o precio: la línea anterior conserva su cantidad y condiciones; las
+nuevas unidades forman otra línea con el catálogo actual, sin copiar ajustes
+administrativos ni comisiones especiales. La separación ocurre al terminar de
+escribir la cantidad, no con cada tecla, y muestra un aviso compacto.
+
+La base rechaza aumentar directamente una línea antigua con precio distinto
+al catálogo. Permite reducir unidades conservando su identidad, precio unitario,
+tasa original por línea y evidencia administrativa. La conversión VES se hace
+con el importe completo de la línea antes del redondeo USD. Una edición normal
+no actualiza automáticamente la tasa de las líneas ya acordadas; las nuevas
+líneas usan la tasa validada de la edición, nunca por accidente una cabecera
+anterior todavía pendiente de actualizar dentro de la transacción.
+
+No se activa el catálogo USD ni se registran pagos, inventario u órdenes reales.
+La revisión de React mantuvo el editor existente y las lecturas ya disponibles,
+sin consultas al escribir. Verificación: 699 pruebas .mts, 25 comprobaciones
+PostgreSQL de edición y 14 de presupuestos con las tres migraciones combinadas;
+tipos estrictos y compilación de producción aprobados. La función auxiliar es
+privada, de invocador, search_path cerrado y sin ejecución anónima.
+
+Migración instalada con SQL e historial en una transacción. Los hashes del
+catálogo activo, presupuestos #835/#842/#843 y órdenes #2534/#3166 permanecieron
+idénticos; la revisión de seguridad mantiene los 342 hallazgos anteriores, sin
+añadidos. El lint del alcance nuevo pasó; los archivos heredados mantienen los
+47 errores y 16 advertencias previos, sin incremento.
+
+Antes de activar siguen pendientes la regla de cobranza de ventas nuevas/mixtas,
+los importes de las seis jugadas con precio y la activación/validación final.

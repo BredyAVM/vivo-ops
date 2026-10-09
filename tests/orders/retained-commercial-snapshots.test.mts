@@ -55,6 +55,6 @@ test('all shared edit entry points use persisted unchanged-line preservation', (
     'src/app/app/master/ops/MasterOpsOrderEditor.tsx', 'src/app/app/advisor/new/actions.ts',
     'src/app/app/advisor/new/AdvisorOrderComposer.tsx']) {
     const source = readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
-    assert.match(source, /preservedUnchangedPriceSnapshot/);
+    assert.match(source, /preservedAgreedPriceSnapshot/);
   }
 });

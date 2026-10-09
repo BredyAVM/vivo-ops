@@ -10,7 +10,7 @@ import { selectInputValue } from "@/lib/ui/select-input-value";
 import CrmOrderValidityPanel from "./CrmOrderValidityPanel";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot } from "@/lib/orders/approved-price-preservation";
-import { preservedOperationalSnapshot, preservedUnchangedPriceSnapshot } from "@/lib/orders/operational-edit-pricing";
+import { historicalQuantityAddition, preservedAgreedPriceSnapshot, preservedOperationalSnapshot } from "@/lib/orders/operational-edit-pricing";
 import {
   buildComponentDetailLines,
   getVisibleEditableDetailLines,
@@ -55,6 +55,28 @@ type Props = {
   onClose: () => void;
   onSaved: () => void;
 };
+
+function OrderQuantityInput({ qty, readOnly, title, onCommit }: {
+  qty: number; readOnly: boolean; title?: string; onCommit: (raw: string) => void;
+}) {
+  const [text, setText] = useState(String(qty));
+  return <input
+    className={fieldClass()}
+    aria-label="Cantidad"
+    value={text}
+    onFocus={selectInputValue}
+    onChange={event => setText(event.target.value)}
+    onBlur={() => {
+      const value = toNumber(text, Number.NaN);
+      if (Number.isFinite(value) && value > 0) onCommit(text);
+      else setText(String(qty));
+    }}
+    onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
+    inputMode="decimal"
+    readOnly={readOnly}
+    title={title}
+  />;
+}
 
 type ClientSearchResult = {
   id: number | string;
@@ -321,6 +343,7 @@ export default function MasterOpsOrderEditor({
   const [productSearch, setProductSearch] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | "">("");
   const [productQty, setProductQty] = useState("1");
+  const [quantitySplitNotice, setQuantitySplitNotice] = useState<string | null>(null);
   const [configState, setConfigState] = useState<ConfigState | null>(null);
   const [crmContext, setCrmContext] = useState<MasterCrmOrderContext | null>(null);
   const [crmLoading, setCrmLoading] = useState(false);
@@ -344,6 +367,7 @@ export default function MasterOpsOrderEditor({
     setLoading(true);
     setError(null);
     setSuccess(null);
+    setQuantitySplitNotice(null);
 
     const loadData = isCreateMode
       ? loadMasterOpsOrderCreateDataAction(focusDate)
@@ -444,7 +468,7 @@ export default function MasterOpsOrderEditor({
     !closeNumber(form.fxRate, data.order.fxRate)
   ));
   const requestedFxRate = Math.max(0, toNumber(form?.fxRate, 0));
-  const fxRate = pricingChanged
+  const fxRate = isCreateMode
     ? Math.max(0, toNumber(activeRate, 0))
     : requestedFxRate;
 
@@ -480,12 +504,12 @@ export default function MasterOpsOrderEditor({
   const calculatedItems = useMemo(
     () => (form?.items ?? []).map((item) => {
       const original = data?.order.items.find((row) => row.orderItemId === item.orderItemId);
-      const preserved = preservedUnchangedPriceSnapshot(item, original) ??
+      const preserved = preservedAgreedPriceSnapshot(item, original, Number(data?.order.fxRate || 0)) ??
         (!isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null);
       return preserved ? { ...item, unitPriceUsdSnapshot: preserved.unitUsd, lineTotalUsd: preserved.lineUsd,
         unitPriceBsSnapshot: preserved.unitBs, lineTotalBsSnapshot: preserved.lineBs } : recalculateItem(item, fxRate);
     }),
-    [form?.items, fxRate, data?.order.items, isAdmin]
+    [form?.items, fxRate, data?.order.items, data?.order.fxRate, isAdmin]
   );
 
   const currentCrmContext = crmContext?.client.id === crmClientId ? crmContext : null;
@@ -635,17 +659,41 @@ export default function MasterOpsOrderEditor({
   }
 
   function updateItemQuantity(item: MasterOpsEditOrderItem, rawValue: string) {
+    setQuantitySplitNotice(null);
     if (item.crmPlayMemberId) {
       setError("El beneficio reservado o entregado conserva su producto y cantidad para mantener la trazabilidad de la jugada.");
       return;
     }
     const qty = toNumber(rawValue, Number.NaN);
     const catalogItem = catalogById.get(item.productId) ?? null;
+    const original = data?.order.items.find(row => row.orderItemId === item.orderItemId);
+    const addedQty = original ? historicalQuantityAddition(original, qty, catalogItem) : 0;
+    if (original && catalogItem && addedQty > 0 && form) {
+      const snapshot = calculateOrderLineSnapshot({ sourceCurrency: catalogItem.sourcePriceCurrency,
+        sourceAmount: catalogItem.sourcePriceAmount, quantity: addedQty, fxRate,
+        fallbackUnitUsd: catalogItem.basePriceUsd });
+      const added: MasterOpsEditOrderItem = {
+        orderItemId: null, localId: `${Date.now()}-${Math.random()}`, productId: catalogItem.id,
+        skuSnapshot: catalogItem.sku, productNameSnapshot: catalogItem.name, qty: addedQty,
+        sourcePriceCurrency: catalogItem.sourcePriceCurrency, sourcePriceAmount: catalogItem.sourcePriceAmount,
+        unitPriceUsdSnapshot: snapshot.unitUsd, lineTotalUsd: snapshot.lineUsd,
+        unitPriceBsSnapshot: snapshot.unitBs, lineTotalBsSnapshot: snapshot.lineBs,
+        editableDetailLines: buildComponentDetailLines(componentsByParentId.get(catalogItem.id) ?? [], { totalMultiplier: addedQty }),
+        adminPriceOverrideUsd: null, adminPriceOverrideCurrency: null, adminPriceOverrideReason: null,
+        adminPriceOverrideByUserId: null, adminPriceOverrideAt: null,
+      };
+      setForm(current => current ? { ...current, items: [
+        ...current.items.map(row => row.localId === item.localId ? { ...row, ...original, localId: row.localId } : row), added,
+      ] } : current);
+      setQuantitySplitNotice(`${original.qty} conserva el precio acordado; ${addedQty} se agregó al precio actual.`);
+      setError(null);
+      return;
+    }
     const shouldRefreshCatalogPrice =
       item.adminPriceOverrideUsd == null &&
       catalogItem != null &&
       Number.isFinite(qty) &&
-      qty > 0;
+      qty > 0 && (!original || qty > original.qty);
     patchItem(item.localId, {
       qty,
       ...(shouldRefreshCatalogPrice
@@ -1750,6 +1798,7 @@ export default function MasterOpsOrderEditor({
                     </div>
 
                     <div className="mt-4 space-y-2">
+                      {quantitySplitNotice ? <p role="status" className="text-xs text-[#FEEF00]">{quantitySplitNotice}</p> : null}
                       {orderedItems.map((item) => {
                         const product = catalogById.get(item.productId);
                         const isCrmBenefit = Boolean(item.crmPlayMemberId && item.crmPlayBenefitId);
@@ -1776,11 +1825,10 @@ export default function MasterOpsOrderEditor({
                                   </div>
                                 ) : null}
                               </div>
-                              <input
-                                className={fieldClass()}
-                                value={String(item.qty)}
-                                onChange={(event) => updateItemQuantity(item, event.target.value)}
-                                inputMode="decimal"
+                              <OrderQuantityInput
+                                key={`${item.localId}:${item.qty}`}
+                                qty={item.qty}
+                                onCommit={raw => updateItemQuantity(item, raw)}
                                 readOnly={Boolean(product?.isDetailEditable) || isCrmBenefit}
                                 title={product?.isDetailEditable ? "Los productos configurables se cargan una unidad a la vez." : undefined}
                               />

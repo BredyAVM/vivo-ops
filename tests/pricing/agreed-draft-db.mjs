@@ -41,11 +41,18 @@ select set_config('test.uid','00000000-0000-0000-0000-000000000001',false),set_c
 const original={localId:'agreed-mini',product_id:5,qty:4,source_price_currency:'VES',source_price_amount:11500,
  unit_price_usd_snapshot:13.15,line_total_usd:52.59,editable_detail_lines:[]};
 await db.query("insert into advisor_order_drafts values(1,auth.uid(),1,'quoted',$1::jsonb,874.73,null,null)",[JSON.stringify({items:[original]})]);
-await db.exec(read('tests/pricing/fixtures/agreed-draft-production-functions.sql'));
+// Compose the actual pricing/core functions and all three protection migrations.
+// This also exercises the nested draft block after the quantity guard is added.
+await db.exec(read('tests/pricing/fixtures/mixed-order-production-functions.sql'));
+await db.exec(read('supabase/migrations/20261009155720_preserve_existing_order_commercial_snapshots.sql'));
+const advisorFunctions=read('tests/pricing/fixtures/agreed-draft-production-functions.sql');
+const advisorStart=advisorFunctions.indexOf('CREATE OR REPLACE FUNCTION public.advisor_create_order_atomic_v1(');
+await db.exec(advisorFunctions.slice(advisorStart,advisorFunctions.indexOf('$function$;',advisorStart)+'$function$;'.length));
 await db.exec(`create trigger a_guard before insert or update on order_items for each row execute function public.trg_order_items_guard();
  create trigger b_pricing before insert or update on order_items for each row execute function public.trg_order_items_pricing_guard();
  create trigger c_native before insert or update on order_items for each row execute function public.trg_order_items_set_pricing();`);
 await db.exec(read('supabase/migrations/20261009161328_preserve_agreed_draft_conversion.sql'));
+await db.exec(read('supabase/migrations/20261009173444_split_historical_and_added_order_quantities.sql'));
 const rows=async(sql,args=[]) => (await db.query(sql,args)).rows;
 const item={draft_price_agreement_key:'agreed-mini',product_id:5,qty:4,pricing_origin_currency:'VES',pricing_origin_amount:11500,
  unit_price_usd_snapshot:13.15,line_total_usd:52.59,unit_price_bs_snapshot:11500,line_total_bs_snapshot:46000};
@@ -133,6 +140,12 @@ await check('private evidence has RLS, no direct access and no anonymous definer
  const p=(await rows("select c.relrowsecurity as rls,has_table_privilege('authenticated',c.oid,'SELECT') as auth,has_table_privilege('anon',c.oid,'SELECT') as anon from pg_class c where c.oid=$1::regclass",['app_private.'+table]))[0];
  assert.equal(p.rls,true);assert.equal(p.auth,false);assert.equal(p.anon,false);}
  const p=(await rows("select has_function_privilege('anon','app_private.reserve_draft_conversion_prices_v1(bigint,bigint,jsonb)','EXECUTE') as allowed"))[0];assert.equal(p.allowed,false);
+ const quantity=(await rows("select p.prosecdef, p.proconfig, has_function_privilege('anon',p.oid,'EXECUTE') as anon from pg_proc p where p.oid='app_private.order_item_reduced_commercial_terms_v1(jsonb,jsonb,numeric)'::regprocedure"))[0];
+ assert.equal(quantity.prosecdef,false);assert.equal(quantity.anon,false);assert.deepEqual(quantity.proconfig,['search_path=""']);
+ for(const name of ['trg_order_items_guard','trg_order_items_pricing_guard','trg_order_items_set_pricing']){
+ const definition=(await rows('select pg_get_functiondef($1::regprocedure) definition',['public.'+name+'()']))[0].definition;
+ assert.equal(definition.match(/A direct table update is not a back door/g)?.length,1);
+ }
 });
 console.log(`${checks} agreed draft database checks passed`);
 await db.close();

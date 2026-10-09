@@ -13,7 +13,7 @@ import { normalizeRemoteSearchValue, normalizeSearchValue, splitSearchTokens } f
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { storedApprovedPriceLine, type ApprovedPriceLine } from '@/lib/orders/approved-price-preservation';
-import { preservedUnchangedPriceSnapshot } from '@/lib/orders/operational-edit-pricing';
+import { preservedAgreedPriceSnapshot } from '@/lib/orders/operational-edit-pricing';
 import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/play-order';
 import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persistence';
 import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
@@ -1679,13 +1679,13 @@ export default function AdvisorOrderComposer({
     () =>
       draftItems.map((item, index) => {
         const preserved = isEditingOrder && !advisorRecalculationMode
-          ? preservedUnchangedPriceSnapshot({
+          ? preservedAgreedPriceSnapshot({
               orderItemId: item.persistedOrderItemId, productId: item.product_id, qty: item.qty,
               sourcePriceCurrency: item.source_price_currency, sourcePriceAmount: item.source_price_amount,
               adminPriceOverrideUsd: null, adminPriceOverrideReason: null,
               editableDetailLines: item.editable_detail_lines, crmPlayMemberId: item.crm_benefit?.playMemberId,
               unitPriceUsdSnapshot: item.unit_price_usd_snapshot, lineTotalUsd: item.line_total_usd,
-            }, originalItemPricesRef.current.get(Number(item.persistedOrderItemId)))
+            }, originalItemPricesRef.current.get(Number(item.persistedOrderItemId)), Number(originalEditSnapshot?.fxRate || 0))
           : null;
         return preserved ?? calculateOrderLineSnapshot({
           sourceCurrency: effectiveDraftPricing[index]?.sourceCurrency ?? item.source_price_currency,
@@ -1695,7 +1695,7 @@ export default function AdvisorOrderComposer({
           fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
         });
       }),
-    [draftItems, effectiveDraftPricing, fxRateNumber, isEditingOrder, advisorRecalculationMode]
+    [draftItems, effectiveDraftPricing, fxRateNumber, isEditingOrder, advisorRecalculationMode, originalEditSnapshot?.fxRate]
   );
   const displayDraftItems = sortOrderItemsByPriority(
     draftItems.map((item, index) => ({ item, index })),
@@ -2073,7 +2073,7 @@ export default function AdvisorOrderComposer({
             supabase
               .from('order_items')
               .select(
-                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, sku_snapshot, product_name_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, product:products(type, units_per_service)'
+                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, sku_snapshot, product_name_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, product:products(type, units_per_service)'
               )
               .eq('order_id', Number(sourceOrderId))
               .order('id', { ascending: true }),

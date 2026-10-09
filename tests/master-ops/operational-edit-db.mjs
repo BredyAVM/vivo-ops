@@ -6,7 +6,7 @@ const db = new PGlite();
 const read = path => readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
 const seed = read('tests/master-ops/approved-price-db.mjs').match(/await db.exec\(`([\s\S]*?)`\);/)[1];
 await db.exec(seed);
-await db.exec(`create role anon; create role authenticated;
+await db.exec(`create role anon; create role authenticated; create role service_role;
   create function public.is_master() returns boolean language sql as $$select current_setting('test.role',true)='master'$$;
   create function public.has_role(text) returns boolean language sql as $$select current_setting('test.role',true)=$1$$;
   create function auth.jwt() returns jsonb language sql as $$select '{}'::jsonb$$;
@@ -47,8 +47,12 @@ await db.exec(read('supabase/migrations/20261004190450_prehandoff_operational_it
 if (process.env.VIVO_COMMERCIAL_RETENTION_FIXTURE) {
   await db.exec(readFileSync(process.env.VIVO_COMMERCIAL_RETENTION_FIXTURE,'utf8'));
   await db.exec("insert into exchange_rates(is_active,effective_at,rate_bs_per_usd) values(true,now(),871.37)");
+} else {
+  await db.exec(read('tests/pricing/fixtures/mixed-order-production-functions.sql'));
 }
 await db.exec(read('supabase/migrations/20261009155720_preserve_existing_order_commercial_snapshots.sql'));
+await db.exec(read('supabase/migrations/20261009173444_split_historical_and_added_order_quantities.sql'));
+await db.exec("insert into exchange_rates(is_active,effective_at,rate_bs_per_usd) values(true,now(),871.37)");
 const rows = async (sql,args=[]) => (await db.query(sql,args)).rows;
 let checks=0;
 const check = async (name,fn) => { await db.exec('begin'); try { await fn(); checks++; console.log('PASS '+name); } finally { await db.exec('rollback'); } };
@@ -232,6 +236,42 @@ await check('new pure private helper has no anonymous execution and no definer p
   const privilege=(await rows("select has_function_privilege('anon','app_private.order_item_same_commercial_terms_v1(jsonb,jsonb)','EXECUTE') as anon, has_function_privilege('authenticated','app_private.order_item_same_commercial_terms_v1(jsonb,jsonb)','EXECUTE') as authenticated, p.prosecdef as definer, p.proconfig as config from pg_proc p where p.oid='app_private.order_item_same_commercial_terms_v1(jsonb,jsonb)'::regprocedure"))[0];
   assert.equal(privilege.anon,false);assert.equal(privilege.authenticated,true);assert.equal(privilege.definer,false);
   assert.deepEqual(privilege.config,['search_path=""']);
+});
+await check('same SKU addition keeps the agreed row exact and prices only extra units from the new USD catalog',async()=>{
+ await db.exec("select set_config('test.role','admin',true); update products set name='Mini',sku='MINI',source_price_currency='VES',source_price_amount=11500,base_price_usd=13.15 where id=70; insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,unit_price_usd_snapshot,line_total_usd,unit_price_bs_snapshot,line_total_bs_snapshot) values(1,70,4,'VES',11500,13.15,52.59,11500,46000)");
+ const agreed=(await rows('select * from order_items where product_id=70'))[0];
+ await db.exec("update products set source_price_currency='USD',source_price_amount=14,base_price_usd=14 where id=70");
+ const extra={product_id:70,qty:2,pricing_origin_currency:'USD',pricing_origin_amount:14,
+   unit_price_usd_snapshot:14,line_total_usd:28,unit_price_bs_snapshot:12200,line_total_bs_snapshot:24400};
+ const result=await save([...items,{...agreed,order_item_id:agreed.id},extra]);
+ assert.equal(result.item_count,4);
+ assert.deepEqual((await rows('select * from order_items where id=$1',[agreed.id]))[0],agreed);
+ const added=(await rows('select * from order_items where product_id=70 and id<>$1',[agreed.id]))[0];
+ assert.equal(Number(added.qty),2);assert.equal(Number(added.line_total_usd),28);
+ assert.equal(Number(added.line_total_bs_snapshot),24398.36);assert.equal(added.admin_price_override_usd,null);
+});
+await check('old-price quantity expansion is rejected atomically rather than silently expanding an agreement',async()=>{
+ await db.exec("select set_config('test.role','admin',true); update products set name='Mini',sku='MINI',source_price_currency='VES',source_price_amount=11500,base_price_usd=13.15 where id=70; insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,unit_price_usd_snapshot,line_total_usd,unit_price_bs_snapshot,line_total_bs_snapshot) values(1,70,4,'VES',11500,13.15,52.59,11500,46000); update products set source_price_currency='USD',source_price_amount=14,base_price_usd=14 where id=70");
+ const agreed=(await rows('select * from order_items where product_id=70'))[0];
+ await rejectSave([...items,{...agreed,order_item_id:agreed.id,qty:6}],/línea nueva/);
+ assert.deepEqual((await rows('select * from order_items where id=$1',[agreed.id]))[0],agreed);
+});
+await check('Admin and Advisor reduce agreed VES quantities without changing the certified unit or original rate',async()=>{
+ await db.exec("select set_config('test.role','admin',true); update products set name='Mini',sku='MINI',source_price_currency='VES',source_price_amount=11500,base_price_usd=13.15 where id=70; insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,unit_price_usd_snapshot,line_total_usd,unit_price_bs_snapshot,line_total_bs_snapshot) values(1,70,4,'VES',11500,13.15,52.59,11500,46000); update products set source_price_currency='USD',source_price_amount=14,base_price_usd=14 where id=70; delete from order_items where product_id<>70");
+ const agreed=(await rows('select * from order_items where product_id=70'))[0];
+ const fx=Number(agreed.pricing_fx_rate_snapshot);
+ const reduced={...agreed,order_item_id:agreed.id,qty:3,line_total_usd:Number((34500/fx).toFixed(2)),line_total_bs_snapshot:34500};
+ await save([reduced]);
+ let saved=(await rows('select * from order_items where id=$1',[agreed.id]))[0];
+ assert.equal(Number(saved.qty),3);assert.equal(saved.unit_price_usd_snapshot,agreed.unit_price_usd_snapshot);
+ assert.equal(Number(saved.line_total_usd),reduced.line_total_usd);
+ await db.exec("update orders set status='created' where id=1; select set_config('test.role','advisor',true),set_config('test.uid','00000000-0000-0000-0000-000000000002',true)");
+ const expected=(await rows('select last_modified_at from orders where id=1'))[0].last_modified_at;
+ await rows('select app_private.update_order_core_atomic_v1(1,$3::timestamptz,$1::jsonb,$2::jsonb)',[
+  JSON.stringify({...patch,status:'created'}),JSON.stringify([{...saved,order_item_id:saved.id,qty:2,line_total_usd:Number((23000/fx).toFixed(2)),line_total_bs_snapshot:23000}]),expected]);
+ saved=(await rows('select * from order_items where id=$1',[agreed.id]))[0];
+ assert.equal(Number(saved.qty),2);assert.equal(saved.unit_price_usd_snapshot,agreed.unit_price_usd_snapshot);
+ assert.equal(saved.pricing_fx_rate_snapshot,agreed.pricing_fx_rate_snapshot);
 });
 console.log(`${checks} operational database checks passed`);
 await db.close();

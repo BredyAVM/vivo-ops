@@ -1,5 +1,29 @@
 import type { ApprovedPriceLine } from './approved-price-preservation';
 import { preservedApprovedPriceSnapshot } from './approved-price-preservation.ts';
+import { roundMoney } from '../pricing/order-snapshots.ts';
+
+/** Additional units are a new sale, never evidence of a grandfathered price. */
+export function historicalQuantityAddition(previous: { qty: number; sourcePriceCurrency: string; sourcePriceAmount: number },
+  nextQty: number, catalog: { sourcePriceCurrency: string; sourcePriceAmount: number } | null) {
+  if (!catalog || !Number.isFinite(nextQty) || !Number.isFinite(previous.qty) || previous.qty <= 0 || nextQty <= previous.qty) return 0;
+  return previous.sourcePriceCurrency !== catalog.sourcePriceCurrency ||
+    Math.abs(previous.sourcePriceAmount - catalog.sourcePriceAmount) > 0.000001 ? nextQty - previous.qty : 0;
+}
+
+/** Removing units preserves the agreement; it does not negotiate today's price. */
+export function preservedAgreedPriceSnapshot(next: ApprovedPriceLine, previous: ApprovedPriceLine | undefined, originalFx: number) {
+  const unchanged = preservedUnchangedPriceSnapshot(next, previous);
+  if (unchanged) return unchanged;
+  if (!previous || next.qty >= previous.qty || next.crmPlayMemberId || previous.crmPlayMemberId ||
+    next.crmPlayBenefitId || previous.crmPlayBenefitId || next.crmPlayBenefitUpgradeId || previous.crmPlayBenefitUpgradeId) return null;
+  const evidence = previous.adminPriceOverrideUsd != null
+    ? preservedApprovedPriceSnapshot(next, previous, true) : preservedOperationalSnapshot(next, previous);
+  if (!evidence) return null;
+  const lineBs = roundMoney(evidence.unitBs * next.qty);
+  const fx = previous.pricingFxRateSnapshot ?? originalFx;
+  return { ...evidence, lineBs, lineUsd: previous.sourcePriceCurrency === 'VES' && fx > 0
+    ? roundMoney(lineBs / fx) : roundMoney(previous.lineTotalUsd / previous.qty * next.qty) };
+}
 
 /**
  * Opening an editor is not a new quotation. All roles retain the certified

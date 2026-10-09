@@ -19,7 +19,7 @@ import {
 import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from "@/lib/orders/approved-price-preservation";
-import { preservedOperationalSnapshot, preservedUnchangedPriceSnapshot } from "@/lib/orders/operational-edit-pricing";
+import { preservedAgreedPriceSnapshot, preservedOperationalSnapshot } from "@/lib/orders/operational-edit-pricing";
 import {
   cancelOrderAction,
   confirmPaymentReportAction,
@@ -1387,6 +1387,7 @@ type RawOrderEditRow = {
 };
 
 type RawOrderItemEditRow = {
+  pricing_fx_rate_snapshot?: number | string | null;
   product?: EditorCommissionProduct | EditorCommissionProduct[] | null;
   id: number | string;
   order_id: number | string;
@@ -1540,6 +1541,7 @@ export type MasterOpsEditOrderItem = EditorCommissionFields & {
   lineTotalUsd: number;
   unitPriceBsSnapshot?: number | null;
   lineTotalBsSnapshot?: number | null;
+  pricingFxRateSnapshot?: number | null;
   editableDetailLines: string[];
   adminPriceOverrideUsd: number | null;
   adminPriceOverrideCurrency: MasterOpsEditCurrency | null;
@@ -1788,6 +1790,7 @@ type MasterOpsSaveComponentRow = {
 };
 
 type MasterOpsExistingSaveItemRow = {
+  pricing_fx_rate_snapshot?: number | string | null;
   id: number | string;
   product_id: number | string | null;
   qty: number | string | null;
@@ -1993,7 +1996,7 @@ async function prepareMasterOpsOrderSave(
         ? ctx.supabase
             .from("order_items")
             .select(
-              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id"
+              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id"
             )
             .eq("order_id", Number(orderId))
         : Promise.resolve({ data: [], error: null }),
@@ -2254,7 +2257,7 @@ async function prepareMasterOpsOrderSave(
   const requestedFxRate = toNumber(input.fxRate, 0);
   const requestedRateChanged = mode === "edit" && !closeNumber(requestedFxRate, currentFxRate);
   const pricingChanged = itemPricingChanged || totalsConfigurationChanged || requestedRateChanged;
-  const effectiveFxRate = pricingChanged ? activeRate : currentFxRate;
+  const effectiveFxRate = mode === "create" || requestedRateChanged ? activeRate : currentFxRate;
 
   if (!closeNumber(requestedFxRate, effectiveFxRate)) {
     throw new Error("La tasa cambió mientras editabas. Cierra el editor y vuelve a abrirlo.");
@@ -2291,7 +2294,7 @@ async function prepareMasterOpsOrderSave(
   }
   const recalculatedItems = preparedItems.map((item) => {
     const original = approvedPricesById.get(Number(item.orderItemId));
-    const preserved = preservedUnchangedPriceSnapshot(item, original) ??
+    const preserved = preservedAgreedPriceSnapshot(item, original, currentFxRate) ??
       (!isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null);
     const snapshot = preserved ?? calculateOrderLineSnapshot({
       sourceCurrency: item.sourcePriceCurrency,
@@ -2858,6 +2861,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         qty,
         pricing_origin_currency,
         pricing_origin_amount,
+        pricing_fx_rate_snapshot,
         unit_price_usd_snapshot,
         line_total_usd,
         unit_price_bs_snapshot,
@@ -3127,6 +3131,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       lineTotalUsd: toNumber(item.line_total_usd, 0),
       unitPriceBsSnapshot: item.unit_price_bs_snapshot == null ? null : Number(item.unit_price_bs_snapshot),
       lineTotalBsSnapshot: item.line_total_bs_snapshot == null ? null : Number(item.line_total_bs_snapshot),
+      pricingFxRateSnapshot: item.pricing_fx_rate_snapshot == null ? null : Number(item.pricing_fx_rate_snapshot),
       editableDetailLines: String(item.notes || "")
         .split("\n")
         .map((line) => line.trim())

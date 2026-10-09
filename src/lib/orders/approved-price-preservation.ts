@@ -19,6 +19,7 @@ export type ApprovedPriceLine = {
   lineTotalUsd: number;
   unitPriceBsSnapshot?: number | null;
   lineTotalBsSnapshot?: number | null;
+  pricingFxRateSnapshot?: number | null;
 };
 
 export type StoredApprovedPriceLine = {
@@ -37,6 +38,7 @@ export type StoredApprovedPriceLine = {
   line_total_usd: Numeric;
   unit_price_bs_snapshot: Numeric;
   line_total_bs_snapshot: Numeric;
+  pricing_fx_rate_snapshot?: Numeric;
 };
 
 export function storedApprovedPriceLine(row: StoredApprovedPriceLine): ApprovedPriceLine {
@@ -53,6 +55,7 @@ export function storedApprovedPriceLine(row: StoredApprovedPriceLine): ApprovedP
     lineTotalUsd: row.line_total_usd == null ? Number.NaN : Number(row.line_total_usd),
     unitPriceBsSnapshot: row.unit_price_bs_snapshot == null ? null : Number(row.unit_price_bs_snapshot),
     lineTotalBsSnapshot: row.line_total_bs_snapshot == null ? null : Number(row.line_total_bs_snapshot),
+    pricingFxRateSnapshot: row.pricing_fx_rate_snapshot == null ? null : Number(row.pricing_fx_rate_snapshot),
   };
 }
 

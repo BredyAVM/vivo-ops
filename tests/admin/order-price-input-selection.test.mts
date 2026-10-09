@@ -29,7 +29,8 @@ test('replacement zero is retained in USD and Bs without restoring a nonzero cat
 
 test('active and delivered order price/commission inputs select on focus, not on every click or keystroke', () => {
   for (const [path, count] of [
-    ['src/app/app/master/ops/MasterOpsOrderEditor.tsx', 3],
+    // Three price/commission fields plus the commit-on-blur quantity field.
+    ['src/app/app/master/ops/MasterOpsOrderEditor.tsx', 4],
     ['src/components/orders/DeliveredOrderPriceEditor.tsx', 1],
     ['src/app/app/commissions/_components/DeliveredOrderCommissionEditor.tsx', 1],
   ] as const) {
