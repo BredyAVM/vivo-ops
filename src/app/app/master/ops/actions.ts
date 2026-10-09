@@ -1429,6 +1429,7 @@ type RawOrderClientEditRow = {
 };
 
 type RawCatalogEditRow = {
+  inventory_group?: string | null;
   commission_mode?: string | null;
   commission_value?: number | string | null;
   extra_fields?: Record<string, unknown> | null;
@@ -1463,6 +1464,7 @@ type RawProductComponentEditRow = {
 export type MasterOpsEditCurrency = "USD" | "VES";
 
 export type MasterOpsEditCatalogItem = {
+  inventoryGroup?: string | null;
   commissionInheritedMode?: EditorCommissionFields['commissionInheritedMode'];
   commissionInheritedValue?: number | null;
   discretionaryAllowed?: boolean;
@@ -2532,6 +2534,33 @@ export async function updateMasterOpsOrderAction(input: MasterOpsOrderUpdateInpu
   return result;
 }
 
+export async function appendMasterOpsBeverageAction(input: {
+  orderId: number; productId: number; qty: number; expectedLastModifiedAt: string | null;
+  operationId: string; reason: string;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const { data, error } = await ctx.supabase.rpc("master_append_dispatched_beverage_v1", {
+    p_order_id: input.orderId, p_product_id: input.productId, p_qty: input.qty,
+    p_expected_last_modified_at: input.expectedLastModifiedAt,
+    p_operation_id: input.operationId, p_reason: input.reason,
+  });
+  if (error) {
+    console.warn("master beverage append rejected", { code: error.code, orderId: input.orderId });
+    const businessError = ["22023", "40001", "42501", "55000", "P0002", "P0001"].includes(error.code);
+    return { ok: false as const, message: businessError ? error.message :
+      "No se pudo confirmar la incorporación. Reintenta la misma solicitud; no se duplicará la bebida." };
+  }
+  revalidatePath("/app/master/ops");
+  revalidatePath("/app/admin/ordenes");
+  revalidatePath("/app/counter");
+  revalidatePath("/app/kitchen");
+  revalidatePath("/app/driver");
+  revalidatePath("/app/advisor");
+  revalidatePath("/app/advisor/orders");
+  return { ok: true as const, inventoryStatus: String(data?.inventory_status || "review_required"),
+    totalBs: toNumber(data?.total_bs, 0), totalUsd: toNumber(data?.total_usd, 0) };
+}
+
 export async function appendMasterOpsGiftAction(input: {
   orderId: number; productId: number; qty: number; expectedLastModifiedAt: string | null;
   operationId: string; reason: string;
@@ -2568,6 +2597,7 @@ async function loadMasterOpsOrderComposerLookups(
         sku,
         name,
         type,
+        inventory_group,
         is_active,
         source_price_amount,
         source_price_currency,
@@ -2631,6 +2661,7 @@ async function loadMasterOpsOrderComposerLookups(
 
   const catalogItems = ((productsResult.data ?? []) as RawCatalogEditRow[])
     .map((product) => ({
+      inventoryGroup: product.inventory_group ?? null,
       commissionInheritedMode: readEditorCommissionFields(product, getCaracasDateKey(new Date().toISOString())).commissionInheritedMode,
       commissionInheritedValue: readEditorCommissionFields(product, getCaracasDateKey(new Date().toISOString())).commissionInheritedValue,
       discretionaryAllowed: !isCrmOnlyCatalogProduct(product),
@@ -2858,6 +2889,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         sku,
         name,
         type,
+        inventory_group,
         is_active,
         source_price_amount,
         source_price_currency,
@@ -2941,6 +2973,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
 
   const catalogItems = ((productsResult.data ?? []) as RawCatalogEditRow[])
     .map((product) => ({
+      inventoryGroup: product.inventory_group ?? null,
       commissionInheritedMode: readEditorCommissionFields(product, schedule.deliveryDate).commissionInheritedMode,
       commissionInheritedValue: readEditorCommissionFields(product, schedule.deliveryDate).commissionInheritedValue,
       discretionaryAllowed: !isCrmOnlyCatalogProduct(product),

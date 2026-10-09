@@ -40,6 +40,7 @@ import { MASTER_OPS_ORDER_PAYMENT_METHODS } from "./order-editor-payment";
 import type { MasterCrmOrderContext } from "@/lib/crm/advisor-order-context-types";
 import { resolveCrmOrderBenefit } from "@/lib/crm/master-order-benefit";
 import MasterOpsGiftAppend from "./MasterOpsGiftAppend";
+import MasterOpsBeverageAppend from "./MasterOpsBeverageAppend";
 import { prepareEditorCommissionFields } from "./order-editor-commission";
 import { formatOrderCommissionTerms, type OrderCommissionMode } from "@/lib/commissions/order-commission-terms";
 
@@ -1161,7 +1162,7 @@ export default function MasterOpsOrderEditor({
               {isCreateMode
                 ? "Nuevo pedido"
                 : form
-                  ? `${form.status === "out_for_delivery" ? "Agregar obsequio · Orden" : "Modificar orden"} #${formatOrderDisplayNumber(form.id)}`
+                  ? `${form.status === "out_for_delivery" ? "Agregar al envío · Orden" : "Modificar orden"} #${formatOrderDisplayNumber(form.id)}`
                   : "Modificar orden"}
             </div>
             <div className="mt-0.5 text-xs text-[#8A8A96]">
@@ -1186,6 +1187,8 @@ export default function MasterOpsOrderEditor({
 
         {!loading && form?.status === "out_for_delivery" && data ? (
           <div className="overflow-y-auto px-5 py-4">
+            <MasterOpsBeverageAppend key={`beverage-${data.order.id}`} order={data.order}
+              catalog={data.catalogItems} onSaved={onSaved} />
             <MasterOpsGiftAppend key={data.order.id} order={data.order}
               catalog={data.catalogItems} disabled={false} onSaved={onSaved} />
           </div>

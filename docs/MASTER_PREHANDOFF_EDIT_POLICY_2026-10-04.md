@@ -13,6 +13,11 @@ habilita edición ordinaria de órdenes despachadas, entregadas o canceladas.
 Después de ese corte se necesitan los procedimientos formales de corrección y,
 si corresponde, devolución física de inventario. No se amplían permisos del asesor.
 
+Excepción puntual desde el 2026-10-08: una bebida de catálogo que acompaña
+físicamente el envío puede incorporarse mediante el comando separado descrito en
+`MASTER_DISPATCHED_BEVERAGE_APPEND_2026-10-08.md`. No habilita edición ordinaria,
+retiros/sustituciones en camino ni cambios de una orden entregada.
+
 La protección económica permanece: Máster no puede crear, copiar, trasladar a
 otro producto ni cambiar precios especiales administrativos. Tampoco renegocia
 descuentos, impuestos o tasa manual de una orden protegida. Las líneas que

@@ -667,7 +667,7 @@ function advancedOperationalLinks(order: MasterOpsOrder): Array<{
   if (canEditMasterOpsOrder(order)) {
     links.push({ label: "Modificar orden", tone: "neutral" });
   } else if (order.status === "out_for_delivery") {
-    links.push({ label: "Agregar obsequio", tone: "neutral" });
+    links.push({ label: "Agregar bebida / obsequio", tone: "neutral" });
   }
 
   return links;

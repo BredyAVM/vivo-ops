@@ -22,6 +22,12 @@ de fondo con sus reportes de origen; la devolución conserva el comando existent
 Migración: `20261004190450_prehandoff_operational_item_changes.sql`. No hay tablas
 o columnas nuevas ni escrituras de reparación histórica.
 
+Desde el 2026-10-08, `master_append_dispatched_beverage_v1` permite incorporar
+una bebida normal que ya acompaña una orden delivery en camino, sin reconstruir
+partidas ni pagos. Consume solo la partida nueva, conserva tasa snapshot y precio
+VES nativo, registra antes/después y no habilita la edición general posterior al
+despacho. Contrato: `MASTER_DISPATCHED_BEVERAGE_APPEND_2026-10-08.md`.
+
 ---
 
 ## 1) Stack y estructura del proyecto

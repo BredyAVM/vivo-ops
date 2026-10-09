@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { commissionCalculationFeedback, commissionCalculationTimeLabel } from '@/lib/commissions/calculation-feedback';
 import { redirectInWorkspace } from '@/lib/navigation/workspace-server';
 import { requireAuthContext } from '@/lib/auth';
 import {
@@ -464,12 +465,16 @@ export async function applyAdvisorCommissionGoalResults(input: {
 export async function calculateCommissionPeriodAction(formData: FormData) {
   const periodId = Number(formData.get('periodId') ?? 0);
   let result: { updated: number; skippedLocked: number };
+  let feedbackNotice = '';
 
   try {
     const { supabase } = await requireCommissionAdmin();
     if (!Number.isInteger(periodId) || periodId <= 0) {
       throw new Error('Selecciona un periodo válido.');
     }
+    const feedbackFields = 'advisor_user_id,status,base_commission_pct,delivered_orders_count,billed_usd,gross_commission_usd,gift_deductions_usd,manual_deductions_usd,pending_collection_usd,payable_usd,generated_at,snapshot';
+    const before = await supabase.from('advisor_commission_closures').select(feedbackFields).eq('period_id', periodId);
+    if (before.error) throw new Error(before.error.message);
     const scheduledLiquidationDate = optionalDate(formData.get('scheduledLiquidationDate'));
     const periodResult = await supabase.from('advisor_commission_periods').select('goal_config').eq('id', periodId).single();
     if (periodResult.error) throw new Error(periodResult.error.message);
@@ -478,12 +483,7 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
       result = await applyAdvisorCommissionGoalResults({ periodId, intent: 'automatic', scheduledLiquidationDate });
     } else {
     const baseCommissionPctByAdvisor = advisorCommissionRates(formData);
-    const { data: previousClosures, error: previousClosuresError } = await supabase
-      .from('advisor_commission_closures')
-      .select('advisor_user_id, snapshot')
-      .eq('period_id', periodId);
-
-    if (previousClosuresError) throw new Error(previousClosuresError.message);
+    const previousClosures = before.data ?? [];
     const previousSnapshotsByAdvisor = new Map(
       (previousClosures ?? []).map((closure) => [
         String(closure.advisor_user_id),
@@ -510,6 +510,23 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
     await bestEffortCommissionNotification('period review ready', () =>
       notifyAdvisorCommissionPeriodReviewReady({ supabase, periodId }),
     );
+    const after = await supabase.from('advisor_commission_closures').select(feedbackFields).eq('period_id', periodId);
+    const completedAt = commissionCalculationTimeLabel(new Date().toISOString());
+    if (after.error) {
+      feedbackNotice = `Actualización completada el ${completedAt}. No se pudo consultar el resumen de cambios; recarga para revisar los importes.`;
+    } else {
+      const feedback = commissionCalculationFeedback(before.data ?? [], after.data ?? []);
+      feedbackNotice = `Actualización completada el ${completedAt}. `;
+      if (feedback.recalculated === 0) {
+        feedbackNotice += 'No se detectaron nuevos cálculos para comparar.';
+      } else if (feedback.changed === 0) {
+        feedbackNotice += 'Sin cambios en los importes ni en los porcentajes.';
+      } else {
+        feedbackNotice += `${feedback.changed} ${feedback.changed === 1 ? 'preliminar con cambios' : 'preliminares con cambios'}. `
+          + `Liquidación de los preliminares recalculados: $${feedback.payableBefore.toFixed(2)} → $${feedback.payableAfter.toFixed(2)}. `
+          + `Deuda de clientes: $${feedback.debtBefore.toFixed(2)} → $${feedback.debtAfter.toFixed(2)}.`;
+      }
+    }
   } catch (error) {
     return await redirectInWorkspace(
       `/app/commissions?period=${Number.isInteger(periodId) && periodId > 0 ? periodId : ''}&error=${encodeURIComponent(
@@ -524,7 +541,7 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
   revalidatePath('/app/advisor/commissions');
   return await redirectInWorkspace(
     `/app/commissions?period=${periodId}&notice=${encodeURIComponent(
-      `${result.updated} liquidaciones actualizadas${
+      `${feedbackNotice} ${result.updated} liquidaciones actualizadas${
         result.skippedLocked > 0 ? `; ${result.skippedLocked} protegidas por estar cerradas` : ''
       }.`
     )}`
