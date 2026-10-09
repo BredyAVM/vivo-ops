@@ -101,7 +101,7 @@ async function loadCrmOrderContext({
     .from('crm_play_benefit_upgrades')
     .select(`
       id, play_benefit_id, target_product_id, target_quantity,
-      customer_difference_usd_snapshot, sort_order,
+      customer_difference_usd_snapshot:current_customer_difference_usd, sort_order,
       product:products!crm_play_benefit_upgrades_target_product_id_fkey(name, sku, is_active, extra_fields)
     `)
     .in('play_benefit_id', optionIds)

@@ -428,3 +428,27 @@ de ocho órdenes testigo fueron idénticos antes/después; catálogo, presupuest
 órdenes conservaron sus hashes. Seguridad: los 342 avisos previos no cambiaron;
 solo se añaden tres avisos informativos por RLS sin políticas en tablas privadas
 deliberadamente inaccesibles. No se registraron operaciones reales de prueba.
+
+## Diferencias de jugadas — 9 de octubre de 2026
+
+Bloque 4: `20261009182721_native_usd_crm_upgrade_differences.sql`, instalada.
+Las ampliaciones de ventas nuevas calculan Single 8/10 menos Single 6 desde el
+catálogo nativo USD: con la propuesta aprobada serán USD 1,50 y USD 2,50.
+Las configuraciones publicadas y las reservas/redenciones existentes no se
+reescriben. Las órdenes anteriores conservan su diferencia original.
+
+Un campo calculado de PostgREST entrega el importe vigente en las consultas CRM
+ya existentes de asesor/master/admin, sin añadir consultas históricas ni nuevas
+pantallas. La revisión de React conserva el diseño, los componentes y las
+consultas filtradas existentes. Los seis productos de ampliación con precio del
+catálogo también se sincronizarán con esa diferencia tras el corte, y ante futuros
+ajustes de Single 6/8/10; los obsequios independientes de precio cero no cambian.
+
+La reserva congela el mismo importe certificado por la línea y su entrega no lo
+recalcula si el catálogo cambia posteriormente. Se conserva la inmutabilidad de
+montos, identidad, autorizaciones y selección CRM. La suite PostgreSQL aislada
+validó fórmula, pedido anterior, reserva/entrega, cambio posterior de catálogo,
+obsequios cero y permisos; 700 pruebas .mts, tipos y compilación aprobados.
+Los hashes de todas las ampliaciones, líneas CRM y redenciones permanecieron
+idénticos antes/después. Seguridad: 345 avisos, sin nuevos respecto al bloque 3.
+Queda activar el catálogo y verificar la experiencia publicada.

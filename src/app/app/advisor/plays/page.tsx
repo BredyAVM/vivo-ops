@@ -460,7 +460,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     ctx.supabase
       .from('crm_play_benefit_upgrades')
       .select(`
-        id, play_benefit_id, target_quantity, customer_difference_usd_snapshot,
+        id, play_benefit_id, target_quantity, customer_difference_usd_snapshot:current_customer_difference_usd,
         product:products!crm_play_benefit_upgrades_target_product_id_fkey(name)
       `)
       .eq('play_id', Number(selectedPlay.id))

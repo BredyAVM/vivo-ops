@@ -391,7 +391,7 @@ export default async function AdvisorClientProfilePage({
           .select(`id, product_id, quantity, unit_advisor_cost_usd, unit_benefit_value_usd,
             product:products!crm_play_benefits_product_id_fkey(name, sku),
             upgrades:crm_play_benefit_upgrades!crm_play_benefit_upgrades_benefit_fkey(
-              id, customer_difference_usd_snapshot, product:products!crm_play_benefit_upgrades_target_product_id_fkey(name)
+              id, customer_difference_usd_snapshot:current_customer_difference_usd, product:products!crm_play_benefit_upgrades_target_product_id_fkey(name)
             )`)
           .eq('play_id', Number(selectedPlay.id))
           .order('sort_order', { ascending: true })

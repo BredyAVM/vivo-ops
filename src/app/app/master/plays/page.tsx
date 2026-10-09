@@ -104,7 +104,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .from('crm_play_benefit_upgrades')
       .select(`
         id, play_id, play_benefit_id, target_product_id, target_quantity, sort_order,
-        customer_difference_usd_snapshot,
+        customer_difference_usd_snapshot:current_customer_difference_usd,
         product:products!crm_play_benefit_upgrades_target_product_id_fkey(id, name, sku)
       `)
       .in('play_id', playIds.length > 0 ? playIds : [-1])
