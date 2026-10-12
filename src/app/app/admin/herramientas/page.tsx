@@ -12,7 +12,7 @@ const sections = [
     ['Cobranzas por período y vendedor', '/app/admin/finanzas/cobranzas'],
     ['Autorizar egresos, órdenes y pagos', '/app/admin/autorizaciones'],
     ['Registrar ingreso o egreso', '/app/admin/finanzas/cuentas/movimiento'],
-    ['Transferir entre cuentas', '/app/admin/finanzas/cuentas/transferencia'],
+    ['Traspaso entre cuentas', '/app/admin/finanzas/cuentas/transferencia'],
     ['Registrar cierre de cuenta', '/app/admin/finanzas/cuentas/cierre'],
     ['Cuentas y movimientos', '/app/admin/finanzas/cuentas'], ['Cartera y cobros', '/app/admin/finanzas/cartera'], ['Tasa diaria e historial', '/app/admin/configuracion/tasa'], ['Administrar cuentas y reglas', '/app/admin/configuracion/cuentas'], ['Comisiones', '/app/admin/finanzas/comisiones'], ['Delivery y retornos', '/app/admin/finanzas/delivery'], ['Partners y tarifas de delivery', '/app/admin/configuracion/delivery'],
   ] },

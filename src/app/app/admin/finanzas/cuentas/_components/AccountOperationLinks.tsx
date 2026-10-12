@@ -12,6 +12,6 @@ export default function AccountOperationLinks({ accountId }: { accountId?: numbe
       </Link>
     ))}
     <Link href={`/app/admin/finanzas/cuentas/transferencia${accountId ? `?cuenta=${accountId}` : ''}`} prefetch={false}
-      className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs font-medium text-[#C8C8D1] hover:border-[#FFFF00]/50 sm:min-h-8">Transferir</Link>
+      className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs font-medium text-[#C8C8D1] hover:border-[#FFFF00]/50 sm:min-h-8">Traspaso entre cuentas</Link>
   </nav>;
 }

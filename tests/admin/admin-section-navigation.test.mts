@@ -53,6 +53,7 @@ registerHooks({
 const { default: Navigation } = await import('../../src/app/app/admin/_components/AdminNavigation.tsx');
 const { default: Hub } = await import('../../src/app/app/admin/_components/AdminSectionHub.tsx');
 const { default: FinancePage } = await import('../../src/app/app/admin/finanzas/page.tsx');
+const { default: AccountOperationLinks } = await import('../../src/app/app/admin/finanzas/cuentas/_components/AccountOperationLinks.tsx');
 const { setPathname } = await import(navigationStub);
 
 test('mobile navigation has the same four primary areas as desktop', () => {
@@ -108,11 +109,39 @@ test('hubs render bounded links only; opening a group cannot import another doma
 test('finance entry exposes actual income, expense, closure and transfer actions without fetching figures', async () => {
   setPathname('/app/admin/finanzas');
   const html = renderToStaticMarkup(await FinancePage({}));
-  for (const label of ['Ingreso', 'Egreso', 'Cierre de caja', 'Transferencia', 'Cuentas y caja', 'Resumen financiero']) assert.ok(html.includes(label));
+  for (const label of ['Ingreso', 'Egreso', 'Cierre de caja', 'Traspaso entre cuentas', 'Cuentas y caja', 'Resumen financiero']) assert.ok(html.includes(label));
   assert.match(html, /movimiento\?tipo=inflow&amp;returnTo=/);
   assert.match(html, /movimiento\?tipo=outflow&amp;returnTo=/);
   assert.match(html, /href="\/app\/admin\/finanzas\/resumen\?returnTo=/);
   assert.doesNotMatch(html, /data-prefetch="true"/);
+});
+
+test('transfer entry uses the same name in Finance and Accounts while preserving route and account context', async () => {
+  setPathname('/app/admin/finanzas');
+  const finance = renderToStaticMarkup(await FinancePage({}));
+  for (const accountId of [undefined, 8]) {
+    const accounts = renderToStaticMarkup(createElement(AccountOperationLinks, { accountId }));
+    for (const html of [finance, accounts]) {
+      assert.match(html, />Traspaso entre cuentas<\/a>/);
+      assert.doesNotMatch(html, />Transferir<\/a>|>Transferencia<\/a>|data-prefetch="true"/);
+    }
+    const href = (accounts.match(/<a\b[^>]*>/g) ?? []).find(link => link.includes('/cuentas/transferencia'));
+    assert.ok(href);
+    const url = new URL((href.match(/href="([^"]+)"/)?.[1] ?? '').replaceAll('&amp;', '&'), 'https://vivo.test');
+    assert.equal(url.pathname, '/app/admin/finanzas/cuentas/transferencia');
+    assert.equal(url.searchParams.get('cuenta'), accountId === undefined ? null : String(accountId));
+  }
+});
+
+test('transfer screen, shortcuts and feedback consistently say traspaso, without renaming banking transfers', () => {
+  const page = readFileSync(new URL('src/app/app/admin/finanzas/cuentas/transferencia/page.tsx', root), 'utf8');
+  const tools = readFileSync(new URL('src/app/app/admin/herramientas/page.tsx', root), 'utf8');
+  const form = readFileSync(new URL('src/app/app/admin/finanzas/cuentas/transferencia/TransferForm.tsx', root), 'utf8');
+  assert.match(page, />Traspaso entre cuentas<\/h1>/);
+  assert.match(tools, /\['Traspaso entre cuentas', '\/app\/admin\/finanzas\/cuentas\/transferencia'\]/);
+  for (const label of ['Registrar traspaso', 'Traspaso registrado', 'Nuevo traspaso', 'Datos del traspaso entre cuentas', 'Resumen del traspaso']) assert.ok(form.includes(label));
+  assert.doesNotMatch(form, /Registrar transferencia|Transferencia registrada|Nueva transferencia|Resumen de transferencia/);
+  assert.ok(form.includes('no ejecuta una transferencia bancaria'));
 });
 
 test('old dated snapshot URLs keep all filters and return context when routed to the separate summary', async () => {

@@ -88,11 +88,11 @@ export default function TransferForm({ accounts, initialAccountId, activeRate, t
     });
   }
 
-  if (accounts.length < 2) return <p role="status" className="text-sm text-orange-200">Necesitas dos cuentas activas para registrar una transferencia.</p>;
+  if (accounts.length < 2) return <p role="status" className="text-sm text-orange-200">Necesitas dos cuentas activas para registrar un traspaso.</p>;
   if (result?.status === 'confirmed' && submitted) {
     const saved = submitted;
     return <section role="status" className="space-y-3 rounded-xl border border-emerald-400/30 p-4">
-      <h2 className="text-lg font-semibold text-emerald-200">Transferencia registrada</h2>
+      <h2 className="text-lg font-semibold text-emerald-200">Traspaso registrado</h2>
       <p className="text-xs">{source?.name}: {native(saved.sourceAmount + Number(saved.feeAmount ?? 0), source?.currencyCode ?? '')} de salida total → {target?.name}: {native(saved.targetAmount, target?.currencyCode ?? '')} recibidos.</p>
       {result.receipt.replayed ? <p className="text-xs text-[#9B9BA7]">Se recuperó el registro del envío anterior; no se duplicó.</p> : null}
       <p className="break-all text-xs text-[#9B9BA7]">Comprobante: {result.receipt.movementGroupId}</p>
@@ -101,14 +101,14 @@ export default function TransferForm({ accounts, initialAccountId, activeRate, t
         <Link className={buttonClass} prefetch={false} href={adminMovementHistoryHref(saved.targetMoneyAccountId, saved.movementDate)}>Ver cuenta de destino</Link>
         <button className={buttonClass} type="button" onClick={() => {
           requestId.current = null; attempt.current = null; setSubmitted(null); setResult(null); setForm(initial());
-        }}>Nueva transferencia</button>
+        }}>Nuevo traspaso</button>
       </div>
     </section>;
   }
 
   return <form onSubmit={submit} className="space-y-4">
     <fieldset disabled={locked} className="min-w-0 space-y-4 disabled:opacity-70">
-      <legend className="sr-only">Datos de la transferencia</legend>
+      <legend className="sr-only">Datos del traspaso entre cuentas</legend>
       <div className="grid gap-4 md:grid-cols-2">
         {(['source', 'target'] as const).map(side => {
           const account = side === 'source' ? source : target;
@@ -146,7 +146,7 @@ export default function TransferForm({ accounts, initialAccountId, activeRate, t
       </details>
     </fieldset>
     {source && target && Number.isFinite(parseDecimalInput(form.amount)) && Number.isFinite(parseDecimalInput(form.received)) ?
-      <div aria-label="Resumen de transferencia" className="grid gap-2 rounded-xl border border-[#343442] p-3 text-sm sm:grid-cols-2">
+      <div aria-label="Resumen del traspaso" className="grid gap-2 rounded-xl border border-[#343442] p-3 text-sm sm:grid-cols-2">
         <p>Salida total: <strong>{native(parseDecimalInput(form.amount) + parseDecimalInput(form.fee, 0), source.currencyCode)}</strong></p>
         <p>Entrada: <strong>{native(parseDecimalInput(form.received), target.currencyCode)}</strong></p>
       </div> : null}
@@ -156,6 +156,6 @@ export default function TransferForm({ accounts, initialAccountId, activeRate, t
       <p>{result.message}</p>
       {result.status === 'uncertain' ? <p>No cierres ni recargues esta pantalla antes de comprobar el resultado.</p> : null}
     </div> : null}
-    <button disabled={isPending} className={buttonClass} type="submit">{isPending ? 'Comprobando…' : result?.status === 'uncertain' ? 'Reintentar el mismo envío' : 'Registrar transferencia'}</button>
+    <button disabled={isPending} className={buttonClass} type="submit">{isPending ? 'Comprobando…' : result?.status === 'uncertain' ? 'Reintentar el mismo envío' : 'Registrar traspaso'}</button>
   </form>;
 }

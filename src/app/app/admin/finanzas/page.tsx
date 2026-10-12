@@ -17,6 +17,6 @@ export default async function AdminFinancesPage({ searchParams }: { searchParams
     { label: 'Ingreso', description: 'Registrar entrada de dinero', href: '/app/admin/finanzas/cuentas/movimiento?tipo=inflow' },
     { label: 'Egreso', description: 'Registrar salida de dinero', href: '/app/admin/finanzas/cuentas/movimiento?tipo=outflow' },
     { label: 'Cierre de caja', description: 'Cerrar caja o cuenta', href: '/app/admin/finanzas/cuentas/cierre' },
-    { label: 'Transferencia', description: 'Mover dinero entre cuentas', href: '/app/admin/finanzas/cuentas/transferencia' },
+    { label: 'Traspaso entre cuentas', description: 'Registrar el movimiento entre dos cuentas', href: '/app/admin/finanzas/cuentas/transferencia' },
   ]} />;
 }

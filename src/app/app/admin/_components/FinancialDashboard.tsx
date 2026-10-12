@@ -326,7 +326,7 @@ export default function FinancialDashboard({ overview, basePath, detail = false 
                     ? `${data.incompleteTransferGroups} traspaso(s) incompletos o con diferencia FX requieren revisión`
                     : data.derivedWithdrawalCount > 0
                   ? `${data.derivedWithdrawalCount} retiro(s) requieren clasificación heredada`
-                  : 'Transferencias internas excluidas del gasto'
+                  : 'Traspasos internos excluidos del gasto'
               }
               quality={data.outflowQuality}
               tone="warning"
