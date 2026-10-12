@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireMasterOrAdminContext } from '@/lib/auth';
+import { requireAdminContext, requireMasterOrAdminContext } from '@/lib/auth';
 import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
 import { offerRestRules, type OfferRestInput } from '@/lib/crm/offer-rest';
 import { purchasedProductRules, type PurchasedProductInput } from '@/lib/crm/purchased-products';
@@ -76,7 +76,52 @@ export type PlayActionResult = {
   playId?: number;
   message?: string;
   error?: string;
+  revision?: PlayAudiencePreview;
 };
+
+export type PlayAudiencePreview = {
+  token: string;
+  added: number;
+  removed: number;
+  protected: number;
+  total: number;
+  clients: Array<{ client_id: number; name: string; advisor: string | null; action: 'add' | 'remove' | 'keep' | 'protected' }>;
+};
+
+export async function reopenPlayDesignAction(playId: number, reason: string): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireAdminContext();
+    if (!Number.isSafeInteger(playId) || playId <= 0) throw new Error('Selecciona una jugada válida.');
+    const { error } = await ctx.supabase.rpc('crm_reopen_unshared_play_v1', {
+      p_play_id: playId, p_reason: cleanText(reason, 500),
+    });
+    if (error) throw new Error(error.message);
+    revalidatePath('/app/master/plays');
+    return { ok: true, playId, message: 'Volviste al diseño. Ajusta, prueba y confirma nuevamente antes de compartir.' };
+  } catch (error) { return actionError(error); }
+}
+
+export async function revisePlayAudienceAction(
+  input: SavePlayDraftInput, token?: string, reason?: string,
+): Promise<PlayActionResult> {
+  try {
+    const ctx = await requireAdminContext();
+    const playId = Number(input.playId);
+    if (!Number.isSafeInteger(playId) || playId <= 0) throw new Error('Selecciona una jugada válida.');
+    const { data, error } = await ctx.supabase.rpc('crm_revise_play_audience_v1', {
+      p_play_id: playId, p_rules: rulesFromInput(input, []),
+      p_apply: token !== undefined, p_token: token ?? null, p_reason: cleanText(reason, 500) || null,
+    });
+    if (error) throw new Error(error.message);
+    if (token !== undefined) {
+      revalidatePath('/app/master/plays');
+      revalidatePath('/app/advisor/plays');
+      revalidatePath('/app/advisor/clients');
+    }
+    return { ok: true, playId, revision: data as PlayAudiencePreview,
+      message: token === undefined ? 'Prueba lista. Revisa los cambios antes de aplicarlos.' : 'Filtros y lista actualizados; el historial se conserva.' };
+  } catch (error) { return actionError(error); }
+}
 
 export type PlayLifecycleCommand = 'pause' | 'resume' | 'close';
 

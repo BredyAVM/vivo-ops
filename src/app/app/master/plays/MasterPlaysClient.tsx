@@ -24,8 +24,11 @@ import {
   excludePlayClientAction,
   generatePlayListAction,
   removePublishedPlayClientAction,
+  reopenPlayDesignAction,
+  revisePlayAudienceAction,
   testPlayDefinitionAction,
   type PlayActionResult,
+  type PlayAudiencePreview,
   type PlayAnniversaryMode,
   type PlayBenefitSelectionMode,
   type PlayBenefitStackPolicy,
@@ -140,7 +143,7 @@ export type ManualPlayClientSuggestion = {
 
 export type PlayAmendment = {
   id: number;
-  type: 'message_updated' | 'member_added' | 'member_removed' | 'advisor_excluded' | 'criteria_corrected';
+  type: 'message_updated' | 'member_added' | 'member_removed' | 'advisor_excluded' | 'criteria_corrected' | 'design_reopened' | 'audience_revised';
   clientId: number | null;
   clientName: string | null;
   advisorId: string | null;
@@ -409,6 +412,7 @@ function PlayDefinitionForm({
   activeAdvisors,
   busy,
   onSubmit,
+  audienceRevision = false,
 }: {
   play: MasterPlay | null;
   plays: MasterPlay[];
@@ -417,6 +421,7 @@ function PlayDefinitionForm({
   activeAdvisors: PlayAdvisorOption[];
   busy: boolean;
   onSubmit: (input: SavePlayDraftInput) => void;
+  audienceRevision?: boolean;
 }) {
   const today = useMemo(() => caracasToday(), []);
   const fallbackBenefit = benefits.find((benefit) => benefit.id === play?.giftProductId) ?? benefits[0];
@@ -675,7 +680,7 @@ function PlayDefinitionForm({
         <div className="mb-2 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-[#F5F5F7]">1. Definición de la jugada</h2>
-            <p className="mt-0.5 text-[11px] text-[#B7B7C2]">Prueba las condiciones cuantas veces necesites. Nada se comparte todavía.</p>
+            <p className="mt-0.5 text-[11px] text-[#B7B7C2]">{audienceRevision ? 'Revisa los filtros de clientes. La lista publicada no cambia hasta que apliques la prueba.' : 'Prueba las condiciones cuantas veces necesites. Nada se comparte todavía.'}</p>
           </div>
           {play ? <span className="text-[10px] text-[#9B9BA7]">Versión {play.version}</span> : null}
         </div>
@@ -1077,6 +1082,8 @@ function PlayDefinitionForm({
           </div>
         </div>
 
+      </fieldset>
+      <fieldset disabled={(!editable && !audienceRevision) || busy} className="space-y-4 disabled:opacity-70">
         <div className="rounded-2xl border border-[#242433] bg-[#0F0F14] p-3">
           <div className="mb-3">
             <h3 className="text-xs font-semibold text-[#E7E7ED]">Condiciones comerciales</h3>
@@ -1301,15 +1308,77 @@ function PlayDefinitionForm({
         </div>
       </fieldset>
 
-      {editable ? (
+      {editable || audienceRevision ? (
         <div className="flex flex-col gap-2 border-t border-[#242433] pt-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[10px] text-[#B7B7C2]">La prueba guardará el borrador y calculará inmediatamente los candidatos.</p>
-          <button type="submit" disabled={busy || benefits.length === 0} className={buttonPrimary}>
-            {play ? 'Actualizar y probar de nuevo' : 'Probar definición'}
+          <p className="text-[10px] text-[#B7B7C2]">{audienceRevision ? 'Probar no cambia la publicación. Reservas, entregas y seguimientos se conservan.' : 'La prueba guardará el borrador y calculará inmediatamente los candidatos.'}</p>
+          <button type="submit" disabled={busy || (!audienceRevision && benefits.length === 0)} className={buttonPrimary}>
+            {audienceRevision ? 'Probar ajustes de la lista' : play ? 'Actualizar y probar de nuevo' : 'Probar definición'}
           </button>
         </div>
       ) : null}
     </WorkspaceForm>
+  );
+}
+
+function PublishedAudienceEditor(props: {
+  play: MasterPlay; plays: MasterPlay[]; benefits: PlayBenefit[];
+  historyProducts: Props['historyProducts']; activeAdvisors: PlayAdvisorOption[];
+}) {
+  const router = useRouter();
+  const [busy, startTransition] = useTransition();
+  const [preview, setPreview] = useState<{ input: SavePlayDraftInput; data: PlayAudiencePreview } | null>(null);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  function test(input: SavePlayDraftInput) {
+    setPreview(null);
+    setError('');
+    startTransition(async () => {
+      const result = await revisePlayAudienceAction(input);
+      if (!result.ok || !result.revision) setError(result.error || 'No se pudo generar la prueba.');
+      else setPreview({ input, data: result.revision });
+    });
+  }
+  const labels = { add: 'Entra', remove: 'Sale', keep: 'Permanece', protected: 'Protegido: reserva o pedido' };
+  return (
+    <details className="rounded-2xl border border-sky-400/25 bg-sky-400/[0.04]">
+      <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-sky-100">Revisar condiciones y lista publicada</summary>
+      <div className="space-y-3 border-t border-sky-400/15 p-4">
+        <p className="text-[11px] text-[#B7B7C2]">Puedes ajustar filtros y asesores. Los costos, beneficios y condiciones de entrega ya publicados no se reescriben aquí. Los clientes con beneficios reservados o pedidos conservan su lugar.</p>
+        <div onChangeCapture={() => setPreview(null)} onClickCapture={(event) => {
+          if ((event.target as HTMLElement).closest('button[type="button"]')) setPreview(null);
+        }}>
+          <PlayDefinitionForm {...props} busy={busy} audienceRevision onSubmit={test} />
+        </div>
+        {error ? <p role="alert" className="text-xs text-red-300">{error}</p> : null}
+        {preview ? (
+          <section className="space-y-3 rounded-xl border border-sky-400/20 p-3">
+            <p className="text-xs text-sky-100">Lista resultante: {preview.data.total} · Entran: {preview.data.added} · Salen: {preview.data.removed} · Protegidos: {preview.data.protected}</p>
+            <input aria-label="Buscar cliente en la revisión" className={inputClass} value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar cliente o asesor" />
+            <div className="max-h-64 overflow-y-auto">
+              {preview.data.clients.filter(client => `${client.name} ${client.advisor ?? ''} ${client.client_id}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(client => (
+                <div key={client.client_id} className="flex items-center justify-between gap-2 border-b border-[#242433] py-1.5 text-[10px]">
+                  <span>{client.client_id} · {client.name} <span className="text-[#9B9BA7]">· {client.advisor}</span></span>
+                  <span className={client.action === 'remove' ? 'text-red-300' : client.action === 'add' ? 'text-emerald-300' : 'text-sky-200'}>{labels[client.action]}</span>
+                </div>
+              ))}
+            </div>
+            <input aria-label="Motivo del cambio de lista" className={inputClass} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} placeholder="Motivo del ajuste (queda registrado)" />
+            <div className="flex gap-2">
+              <button type="button" disabled={busy} className={buttonSecondary} onClick={() => setPreview(null)}>Descartar prueba</button>
+              <button type="button" disabled={busy || reason.trim().length < 3} className={buttonPrimary} onClick={() => {
+                setError('');
+                startTransition(async () => {
+                  const result = await revisePlayAudienceAction(preview.input, preview.data.token, reason);
+                  if (!result.ok) { setError(result.error || 'No se pudo aplicar.'); setPreview(null); }
+                  else { setPreview(null); setReason(''); router.refresh(); }
+                });
+              }}>Aplicar ajustes a la publicación</button>
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </details>
   );
 }
 
@@ -1351,6 +1420,8 @@ function PublishedPlayEditor({
     member_removed: 'Cliente retirado',
     advisor_excluded: 'Asesor retirado',
     criteria_corrected: 'Selección corregida',
+    design_reopened: 'Lista devuelta al diseño',
+    audience_revised: 'Filtros y lista ajustados',
   };
 
   function chooseClient(client: ManualPlayClientSuggestion) {
@@ -1364,7 +1435,7 @@ function PublishedPlayEditor({
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
         <div>
           <div className="text-sm font-semibold text-violet-100">Editar publicación</div>
-          <div className="mt-0.5 text-[10px] text-violet-100/50">Aquí corriges mensaje, clientes y asesores. Para cambiar fechas, condiciones o beneficios, usa “Copiar como nueva”.</div>
+          <div className="mt-0.5 text-[10px] text-violet-100/50">Corrige mensaje, clientes y asesores. El administrador también puede revisar los filtros de la lista; los cambios quedan registrados.</div>
         </div>
         <span className="rounded-full border border-violet-300/20 px-2 py-1 text-[9px] text-violet-100/70">{amendments.length} movimientos recientes</span>
       </summary>
@@ -2047,6 +2118,11 @@ export default function MasterPlaysClient({
                 />
               ) : null}
 
+              {roles.includes('admin') && ['active', 'paused'].includes(selectedPlay.status) ? (
+                <PublishedAudienceEditor key={`audience-${selectedPlay.id}`} play={selectedPlay} plays={plays}
+                  benefits={benefits} historyProducts={historyProducts} activeAdvisors={activeAdvisors} />
+              ) : null}
+
               {selectedPlay.status === 'draft' ? (
                 <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <PlayDefinitionForm
@@ -2063,7 +2139,7 @@ export default function MasterPlaysClient({
               ) : (
                 <details className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
                   <summary className="cursor-pointer list-none px-4 py-3">
-                    <div className="text-xs font-semibold text-[#D5D5DD]">Consultar definición original</div>
+                    <div className="text-xs font-semibold text-[#D5D5DD]">Consultar definición vigente</div>
                     <div className="mt-0.5 text-[9px] text-[#9B9BA7]">Condiciones, período y costos congelados · solo lectura</div>
                   </summary>
                   <div className="border-t border-[#242433] p-4">
@@ -2099,7 +2175,13 @@ export default function MasterPlaysClient({
                     <div className="text-sm font-semibold text-emerald-200">La lista está confirmada y todavía es privada</div>
                     <p className="mt-1 text-[11px] text-emerald-200/60">Revísala por última vez. Compartir la hará visible para cada asesor según su asignación.</p>
                   </div>
-                  <button type="button" disabled={pending} onClick={() => run(() => activatePlayAction(selectedPlay.id))} className={buttonPrimary}>Compartir con asesores</button>
+                  <div className="flex shrink-0 gap-2">
+                    {roles.includes('admin') ? <button type="button" disabled={pending} className={buttonSecondary} onClick={() => {
+                      const reason = window.prompt('Motivo para volver al diseño. La jugada seguirá privada y tendrás que probar y confirmar otra vez.');
+                      if (reason?.trim()) run(() => reopenPlayDesignAction(selectedPlay.id, reason));
+                    }}>Volver al diseño</button> : null}
+                    <button type="button" disabled={pending} onClick={() => run(() => activatePlayAction(selectedPlay.id))} className={buttonPrimary}>Compartir con asesores</button>
+                  </div>
                 </section>
               ) : selectedPlay.status === 'active' ? (
                 <section className="flex flex-col gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.06] px-4 py-3 text-xs text-emerald-200 sm:flex-row sm:items-center sm:justify-between">
