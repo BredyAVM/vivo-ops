@@ -40,6 +40,9 @@ Este documento fija los límites operativos del módulo Asesor para que futuras 
 - Eliminar desde la interfaz significa pasar a `archived` y registrar `archived_at`.
 - No se ejecuta borrado físico desde el teléfono.
 - Un borrador archivado no aparece en la bandeja activa y no puede convertirse accidentalmente en pedido.
+- Al crear una orden desde un borrador o presupuesto con `asap`, la fecha y hora de referencia se toman del envio (America/Caracas), no del guardado del borrador ni de la apertura del formulario.
+- Una entrega programada conserva su fecha y hora. Editar una orden ya creada no renueva automaticamente su referencia ASAP.
+- Los reintentos de un mismo comando de creacion conservan su hora de referencia e identificador para mantener la proteccion contra duplicados. Los precios y la tasa acordados no cambian por actualizar la referencia ASAP.
 
 ## Navegación
 

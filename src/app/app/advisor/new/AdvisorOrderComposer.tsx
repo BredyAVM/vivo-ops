@@ -17,6 +17,7 @@ import { preservedAgreedPriceSnapshot } from '@/lib/orders/operational-edit-pric
 import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/play-order';
 import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persistence';
 import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
+import { refreshAdvisorAsapSchedule } from '@/lib/orders/advisor-creation-schedule';
 import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
 import { shouldResolveCatalogGift } from '@/lib/crm/catalog-gift';
 import {
@@ -1583,6 +1584,7 @@ export default function AdvisorOrderComposer({
   const copyingQuoteRef = useRef(false);
   const savingOrderRef = useRef(false);
   const orderCreationRequestRef = useRef<string | null>(null);
+  const orderCreationTimeRef = useRef<Date | null>(null);
   const originalItemPricesRef = useRef(new Map<number, ApprovedPriceLine>());
   const savingDraftRef = useRef(false);
   const crmLookupRequestRef = useRef(0);
@@ -3856,7 +3858,7 @@ export default function AdvisorOrderComposer({
     return createClientNow();
   }
 
-  function buildExtraFields() {
+  function buildExtraFields(creationTime?: Date) {
     const normalizedDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
     const normalizedDeliveryHour12 = deliveryHour12.trim() || (isAsap ? rounded.hour12 : '');
     const normalizedDeliveryMinute = deliveryMinute.trim() || (isAsap ? rounded.minute : '');
@@ -3866,6 +3868,12 @@ export default function AdvisorOrderComposer({
       normalizedDeliveryMinute,
       normalizedDeliveryAmPm,
     );
+    const schedule = {
+      date: normalizedDeliveryDate,
+      time_12: `${normalizedDeliveryHour12}:${normalizedDeliveryMinute} ${normalizedDeliveryAmPm}`,
+      time_24: deliveryTime24,
+      asap: isAsap,
+    };
     const invoiceDataNote = [
       invoiceCompanyName.trim(),
       invoiceTaxId.trim(),
@@ -3876,12 +3884,7 @@ export default function AdvisorOrderComposer({
       .join(' | ');
 
     return {
-      schedule: {
-        date: normalizedDeliveryDate,
-        time_12: `${normalizedDeliveryHour12}:${normalizedDeliveryMinute} ${normalizedDeliveryAmPm}`,
-        time_24: deliveryTime24,
-        asap: isAsap,
-      },
+      schedule: creationTime ? refreshAdvisorAsapSchedule(schedule, creationTime) : schedule,
       receiver: {
         name: receiverName.trim() || null,
         phone: receiverPhone.trim() ? normalizePhone(receiverPhone.trim()) : null,
@@ -4039,7 +4042,7 @@ export default function AdvisorOrderComposer({
       const { data: currentAvailability, error: availabilityValidationError } = await supabase.rpc(
         'inventory_catalog_availability_v1',
         {
-          p_target_at: availabilityTargetAt,
+          p_target_at: isAsap ? new Date().toISOString() : availabilityTargetAt,
           p_product_ids: productIds,
           p_surface: 'advisor_availability',
         },
@@ -4162,6 +4165,10 @@ export default function AdvisorOrderComposer({
 
       if (clientProfileError) throw new Error(clientProfileError.message);
 
+      // Keep one timestamp per creation attempt, including connection retries.
+      if (!isEditingOrder && !orderCreationTimeRef.current) {
+        orderCreationTimeRef.current = new Date();
+      }
       const payload = {
         client_id: clientId,
         attributed_advisor_id: authUserId,
@@ -4175,7 +4182,7 @@ export default function AdvisorOrderComposer({
         receiver_name: receiverName.trim() || null,
         receiver_phone: receiverPhone.trim() ? normalizePhone(receiverPhone.trim()) : null,
         notes: orderNote.trim() || null,
-        extra_fields: buildExtraFields(),
+        extra_fields: buildExtraFields(isEditingOrder ? undefined : orderCreationTimeRef.current ?? undefined),
       };
 
       let targetOrderId = Number(existingOrderId || 0);
@@ -4241,6 +4248,7 @@ export default function AdvisorOrderComposer({
         }
         targetOrderId = createResult.orderId;
         orderCreationRequestRef.current = null;
+        orderCreationTimeRef.current = null;
       }
 
       router.push(`/app/advisor/orders/${targetOrderId}`);
