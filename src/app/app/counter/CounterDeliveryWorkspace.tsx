@@ -9,6 +9,7 @@ import {
   loadCounterPendingSettlementsAction,
 } from './read-actions';
 import { requiresCounterDeliveryMoneyHandling } from './delivery-contract';
+import { parseCounterAmount } from './amount-review';
 import type {
   CounterDeliveryCashLine,
   CounterDeliveryCurrency,
@@ -235,7 +236,7 @@ export function CounterDeliveryDispatchPanel({
     [paymentAccounts]
   );
   const [etaMinutes, setEtaMinutes] = useState('20');
-  const [expectedLines] = useState<ValueDraft[]>(
+  const [expectedLines, setExpectedLines] = useState<ValueDraft[]>(
     () => dispatchInitialExpected(order)
   );
   const [cashChangeLines, setCashChangeLines] = useState<CashDraft[]>([]);
@@ -270,7 +271,6 @@ export function CounterDeliveryDispatchPanel({
   ));
   const requiredChangeUsd = roundMoney(Math.max(expectedUsd - order.paymentQuote.pendingUsd, 0));
   const assignedChangeUsd = roundMoney(cashChangeUsd + digitalChangeUsd);
-  const differenceUsd = roundMoney(requiredChangeUsd - assignedChangeUsd);
   const eta = Math.round(decimal(etaMinutes));
   const etaIsValid = Number.isFinite(eta) && eta >= 1 && eta <= 1440;
   const expectedCurrency = expectedLines[0]?.currencyCode ?? (
@@ -284,30 +284,35 @@ export function CounterDeliveryDispatchPanel({
         .map((line) => amountLabel(decimal(line.amount), line.currencyCode))
         .join(' + ') || 'Sin monto válido'
     : 'No indicado';
-  const requiredChangeLabel = expectedCurrency === 'VES' && settlementVesRate > 0
-    ? amountLabel(requiredChangeUsd * settlementVesRate, 'VES')
-    : moneyUsd(requiredChangeUsd);
-  const assignedChangeLabel = expectedCurrency === 'VES' && settlementVesRate > 0
-    ? amountLabel(assignedChangeUsd * settlementVesRate, 'VES')
-    : moneyUsd(assignedChangeUsd);
-  const prescribedChangeIsInvalid = requiresMoneyHandling && order.paymentRequiresChange && (
-    expectedLines.length === 0 || requiredChangeUsd <= 0.005
-  );
+  const cashChangeLabel = cashChangeLines.map((line) => {
+    const account = cashAccounts.find((item) => item.accountId === line.accountId);
+    return amountLabel(decimal(line.amount), account?.currencyCode ?? 'USD');
+  }).join(' + ') || 'Sin efectivo para cambio';
   const suggestedCashAccount = cashAccounts.find(
     (account) => account.currencyCode === expectedCurrency
   ) ?? cashAccounts[0] ?? null;
   const suggestedCashAmount = suggestedCashAccount?.currencyCode === 'VES'
     ? roundMoney(requiredChangeUsd * settlementVesRate)
     : requiredChangeUsd;
-  const showChangeControls =
-    requiresMoneyHandling
-    && (
-      order.paymentRequiresChange
-      || requiredChangeUsd > 0.005
-      || cashChangeLines.length > 0
-      || digitalChangeLines.length > 0
-    );
-  const needsChangeStep = showChangeControls && requiredChangeUsd > 0.005;
+  const needsChangeStep = requiresMoneyHandling;
+  const moneyStepInitialized = useRef(false);
+
+  function validateMoney() {
+    if (requiresMoneyHandling && expectedLines.length === 0) {
+      return 'Indica cuánto efectivo recibirá el motorizado del cliente.';
+    }
+    if ([...expectedLines, ...cashChangeLines, ...digitalChangeLines]
+      .some((line) => parseCounterAmount(line.amount) === null)) {
+      return 'Revisa los montos: deben ser mayores que cero, sin separadores de miles y con máximo 2 decimales. Quita las líneas que no usarás.';
+    }
+    if (cashChangeLines.some((line) => !cashAccounts.some((account) => account.accountId === line.accountId))) {
+      return 'Selecciona la caja de cada cambio en efectivo.';
+    }
+    if (assignedChangeUsd > expectedUsd + 0.009) {
+      return 'El cambio no puede superar todo el efectivo que recibirá el motorizado.';
+    }
+    return null;
+  }
 
   function prepareAllChangeInCash() {
     if (!suggestedCashAccount || suggestedCashAmount <= 0) return;
@@ -326,15 +331,12 @@ export function CounterDeliveryDispatchPanel({
       setError('Selecciona un tiempo estimado para la entrega.');
       return;
     }
-    if (prescribedChangeIsInvalid) {
-      setError('Master debe corregir con cuánto pagará el cliente antes de enviar cambio.');
-      return;
-    }
     setError(null);
     if (needsChangeStep) {
-      if (cashChangeLines.length === 0 && digitalChangeLines.length === 0) {
+      if (!moneyStepInitialized.current && order.paymentRequiresChange) {
         prepareAllChangeInCash();
       }
+      moneyStepInitialized.current = true;
       setStep('money');
       return;
     }
@@ -342,12 +344,9 @@ export function CounterDeliveryDispatchPanel({
   }
 
   function continueFromMoney() {
-    if (Math.abs(differenceUsd) > 0.02) {
-      setError(
-        differenceUsd > 0
-          ? `Falta preparar ${moneyUsd(differenceUsd)} de cambio.`
-          : `El cambio supera lo requerido por ${moneyUsd(Math.abs(differenceUsd))}.`
-      );
+    const validationError = validateMoney();
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setError(null);
@@ -368,18 +367,8 @@ export function CounterDeliveryDispatchPanel({
       ].includes('VES')) {
         throw new Error('No hay una tasa activa valida para operar en bolivares.');
       }
-      if (Math.abs(differenceUsd) > 0.02) {
-        throw new Error(
-          differenceUsd > 0
-            ? `Falta asignar ${moneyUsd(differenceUsd)} de cambio.`
-            : `El cambio supera lo requerido por ${moneyUsd(Math.abs(differenceUsd))}.`
-        );
-      }
-      if (prescribedChangeIsInvalid) {
-        throw new Error(
-          'La instrucción de cambio no permite calcular una diferencia positiva. Master debe corregir con cuánto pagará el cliente.'
-        );
-      }
+      const validationError = validateMoney();
+      if (validationError) throw new Error(validationError);
 
       const expectedCollectionLines = expectedLines
         .filter((line) => decimal(line.amount) > 0)
@@ -421,7 +410,7 @@ export function CounterDeliveryDispatchPanel({
       <div className={`mb-4 grid gap-2 ${needsChangeStep ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {([
           ['eta', 'Tiempo'],
-          ...(needsChangeStep ? [['money', 'Cambio']] : []),
+          ...(needsChangeStep ? [['money', 'Efectivo']] : []),
           ['review', 'Confirmar'],
         ] as Array<['eta' | 'money' | 'review', string]>).map(([key, label], index) => {
           const active = step === key;
@@ -495,15 +484,10 @@ export function CounterDeliveryDispatchPanel({
               <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-[#9FA0AA]">min</span>
             </div>
           </label>
-          {prescribedChangeIsInvalid ? (
-            <div className="mt-4 rounded-[8px] border border-red-400/35 bg-red-950/25 p-3 text-xs text-red-100">
-              Master debe corregir con cuánto pagará el cliente antes de enviar cambio.
-            </div>
-          ) : null}
           <div className="mt-5 grid grid-cols-2 gap-2">
             <button type="button" onClick={onCancel} className="min-h-11 rounded-[8px] border border-[#303044] px-3 py-2 text-sm font-semibold text-[#C7C8D1]">Cancelar</button>
-            <button type="button" onClick={continueFromEta} disabled={!etaIsValid || prescribedChangeIsInvalid} className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45">
-              {needsChangeStep ? 'Continuar al cambio' : 'Continuar'}
+            <button type="button" onClick={continueFromEta} disabled={!etaIsValid} className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45">
+              Continuar
             </button>
           </div>
         </div>
@@ -513,24 +497,31 @@ export function CounterDeliveryDispatchPanel({
         <div>
           <div className="rounded-[10px] border border-orange-400/35 bg-orange-950/15 p-4 text-center">
             <div className="text-xs font-semibold uppercase tracking-[0.12em] text-orange-200/75">Entrega al motorizado</div>
-            <div className="mt-1 text-3xl font-bold text-[#FEEF00]">{requiredChangeLabel}</div>
+            <div className="mt-1 text-3xl font-bold text-[#FEEF00]">{cashChangeLabel}</div>
             <div className="mt-1 text-xs text-orange-100/75">El cliente entregará {expectedCollectionLabel}</div>
           </div>
 
+          <DeliveryValueDrafts
+            title="¿Cuánto efectivo recibirá del cliente?"
+            helper="Monto completo del billete o efectivo, antes de restar el cambio. Puede ser un abono."
+            lines={expectedLines}
+            onChange={(lines) => { invalidate(); setExpectedLines(lines); }}
+            addLabel="Agregar otra moneda"
+          />
           <DeliveryCashDrafts
-            title="¿De cuál caja sale?"
-            helper="Confirma la caja y el monto físico que llevará."
+            title="¿Cuánto cambio lleva y de cuál caja sale?"
+            helper="Solo el efectivo que entregas ahora. No necesitas completar todo el cambio ni saldar la orden."
             lines={cashChangeLines}
             cashAccounts={cashAccounts}
             onChange={(lines) => {
               invalidate();
               setCashChangeLines(lines);
             }}
-            addLabel="Dividir entre otra caja"
+            addLabel="Agregar efectivo para cambio"
           />
 
           <details className="mt-3 rounded-[8px] border border-[#303044] bg-[#111118] p-3">
-            <summary className="cursor-pointer text-xs font-semibold text-[#C7C8D1]">Una parte será cambio digital</summary>
+            <summary className="cursor-pointer text-xs font-semibold text-[#C7C8D1]">Anotar cambio digital acordado (opcional)</summary>
             <DeliveryDigitalDrafts
               lines={digitalChangeLines}
               onChange={(lines) => {
@@ -540,16 +531,12 @@ export function CounterDeliveryDispatchPanel({
             />
           </details>
 
-          <div className="mt-3 text-center text-xs font-semibold text-orange-100">
-            {Math.abs(differenceUsd) <= 0.02
-              ? `Listo: ${assignedChangeLabel} preparados.`
-              : differenceUsd > 0
-                ? `Falta preparar ${moneyUsd(differenceUsd)}.`
-                : `Sobra ${moneyUsd(Math.abs(differenceUsd))}.`}
+          <div className="mt-3 text-center text-xs text-[#9FA0AA]">
+            El cobro se registra cuando regrese el dinero. La orden puede quedar con deuda o saldo a favor.
           </div>
           <div className="mt-5 grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setStep('eta')} className="min-h-11 rounded-[8px] border border-[#303044] px-3 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
-            <button type="button" onClick={continueFromMoney} disabled={Math.abs(differenceUsd) > 0.02} className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45">Continuar</button>
+            <button type="button" onClick={continueFromMoney} className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45">Continuar</button>
           </div>
         </div>
       ) : null}
@@ -571,7 +558,8 @@ export function CounterDeliveryDispatchPanel({
                   tone="good"
                 />
               )}
-              {needsChangeStep ? <DeliveryMetric label="Cambio enviado" value={assignedChangeLabel} /> : null}
+              {needsChangeStep ? <DeliveryMetric label="Efectivo enviado para cambio" value={cashChangeLabel} /> : null}
+              {digitalChangeLines.length > 0 ? <DeliveryMetric label="Cambio digital pendiente (no enviado)" value={digitalChangeLines.map((line) => amountLabel(decimal(line.amount), line.currencyCode)).join(' + ')} /> : null}
             </div>
           </div>
 
@@ -593,7 +581,7 @@ export function CounterDeliveryDispatchPanel({
             <button
               type="button"
               onClick={() => void submit()}
-              disabled={isWorking || !order.deliveryAssigneeName || !etaIsValid || prescribedChangeIsInvalid || Math.abs(differenceUsd) > 0.02}
+              disabled={isWorking || !order.deliveryAssigneeName || !etaIsValid}
               className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45"
             >
               {isWorking ? 'Registrando...' : 'Entregar y marcar en camino'}

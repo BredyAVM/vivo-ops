@@ -690,6 +690,25 @@ Si Counter entrega USD 10 en efectivo y el asesor enviará USD 3 por pago móvil
 No se debe fingir una salida de USD 13 desde caja si físicamente solo salieron
 USD 10.
 
+#### Despacho con cambio parcial o abono (2026-10-12)
+
+- La diferencia calculada contra el saldo es una sugerencia, no una condición
+  para despachar. Counter confirma el efectivo bruto que recibirá el motorizado
+  y el cambio físico que realmente lleva, incluso si el cobro es un abono.
+- No se exige que cobro menos cambio salde la orden. Puede quedar deuda o saldo
+  a favor. El cambio total no supera el efectivo bruto esperado de esta operación.
+- No se obliga a distribuir el resto como cambio digital. Solo se registra una
+  obligación digital si el operador la indica expresamente; no equivale a un pago.
+- Al despachar solo egresa el cambio físico desde las cajas seleccionadas. El
+  efectivo esperado no ingresa a caja ni confirma un pago hasta su retorno real.
+- Ejemplo: orden USD 75,50, cobro esperado USD 100, cambio físico USD 24. Se
+  permite salir sin anotar cambio digital. Si retornan USD 100, quedan USD 76
+  netos y USD 0,50 a favor del cliente, a resolver por separado. Si el total fuera
+  USD 76,50, esos mismos movimientos dejarían USD 0,50 de deuda.
+- ETA, asignación del motorizado, autorización, caja válida, idempotencia y
+  trazabilidad siguen siendo obligatorios. La custodia se liquida por el dinero
+  recibido, independientemente del saldo comercial y la entrega física.
+
 ### 13.4 Retorno y liquidación
 
 Cuando el motorizado regresa:
