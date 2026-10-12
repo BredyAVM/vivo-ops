@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/auth';
+import { NO_APPLY_REASONS, type NoApplyReason } from '@/lib/crm/no-apply';
 
 export type PlayFollowUpAction =
   | 'contact'
@@ -12,7 +13,6 @@ export type PlayFollowUpAction =
   | 'converted'
   | 'not_interested'
   | 'unreachable'
-  | 'not_applicable'
   | 'closed'
   | 'note';
 
@@ -33,7 +33,6 @@ const allowedActions = new Set<PlayFollowUpAction>([
   'converted',
   'not_interested',
   'unreachable',
-  'not_applicable',
   'closed',
   'note',
 ]);
@@ -48,12 +47,41 @@ function successMessage(action: PlayFollowUpAction) {
     converted: 'Resultado convertido registrado.',
     not_interested: 'Resultado guardado como no interesado.',
     unreachable: 'Intento sin respuesta registrado.',
-    not_applicable: 'Cliente marcado como no aplicable.',
     closed: 'Seguimiento cerrado.',
     note: 'Nota agregada al historial.',
   };
 
   return messages[action];
+}
+
+export async function requestClientPlayNoApplyAction(input: {
+  playMemberId: number;
+  reasonCode: NoApplyReason;
+  justification: string;
+}) {
+  try {
+    const ctx = await requireAuthContext();
+    if (!isAdvisorRole(ctx.roles)) return { ok: false, message: 'Solo el asesor asignado puede solicitarlo.' };
+    const memberId = Number(input.playMemberId);
+    const justification = String(input.justification ?? '').trim();
+    if (!Number.isSafeInteger(memberId) || memberId <= 0
+      || !Object.hasOwn(NO_APPLY_REASONS, input.reasonCode)
+      || justification.length < 10 || justification.length > 1000) {
+      return { ok: false, message: 'Selecciona un motivo y justifícalo en 10 a 1000 caracteres.' };
+    }
+    const { data, error } = await ctx.supabase.rpc('crm_request_play_no_apply_v1', {
+      p_play_member_id: memberId, p_reason_code: input.reasonCode, p_justification: justification,
+    });
+    if (error) return { ok: false, message: error.message };
+    revalidatePath('/app/advisor/plays');
+    revalidatePath('/app/master/plays');
+    revalidatePath('/app/admin/jugadas');
+    const clientId = Number((data as { client_id?: number } | null)?.client_id);
+    if (clientId > 0) revalidatePath(`/app/advisor/clients/${clientId}`);
+    return { ok: true, message: 'Solicitud enviada al administrador. Sigue contando hasta que se apruebe.' };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : 'No se pudo enviar la solicitud.' };
+  }
 }
 
 export async function recordClientPlayFollowUpAction(input: RecordPlayFollowUpInput) {

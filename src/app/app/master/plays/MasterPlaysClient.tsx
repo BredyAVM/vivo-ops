@@ -7,6 +7,7 @@ import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWork
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
 import { workflowPresentation } from '@/lib/crm/play-member-presentation';
+import NoApplyRequestsPanel, { type NoApplyReviewRow } from './NoApplyRequestsPanel';
 import { readOfferRestMode, type OfferRestMode } from '@/lib/crm/offer-rest';
 import { type PurchasedProductMode, type PurchasedProductScope } from '@/lib/crm/purchased-products';
 import { groupPlaysByMonth, isPlayCurrentlyActive, playDateInput, type PlayListFilter } from '@/lib/crm/play-dates';
@@ -125,6 +126,7 @@ export type MasterPlayMember = {
   respondedAt: string | null;
   playLaunchedAt: string | null;
   followUpDue: boolean;
+  noApplyStatus?: 'pending' | 'approved' | 'rejected' | null;
 };
 
 export type PlayAdvisorOption = {
@@ -220,6 +222,7 @@ type Props = {
   manualClientSearch: string;
   manualClientSuggestions: ManualPlayClientSuggestion[];
   amendments: PlayAmendment[];
+  noApplyRequests: NoApplyReviewRow[];
 };
 
 type Notice = { tone: 'success' | 'error' | 'info'; text: string } | null;
@@ -1613,6 +1616,7 @@ function MemberList({
             const presentation = workflowPresentation(
               member.workflowStatus, member.followUpDue, member.benefitStatus,
               member.contactedAt, member.respondedAt, member.playLaunchedAt,
+              member.noApplyStatus,
             );
             return (
               <div key={member.id} className={`grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-l-4 px-3 py-2 lg:grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px] ${presentation.row}`}>
@@ -1824,6 +1828,7 @@ export default function MasterPlaysClient({
   manualClientSearch,
   manualClientSuggestions,
   amendments,
+  noApplyRequests,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -2206,6 +2211,10 @@ export default function MasterPlaysClient({
                   summary={monitorSummary}
                   plannedBudgetUsd={selectedPlay.plannedBudgetUsd}
                 />
+              ) : null}
+
+              {['active', 'paused', 'closed'].includes(selectedPlay.status) ? (
+                <NoApplyRequestsPanel requests={noApplyRequests} isAdmin={roles.includes('admin')} />
               ) : null}
 
               {advisors.length > 0 ? (

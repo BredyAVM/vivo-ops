@@ -59,6 +59,14 @@ test('follow-up deadline parsing is identical for both views', () => {
   assert.equal(isPlayFollowUpDue(null, now), false);
 });
 
+test('No aplica distinguishes a pending request from approved removal without hiding a real gift', () => {
+  assert.equal(workflowPresentation('launched', false, 'available', contact, response, launch, 'pending').label, 'No aplica · revisión');
+  assert.equal(workflowPresentation('removed', false, 'cancelled', contact, response, launch, 'approved').label, 'No aplica · aprobado');
+  assert.equal(workflowPresentation('launched', false, 'available', contact, response, launch, 'rejected').label, 'Jugada lanzada');
+  assert.equal(workflowPresentation('launched', false, 'available', contact, response, launch, 'approved').label, 'Jugada lanzada');
+  assert.equal(workflowPresentation('launched', false, 'redeemed', contact, response, launch, 'pending').label, 'Obsequio entregado');
+});
+
 test('administrator and advisor render from the same palette and live milestones', () => {
   const advisor = readFileSync('src/app/app/advisor/plays/page.tsx', 'utf8');
   const admin = readFileSync('src/app/app/master/plays/MasterPlaysClient.tsx', 'utf8');

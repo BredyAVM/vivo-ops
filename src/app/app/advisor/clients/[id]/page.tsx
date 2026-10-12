@@ -5,6 +5,8 @@ import { normalizePhoneDetailed } from '@/lib/phone/normalize-phone';
 import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
 import ClientBenefitSelector from './ClientBenefitSelector';
 import ClientFollowUpPanel from './ClientFollowUpPanel';
+import ClientNoApplyRequest from './ClientNoApplyRequest';
+import type { NoApplyRequest } from '@/lib/crm/no-apply';
 import PlayMessageCard from './PlayMessageCard';
 import WhatsAppContactButton from './WhatsAppContactButton';
 import PlayConditionsCard from '../../plays/PlayConditionsCard';
@@ -375,7 +377,7 @@ export default async function AdvisorClientProfilePage({
   const membershipIds = memberships
     .map((member) => numberValue(member.id))
     .filter((memberId) => memberId > 0);
-  const [eventsResult, benefitOptionsResult, benefitSelectionsResult, redemptionsResult] = await Promise.all([
+  const [eventsResult, benefitOptionsResult, benefitSelectionsResult, redemptionsResult, noApplyResult] = await Promise.all([
     selectedMember
       ? ctx.supabase
           .from('crm_play_member_events')
@@ -415,6 +417,11 @@ export default async function AdvisorClientProfilePage({
           .in('play_member_id', membershipIds)
           .order('redeemed_at', { ascending: false })
       : Promise.resolve({ data: [], error: null }),
+    selectedMember
+      ? ctx.supabase.from('crm_play_no_apply_requests')
+          .select('id,play_member_id,status,reason_code,justification,requested_at,review_note,reviewed_at')
+          .eq('play_member_id', Number(selectedMember.id)).order('id', { ascending: false }).limit(1).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   if (eventsResult.error) console.error('Unable to load CRM follow-up events', eventsResult.error.message);
@@ -423,6 +430,8 @@ export default async function AdvisorClientProfilePage({
   if (redemptionsResult.error) console.error('Unable to load CRM play redemptions', redemptionsResult.error.message);
 
   const events = (eventsResult.data ?? []) as unknown as PlayEventRow[];
+  if (noApplyResult.error) console.error('Unable to load No aplica request', noApplyResult.error.message);
+  const noApplyRequest = noApplyResult.data as unknown as NoApplyRequest | null;
   const benefitOptions = ((benefitOptionsResult.data ?? []) as unknown as PlayBenefitRow[]).map((option) => {
     const product = one(option.product);
     return {
@@ -464,6 +473,7 @@ export default async function AdvisorClientProfilePage({
   const returnPath = query.returnTo || `/app/advisor/clients/${clientId}`;
   const generatedAt = new Date(profile.generated_at).getTime();
   const isPlayActive = selectedPlay?.status === 'active'
+    && selectedMember?.workflow_status !== 'removed'
     && (!selectedPlay.starts_at || new Date(selectedPlay.starts_at).getTime() <= generatedAt)
     && (!selectedPlay.ends_at || new Date(selectedPlay.ends_at).getTime() > generatedAt);
   const selectedMemberReservation = selectedMember
@@ -597,6 +607,18 @@ export default async function AdvisorClientProfilePage({
                 hasGreetingResponse={Boolean(selectedMember.responded_at)}
                 isLaunched={Boolean(selectedMember.play_launched_at)}
                 contactAttemptCount={numberValue(selectedMember.contact_attempt_count)}
+              />
+            </div>
+            <div className="mt-3">
+              <ClientNoApplyRequest
+                key={`${selectedMember.id}-${noApplyRequest?.id ?? 'new'}-${noApplyRequest?.status ?? ''}`}
+                memberId={numberValue(selectedMember.id)}
+                removed={selectedMember.workflow_status === 'removed'}
+                request={noApplyRequest}
+                canRequest={!noApplyResult.error && selectedMember.workflow_status !== 'removed'
+                  && selectedMember.benefit_status !== 'redeemed'
+                  && ['active', 'paused'].includes(selectedPlay?.status ?? '')
+                  && (!selectedPlay?.ends_at || new Date(selectedPlay.ends_at).getTime() > generatedAt)}
               />
             </div>
           </SectionCard>

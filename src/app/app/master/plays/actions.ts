@@ -7,6 +7,28 @@ import { offerRestRules, type OfferRestInput } from '@/lib/crm/offer-rest';
 import { purchasedProductRules, type PurchasedProductInput } from '@/lib/crm/purchased-products';
 
 const PLAY_KINDS = ['anniversary', 'loyalty', 'new_client', 'reconnect', 'seasonal', 'custom'] as const;
+
+export async function reviewPlayNoApplyAction(requestId: number, approve: boolean, reviewNote: string) {
+  try {
+    const ctx = await requireAdminContext();
+    const note = String(reviewNote ?? '').trim();
+    if (!Number.isSafeInteger(requestId) || requestId <= 0 || typeof approve !== 'boolean' || note.length < 10 || note.length > 500) {
+      return { ok: false, message: 'Justifica la decisión en 10 a 500 caracteres.' };
+    }
+    const { data, error } = await ctx.supabase.rpc('crm_review_play_no_apply_v1', {
+      p_request_id: requestId, p_approve: approve, p_review_note: note,
+    });
+    if (error) return { ok: false, message: error.message };
+    revalidatePath('/app/master/plays');
+    revalidatePath('/app/admin/jugadas');
+    revalidatePath('/app/advisor/plays');
+    const clientId = Number((data as { client_id?: number } | null)?.client_id);
+    if (clientId > 0) revalidatePath(`/app/advisor/clients/${clientId}`);
+    return { ok: true, message: approve ? 'No aplica aprobado. Cliente excluido de la base evaluable.' : 'Solicitud rechazada. El cliente sigue contando.' };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : 'No se pudo resolver la solicitud.' };
+  }
+}
 const FULFILLMENT_FILTERS = ['any', 'pickup', 'delivery'] as const;
 const ANNIVERSARY_MODES = ['any', 'include', 'exclude'] as const;
 const BENEFIT_PRODUCT_TYPES = ['product', 'combo', 'promo', 'gambit', 'service'] as const;

@@ -6,6 +6,7 @@ import PlayConditionsCard from './PlayConditionsCard';
 import { playValidityLabel } from '@/lib/crm/play-conditions';
 import { offerRestLabel } from '@/lib/crm/offer-rest';
 import { isPlayFollowUpDue, workflowPresentation } from '@/lib/crm/play-member-presentation';
+import { isEvaluablePlayMember } from '@/lib/crm/no-apply';
 
 type PlayRow = {
   id: number | string;
@@ -63,6 +64,7 @@ type BenefitOption = {
 };
 
 type MemberRow = {
+  no_apply: Array<{ id: number; status: 'pending' | 'approved' | 'rejected' }>;
   id: number | string;
   play_id: number | string;
   client_id: number | string;
@@ -78,7 +80,7 @@ type MemberRow = {
   client: ClientRow | ClientRow[] | null;
 };
 
-type ViewFilter = 'all' | 'pending' | 'follow_up' | 'contacted' | 'responded' | 'launched' | 'converted';
+type ViewFilter = 'all' | 'pending' | 'follow_up' | 'contacted' | 'responded' | 'launched' | 'converted' | 'no_apply';
 type SearchParams = Promise<{ play?: string; view?: string }>;
 
 const dateTimeFormatter = new Intl.DateTimeFormat('es-VE', {
@@ -229,7 +231,7 @@ function CompactStat({ label, value }: { label: string; value: number }) {
 }
 
 function viewValue(value: string | undefined): ViewFilter {
-  return value === 'pending' || value === 'follow_up' || value === 'contacted' || value === 'responded' || value === 'launched' || value === 'converted'
+  return value === 'pending' || value === 'follow_up' || value === 'contacted' || value === 'responded' || value === 'launched' || value === 'converted' || value === 'no_apply'
     ? value
     : 'all';
 }
@@ -325,7 +327,8 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
         id, play_id, client_id, workflow_status, benefit_status, purchase_count,
         days_since_last_purchase, contact_attempt_count,
         contacted_at, responded_at, play_launched_at, next_follow_up_at,
-        client:clients(id, full_name)
+        client:clients(id, full_name),
+        no_apply:crm_play_no_apply_requests(id,status)
       `)
       .eq('play_id', Number(selectedPlay.id))
       .eq('advisor_id_snapshot', ctx.user.id)
@@ -349,7 +352,14 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   ]);
 
   if (membersResult.error) console.error('Unable to load advisor CRM play members', membersResult.error.message);
-  const members = (membersResult.data ?? []) as unknown as MemberRow[];
+  const allMembers = (membersResult.data ?? []) as unknown as MemberRow[];
+  const latestRequest = (member: MemberRow) => (member.no_apply ?? []).reduce<MemberRow['no_apply'][number] | null>(
+    (latest, request) => !latest || Number(request.id) > Number(latest.id) ? request : latest, null);
+  const members = allMembers.filter(isEvaluablePlayMember);
+  const noApplyMembers = allMembers.filter(member => {
+    const request = latestRequest(member);
+    return request?.status === 'pending' || (request?.status === 'approved' && member.workflow_status === 'removed');
+  });
 
   if (benefitOptionsResult.error) console.error('Unable to load CRM play benefits', benefitOptionsResult.error.message);
   if (benefitUpgradesResult.error) console.error('Unable to load CRM play benefit upgrades', benefitUpgradesResult.error.message);
@@ -383,8 +393,8 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const respondedCount = members.filter((member) => Boolean(member.responded_at)).length;
   const launchedCount = members.filter((member) => Boolean(member.play_launched_at)).length;
   const convertedCount = members.filter((member) => member.benefit_status === 'redeemed' || member.workflow_status === 'converted').length;
-  const visibleMembers = members
-    .filter((member) => memberMatchesView(member, view, now))
+  const visibleMembers = (view === 'no_apply' ? noApplyMembers : members)
+    .filter((member) => view === 'no_apply' || memberMatchesView(member, view, now))
     .sort((left, right) => sortMembers(left, right, now));
   const currentHref = playsHref(numberValue(selectedPlay.id), view);
   const filters: Array<{ value: ViewFilter; label: string; count: number }> = [
@@ -395,6 +405,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     { value: 'responded', label: 'Respondieron', count: respondedCount },
     { value: 'launched', label: 'Lanzadas', count: launchedCount },
     { value: 'converted', label: 'Aplicados', count: convertedCount },
+    { value: 'no_apply', label: 'No aplica', count: noApplyMembers.length },
   ];
 
   return (
@@ -527,6 +538,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
               member.contacted_at,
               member.responded_at,
               member.play_launched_at,
+              latestRequest(member)?.status,
             );
             const clientName = client?.full_name?.trim() || 'Cliente sin nombre';
             const purchaseCount = numberValue(member.purchase_count);

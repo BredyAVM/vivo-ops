@@ -13,6 +13,7 @@ export function workflowPresentation(
   contactedAt: string | null,
   respondedAt: string | null,
   playLaunchedAt: string | null,
+  noApplyStatus?: 'pending' | 'approved' | 'rejected' | null,
 ): PlayMemberPresentation {
   if (benefitStatus === 'redeemed') {
     return {
@@ -29,6 +30,15 @@ export function workflowPresentation(
       dot: 'bg-[#F0D000]',
       chip: 'border-[#66551A] bg-[#231E0C] text-[#F7DA66]',
       row: 'border-l-[#D6B900]',
+    };
+  }
+
+  if (noApplyStatus === 'pending' || (noApplyStatus === 'approved' && status === 'removed')) {
+    return {
+      label: noApplyStatus === 'pending' ? 'No aplica · revisión' : 'No aplica · aprobado',
+      dot: 'bg-[#A6A1BA]',
+      chip: 'border-[#4A405F] bg-[#21192F] text-[#CAB8E9]',
+      row: 'border-l-[#9580B8]',
     };
   }
 

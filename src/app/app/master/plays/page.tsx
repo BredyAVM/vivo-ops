@@ -3,6 +3,8 @@ import { playDateInput } from '@/lib/crm/play-dates';
 import { isPlayFollowUpDue } from '@/lib/crm/play-member-presentation';
 import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
 import { requireMasterOrAdminContext } from '@/lib/auth';
+import type { NoApplyReviewRow } from './NoApplyRequestsPanel';
+import type { NoApplyRequest } from '@/lib/crm/no-apply';
 import MasterPlaysClient, {
   type ManualPlayClientSuggestion,
   type MasterPlay,
@@ -395,7 +397,8 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
           last_gift_on, days_since_last_purchase, workflow_status, benefit_status,
           contacted_at, responded_at, play_launched_at, next_follow_up_at,
           client:clients!inner(id, full_name, phone),
-          advisor:profiles!crm_play_members_advisor_id_snapshot_fkey(id, full_name)
+          advisor:profiles!crm_play_members_advisor_id_snapshot_fkey(id, full_name),
+          no_apply:crm_play_no_apply_requests(id,status)
         `, { count: 'exact' })
         .eq('play_id', selectedPlay.id)
         .neq('workflow_status', 'removed');
@@ -445,6 +448,8 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
         respondedAt: row.responded_at == null ? null : String(row.responded_at),
         playLaunchedAt: row.play_launched_at == null ? null : String(row.play_launched_at),
         followUpDue: isPlayFollowUpDue(row.next_follow_up_at == null ? null : String(row.next_follow_up_at), memberStatusAt),
+        noApplyStatus: ((row.no_apply ?? []) as unknown as Array<{ id: number; status: 'pending' | 'approved' | 'rejected' }>).reduce<{ id: number; status: 'pending' | 'approved' | 'rejected' } | null>(
+          (latest, request) => !latest || Number(request.id) > Number(latest.id) ? request : latest, null)?.status ?? null,
       };
     });
   }
@@ -467,6 +472,27 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
     };
   });
 
+  let noApplyRequests: NoApplyReviewRow[] = [];
+  if (!createMode && selectedPlay && ['active', 'paused', 'closed'].includes(selectedPlay.status)) {
+    const requestQuery = () => ctx.supabase.from('crm_play_no_apply_requests').select(`
+      id,play_member_id,status,reason_code,justification,requested_at,review_note,reviewed_at,
+      client:clients!crm_play_no_apply_requests_client_id_fkey(full_name),
+      advisor:profiles!crm_play_no_apply_requests_advisor_id_snapshot_fkey(full_name)
+    `).eq('play_id', selectedPlay.id);
+    const [pendingRequests, recentRequests] = await Promise.all([
+      requestQuery().eq('status', 'pending').order('id', { ascending: true }).limit(500),
+      requestQuery().neq('status', 'pending').order('id', { ascending: false }).limit(20),
+    ]);
+    if (pendingRequests.error || recentRequests.error) throw new Error('No se pudieron cargar las solicitudes No aplica.');
+    noApplyRequests = [...(pendingRequests.data ?? []), ...(recentRequests.data ?? [])].map(raw => {
+      const row = raw as unknown as NoApplyRequest & {
+        client: { full_name: string }[] | { full_name: string } | null;
+        advisor: { full_name: string }[] | { full_name: string } | null;
+      };
+      return { ...row, clientName: one(row.client)?.full_name || 'Cliente', advisorName: one(row.advisor)?.full_name || 'Sin asesor' };
+    });
+  }
+
   return (
     <MasterPlaysClient
       today={playDateInput(new Date().toISOString())}
@@ -485,6 +511,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       manualClientSearch={manualClientSearch}
       manualClientSuggestions={manualClientSuggestions}
       amendments={amendments}
+      noApplyRequests={noApplyRequests}
     />
   );
 }
