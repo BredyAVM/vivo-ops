@@ -34,6 +34,8 @@ import type {
   OrderFinancialActivityType,
 } from "@/lib/finance/order-financial-activity";
 import { parseDecimalInput } from "@/lib/number-input";
+import { canApplyStaffPayroll } from "@/lib/payments/staff-payroll";
+import { applyOrdersWorkspaceStaffPayrollAction } from "@/app/app/master/ops/staff-payroll-actions";
 import { parseDeliveryCostInput, parseDeliveryDistanceInput } from "@/lib/domain/delivery-cost";
 import {
   ORDER_STATUS_LABELS,
@@ -120,6 +122,7 @@ import {
 } from "@/app/app/master/ops/operational-rules";
 
 const MasterOpsInboxDrawer = dynamic(() => import("@/app/app/master/ops/MasterOpsInboxDrawer"), { ssr: false });
+const StaffPayrollPaymentForm = dynamic(() => import("./StaffPayrollPaymentForm"), { ssr: false });
 const MasterOpsOrderEditor = dynamic(() => import("@/app/app/master/ops/MasterOpsOrderEditor"), {
   ssr: false,
   loading: () => <div role="status" className="fixed inset-0 z-[60] grid place-items-center bg-black/70 text-sm text-white">Cargando editor…</div>,
@@ -237,6 +240,7 @@ type DirectActionKey =
   | "reject-payment"
   | "protect-price"
   | "apply-fund"
+  | "staff-payroll"
   | "deliver-fund-change"
   | "store-order-excess"
   | "close-rounding"
@@ -273,6 +277,7 @@ type DirectActionPayload = {
   description?: string | null;
   isRetention?: boolean;
   fundAmountUsd?: number | null;
+  payrollAmountUsd?: number;
   paidHandling?: "store_fund" | "refund" | null;
   overpaymentHandling?: "change_given" | "store_fund" | "close_difference" | null;
   overpaymentNotes?: string | null;
@@ -1358,6 +1363,7 @@ function OrderDetailPanel({
   const [paymentRejectNotes, setPaymentRejectNotes] = useState("");
   const [paymentConfirmationDraft, setPaymentConfirmationDraft] = useState<PaymentConfirmationDraft | null>(null);
   const [paymentReportOpen, setPaymentReportOpen] = useState(false);
+  const [staffPayrollOpen, setStaffPayrollOpen] = useState(false);
   const [paymentReportIsRetention, setPaymentReportIsRetention] = useState(false);
   const [paymentReportAccountKey, setPaymentReportAccountKey] = useState("");
   const [paymentReportAmount, setPaymentReportAmount] = useState("");
@@ -1480,6 +1486,7 @@ function OrderDetailPanel({
   const canOpenPaymentReport =
     !isIncompleteOrder && activeTab === "pagos" && order.balanceUsd > 0.005 && normalPaymentOptions.length > 0;
   const canOpenRetentionReport = !isIncompleteOrder && activeTab === "pagos" && retentionPaymentOptions.length > 0;
+  const canOpenStaffPayroll = activeTab === "pagos" && canApplyStaffPayroll(roles, order);
   const operationalNotes = order.events.filter((event) => event.title.trim().toLowerCase() === "nota operativa");
   const canCopyWhatsApp = !detailLoading && !detailError && order.lines.length > 0;
 
@@ -2530,6 +2537,7 @@ function OrderDetailPanel({
               canOutForDelivery ||
               canClearDelivery ||
               canOpenPaymentReport ||
+              canOpenStaffPayroll ||
               canOpenRetentionReport ||
               canProtectPrice ||
               canReturnQueue ||
@@ -2569,6 +2577,12 @@ function OrderDetailPanel({
                       onClick={() => openPaymentReport(true)}
                     >
                       Reportar retencion
+                    </button>
+                  ) : null}
+                  {canOpenStaffPayroll ? (
+                    <button type="button" disabled={busy} onClick={() => setStaffPayrollOpen(value => !value)}
+                      className="rounded-lg border border-[#FFFF00]/50 bg-[#FFFF00]/10 px-3 py-1.5 text-xs font-semibold text-[#FFFF00] disabled:opacity-60">
+                      Pagar por nómina
                     </button>
                   ) : null}
                   {canKitchenTake ? (
@@ -3508,6 +3522,13 @@ function OrderDetailPanel({
                   </form>
                 ) : null}
               </div>
+            ) : null}
+            {canOpenStaffPayroll && staffPayrollOpen ? (
+              <StaffPayrollPaymentForm orderId={order.id} pendingUsd={order.balanceUsd} operationDate={getCaracasTodayKey()}
+                busy={busy} onClose={() => setStaffPayrollOpen(false)} onApply={draft => onDirectAction(order, "staff-payroll", {
+                  moneyAccountId: draft.moneyAccountId, payrollAmountUsd: draft.amountUsd,
+                  movementDate: draft.operationDate, notes: draft.notes,
+                })} />
             ) : null}
             {activeTab === "pagos" && pendingPaymentReports.length > 0 ? (
               <div className="mt-3 border-t border-[#242433] pt-3">
@@ -4514,7 +4535,14 @@ export default function OrdersWorkspaceClient({
     try {
       let result: unknown = null;
 
-      if (action === "approve") {
+      if (action === "staff-payroll") {
+        if (!canApplyStaffPayroll(roles, order)) throw new Error("Solo administrador puede aplicar nómina a una orden con saldo pendiente.");
+        result = await applyOrdersWorkspaceStaffPayrollAction({
+          orderId: order.id, moneyAccountId: Number(payload.moneyAccountId),
+          amountUsd: Number(payload.payrollAmountUsd), operationDate: String(payload.movementDate ?? ""),
+          notes: payload.notes?.trim() || null,
+        });
+      } else if (action === "approve") {
         result = await approveOrderAction({ orderId: order.id });
       } else if (action === "reapprove") {
         result = await reapproveQueuedOrderAction({

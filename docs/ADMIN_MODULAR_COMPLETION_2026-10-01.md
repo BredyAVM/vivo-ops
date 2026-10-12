@@ -498,3 +498,23 @@ estricto del código de aplicación.
 Operación: recargar las pantallas ya abiertas antes de iniciar pedidos nuevos
 para que no conserven el catálogo cargado antes del corte. No hay que volver
 a registrar pagos ni recrear las órdenes existentes.
+
+## Recuperación de pago por nómina — 2026-10-12
+
+Administración → Órdenes → Pagos incorpora **Pagar por nómina**, también para
+órdenes entregadas con saldo. Solo administrador puede usarlo. El formulario
+compacto y sus cuentas se consultan al abrirlo; no se añade lectura al listado
+ni a la portada. Permite aplicar el saldo completo o un abono en USD, elegir
+fecha operativa y nota, y comprobar orden corta, cuenta y monto antes de confirmar.
+
+Reutiliza `applyStaffPayrollPaymentAction`: reporte, confirmación, compensación
+en la cuenta interna y evento existentes. El nuevo acceso comprueba nuevamente
+el rol, cuenta interna activa, moneda y orden no cancelada. No ofrece bancos,
+cajas o wallets como alternativa cuando falte una cuenta de personal. No cambia
+precios, inventario ni el procedimiento antiguo, ni genera una nómina salarial.
+La creación/compensación de nómina heredada sigue siendo un flujo de varios
+pasos; su migración atómica es una mejora separada, no se declara resuelta aquí.
+
+Verificación: reglas de permisos, cuenta, abonos, fecha real, órdenes entregadas,
+consulta diferida y comprobación previa; compilación productiva y suite completa.
+No se registran pagos de prueba en producción.
