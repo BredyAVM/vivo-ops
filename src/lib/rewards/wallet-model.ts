@@ -22,10 +22,26 @@ export type RewardDraft = {
   amount: number | string; product_id: number | null; product_name_snapshot: string | null;
   product_scope: RewardDraftInput['productScope']; allowed_product_ids: number[];
   product_names_snapshot: string[]; expires_on: string | null; note: string;
-  status: 'draft' | 'cancelled'; version: number; updated_at: string;
+  status: 'draft' | 'cancelled' | 'issued'; version: number; updated_at: string;
 };
 export const REWARD_DRAFT_SELECT = 'id,advisor_id,title,category,period,kind,mode,purposes,amount,product_id,product_name_snapshot,product_scope,allowed_product_ids,product_names_snapshot,expires_on,note,status,version,updated_at';
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type RewardGrant = {
+  id: number; advisor_id: string; advisor_name_snapshot: string; amount: number | string;
+  kind: RewardDraft['kind']; period: string; status: 'active' | 'revoked'; issued_at: string;
+  expires_on: string | null; issue_reason: string; revoke_reason: string | null;
+  terms_snapshot: Omit<RewardDraft, 'id' | 'version' | 'status' | 'updated_at' | 'note'>;
+  events: { event_type: 'issued' | 'revoked'; amount: number | string; reason: string; created_at: string }[];
+};
+export const REWARD_GRANT_SELECT = 'id,advisor_id,advisor_name_snapshot,amount,kind,period,status,issued_at,expires_on,issue_reason,revoke_reason,terms_snapshot,events:advisor_reward_events(event_type,amount,reason,created_at)';
+export function rewardGrantState(grant: Pick<RewardGrant, 'status' | 'expires_on' | 'amount'>, asOf = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(asOf);
+  const today = `${parts.find(p => p.type === 'year')?.value}-${parts.find(p => p.type === 'month')?.value}-${parts.find(p => p.type === 'day')?.value}`;
+  const expired = Boolean(grant.expires_on && grant.expires_on < today);
+  return { label: grant.status === 'revoked' ? 'Revocado' : expired ? 'Vencido' : 'Vigente', expired,
+    validAmount: grant.status === 'active' && !expired ? Number(grant.amount) : 0 };
+}
 
 export function allowedPurposes(mode: RewardMode): RewardPurpose[] {
   if (mode === 'commercial') return ['customer_gift'];

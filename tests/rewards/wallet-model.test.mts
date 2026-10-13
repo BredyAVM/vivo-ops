@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { validateRewardDraft, allowedPurposes, rewardRestrictions, rewardAmountLabel, type RewardDraftInput } from '../../src/lib/rewards/wallet-model.ts';
+import { validateRewardDraft, allowedPurposes, rewardRestrictions, rewardAmountLabel, rewardGrantState, type RewardDraftInput } from '../../src/lib/rewards/wallet-model.ts';
 const base: RewardDraftInput = {
   advisorId:'00000000-0000-0000-0000-000000000001',title:'Delivery prize',category:'alchemist',period:'2026-09',
   kind:'credit',mode:'commercial',purposes:['customer_gift'],amount:20,productId:null,productScope:'selected_products',
@@ -38,4 +38,10 @@ test('calendar dates, modes, and zero available privilege cannot be forged',()=>
   assert.equal(restrictions.products,'Delivery Zona 1');
   assert.equal(restrictions.transferable,false);
   assert.equal(restrictions.redeemableForCash,false);
+});
+test('expiration includes the whole last day in Caracas, not server UTC day',()=>{
+  const grant={status:'active' as const,expires_on:'2026-11-30',amount:20};
+  assert.equal(rewardGrantState(grant,new Date('2026-12-01T03:59:59Z')).validAmount,20);
+  assert.equal(rewardGrantState(grant,new Date('2026-12-01T04:00:00Z')).label,'Vencido');
+  assert.equal(rewardGrantState({...grant,status:'revoked'},new Date('2026-12-01T03:59:59Z')).validAmount,0);
 });
