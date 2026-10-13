@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { validateRewardDraft, allowedPurposes, rewardRestrictions, rewardAmountLabel, type RewardDraftInput } from '../../src/lib/rewards/wallet-model.ts';
 const base: RewardDraftInput = {
   advisorId:'00000000-0000-0000-0000-000000000001',title:'Delivery prize',category:'alchemist',period:'2026-09',
   kind:'credit',mode:'commercial',purposes:['customer_gift'],amount:20,productId:null,productScope:'selected_products',
   allowedProductIds:[2],expiresOn:'2026-11-30',note:'',
 };
+test('admin advisor selection uses the existing privileged role listing, not self-only roles',()=>{
+  const source=readFileSync(new URL('../../src/app/app/admin/premios/page.tsx',import.meta.url),'utf8');
+  assert.ok(source.includes("rpc('admin_list_user_roles')"));
+  assert.ok(source.includes("roles.filter(r=>r.role==='advisor')"));
+  assert.ok(!source.includes("from('user_roles')"));
+});
 test('restricted commercial credit does not permit debt or own consumption',()=>{
   assert.equal(validateRewardDraft(base),null);
   for(const purpose of ['advisor_debt','personal_purchase'] as const) assert.ok(validateRewardDraft({...base,purposes:[purpose]}));

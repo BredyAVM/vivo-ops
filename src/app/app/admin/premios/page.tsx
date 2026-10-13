@@ -10,12 +10,13 @@ export default async function AdminRewardsPage({searchParams}:{searchParams?:Pro
   const [dr,pr,rr,cr]=await Promise.all([
     ctx.supabase.from('advisor_reward_drafts').select(REWARD_DRAFT_SELECT).eq('period',period+'-01').order('updated_at',{ascending:false}).order('id',{ascending:false}).limit(101),
     ctx.supabase.from('profiles').select('id,full_name').eq('is_active',true).order('full_name').limit(201),
-    ctx.supabase.from('user_roles').select('user_id').eq('role','advisor').limit(201),
+    ctx.supabase.rpc('admin_list_user_roles'),
     ctx.supabase.from('products').select('id,name',{count:'exact'}).eq('is_active',true).order('name').limit(1000),
   ]);
   if(dr.error||pr.error||rr.error||cr.error){console.error('Reward configuration unavailable',dr.error?.code,pr.error?.code,rr.error?.code,cr.error?.code);return <section><h1>Premios y monederos</h1><p>La configuración no está disponible. Revisa la instalación de este bloque. No se emitió ningún premio.</p></section>;}
   if(pr.data.length>200||rr.data.length>200||(cr.count??0)>1000)return <p role="alert">Es necesario paginar el catálogo antes de configurar premios.</p>;
-  const ids=new Set(rr.data.map(r=>r.user_id));const advisors=pr.data.filter(p=>ids.has(p.id)).map(p=>({id:p.id,fullName:p.full_name}));
+  const roles=rr.data as {user_id:string;role:string}[];
+  const ids=new Set(roles.filter(r=>r.role==='advisor').map(r=>r.user_id));const advisors=pr.data.filter(p=>ids.has(p.id)).map(p=>({id:p.id,fullName:p.full_name}));
   const products=cr.data.map(p=>({id:Number(p.id),name:p.name}));const drafts=dr.data as RewardDraft[];
   const editId=Number(params.edit);let edit=drafts.find(d=>d.id===editId&&d.status==='draft');
   if(!edit&&Number.isSafeInteger(editId)&&editId>0){const found=await ctx.supabase.from('advisor_reward_drafts').select(REWARD_DRAFT_SELECT).eq('id',editId).eq('status','draft').maybeSingle();if(found.error)throw new Error('No se pudo cargar el diseño.');edit=found.data?found.data as RewardDraft:undefined;}
