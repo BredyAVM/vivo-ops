@@ -39,6 +39,7 @@ export default async function AdminRewardsPage({ searchParams }: { searchParams?
   }
   return <div className="space-y-4">
     <header><h1 className="text-lg font-semibold">Premios y monederos</h1><p className="mt-1 text-xs text-[#AAB2C5]">Diseña, revisa y otorga crédito o productos a cada asesor.</p></header>
+    <Link prefetch={false} href={'/app/admin/evaluacion?month=' + period} className="inline-flex min-h-10 items-center text-sm text-yellow-200">Ver evaluación de asesores: indicadores y ranking →</Link>
     <p className="rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-xs leading-5 text-amber-100">Puedes emitir premios manualmente en el monedero. Esto no publica ganadores calculados ni cambia deudas, órdenes o comisiones. El uso en pedidos sigue en preparación.</p>
     <form className="flex flex-wrap items-end gap-2"><label className="text-xs">Mes<input name="month" type="month" defaultValue={period} className="ml-2 min-h-10 rounded-lg border border-[#303040] bg-[#0B0B10] px-3" /></label><button className="min-h-10 rounded-lg border border-[#303040] px-3 text-xs">Consultar</button><Link href={'/app/admin/premios?month=' + period} className="inline-flex min-h-10 items-center px-3 text-xs text-yellow-200">Nuevo diseño</Link></form>
     {editId > 0 && !edit ? <p role="alert">El diseño solicitado ya no está disponible para editar.</p> : null}
