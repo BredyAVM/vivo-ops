@@ -9,6 +9,7 @@ export type AdminNavigationItem = {
 };
 
 export const adminNavigation: AdminNavigationItem[] = [
+  { key: 'rewards', label: 'Premios y monederos', shortLabel: 'Premios', description: 'Diseñar crédito y productos con usos autorizados', href: '/app/admin/premios', prefetch: false, marker: 'PR' },
   {key:'payment-reports',label:'Pagos de clientes',shortLabel:'Pagos',description:'Revisar reportes por período y abrir la orden',href:'/app/admin/finanzas/pagos',prefetch:false,marker:'PA'},
   {key:'analysis',label:'Análisis comercial',shortLabel:'Análisis',description:'Ventas netas, cierres y pagos por período',href:'/app/admin/analisis',prefetch:false,marker:'AN'},
   {key:'clients',label:'Clientes',shortLabel:'Clientes',description:'Consultar, crear y editar clientes',href:'/app/admin/configuracion/clientes',prefetch:false,marker:'CL'},
@@ -124,7 +125,7 @@ export function navigationItem(key: string) {
 export const desktopAdminNavigationGroups = [
   { key: 'operations', label: 'Operaciones', keys: ['operations', 'orders', 'authorizations', 'active-orders'] },
   { key: 'finance', label: 'Finanzas', keys: ['finance', 'finance-summary', 'accounts', 'payment-reports', 'receivables', 'commissions', 'delivery-finance', 'analysis', 'projections', 'reports'] },
-  { key: 'business', label: 'Negocio', keys: ['business', 'inventory', 'events', 'plays', 'clients', 'users', 'configuration', 'notifications', 'tools'] },
+  { key: 'business', label: 'Negocio', keys: ['business', 'inventory', 'events', 'plays', 'rewards', 'clients', 'users', 'configuration', 'notifications', 'tools'] },
 ].map((group) => ({ key: group.key, label: group.label, items: group.keys.map(navigationItem) }));
 
 export function activeAdminNavigationKey(pathname: string) {

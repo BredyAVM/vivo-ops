@@ -28,6 +28,7 @@ const navItems = [
   { href: '/app/events/ongoing', label: 'Eventos y ampliaciones' },
   { href: '/app/advisor/payments', label: 'Pagos' },
   { href: '/app/advisor/commissions', label: 'Comisiones' },
+  { href: '/app/advisor/wallet', label: 'Mi monedero' },
   { href: '/app/advisor/settings', label: 'Configuración' },
   { href: '/app', label: 'Cambiar modulo' },
 ];
@@ -46,6 +47,7 @@ function resolveBackHref(pathname: string, requestedReturnTo: string | null) {
   if (pathname.startsWith('/app/advisor/drafts')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/payments')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/commissions')) return '/app/advisor';
+  if (pathname.startsWith('/app/advisor/wallet')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/settings')) return '/app/advisor';
   return null;
 }
