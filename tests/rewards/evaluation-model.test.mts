@@ -1,11 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateAwards, awardValue, type EvaluationInput } from '../../src/lib/rewards/evaluation-model.ts';
+import { evaluateAwards, awardValue, defaultAwardRules, type EvaluationInput } from '../../src/lib/rewards/evaluation-model.ts';
 const input = (): EvaluationInput => ({
  period:'2026-09-01',calculated_at:'2026-10-13T12:00:00Z',rule_version:'awards-preview-v1',ambiguous_clients:0,evidence_total:0,evidence:[],
  seasonal_samples:[2023,2024,2025].flatMap(year=>Array.from({length:4},()=>({year,previous_active:100,current_active:100,previous_orders:100,current_orders:100,previous_revenue:100,current_revenue:100}))),
  cohort_metrics: ['alchemist','influential'].map(category=>({advisor_id:'a',advisor_name:'A',category,incorporation:category==='alchemist'?13:7,return_pct:15,regularity_pct:20,repeat_orders:6,revenue:700,older_pool:10,inferred_new:0,older_returned:2})) as EvaluationInput['cohort_metrics'],
  strategic_metrics:[{advisor_id:'a',advisor_name:'A',current_active:11,prior_active:10,continuity_pct:40,dormant_60_180:10,reactivation_pct:12,multi_day_buyers_pct:30,current_orders:11,prior_orders:10,current_revenue:1100,prior_revenue:1000}],
+});
+test('executor is balanced by rates and unique client volume; temporal targets affect delivery only',()=>{
+ const d=input();d.rule_version='awards-v2';d.period='2026-10-01';
+ const count={advisor_id:'a',advisor_name:'A',play_id:27,assigned:100,contact:90,response:70,proposal:70,delivered:20};
+ d.execution={plays:[{id:27,name:'Example',available_days:20}],counts:[count],volume:[{advisor_id:'a',proposal_clients:30}]};
+ const rules={globalMinimum:80,executorEnabled:true,executorReason:'',deliveryTargets:{'27':20}};
+ const r=evaluateAwards(d,rules);assert.equal(r.executorAvailable,true);assert.equal(r.advisors[0].categories.executor.score,100);
+ assert.equal(r.effectiveWeights.executor,25);assert.equal(r.advisors[0].qualified,true);
+ const harder=evaluateAwards(d,{...rules,deliveryTargets:{'27':40}}).advisors[0].categories.executor;
+ assert.equal(harder.score,84);assert.deepEqual(harder.indicators.slice(0,3),r.advisors[0].categories.executor.indicators.slice(0,3));
+ d.execution.volume[0].proposal_clients=3;assert.equal(evaluateAwards(d,rules).advisors[0].categories.executor.score,82); // small-volume rates alone do not get 100
+ assert.equal(evaluateAwards(d,{...rules,deliveryTargets:{}}).executorAvailable,false);
+ d.period='2026-09-01';assert.equal(evaluateAwards(d,rules).executorAvailable,false);
+ assert.ok(evaluateAwards(d,defaultAwardRules(d.period)).advisors[0].categories.executor.minimums.length>0);
 });
 test('targets score 100, one qualified category is enough, ties explicit and weights renormalized',()=>{
  const d=input();const r=evaluateAwards(d);assert.equal(r.advisors[0].total,100);assert.equal(r.advisors[0].qualified,true);

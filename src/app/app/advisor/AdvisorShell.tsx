@@ -29,6 +29,7 @@ const navItems = [
   { href: '/app/advisor/payments', label: 'Pagos' },
   { href: '/app/advisor/commissions', label: 'Comisiones' },
   { href: '/app/advisor/wallet', label: 'Mi monedero' },
+  { href: '/app/advisor/reconocimientos', label: 'Mis reconocimientos' },
   { href: '/app/advisor/settings', label: 'Configuración' },
   { href: '/app', label: 'Cambiar modulo' },
 ];
@@ -44,6 +45,7 @@ function resolveBackHref(pathname: string, requestedReturnTo: string | null) {
   if (pathname.startsWith('/app/advisor/orders/')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/clients')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/plays')) return '/app/advisor';
+  if (pathname.startsWith('/app/advisor/reconocimientos')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/drafts')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/payments')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/commissions')) return '/app/advisor';

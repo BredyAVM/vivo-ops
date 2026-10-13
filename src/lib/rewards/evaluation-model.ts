@@ -1,9 +1,19 @@
 import { calculateAdvisorGoalSeasonality } from '../commissions/goal-engine.ts';
 
 export const AWARD_RULE_VERSION = 'awards-preview-v1';
-export const EVALUATED_CATEGORIES = ['alchemist', 'influential', 'strategic'] as const;
+export const EVALUATED_CATEGORIES = ['alchemist', 'influential', 'strategic', 'executor'] as const;
 export type EvaluatedCategory = typeof EVALUATED_CATEGORIES[number];
-export const AWARD_LABELS = { alchemist: 'Alquimista', influential: 'Influyente', strategic: 'Estratégico' };
+export const AWARD_LABELS = { alchemist: 'Alquimista', influential: 'Influyente', strategic: 'Estratégico', executor: 'Ejecutor' };
+export type AwardRules = { globalMinimum: number; executorEnabled: boolean; executorReason: string; deliveryTargets: Record<string, number> };
+export function defaultAwardRules(period: string): AwardRules {
+  return { globalMinimum: 80, executorEnabled: false, executorReason: period.startsWith('2026-09') ? 'Septiembre sin premio Ejecutor por fallas de registro.' : 'Pendiente de confirmar confiabilidad y referencias de entrega por campaña.', deliveryTargets: {} };
+}
+export function validateAwardRules(rules: AwardRules): string | null {
+  if (!Number.isFinite(rules.globalMinimum) || rules.globalMinimum < 1 || rules.globalMinimum > 100 || typeof rules.executorEnabled !== 'boolean' || typeof rules.executorReason !== 'string' || rules.executorReason.length > 500 || !rules.deliveryTargets || typeof rules.deliveryTargets !== 'object' || Array.isArray(rules.deliveryTargets)) return 'Parámetros de evaluación inválidos.';
+  if (!rules.executorEnabled && rules.executorReason.trim().length < 10) return 'Justifica la exclusión de Ejecutor.';
+  if (Object.entries(rules.deliveryTargets).some(([id, n]) => !/^[1-9]\d*$/.test(id) || !Number.isFinite(n) || n <= 0 || n > 100)) return 'Las metas de entrega deben ser porcentajes mayores a cero y hasta 100.';
+  return null;
+}
 type Values = Record<string, number | string | null>;
 export type MetricRow = Values & { advisor_id: string; advisor_name: string };
 export type Evidence = {
@@ -16,9 +26,12 @@ export type EvaluationInput = {
   strategic_metrics: MetricRow[];
   seasonal_samples: { year: number; advisor_id?: string; previous_active: number; current_active: number; previous_orders: number; current_orders: number; previous_revenue: number; current_revenue: number }[];
   ambiguous_clients: number; evidence_total: number; evidence: Evidence[];
+  execution?: { plays: { id: number; name: string; available_days: number }[]; counts: (MetricRow & { play_id: number })[]; volume: { advisor_id: string; proposal_clients: number }[]; evidence?: ExecutorEvidence[] };
+  executor_evidence?: ExecutorEvidence[];
 };
+export type ExecutorEvidence = { member_id: number; play_id: number; client_id: number; client_name: string; advisor_id: string; excluded: boolean; exclusion_reason?: string; pending_no_apply: boolean; contact: boolean; response: boolean; proposal: boolean; delivered: boolean; direct_contact: boolean; direct_response: boolean; direct_proposal: boolean; advisor_investment: number; company_investment: number; delivery_orders: { order_id: number; delivered_at: string; advisor_cost: number; company_cost: number }[] };
 export type Indicator = { label: string; result: number | null; target: number; weight: number; points: number; unit: 'count' | 'percent' | 'usd' | 'ratio'; guidance: string };
-export type CategoryEvaluation = { score: number; qualified: boolean; available: boolean; indicators: Indicator[]; failures: string[] };
+export type CategoryEvaluation = { score: number; qualified: boolean; available: boolean; indicators: Indicator[]; failures: string[]; minimums: string[] };
 export type AdvisorEvaluation = { id: string; name: string; categories: Record<EvaluatedCategory, CategoryEvaluation>; total: number; qualified: boolean; qualifiedCategories: number };
 const number = (row: Values, key: string): number | null => {
   const value = row[key];
@@ -30,10 +43,10 @@ const number = (row: Values, key: string): number | null => {
 function indicator(label: string, result: number | null, target: number, weight: number, unit: Indicator['unit'], guidance: string): Indicator {
   return { label, result, target, weight, points: weight * Math.min((result ?? 0) / target, 1), unit, guidance };
 }
-function finish(indicators: Indicator[], failures: string[], available = true): CategoryEvaluation {
+function finish(indicators: Indicator[], failures: string[], available = true, minimums: string[] = []): CategoryEvaluation {
   const score = indicators.reduce((sum, i) => sum + i.points, 0);
   if (score < 80) failures.unshift('Puntaje inferior a 80.');
-  return { score, indicators, failures, qualified: available && failures.length === 0, available };
+  return { score, indicators, failures, minimums, qualified: available && failures.length === 0, available };
 }
 function cohort(row: MetricRow, key: 'alchemist' | 'influential'): CategoryEvaluation {
   const own = key === 'influential';
@@ -47,13 +60,17 @@ function cohort(row: MetricRow, key: 'alchemist' | 'influential'): CategoryEvalu
   const failures: string[] = [];
   if ((number(row, 'return_pct') ?? 0) < 10) failures.push('Retorno inferior al 10%.');
   if ((number(row, 'older_pool') ?? 0) < (own ? 5 : 10)) failures.push('Se requieren al menos ' + (own ? 5 : 10) + ' clientes de los dos meses anteriores.');
-  return finish(indicators, failures);
+  return finish(indicators, failures, true, ['80 puntos sin redondear.', 'Retorno de al menos 10%.', 'Al menos ' + (own ? 5 : 10) + ' clientes incorporados en los dos meses anteriores.']);
 }
 function ratio(current: number | null, previous: number | null, pct: number): number | null {
   return previous !== null && previous > 0 && current !== null ? current / (previous * (1 + pct / 100)) : null;
 }
-export function evaluateAwards(input: EvaluationInput) {
-  if (input.rule_version !== AWARD_RULE_VERSION) throw new Error('Versión de evaluación incompatible.');
+export function evaluateAwards(input: EvaluationInput, rules: AwardRules = defaultAwardRules(input.period)) {
+  if (input.rule_version !== AWARD_RULE_VERSION && input.rule_version !== 'awards-v2') throw new Error('Versión de evaluación incompatible.');
+  const ruleError = validateAwardRules(rules);
+  if (ruleError) throw new Error(ruleError);
+  const plays = input.execution?.plays ?? [];
+  const executorAvailable = input.rule_version === 'awards-v2' && !input.period.startsWith('2026-09') && rules.executorEnabled && plays.length > 0 && plays.every(p => Number.isFinite(rules.deliveryTargets[String(p.id)]) && rules.deliveryTargets[String(p.id)] > 0);
   const samples = input.seasonal_samples;
   const season = (previous: 'previous_active' | 'previous_orders' | 'previous_revenue', current: 'current_active' | 'current_orders' | 'current_revenue') => calculateAdvisorGoalSeasonality(samples.map(s => ({ year: s.year, advisorId: s.advisor_id ?? '', previousValue: Number(s[previous]), currentValue: Number(s[current]) })));
   const seasons = { active: season('previous_active', 'current_active'), orders: season('previous_orders', 'current_orders'), revenue: season('previous_revenue', 'current_revenue') };
@@ -82,19 +99,46 @@ export function evaluateAwards(input: EvaluationInput) {
       if (values.length !== 1) throw new Error('Faltan indicadores de ' + AWARD_LABELS[key]);
       return cohort(values[0], key);
     };
-    const categories = { alchemist: getCohort('alchemist'), influential: getCohort('influential'), strategic: finish(indicators, failures, seasonalReliable) };
-    // Executor excluded for everyone until reliable campaign delivery references exist.
-    const weights = { alchemist: 20, influential: 25, strategic: 30 };
+    const counts = input.execution?.counts.filter(c => c.advisor_id === row.advisor_id) ?? [];
+    const sum = (key: string) => counts.reduce((n, c) => n + (number(c, key) ?? 0), 0);
+    const assigned = sum('assigned');
+    const pct = (key: string) => assigned > 0 ? sum(key) / assigned * 100 : null;
+    const expected = executorAvailable ? counts.reduce((n, c) => n + (number(c, 'assigned') ?? 0) * rules.deliveryTargets[String(c.play_id)] / 100, 0) : 0;
+    const proposals = Number(input.execution?.volume.find(v => v.advisor_id === row.advisor_id)?.proposal_clients ?? 0);
+    const executorIndicators = [
+      indicator('Contacto', pct('contact'), 90, 8, 'percent', 'Contactar orgánicamente y registrar el contacto automático o manual.'),
+      indicator('Respuesta', pct('response'), 70, 24, 'percent', 'Conseguir interacción real; registrar cuando el cliente responde.'),
+      indicator('Propuesta de jugada', pct('proposal'), 70, 16, 'percent', 'Presentar el beneficio tras el acercamiento y marcar que se lanzó la propuesta.'),
+      indicator('Entrega / referencia de campañas', expected > 0 ? sum('delivered') / expected : null, 1, 32, 'ratio', 'Completar la entrega del beneficio. La referencia temporal solo ajusta este indicador, no mensajes ni respuestas.'),
+      indicator('Clientes distintos con propuesta', proposals, 30, 20, 'count', 'Sostener el trabajo con volumen: cuenta cada cliente una vez, no mensajes repetidos.'),
+    ];
+    const executorFailures: string[] = [];
+    if (assigned < 10) executorFailures.push('Se requieren al menos 10 asignaciones evaluables.');
+    if ((pct('contact') ?? 0) < 70) executorFailures.push('Contacto inferior al 70%.');
+    if ((pct('proposal') ?? 0) < 50) executorFailures.push('Propuesta inferior al 50%.');
+    if (!executorAvailable) executorFailures.push(input.period.startsWith('2026-09') ? 'Septiembre sin premio por fallas de registro.' : !rules.executorEnabled ? rules.executorReason : 'Faltan referencias de entrega para todas las campañas publicadas en este mes.');
+    const categories = { alchemist: getCohort('alchemist'), influential: getCohort('influential'), strategic: finish(indicators, failures, seasonalReliable, ['80 puntos sin redondear.', '10 activos previos, 10 actuales y 10 recuperables de 60–180 días.', 'Activos o cierres al menos 5% sobre el esperado estacional.', 'Facturación al menos 90% del esperado estacional.', 'Referencia estacional confiable.']), executor: finish(executorIndicators, executorFailures, executorAvailable, ['80 puntos sin redondear.', '10 asignaciones evaluables.', 'Contacto de al menos 70%.', 'Propuesta de al menos 50%.', 'Registro confiable y referencias de entrega completas, iguales para todos.']) };
+    const weights = { alchemist: 20, influential: 25, strategic: 30, executor: 25 };
     const available = EVALUATED_CATEGORIES.filter(k => categories[k].available);
     const divisor = available.reduce((sum, k) => sum + weights[k], 0);
     const total = available.reduce((sum, k) => sum + categories[k].score * weights[k], 0) / divisor;
     const qualifiedCategories = available.filter(k => categories[k].qualified).length;
-    return { id: row.advisor_id, name: row.advisor_name, categories, total, qualifiedCategories, qualified: total >= 80 && qualifiedCategories >= 1 };
+    return { id: row.advisor_id, name: row.advisor_name, categories, total, qualifiedCategories, qualified: total >= rules.globalMinimum && qualifiedCategories >= 1 };
   });
   const ranked = [...advisors].sort((a, b) => Number(b.qualified) - Number(a.qualified) || b.total - a.total || a.name.localeCompare(b.name));
   const best = ranked.find(a => a.qualified)?.total;
   const leaders = best === undefined ? [] : ranked.filter(a => a.qualified && a.total === best);
-  return { advisors: ranked, leaders, seasons, seasonalReliable };
+  const categoryLeaders = Object.fromEntries(EVALUATED_CATEGORIES.map(k => {
+    const eligible = ranked.filter(a => a.categories[k].qualified);
+    const highest = Math.max(...eligible.map(a => a.categories[k].score));
+    return [k, eligible.filter(a => a.categories[k].score === highest).map(a => ({ id: a.id, name: a.name }))];
+  }));
+  categoryLeaders.advisor_of_month = leaders.map(a => ({ id: a.id, name: a.name }));
+  const weights = { alchemist: 20, influential: 25, strategic: 30, executor: 25 };
+  const usable = EVALUATED_CATEGORIES.filter(k => k === 'strategic' ? seasonalReliable : k === 'executor' ? executorAvailable : true);
+  const divisor = usable.reduce((s, k) => s + weights[k], 0);
+  const effectiveWeights = Object.fromEntries(EVALUATED_CATEGORIES.map(k => [k, usable.includes(k) ? weights[k] / divisor * 100 : 0]));
+  return { ruleVersion: input.rule_version, advisors: ranked, leaders, categoryLeaders, seasons, seasonalReliable, executorAvailable, effectiveWeights, globalMinimum: rules.globalMinimum };
 }
 export function awardValue(value: number | null, unit: Indicator['unit']) {
   if (value === null) return 'Sin base';
