@@ -40,8 +40,8 @@ function pageWith(response,calls){return compile('../../src/app/app/admin/evalua
 test('actual evaluation page renders explainable preview, minima, safe evidence and no issuance',async()=>{
  const calls=[];const page=pageWith({data:fixture(),error:null},calls);
  const html=renderToStaticMarkup(await page({searchParams:Promise.resolve({month:'2026-09',evaluate:'1',advisor,category:'alchemist'})}));
- assert.equal(calls[0].name,'admin_award_evaluation_preview_v2');assert.equal(calls[0].args.p_offset,0);
- for(const text of ['Ranking','Lidera la simulación: Demo','septiembre sin premio','confirmarse antes de publicar','Guardar corte para revisar','Base de los dos meses previos: 10','Resultado','Meta completa','Clientes que sustentan','Cómo se calcula y cómo mejorar'])assert.ok(html.includes(text),text);
+ assert.equal(calls[0].name,'admin_award_evaluation_preview_v3');assert.equal(calls[0].args.p_offset,0);
+ for(const text of ['Ranking','Lidera la simulación: Demo','septiembre sin premio','confirmarse antes de publicar','Guardar corte para revisar','Base de los dos meses previos: 10','Resultado','Meta / referencia','Clientes que sustentan','Cómo se calcula y cómo mejorar'])assert.ok(html.includes(text),text);
  assert.ok(html.includes('&lt;script&gt;bad&lt;/script&gt;'));assert.ok(!html.includes('<script>bad'));
  assert.ok(!html.includes('reward_issue'));assert.ok(!html.includes('Publicar ganadores'));
 });
@@ -65,4 +65,15 @@ test('September controls expose contact 80, day-only delivery references and exp
  const html=renderToStaticMarkup(React.createElement(controls,{period:'2026-09',initialRules:{...model.defaultAwardRules('2026-09'),executorEnabled:true,executorReviewNote:'Aceptación explícita con limitaciones de registro.'},plays:[{id:18,name:'Aniversario',available_days:23}],currentPublication:null,isClosed:true}));
  for(const text of ['Referencia de contacto','value="80"','Propuesta conserva su referencia del 70%','Referencia de entrega para 30 días','value="40"','Calcular referencias por días','obligatorio para septiembre','no convierte los estados reconstruidos'])assert.ok(html.includes(text),text);
  assert.ok(html.includes('checked=""'));assert.ok(!html.includes('disabled=""'));
+ for(const text of ['Reformado','Base de registros','respuestas','Volumen gradual','sin corte en 30','mitad de puntos','Referencia gradual de entregas'])assert.ok(html.includes(text),text);
+});
+
+test('reformed UI shows evaluated versus recorded response, denominators, gradual references and private simulation',async()=>{
+ const d=fixture();d.rule_version='awards-v2';
+ const c={advisor_id:advisor,advisor_name:'Demo',play_id:18,assigned:100,contact:78,response:69,proposal:66,delivered:30};
+ d.execution={plays:[{id:18,name:'Aniversario',available_days:23}],counts:[c],volume:[{advisor_id:advisor,proposal_clients:66}],metrics_version:'executor-summary-v3',balanced_counts:[{...c,response:33}],balanced_volume:[{advisor_id:advisor,proposal_clients:66,delivered_clients:30}]};d.executor_evidence=[];
+ const rules={...model.defaultAwardRules('2026-09'),executorEnabled:true,executorReviewNote:'Aceptamos los límites de septiembre sin convertir inferencias en respuestas.',deliveryTargets:{'18':30}};
+ const calls=[];const html=renderToStaticMarkup(await pageWith({data:d,error:null},calls)({searchParams:Promise.resolve({month:'2026-09',evaluate:'1',rules:JSON.stringify(rules),advisor,category:'executor'})}));
+ for(const text of ['comparar trabajo','33 / 69','contactados','mitad de puntos','Clientes únicos: 66 con propuesta y 30 con entrega','no acredita respuesta','Simulación'])assert.ok(html.includes(text),text);
+ assert.equal(calls[0].name,'admin_award_evaluation_preview_v3');assert.ok(!html.includes('Cerrar y publicar para los asesores'));
 });

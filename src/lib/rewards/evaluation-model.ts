@@ -4,15 +4,30 @@ export const AWARD_RULE_VERSION = 'awards-preview-v1';
 export const EVALUATED_CATEGORIES = ['alchemist', 'influential', 'strategic', 'executor'] as const;
 export type EvaluatedCategory = typeof EVALUATED_CATEGORIES[number];
 export const AWARD_LABELS = { alchemist: 'Alquimista', influential: 'Influyente', strategic: 'Estratégico', executor: 'Ejecutor' };
-export type AwardRules = { globalMinimum: number; executorEnabled: boolean; executorReason: string; deliveryTargets: Record<string, number>; contactTargetPct?: number; executorReviewNote?: string };
+export type AwardRules = {
+  globalMinimum: number; executorEnabled: boolean; executorReason: string; deliveryTargets: Record<string, number>;
+  contactTargetPct?: number; executorReviewNote?: string;
+  executorFormula?: 'legacy-v1' | 'balanced-volume-v1'; executorEvidenceMode?: 'recorded' | 'supported';
+  executorDeliveryVolumeSharePct?: number; executorDeliveryVolumeReference?: number; executorProposalVolumeReference?: number;
+};
+export function balancedExecutorRules(rules: AwardRules): AwardRules {
+  return { ...rules, executorFormula: 'balanced-volume-v1', executorEvidenceMode: 'supported',
+    executorDeliveryVolumeSharePct: 25, executorDeliveryVolumeReference: 10, executorProposalVolumeReference: 10 };
+}
 export function defaultAwardRules(period: string): AwardRules {
-  return { globalMinimum: 80, executorEnabled: false, executorReason: period.startsWith('2026-09') ? 'Septiembre sin premio Ejecutor por fallas de registro.' : 'Pendiente de confirmar confiabilidad y referencias de entrega por campaña.', deliveryTargets: {}, contactTargetPct: 80, executorReviewNote: '' };
+  return balancedExecutorRules({ globalMinimum: 80, executorEnabled: false, executorReason: period.startsWith('2026-09') ? 'Septiembre sin premio Ejecutor por fallas de registro.' : 'Pendiente de confirmar confiabilidad y referencias de entrega por campaña.', deliveryTargets: {}, contactTargetPct: 80, executorReviewNote: '' });
 }
 export function validateAwardRules(rules: AwardRules): string | null {
   if (!Number.isFinite(rules.globalMinimum) || rules.globalMinimum < 1 || rules.globalMinimum > 100 || typeof rules.executorEnabled !== 'boolean' || typeof rules.executorReason !== 'string' || rules.executorReason.length > 500 || !rules.deliveryTargets || typeof rules.deliveryTargets !== 'object' || Array.isArray(rules.deliveryTargets)) return 'Parámetros de evaluación inválidos.';
   if (!rules.executorEnabled && rules.executorReason.trim().length < 10) return 'Justifica la exclusión de Ejecutor.';
   if (rules.contactTargetPct !== undefined && (!Number.isFinite(rules.contactTargetPct) || rules.contactTargetPct < 1 || rules.contactTargetPct > 100)) return 'La referencia de contacto debe estar entre 1% y 100%.';
   if (rules.executorReviewNote !== undefined && (typeof rules.executorReviewNote !== 'string' || rules.executorReviewNote.length > 500)) return 'La observación de Ejecutor admite hasta 500 caracteres.';
+  if (rules.executorFormula !== undefined && !['legacy-v1', 'balanced-volume-v1'].includes(rules.executorFormula)) return 'Fórmula de Ejecutor inválida.';
+  if (rules.executorEvidenceMode !== undefined && !['recorded', 'supported'].includes(rules.executorEvidenceMode)) return 'Selecciona la base de registros de Ejecutor.';
+  if (rules.executorDeliveryVolumeSharePct !== undefined && (!Number.isFinite(rules.executorDeliveryVolumeSharePct) || rules.executorDeliveryVolumeSharePct < 1 || rules.executorDeliveryVolumeSharePct > 50)) return 'El volumen de entrega admite entre 1% y 50% de sus 32 puntos.';
+  for (const ref of [rules.executorDeliveryVolumeReference, rules.executorProposalVolumeReference]) {
+    if (ref !== undefined && (!Number.isSafeInteger(ref) || ref < 1 || ref > 1000)) return 'Las referencias graduales deben ser enteros entre 1 y 1000 clientes.';
+  }
   if (Object.entries(rules.deliveryTargets).some(([id, n]) => !/^[1-9]\d*$/.test(id) || !Number.isFinite(n) || n <= 0 || n > 100)) return 'Las metas de entrega deben ser porcentajes mayores a cero y hasta 100.';
   return null;
 }
@@ -41,12 +56,25 @@ export type EvaluationInput = {
   strategic_metrics: MetricRow[];
   seasonal_samples: { year: number; advisor_id?: string; previous_active: number; current_active: number; previous_orders: number; current_orders: number; previous_revenue: number; current_revenue: number }[];
   ambiguous_clients: number; evidence_total: number; evidence: Evidence[];
-  execution?: { plays: { id: number; name: string; available_days: number }[]; counts: (MetricRow & { play_id: number })[]; volume: { advisor_id: string; proposal_clients: number }[]; evidence?: ExecutorEvidence[] };
+  execution?: {
+    plays: { id: number; name: string; available_days: number }[]; counts: (MetricRow & { play_id: number })[];
+    volume: { advisor_id: string; proposal_clients: number }[]; evidence?: ExecutorEvidence[];
+    metrics_version?: string; balanced_counts?: (MetricRow & { play_id: number })[];
+    balanced_volume?: { advisor_id: string; proposal_clients: number; delivered_clients: number }[];
+  };
   executor_evidence?: ExecutorEvidence[];
 };
 export type ExecutorEvidence = { member_id: number; play_id: number; client_id: number; client_name: string; advisor_id: string; excluded: boolean; exclusion_reason?: string; pending_no_apply: boolean; contact: boolean; response: boolean; proposal: boolean; delivered: boolean; direct_contact: boolean; direct_response: boolean; direct_proposal: boolean; advisor_investment: number; company_investment: number; delivery_orders: { order_id: number; delivered_at: string; advisor_cost: number; company_cost: number }[] };
-export type Indicator = { label: string; result: number | null; target: number; weight: number; points: number; unit: 'count' | 'percent' | 'usd' | 'ratio'; guidance: string };
-export type CategoryEvaluation = { score: number; qualified: boolean; available: boolean; indicators: Indicator[]; failures: string[]; minimums: string[] };
+export type Indicator = { label: string; result: number | null; target: number; weight: number; points: number; unit: 'count' | 'percent' | 'usd' | 'ratio'; guidance: string; scoring?: 'gradual' };
+export type ExecutorContext = {
+  formula: 'legacy-v1' | 'balanced-volume-v1'; evidenceMode: 'recorded' | 'supported'; assigned: number; contact: number;
+  response: number; proposal: number; delivered: number; uniqueProposals: number; uniqueDelivered: number;
+  expectedDeliveries: number; recordedContact: number; recordedResponse: number; recordedProposal: number;
+};
+export type CategoryEvaluation = { score: number; qualified: boolean; available: boolean; indicators: Indicator[]; failures: string[]; minimums: string[]; executorContext?: ExecutorContext };
+export function executorSummary(c: ExecutorContext) {
+  return `${c.formula === 'balanced-volume-v1' ? 'Reformado · efectividad y volumen' : 'Fórmula anterior'} · ${c.evidenceMode === 'supported' ? 'registros respaldados (no mensajes verificados)' : 'estados registrados, incluidos inferidos'}. Lista ${c.assigned}; contactados ${c.contact}; respuestas ${c.response}; propuestas ${c.proposal}; entregas ${c.delivered}. Clientes únicos: ${c.uniqueProposals} con propuesta${c.formula === 'balanced-volume-v1' ? ` y ${c.uniqueDelivered} con entrega` : ''}.`;
+}
 export type AdvisorEvaluation = { id: string; name: string; categories: Record<EvaluatedCategory, CategoryEvaluation>; total: number; qualified: boolean; qualifiedCategories: number };
 const number = (row: Values, key: string): number | null => {
   const value = row[key];
@@ -57,6 +85,13 @@ const number = (row: Values, key: string): number | null => {
 };
 function indicator(label: string, result: number | null, target: number, weight: number, unit: Indicator['unit'], guidance: string): Indicator {
   return { label, result, target, weight, points: weight * Math.min((result ?? 0) / target, 1), unit, guidance };
+}
+function gradualIndicator(label: string, result: number, reference: number, weight: number, guidance: string): Indicator {
+  return { label, result, target: reference, weight, points: weight * result / (result + reference), unit: 'count', scoring: 'gradual',
+    guidance: guidance + ` Fórmula: ${weight} × clientes / (clientes + ${reference}). La referencia da la mitad de puntos, no el máximo. Sigue creciendo con aportes cada vez menores; no hay corte en 30 clientes.` };
+}
+export function indicatorReference(i: Indicator) {
+  return awardValue(i.target, i.unit) + (i.scoring === 'gradual' ? ' · mitad de puntos' : '');
 }
 function finish(indicators: Indicator[], failures: string[], available = true, minimums: string[] = []): CategoryEvaluation {
   const score = indicators.reduce((sum, i) => sum + i.points, 0);
@@ -85,6 +120,11 @@ export function evaluateAwards(input: EvaluationInput, rules: AwardRules = defau
   const ruleError = validateAwardRules(rules);
   if (ruleError) throw new Error(ruleError);
   const plays = input.execution?.plays ?? [];
+  const balanced = rules.executorFormula === 'balanced-volume-v1';
+  const evidenceMode = balanced ? rules.executorEvidenceMode ?? 'supported' : 'recorded';
+  const summaryReady = input.execution?.metrics_version === 'executor-summary-v3'
+    && Array.isArray(input.execution.balanced_counts) && Array.isArray(input.execution.balanced_volume);
+  if (balanced && rules.executorEnabled && !summaryReady) throw new Error('Falta el resumen de evidencias para la fórmula reformada. Actualiza el cálculo antes de guardar.');
   const septemberAccepted = !input.period.startsWith('2026-09') || (rules.executorReviewNote?.trim().length ?? 0) >= 10;
   const executorAvailable = input.rule_version === 'awards-v2' && septemberAccepted && rules.executorEnabled && plays.length > 0 && plays.every(p => Number.isFinite(rules.deliveryTargets[String(p.id)]) && rules.deliveryTargets[String(p.id)] > 0);
   // Missing parameter preserves the original 90% reference in legacy cuts/resumed calculations.
@@ -117,13 +157,29 @@ export function evaluateAwards(input: EvaluationInput, rules: AwardRules = defau
       if (values.length !== 1) throw new Error('Faltan indicadores de ' + AWARD_LABELS[key]);
       return cohort(values[0], key);
     };
-    const counts = input.execution?.counts.filter(c => c.advisor_id === row.advisor_id) ?? [];
+    const recordedCounts = input.execution?.counts.filter(c => c.advisor_id === row.advisor_id) ?? [];
+    const counts = balanced && evidenceMode === 'supported'
+      ? input.execution?.balanced_counts?.filter(c => c.advisor_id === row.advisor_id) ?? [] : recordedCounts;
     const sum = (key: string) => counts.reduce((n, c) => n + (number(c, key) ?? 0), 0);
     const assigned = sum('assigned');
+    const contact = sum('contact');
     const pct = (key: string) => assigned > 0 ? sum(key) / assigned * 100 : null;
+    const perContact = (key: string) => contact > 0 ? sum(key) / contact * 100 : null;
     const expected = executorAvailable ? counts.reduce((n, c) => n + (number(c, 'assigned') ?? 0) * rules.deliveryTargets[String(c.play_id)] / 100, 0) : 0;
-    const proposals = Number(input.execution?.volume.find(v => v.advisor_id === row.advisor_id)?.proposal_clients ?? 0);
-    const executorIndicators = [
+    const volume = input.execution?.balanced_volume?.find(v => v.advisor_id === row.advisor_id);
+    const proposals = number({ value: (balanced && evidenceMode === 'supported' ? volume?.proposal_clients
+      : input.execution?.volume.find(v => v.advisor_id === row.advisor_id)?.proposal_clients) ?? 0 }, 'value')!;
+    const uniqueDelivered = number({ value: volume?.delivered_clients ?? 0 }, 'value')!;
+    if (balanced && executorAvailable && (sum('response') > contact || sum('proposal') > contact || contact > assigned)) throw new Error('Resumen de Ejecutor inconsistente: revisa contacto, respuesta y propuesta.');
+    const deliveryVolumeWeight = 32 * (rules.executorDeliveryVolumeSharePct ?? 25) / 100;
+    const executorIndicators = balanced ? [
+      indicator('Cobertura de contacto · lista', pct('contact'), contactTarget, 8, 'percent', 'Contacto / lista evaluable. Una propuesta directa o una entrega acredita contacto, pero no se presupone respuesta por lanzar la propuesta. Los días no reducen la referencia de contacto.'),
+      indicator('Respuesta · contactados', perContact('response'), 70, 24, 'percent', 'Respuestas / contactados, no sobre toda la lista. En modo respaldado cuenta registro directo de respuesta o entrega confirmada; lanzar la propuesta por sí solo no acredita respuesta.'),
+      indicator('Propuesta · contactados', perContact('proposal'), 70, 16, 'percent', 'Propuestas / contactados, no respuestas. Se reconoce el avance en el abordaje sin suponer que todos contestaron.'),
+      indicator('Entrega · cumplimiento temporal', expected > 0 ? sum('delivered') / expected : null, 1, 32 - deliveryVolumeWeight, 'ratio', 'Entregas / referencia ajustada por los días de cada campaña. Solo este componente cambia por duración; superar la referencia no agrega puntos aquí.'),
+      gradualIndicator('Entrega · volumen único', uniqueDelivered, rules.executorDeliveryVolumeReference ?? 10, deliveryVolumeWeight, 'Cada cliente que recibió un beneficio cuenta una vez en el mes, aunque se repita la entrega.'),
+      gradualIndicator('Propuestas · volumen único', proposals, rules.executorProposalVolumeReference ?? 10, 20, 'Reconoce el trabajo efectivo con clientes distintos, sin comparar con el mejor asesor ni favorecer un ganador específico.'),
+    ] : [
       indicator('Contacto', pct('contact'), contactTarget, 8, 'percent', 'Contactar orgánicamente y registrar el contacto automático o manual. La duración de la campaña no reduce esta referencia; contactar no obliga a entregar el beneficio.'),
       indicator('Respuesta', pct('response'), 70, 24, 'percent', 'Conseguir interacción real; registrar cuando el cliente responde.'),
       indicator('Propuesta de jugada', pct('proposal'), 70, 16, 'percent', 'Presentar el beneficio tras el acercamiento y marcar que se lanzó la propuesta.'),
@@ -133,9 +189,16 @@ export function evaluateAwards(input: EvaluationInput, rules: AwardRules = defau
     const executorFailures: string[] = [];
     if (assigned < 10) executorFailures.push('Se requieren al menos 10 asignaciones evaluables.');
     if ((pct('contact') ?? 0) < 70) executorFailures.push('Contacto inferior al 70%.');
-    if ((pct('proposal') ?? 0) < 50) executorFailures.push('Propuesta inferior al 50%.');
+    if (((balanced ? perContact('proposal') : pct('proposal')) ?? 0) < 50) executorFailures.push(balanced ? 'Propuesta inferior al 50% de los contactados.' : 'Propuesta inferior al 50%.');
     if (!executorAvailable) executorFailures.push(input.period.startsWith('2026-09') && !septemberAccepted ? 'Septiembre sin premio por fallas de registro; requiere aceptación administrativa explícita para incluirlo.' : !rules.executorEnabled ? rules.executorReason : 'Faltan referencias de entrega para todas las campañas publicadas en este mes.');
     const categories = { alchemist: getCohort('alchemist'), influential: getCohort('influential'), strategic: finish(indicators, failures, seasonalReliable, ['80 puntos sin redondear.', '10 activos previos, 10 actuales y 10 recuperables de 60–180 días.', 'Activos o cierres al menos 5% sobre el esperado estacional.', 'Facturación al menos 90% del esperado estacional.', 'Referencia estacional confiable.']), executor: finish(executorIndicators, executorFailures, executorAvailable, ['80 puntos sin redondear.', '10 asignaciones evaluables.', 'Contacto de al menos 70%.', 'Propuesta de al menos 50%.', 'Registro confiable y referencias de entrega completas, iguales para todos.']) };
+    if (balanced) categories.executor.minimums = ['80 puntos sin redondear.', '10 asignaciones evaluables.', 'Contacto de al menos 70% de la lista.', 'Propuesta de al menos 50% de los contactados.', 'Registros revisados y referencias de entrega completas, iguales para todos.'];
+    categories.executor.executorContext = {
+      formula: balanced ? 'balanced-volume-v1' : 'legacy-v1', evidenceMode, assigned, contact, response: sum('response'),
+      proposal: sum('proposal'), delivered: sum('delivered'), uniqueProposals: proposals, uniqueDelivered,
+      expectedDeliveries: expected, recordedContact: recordedCounts.reduce((n,c) => n + Number(c.contact), 0),
+      recordedResponse: recordedCounts.reduce((n,c) => n + Number(c.response), 0), recordedProposal: recordedCounts.reduce((n,c) => n + Number(c.proposal), 0),
+    };
     const weights = { alchemist: 20, influential: 25, strategic: 30, executor: 25 };
     const available = EVALUATED_CATEGORIES.filter(k => categories[k].available);
     const divisor = available.reduce((sum, k) => sum + weights[k], 0);

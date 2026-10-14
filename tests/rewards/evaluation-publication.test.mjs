@@ -38,6 +38,7 @@ async function complete(){
  await db.exec(read('../../supabase/migrations/20261013163522_award_executor_and_capture.sql'));
  await db.exec(read('../../supabase/migrations/20261013163559_award_monthly_publication.sql'));
  await db.exec(read('../../supabase/migrations/20261014150107_award_executor_contact_and_september_review.sql'));
+ await db.exec(read('../../supabase/migrations/20261014162250_award_executor_balanced_volume.sql'));
  return db;
 }
 const token=n=>'10000000-0000-0000-0000-'+String(n).padStart(12,'0');
@@ -46,6 +47,26 @@ const prepare=async(db,n=1,rules=defaultAwardRules('2026-09'),month='2026-09-01'
 const row=async(db,id)=>(await db.query('select * from award_month_reports where id=$1',[id])).rows[0];
 const calculate=async(db,id)=>{const r=await row(db,id);const results=evaluateAwards(r.input_snapshot,r.rules_snapshot);await db.query('select admin_award_calculate_v2($1,$2::jsonb,$3)',[id,JSON.stringify(results),admin]);return results;};
 const publish=(db,id,expected=null,reason='Monthly review approved after checking rules and evidence.')=>db.query('select admin_award_publish_v2($1,$2,$3)',[id,expected,reason]);
+
+test('reformed capture separates inferred response, infers contact from proposal, deduplicates monthly volume and keeps raw states',async()=>{
+ const db=await complete();try{
+  await db.exec(`insert into crm_play_member_events values(3,105,'launched','Manual proposal','2026-09-25'),(4,105,'responded','Respuesta inferida automáticamente al lanzar','2026-09-25');
+   update crm_play_members set responded_at='2026-09-25' where id=105;`);
+  const v=(await db.query("select admin_award_evaluation_preview_v3('2026-09-01',$1,'executor',0) v",[advisor])).rows[0].v;
+  assert.equal(v.execution.metrics_version,'executor-summary-v3');assert.ok(!('evidence' in v.execution));
+  const c=v.execution.balanced_counts.find(x=>x.advisor_id===advisor&&x.play_id===19);
+  assert.equal(c.contact,1);assert.equal(c.response,0);assert.equal(c.proposal,1);
+  assert.equal(v.execution.counts.find(x=>x.play_id===19).response,1); // raw inference preserved only for comparison
+  const volume=v.execution.balanced_volume.find(x=>x.advisor_id===advisor);
+  assert.equal(volume.proposal_clients,1);assert.equal(volume.delivered_clients,1);
+  assert.equal(v.execution.balanced_counts.find(x=>x.play_id===18&&x.advisor_id===advisor).assigned,3);
+  const id=await prepare(db);const before=await row(db,id);assert.equal(before.input_snapshot.execution.metrics_version,'executor-summary-v3');
+  await db.exec("update crm_play_members set responded_at='2026-09-30'");assert.deepEqual((await row(db,id)).input_snapshot,before.input_snapshot);
+  await assert.rejects(()=>prepare(db,2,{...defaultAwardRules('2026-09'),executorDeliveryVolumeReference:0}),/gradual/);
+  await auth(db,advisor);await assert.rejects(()=>db.query("select admin_award_evaluation_preview_v3('2026-09-01')"),/Solo el administrador/);
+  await db.exec('set role authenticated');await assert.rejects(()=>db.query("select app_private.award_executor_summarize_v3('{}')"),/permission denied/);await db.exec('reset role');
+ }finally{await db.close();}
+});
 test('executor uses confirmed deliveries, separate direct events, distinct client volume and cutoff-approved exclusions',async()=>{
  const db=await complete();try{
   const data=(await db.query("select admin_award_evaluation_preview_v2('2026-09-01',$1,'executor',0) v",[advisor])).rows[0].v;
