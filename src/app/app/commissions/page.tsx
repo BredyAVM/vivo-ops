@@ -943,17 +943,17 @@ export default async function CommissionAdministrationPage({
                 </div>
               ) : null}
 
-              <div className="grid gap-3 xl:grid-cols-2">
+              <div data-testid="commission-advisor-list" className="flex flex-col gap-3">
                 {rows.map((row) => {
                   const status = closureStatus(row.closure.status);
                   const settlementIsCurrent = row.settlement.formulaVersion !== 'legacy';
                   const conformityStatus = row.workflow.conformity.status;
                   return (
-                    <article key={row.closure.id} className="rounded-3xl border border-[#282832] bg-[#141419] p-5">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                            <h3 className="text-lg font-semibold tracking-[-0.02em]">{row.advisorName}</h3>
+                    <article key={row.closure.id} data-testid="commission-advisor-card" className="min-w-0 rounded-3xl border border-[#282832] bg-[#141419] p-4 sm:p-5">
+                      <div data-testid="commission-advisor-header" className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+                            <h3 className="break-words text-lg font-semibold tracking-[-0.02em]">{row.advisorName}</h3>
                             <CommissionRateField
                               compact
                               locked={row.closure.status !== 'preliminary' || selectedPeriod?.status !== 'open'}
@@ -963,27 +963,7 @@ export default async function CommissionAdministrationPage({
                               value={numberValue(row.closure.base_commission_pct)}
                             />
                           </div>
-                          <div className="mt-1 text-xs text-[#92929E]">
-                            {numberValue(row.closure.delivered_orders_count)} pedidos entregados
-                          </div>
-                          <p className="mt-1 text-[11px] leading-4 text-[#92929E]">
-                            Último cálculo: {commissionCalculationTimeLabel(commissionCalculationTimestamp(row.closure))}
-                            {row.closure.status !== 'preliminary' ? ' · Protegido' : ''}
-                          </p>
-                          {row.goal && row.goal.status !== 'draft' ? <div className="mt-1 text-xs text-[#92929E]">
-                            {row.goal.rateOverrideReason ? `Excepción manual: ${row.goal.rateOverrideReason}`
-                              : row.goal.status === 'final' ? 'Resultado individual confirmado.'
-                              : `Meta actual: ${(currentGoalRates.get(row.closure.advisor_user_id) ?? row.goal.calculatedCommissionPct).toFixed(2)}% · se aplica al actualizar.`}
-                            <Link className="ml-2 text-[#FFFF00]" href={`/app/commissions/goals?period=${selectedPeriod?.id}`}>Revisar porcentaje →</Link>
-                          </div> : null}
-                          <Link
-                            className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#FFFF00]/40 px-3 py-1.5 text-xs font-semibold text-[#FFFF00] transition hover:border-[#FFFF00]"
-                            href={adminCommissionAuditHref(row.closure.id, 'settlement')}
-                          >
-                            Auditar cierre completo <span aria-hidden="true">→</span>
-                          </Link>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
                           <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${status.classes}`}>
                             {status.label}
                           </span>
@@ -1008,10 +988,32 @@ export default async function CommissionAdministrationPage({
                               Requiere nueva conformidad
                             </span>
                           ) : null}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                          <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 text-xs leading-5 text-[#92929E]">
+                            <span>{numberValue(row.closure.delivered_orders_count)} pedidos entregados</span>
+                            <span className="text-[11px]">
+                              Último cálculo: {commissionCalculationTimeLabel(commissionCalculationTimestamp(row.closure))}
+                              {row.closure.status !== 'preliminary' ? ' · Protegido' : ''}
+                            </span>
+                            {row.goal && row.goal.status !== 'draft' ? <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                              <span className="break-words">{row.goal.rateOverrideReason ? `Excepción manual: ${row.goal.rateOverrideReason}`
+                                : row.goal.status === 'final' ? 'Resultado individual confirmado.'
+                                : `Meta actual: ${(currentGoalRates.get(row.closure.advisor_user_id) ?? row.goal.calculatedCommissionPct).toFixed(2)}% · se aplica al actualizar.`}</span>
+                              <Link className="whitespace-nowrap text-[#FFFF00]" href={`/app/commissions/goals?period=${selectedPeriod?.id}`}>Revisar porcentaje →</Link>
+                            </div> : null}
+                          </div>
+                          <Link
+                            className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-[#FFFF00]/40 px-3 py-1.5 text-xs font-semibold text-[#FFFF00] transition hover:border-[#FFFF00]"
+                            href={adminCommissionAuditHref(row.closure.id, 'settlement')}
+                          >
+                            Auditar cierre completo <span aria-hidden="true">→</span>
+                          </Link>
                         </div>
                       </div>
 
-                      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-[#272730] py-4 sm:grid-cols-3">
+                      <div data-testid="commission-advisor-amounts" className="mt-3 grid grid-cols-2 gap-x-2 gap-y-2 border-y border-[#272730] py-3 sm:grid-cols-3 xl:grid-cols-6">
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'billing')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Facturación</div>
                           <div className="mt-1 font-semibold">{money(row.closure.billed_usd)}</div>
