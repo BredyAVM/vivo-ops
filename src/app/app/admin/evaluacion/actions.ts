@@ -3,12 +3,12 @@ import { requireAdminContext } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { UUID_PATTERN } from '@/lib/rewards/wallet-model';
 import { awardCalculationServer } from '@/lib/rewards/evaluation-server';
-import { evaluateAwards, validateAwardRules, type AwardRules, type EvaluationInput } from '@/lib/rewards/evaluation-model';
+import { evaluateAwards, validateAwardPeriodRules, type AwardRules, type EvaluationInput } from '@/lib/rewards/evaluation-model';
 
 export async function prepareAwardReview(period: string, rules: AwardRules, token: string) {
   try {
     const ctx = await requireAdminContext();
-    const invalid = validateAwardRules(rules);
+    const invalid = validateAwardPeriodRules(period, rules);
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || !UUID_PATTERN.test(token) || invalid) return { ok: false, message: invalid ?? 'Solicitud inválida.' };
     const capture = await ctx.supabase.rpc('admin_award_prepare_v2', { p_month: period + '-01', p_rules: rules, p_token: token });
     if (capture.error || typeof capture.data !== 'string') throw new Error(capture.error?.message ?? 'No se pudo guardar el corte.');

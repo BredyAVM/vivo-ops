@@ -37,6 +37,7 @@ async function complete(){
  `);
  await db.exec(read('../../supabase/migrations/20261013163522_award_executor_and_capture.sql'));
  await db.exec(read('../../supabase/migrations/20261013163559_award_monthly_publication.sql'));
+ await db.exec(read('../../supabase/migrations/20261014150107_award_executor_contact_and_september_review.sql'));
  return db;
 }
 const token=n=>'10000000-0000-0000-0000-'+String(n).padStart(12,'0');
@@ -84,6 +85,20 @@ test('publication is review-only, past-month-only, immutable and correction pres
   assert.equal((await row(db,second)).supersedes_id,first);assert.equal((await db.query("select count(*)::int n from award_month_reports where status='published'")).rows[0].n,1);
   await assert.rejects(()=>db.exec('delete from award_month_reports'),/inmutable/);
   const current=await prepare(db,3,defaultAwardRules('2026-10'),'2026-10-01');await calculate(db,current);await assert.rejects(()=>publish(db,current),/en curso/);
+ }finally{await db.close();}
+});
+test('September can be corrected with an admin acceptance note, full references and frozen contact target',async()=>{
+ const db=await complete();try{
+  const first=await prepare(db);await calculate(db,first);await publish(db,first);const original=await row(db,first);
+  const rules={...defaultAwardRules('2026-09'),executorEnabled:true,contactTargetPct:80,executorReviewNote:'Aceptación administrativa de septiembre con limitaciones de registro conservadas.',deliveryTargets:{'18':28,'19':14}};
+  await assert.rejects(()=>prepare(db,2,{...rules,executorReviewNote:''}),/Septiembre/);
+  await assert.rejects(()=>prepare(db,3,{...rules,contactTargetPct:0}),/contacto/);
+  await assert.rejects(()=>prepare(db,4,{...rules,deliveryTargets:{'18':28}}),/metas de entrega/);
+  const revised=await prepare(db,5,rules);assert.equal(await prepare(db,5,rules),revised);const result=await calculate(db,revised);
+  assert.equal(result.executorAvailable,true);assert.equal(result.advisors[0].categories.executor.indicators[0].target,80);
+  await publish(db,revised,first,'Corrección aceptada de septiembre: contacto 80 y Ejecutor incluido con salvedades.');
+  assert.equal((await row(db,first)).status,'superseded');assert.deepEqual((await row(db,first)).result_snapshot,original.result_snapshot);
+  assert.equal((await row(db,revised)).rules_snapshot.executorReviewNote,rules.executorReviewNote);
  }finally{await db.close();}
 });
 test('advisors see only their published indicators and evidence; raw snapshots, admin actions and draft results stay private',async()=>{

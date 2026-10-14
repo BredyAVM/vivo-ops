@@ -4,15 +4,30 @@ export const AWARD_RULE_VERSION = 'awards-preview-v1';
 export const EVALUATED_CATEGORIES = ['alchemist', 'influential', 'strategic', 'executor'] as const;
 export type EvaluatedCategory = typeof EVALUATED_CATEGORIES[number];
 export const AWARD_LABELS = { alchemist: 'Alquimista', influential: 'Influyente', strategic: 'Estratégico', executor: 'Ejecutor' };
-export type AwardRules = { globalMinimum: number; executorEnabled: boolean; executorReason: string; deliveryTargets: Record<string, number> };
+export type AwardRules = { globalMinimum: number; executorEnabled: boolean; executorReason: string; deliveryTargets: Record<string, number>; contactTargetPct?: number; executorReviewNote?: string };
 export function defaultAwardRules(period: string): AwardRules {
-  return { globalMinimum: 80, executorEnabled: false, executorReason: period.startsWith('2026-09') ? 'Septiembre sin premio Ejecutor por fallas de registro.' : 'Pendiente de confirmar confiabilidad y referencias de entrega por campaña.', deliveryTargets: {} };
+  return { globalMinimum: 80, executorEnabled: false, executorReason: period.startsWith('2026-09') ? 'Septiembre sin premio Ejecutor por fallas de registro.' : 'Pendiente de confirmar confiabilidad y referencias de entrega por campaña.', deliveryTargets: {}, contactTargetPct: 80, executorReviewNote: '' };
 }
 export function validateAwardRules(rules: AwardRules): string | null {
   if (!Number.isFinite(rules.globalMinimum) || rules.globalMinimum < 1 || rules.globalMinimum > 100 || typeof rules.executorEnabled !== 'boolean' || typeof rules.executorReason !== 'string' || rules.executorReason.length > 500 || !rules.deliveryTargets || typeof rules.deliveryTargets !== 'object' || Array.isArray(rules.deliveryTargets)) return 'Parámetros de evaluación inválidos.';
   if (!rules.executorEnabled && rules.executorReason.trim().length < 10) return 'Justifica la exclusión de Ejecutor.';
+  if (rules.contactTargetPct !== undefined && (!Number.isFinite(rules.contactTargetPct) || rules.contactTargetPct < 1 || rules.contactTargetPct > 100)) return 'La referencia de contacto debe estar entre 1% y 100%.';
+  if (rules.executorReviewNote !== undefined && (typeof rules.executorReviewNote !== 'string' || rules.executorReviewNote.length > 500)) return 'La observación de Ejecutor admite hasta 500 caracteres.';
   if (Object.entries(rules.deliveryTargets).some(([id, n]) => !/^[1-9]\d*$/.test(id) || !Number.isFinite(n) || n <= 0 || n > 100)) return 'Las metas de entrega deben ser porcentajes mayores a cero y hasta 100.';
   return null;
+}
+export function deliveryTargetsForDays(plays: { id: number; available_days: number }[], basePct: number) {
+  if (!Number.isFinite(basePct) || basePct <= 0 || basePct > 100) throw new Error('La referencia mensual de entrega debe ser mayor a cero y hasta 100%.');
+  return Object.fromEntries(plays.map(p => {
+    if (!Number.isSafeInteger(p.id) || p.id <= 0 || !Number.isFinite(p.available_days) || p.available_days <= 0) throw new Error('Campaña sin días disponibles para evaluar la entrega.');
+    return [String(p.id), Number(Math.min(100, basePct * p.available_days / 30).toFixed(4))];
+  }));
+}
+export function validateAwardPeriodRules(period: string, rules: AwardRules): string | null {
+  const error = validateAwardRules(rules);
+  if (error) return error;
+  return period.startsWith('2026-09') && rules.executorEnabled && (rules.executorReviewNote?.trim().length ?? 0) < 10
+    ? 'Septiembre requiere justificar la aceptación de las limitaciones del registro de Ejecutor.' : null;
 }
 type Values = Record<string, number | string | null>;
 export type MetricRow = Values & { advisor_id: string; advisor_name: string };
@@ -70,7 +85,10 @@ export function evaluateAwards(input: EvaluationInput, rules: AwardRules = defau
   const ruleError = validateAwardRules(rules);
   if (ruleError) throw new Error(ruleError);
   const plays = input.execution?.plays ?? [];
-  const executorAvailable = input.rule_version === 'awards-v2' && !input.period.startsWith('2026-09') && rules.executorEnabled && plays.length > 0 && plays.every(p => Number.isFinite(rules.deliveryTargets[String(p.id)]) && rules.deliveryTargets[String(p.id)] > 0);
+  const septemberAccepted = !input.period.startsWith('2026-09') || (rules.executorReviewNote?.trim().length ?? 0) >= 10;
+  const executorAvailable = input.rule_version === 'awards-v2' && septemberAccepted && rules.executorEnabled && plays.length > 0 && plays.every(p => Number.isFinite(rules.deliveryTargets[String(p.id)]) && rules.deliveryTargets[String(p.id)] > 0);
+  // Missing parameter preserves the original 90% reference in legacy cuts/resumed calculations.
+  const contactTarget = rules.contactTargetPct ?? 90;
   const samples = input.seasonal_samples;
   const season = (previous: 'previous_active' | 'previous_orders' | 'previous_revenue', current: 'current_active' | 'current_orders' | 'current_revenue') => calculateAdvisorGoalSeasonality(samples.map(s => ({ year: s.year, advisorId: s.advisor_id ?? '', previousValue: Number(s[previous]), currentValue: Number(s[current]) })));
   const seasons = { active: season('previous_active', 'current_active'), orders: season('previous_orders', 'current_orders'), revenue: season('previous_revenue', 'current_revenue') };
@@ -106,7 +124,7 @@ export function evaluateAwards(input: EvaluationInput, rules: AwardRules = defau
     const expected = executorAvailable ? counts.reduce((n, c) => n + (number(c, 'assigned') ?? 0) * rules.deliveryTargets[String(c.play_id)] / 100, 0) : 0;
     const proposals = Number(input.execution?.volume.find(v => v.advisor_id === row.advisor_id)?.proposal_clients ?? 0);
     const executorIndicators = [
-      indicator('Contacto', pct('contact'), 90, 8, 'percent', 'Contactar orgánicamente y registrar el contacto automático o manual.'),
+      indicator('Contacto', pct('contact'), contactTarget, 8, 'percent', 'Contactar orgánicamente y registrar el contacto automático o manual. La duración de la campaña no reduce esta referencia; contactar no obliga a entregar el beneficio.'),
       indicator('Respuesta', pct('response'), 70, 24, 'percent', 'Conseguir interacción real; registrar cuando el cliente responde.'),
       indicator('Propuesta de jugada', pct('proposal'), 70, 16, 'percent', 'Presentar el beneficio tras el acercamiento y marcar que se lanzó la propuesta.'),
       indicator('Entrega / referencia de campañas', expected > 0 ? sum('delivered') / expected : null, 1, 32, 'ratio', 'Completar la entrega del beneficio. La referencia temporal solo ajusta este indicador, no mensajes ni respuestas.'),
@@ -116,7 +134,7 @@ export function evaluateAwards(input: EvaluationInput, rules: AwardRules = defau
     if (assigned < 10) executorFailures.push('Se requieren al menos 10 asignaciones evaluables.');
     if ((pct('contact') ?? 0) < 70) executorFailures.push('Contacto inferior al 70%.');
     if ((pct('proposal') ?? 0) < 50) executorFailures.push('Propuesta inferior al 50%.');
-    if (!executorAvailable) executorFailures.push(input.period.startsWith('2026-09') ? 'Septiembre sin premio por fallas de registro.' : !rules.executorEnabled ? rules.executorReason : 'Faltan referencias de entrega para todas las campañas publicadas en este mes.');
+    if (!executorAvailable) executorFailures.push(input.period.startsWith('2026-09') && !septemberAccepted ? 'Septiembre sin premio por fallas de registro; requiere aceptación administrativa explícita para incluirlo.' : !rules.executorEnabled ? rules.executorReason : 'Faltan referencias de entrega para todas las campañas publicadas en este mes.');
     const categories = { alchemist: getCohort('alchemist'), influential: getCohort('influential'), strategic: finish(indicators, failures, seasonalReliable, ['80 puntos sin redondear.', '10 activos previos, 10 actuales y 10 recuperables de 60–180 días.', 'Activos o cierres al menos 5% sobre el esperado estacional.', 'Facturación al menos 90% del esperado estacional.', 'Referencia estacional confiable.']), executor: finish(executorIndicators, executorFailures, executorAvailable, ['80 puntos sin redondear.', '10 asignaciones evaluables.', 'Contacto de al menos 70%.', 'Propuesta de al menos 50%.', 'Registro confiable y referencias de entrega completas, iguales para todos.']) };
     const weights = { alchemist: 20, influential: 25, strategic: 30, executor: 25 };
     const available = EVALUATED_CATEGORIES.filter(k => categories[k].available);

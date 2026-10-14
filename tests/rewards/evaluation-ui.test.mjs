@@ -61,3 +61,8 @@ test('initial and invalid-period pages do not run heavy queries; failures never 
  await page({searchParams:Promise.resolve({month:'2099-01',evaluate:'1'})});assert.equal(calls.length,0);
  const failed=renderToStaticMarkup(await page({searchParams:Promise.resolve({month:'2026-09',evaluate:'1'})}));assert.equal(calls.length,1);assert.ok(failed.includes('No se pudo calcular'));assert.ok(!failed.includes('Lidera la simulación'));
 });
+test('September controls expose contact 80, day-only delivery references and explicit review limitations',()=>{
+ const html=renderToStaticMarkup(React.createElement(controls,{period:'2026-09',initialRules:{...model.defaultAwardRules('2026-09'),executorEnabled:true,executorReviewNote:'Aceptación explícita con limitaciones de registro.'},plays:[{id:18,name:'Aniversario',available_days:23}],currentPublication:null,isClosed:true}));
+ for(const text of ['Referencia de contacto','value="80"','Propuesta conserva su referencia del 70%','Referencia de entrega para 30 días','value="40"','Calcular referencias por días','obligatorio para septiembre','no convierte los estados reconstruidos'])assert.ok(html.includes(text),text);
+ assert.ok(html.includes('checked=""'));assert.ok(!html.includes('disabled=""'));
+});
