@@ -1,4 +1,6 @@
 'use server';
+
+import { preserveAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
 import * as configurationCommands from '@/lib/admin-config/canonical-actions';
 export async function updateExchangeRateAction(input: Parameters<typeof configurationCommands.updateExchangeRateAction>[0]) { return configurationCommands.updateExchangeRateAction(input); }
 export async function createMoneyAccountAction(input: Parameters<typeof configurationCommands.createMoneyAccountAction>[0]) { return configurationCommands.createMoneyAccountAction(input); }
@@ -10277,6 +10279,10 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     snapshot.snapshot.totals.payableUsd = payableUsd;
     snapshot.snapshot.deductions = manualDeductions;
     snapshot.snapshot = preserveAdvisorGoalPublicationSnapshot({
+      generatedSnapshot: snapshot.snapshot,
+      previousSnapshot: previousSnapshotByAdvisorId.get(snapshot.advisor_user_id),
+    }) as typeof snapshot.snapshot;
+    snapshot.snapshot = preserveAdvisorCommissionWorkflowSnapshot({
       generatedSnapshot: snapshot.snapshot,
       previousSnapshot: previousSnapshotByAdvisorId.get(snapshot.advisor_user_id),
     }) as typeof snapshot.snapshot;

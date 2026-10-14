@@ -21,6 +21,9 @@ import {
 } from '@/lib/commissions/payment-ledger';
 import { readAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
+import { loadCommissionLiveCollections, mergeCommissionLiveOrders, type CommissionLiveCollection } from '@/lib/commissions/live-collections';
+import CollectionRefresh from '@/components/commissions/CollectionRefresh';
+import CollectionSummary from '@/components/commissions/CollectionSummary';
 import { reverseCommissionPaymentAction } from '../actions';
 
 export const dynamic = 'force-dynamic';
@@ -345,6 +348,12 @@ export default async function CommissionAuditPage({
   const deductions = Array.isArray(closure.deductions) ? closure.deductions : [];
   const directDeductions = deductions.filter((deduction) => deduction.deduction_type !== 'gift');
   const snapshot = readAdminCommissionAuditSnapshot(closure.snapshot);
+  const initialPendingIds = snapshot.pendingOrders.map((o) => Number(o.orderId));
+  let live: CommissionLiveCollection | undefined;
+  let collectionError: string | null = null;
+  try { live = (await loadCommissionLiveCollections(ctx.supabase, [closureId])).get(closureId); }
+  catch (error) { collectionError = error instanceof Error ? error.message : 'Cobranza no disponible'; }
+  if (live?.supported) snapshot.pendingOrders = mergeCommissionLiveOrders(snapshot.orders, live.orders).filter((o) => o.pendingUsd > 0);
   const audit = buildAdminCommissionAuditCalculation({ closure, deductions, payments });
   const workflow = readAdvisorCommissionWorkflowSnapshot(closure.snapshot);
   const status = closureStatus(closure.status);
@@ -396,7 +405,7 @@ export default async function CommissionAuditPage({
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8E8E9A]">Fuente del cálculo</div>
               <h2 className="mt-1 text-lg font-semibold">Cierre #{closure.id} · {advisorName}</h2>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-[#A3A3AE]">
-                Cada detalle se lee del cierre guardado, sus deducibles y los movimientos de pago vinculados. Esta pantalla no recalcula ni modifica órdenes.
+                El acuerdo conserva sus importes y porcentajes. La cobranza consulta los pagos validados actuales sin modificar órdenes ni reabrir la liquidación.
               </p>
             </div>
             <div className="grid gap-1 text-xs text-[#A1A1AC] lg:text-right">
@@ -408,6 +417,9 @@ export default async function CommissionAuditPage({
             </div>
           </div>
         </section>
+
+        <CollectionRefresh checkedAt={live?.checkedAt} error={collectionError} />
+        <CollectionSummary state={live} initialPendingIds={initialPendingIds} error={collectionError} />
 
         {sourceDifferences ? (
           <section className="rounded-3xl border border-red-400/30 bg-red-400/5 p-5 text-sm text-red-100">
@@ -427,9 +439,9 @@ export default async function CommissionAuditPage({
           <AuditNavCard closureId={closure.id} section="billing" active={activeSection === 'billing'} value={money(closure.billed_usd)} note={`${snapshot.orders.length} pedidos entregados`} />
           <AuditNavCard closureId={closure.id} section="commission" active={activeSection === 'commission'} value={money(closure.gross_commission_usd)} note={`Base individual ${commissionAuditNumber(closure.base_commission_pct).toFixed(2)}%`} />
           <AuditNavCard closureId={closure.id} section="deductions" active={activeSection === 'deductions'} value={money(totalDeductionsUsd)} note={`${snapshot.gifts.length} obsequios + ${directDeductions.length} cargos`} />
-          <AuditNavCard closureId={closure.id} section="debts" active={activeSection === 'debts'} value={money(closure.pending_collection_usd)} note={`${snapshot.pendingOrders.length} facturas pendientes`} />
+          <AuditNavCard closureId={closure.id} section="debts" active={activeSection === 'debts'} value={money(live?.supported ? live.customerDebtUsd : closure.pending_collection_usd)} note={`${snapshot.pendingOrders.length} facturas pendientes actuales`} />
           <AuditNavCard closureId={closure.id} section="settlement" active={activeSection === 'settlement'} value={money(closure.payable_usd)} note={`${money(audit.settlement.retainedCommissionUsd)} retenidos`} />
-          <AuditNavCard closureId={closure.id} section="payments" active={activeSection === 'payments'} value={money(audit.paidUsd)} note={`${money(audit.paymentBalanceUsd)} por pagar`} />
+          <AuditNavCard closureId={closure.id} section="payments" active={activeSection === 'payments'} value={money(audit.paidUsd)} note={`${money(live?.supported ? live.pendingUsd : audit.paymentBalanceUsd)} por pagar`} />
         </nav>
 
         <section id="audit-detail" className="scroll-mt-5 rounded-3xl border border-[#292933] bg-[#141419] p-5">
@@ -558,9 +570,9 @@ export default async function CommissionAuditPage({
           {activeSection === 'debts' ? (
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-3">
-                <AmountCard label="Deuda de clientes" value={money(closure.pending_collection_usd)} note="Saldo al corte del cálculo" />
+                <AmountCard label="Deuda de clientes actual" value={money(live?.supported ? live.customerDebtUsd : closure.pending_collection_usd)} note="Pagos validados; el acuerdo original se conserva" />
                 <AmountCard label="Facturas pendientes" value={String(snapshot.pendingOrders.length)} />
-                <AmountCard label="Comisión retenida" value={money(audit.settlement.retainedCommissionUsd)} note="Se arrastra al periodo siguiente" />
+                <AmountCard label="Comisión retenida actual" value={money(live?.supported ? live.retainedUsd : audit.settlement.retainedCommissionUsd)} note="El traslado requiere confirmación administrativa" />
               </div>
               {snapshot.pendingOrders.length === 0 ? <EmptyDetail>No hay facturas pendientes en este cierre.</EmptyDetail> : (
                 <TableFrame><table className="min-w-[980px] w-full text-left text-xs"><thead className="bg-[#0F0F13] text-[10px] uppercase tracking-[0.12em] text-[#858591]"><tr><th className="px-4 py-3">Pedido</th><th className="px-4 py-3">Cliente</th><th className="px-4 py-3">Entrega</th><th className="px-4 py-3 text-right">Factura neta</th><th className="px-4 py-3 text-right">Pago validado</th><th className="px-4 py-3 text-right">Saldo</th><th className="px-4 py-3 text-right">Comisión asociada</th></tr></thead><tbody className="divide-y divide-[#292933]">{snapshot.pendingOrders.map((order, index) => <tr key={`${order.orderId || order.orderNumber || 'debt'}-${index}`}><td className="px-4 py-3 font-semibold">{orderLabel(order)}</td><td className="px-4 py-3">{order.clientName || 'Cliente'}</td><td className="px-4 py-3">{dateLabel(order.deliveryDate)}</td><td className="px-4 py-3 text-right">{money(order.totalUsd)}</td><td className="px-4 py-3 text-right text-emerald-300">{money(order.confirmedPaidUsd)}</td><td className="px-4 py-3 text-right font-semibold text-amber-200">{money(order.pendingUsd)}</td><td className="px-4 py-3 text-right">{money(order.commissionUsd)}</td></tr>)}</tbody></table></TableFrame>
@@ -586,7 +598,7 @@ export default async function CommissionAuditPage({
               </div>
               <div className="space-y-3">
                 <AmountCard label="Monto guardado en el cierre" value={money(closure.payable_usd)} note={Math.abs(audit.payableDifferenceUsd) < 0.01 ? 'Coincide con la fórmula' : `Diferencia: ${money(audit.payableDifferenceUsd)}`} />
-                <AmountCard label="Comisión que pasa al siguiente periodo" value={money(audit.settlement.retainedCommissionUsd)} note="Sigue a favor del asesor hasta cubrir la deuda" />
+                <AmountCard label="Retención en el acuerdo original" value={money(audit.settlement.retainedCommissionUsd)} note="Histórico; la cobranza y los traslados actuales se muestran arriba" />
                 <AmountCard label="Deuda propia que pasa al siguiente periodo" value={money(audit.settlement.advisorDebtOutUsd)} />
                 <AmountCard label="Fecha prevista de pago" value={audit.settlement.scheduledLiquidationDate ? dateLabel(audit.settlement.scheduledLiquidationDate) : 'No indicada'} note="Fecha administrativa, no calculada automáticamente" />
                 <AmountCard label="Conformidad" value={workflow.conformity.status === 'confirmed' ? 'Confirmada' : workflow.conformity.status === 'requires_reconfirmation' ? 'Pendiente de reconfirmar' : 'Pendiente'} note={`${workflow.revisionCount} correcciones registradas`} />
@@ -601,7 +613,7 @@ export default async function CommissionAuditPage({
               <div className="grid gap-3 sm:grid-cols-3">
                 <AmountCard label="Liquidación acordada" value={money(closure.payable_usd)} />
                 <AmountCard label="Total abonado" value={money(audit.paidUsd)} note={`${payments.length} ${payments.length === 1 ? 'movimiento' : 'movimientos'}`} />
-                <AmountCard label="Saldo por pagar" value={money(audit.paymentBalanceUsd)} />
+                <AmountCard label="Saldo actual por pagar" value={money(live?.supported ? live.pendingUsd : audit.paymentBalanceUsd)} />
               </div>
               {paymentsResult.error ? <EmptyDetail>No se pudieron cargar los movimientos bancarios vinculados.</EmptyDetail> : payments.length === 0 ? <EmptyDetail>Todavía no hay abonos registrados para esta liquidación.</EmptyDetail> : (
                 <TableFrame><table className="min-w-[1040px] w-full text-left text-xs"><thead className="bg-[#0F0F13] text-[10px] uppercase tracking-[0.12em] text-[#858591]"><tr><th className="px-4 py-3">Abono</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Cuenta</th><th className="px-4 py-3">Moneda real</th><th className="px-4 py-3 text-right">Monto real</th><th className="px-4 py-3 text-right">Tasa</th><th className="px-4 py-3 text-right">Equivalente USD</th><th className="px-4 py-3 text-right">Comisión bancaria</th><th className="px-4 py-3">Referencia</th></tr></thead><tbody className="divide-y divide-[#292933]">{payments.map((payment, index) => <tr key={payment.id}><td className="px-4 py-3 font-semibold">Abono {index + 1}</td><td className="px-4 py-3">{dateLabel(payment.movement_date)}</td><td className="px-4 py-3">{accountNames.get(Number(payment.money_account_id)) || 'Cuenta sin nombre'}</td><td className="px-4 py-3">{payment.currency_code}</td><td className="px-4 py-3 text-right">{commissionAuditNumber(payment.amount).toFixed(2)}</td><td className="px-4 py-3 text-right">{payment.currency_code === 'VES' ? commissionAuditNumber(payment.exchange_rate_ves_per_usd).toFixed(2) : '—'}</td><td className="px-4 py-3 text-right font-semibold text-emerald-300">{money(payment.amount_usd_equivalent)}</td><td className="px-4 py-3 text-right">{payment.bankFee ? <><div>{payment.bankFee.currency_code === 'VES' ? `Bs. ${commissionAuditNumber(payment.bankFee.amount).toFixed(2)}` : money(payment.bankFee.amount)}</div><div className="mt-1 text-[10px] text-[#858591]">{money(payment.bankFee.amount_usd_equivalent)} equiv.</div></> : '—'}</td><td className="px-4 py-3">{payment.reference_code || '—'}</td></tr>)}</tbody></table></TableFrame>

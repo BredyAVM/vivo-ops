@@ -5,7 +5,6 @@ import { commissionCalculationFeedback, commissionCalculationTimeLabel } from '@
 import { redirectInWorkspace } from '@/lib/navigation/workspace-server';
 import { requireAuthContext } from '@/lib/auth';
 import {
-  getAdvisorCommissionCarryState,
   readAdvisorCommissionCarryOverride,
   writeAdvisorCommissionCarryOverride,
 } from '@/lib/commissions/carry-state';
@@ -28,12 +27,12 @@ import {
 } from '@/lib/commissions/notifications';
 import { calculateAdvisorCommissionSettlement } from '@/lib/commissions/settlement-engine';
 import { parseDecimalInput } from '@/lib/number-input';
+import { loadCommissionLiveCollections } from '@/lib/commissions/live-collections';
 import {
   advisorReceivesCommissions,
   loadEligibleCommissionAdvisors,
 } from '@/lib/commissions/advisor-eligibility';
 import {
-  confirmAdvisorCommissionWorkflowSnapshot,
   preserveAdvisorCommissionWorkflowSnapshot,
   reopenAdvisorCommissionWorkflowSnapshot,
 } from '@/lib/commissions/workflow-snapshot';
@@ -56,11 +55,6 @@ type ClosureMoneyRow = {
   payable_usd: number | string | null;
   snapshot: unknown;
   deductions: DeductionRow[] | null;
-};
-
-type PeriodRow = {
-  id: number | string;
-  date_from: string;
 };
 
 const ADVISOR_COMMISSION_PCT_FIELD_PREFIX = 'baseCommissionPct:';
@@ -200,107 +194,32 @@ async function applySettlementToPreliminaryClosures(input: {
     return { updated: 0, skippedLocked: (currentData ?? []).length };
   }
 
-  const advisorIds = Array.from(
-    new Set(currentClosures.map((closure) => closure.advisor_user_id).filter(Boolean))
-  );
-  const { data: priorPeriodsData, error: priorPeriodsError } = await supabase
-    .from('advisor_commission_periods')
-    .select('id, date_from')
-    .lt('date_from', periodData.date_from)
-    .order('date_from', { ascending: false })
-    .limit(40);
-
-  if (priorPeriodsError) throw new Error(priorPeriodsError.message);
-
-  const priorPeriods = (priorPeriodsData ?? []) as PeriodRow[];
-  const priorPeriodIds = priorPeriods.map((period) => Number(period.id));
-  const priorPeriodRank = new Map(
-    priorPeriods.map((period, index) => [Number(period.id), index])
-  );
-  let priorClosures: ClosureMoneyRow[] = [];
-
-  if (priorPeriodIds.length > 0 && advisorIds.length > 0) {
-    const { data: priorData, error: priorError } = await supabase
-      .from('advisor_commission_closures')
-      .select(`
-        id,
-        period_id,
-        advisor_user_id,
-        status,
-        gross_commission_usd,
-        gift_deductions_usd,
-        manual_deductions_usd,
-        pending_collection_usd,
-        payable_usd,
-        snapshot,
-        deductions:advisor_commission_deductions (
-          deduction_type,
-          amount_usd
-        )
-      `)
-      .in('period_id', priorPeriodIds)
-      .in('advisor_user_id', advisorIds)
-      .limit(4000);
-
-    if (priorError) throw new Error(priorError.message);
-    priorClosures = (priorData ?? []) as ClosureMoneyRow[];
-  }
-
-  const priorByAdvisor = new Map<string, ClosureMoneyRow>();
-  for (const closure of priorClosures) {
-    const current = priorByAdvisor.get(closure.advisor_user_id);
-    const rank = priorPeriodRank.get(Number(closure.period_id)) ?? Number.MAX_SAFE_INTEGER;
-    const currentRank = current
-      ? priorPeriodRank.get(Number(current.period_id)) ?? Number.MAX_SAFE_INTEGER
-      : Number.MAX_SAFE_INTEGER;
-    if (!current || rank < currentRank) {
-      priorByAdvisor.set(closure.advisor_user_id, closure);
-    }
-  }
+  const liveCollections = await loadCommissionLiveCollections(supabase, currentClosures.map((c) => Number(c.id)));
 
   const calculationCutoffAt = new Date().toISOString();
   const updates = currentClosures.map((closure) => {
     const directDeductions = directDeductionsUsd(closure);
-    const prior = priorByAdvisor.get(closure.advisor_user_id);
-    const priorCarry = prior
-      ? getAdvisorCommissionCarryState({
-          snapshot: prior.snapshot,
-          grossCommissionUsd: numberValue(prior.gross_commission_usd),
-          giftDeductionsUsd: numberValue(prior.gift_deductions_usd),
-          directDeductionsUsd: directDeductionsUsd(prior),
-          pendingCollectionUsd: numberValue(prior.pending_collection_usd),
-        })
-      : {
-          commissionCarryUsd: 0,
-          advisorDebtCarryUsd: 0,
-          source: 'legacy-inferred' as const,
-        };
+    const live = liveCollections.get(Number(closure.id));
+    if (!live?.supported) throw new Error('No se pudo verificar la cobranza para actualizar este preliminar.');
     const snapshotWithWorkflow = preserveAdvisorCommissionWorkflowSnapshot({
       generatedSnapshot: closure.snapshot,
       previousSnapshot: input.previousSnapshotsByAdvisor?.get(closure.advisor_user_id),
     });
     const carryOverride = readAdvisorCommissionCarryOverride(snapshotWithWorkflow);
-    const effectiveCarry = carryOverride
-      ? {
-          commissionCarryUsd: carryOverride.commissionCarryUsd,
-          advisorDebtCarryUsd: carryOverride.advisorDebtCarryUsd,
-          source: 'manual-bootstrap' as const,
-        }
-      : priorCarry;
     const calculation = calculateAdvisorCommissionSettlement({
-      carriedCommissionUsd: effectiveCarry.commissionCarryUsd,
-      priorAdvisorDebtUsd: effectiveCarry.advisorDebtCarryUsd,
+      carriedCommissionUsd: live.carriedCommissionUsd,
+      priorAdvisorDebtUsd: live.priorAdvisorDebtUsd,
       grossCommissionUsd: roundMoney(closure.gross_commission_usd),
       giftDeductionsUsd: roundMoney(closure.gift_deductions_usd),
       directDeductionsUsd: directDeductions,
-      outstandingCustomerDebtUsd: roundMoney(closure.pending_collection_usd),
+      outstandingCustomerDebtUsd: live.customerDebtUsd,
     });
     const snapshot = writeAdvisorCommissionSettlementSnapshot({
       currentSnapshot: snapshotWithWorkflow,
       calculation,
       calculationCutoffAt,
       scheduledLiquidationDate: input.scheduledLiquidationDate,
-      carrySource: carryOverride ? 'manual-bootstrap' : prior ? priorCarry.source : 'none',
+      carrySource: carryOverride ? 'manual-bootstrap' : live.incomingTransferCount > 0 ? 'settlement' : 'none',
     });
 
     return {
@@ -308,6 +227,8 @@ async function applySettlementToPreliminaryClosures(input: {
       snapshot,
       manualDeductionsUsd: directDeductions,
       payableUsd: calculation.payableUsd,
+      pendingUsd: live.customerDebtUsd,
+      pendingOrders: live.orders.filter((order) => order.pendingUsd > 0),
     };
   });
 
@@ -315,9 +236,11 @@ async function applySettlementToPreliminaryClosures(input: {
     const { error: updateError } = await supabase
       .from('advisor_commission_closures')
       .update({
-        snapshot: update.snapshot,
+        snapshot: { ...update.snapshot, pending_orders: update.pendingOrders },
         manual_deductions_usd: update.manualDeductionsUsd,
         payable_usd: update.payableUsd,
+        pending_collection_usd: update.pendingUsd,
+        pending_payment_count: update.pendingOrders.length,
         updated_at: calculationCutoffAt,
       })
       .eq('id', update.id)
@@ -590,14 +513,14 @@ export async function confirmCommissionClosureAction(formData: FormData) {
   const periodId = Number(formData.get('periodId') ?? 0);
 
   try {
-    const { supabase, user } = await requireCommissionAdmin();
+    const { supabase } = await requireCommissionAdmin();
     if (!Number.isInteger(closureId) || closureId <= 0) {
       throw new Error('Selecciona una liquidación válida.');
     }
 
     const { data: closure, error: closureError } = await supabase
       .from('advisor_commission_closures')
-      .select('id, advisor_user_id, status, snapshot')
+      .select('id, period_id, advisor_user_id, status, snapshot')
       .eq('id', closureId)
       .single();
 
@@ -615,26 +538,15 @@ export async function confirmCommissionClosureAction(formData: FormData) {
       throw new Error('Actualiza el cálculo antes de registrar la conformidad.');
     }
 
-    const now = new Date().toISOString();
-    const snapshot = confirmAdvisorCommissionWorkflowSnapshot({
-      snapshot: closure.snapshot,
-      confirmedAt: now,
-      recordedByUserId: user.id,
+    if (closure.status === 'preliminary') {
+      await applySettlementToPreliminaryClosures({ periodId: Number(closure.period_id), closureId,
+        scheduledLiquidationDate: settlement.scheduledLiquidationDate });
+    }
+    const fresh = await supabase.from('advisor_commission_closures').select('snapshot').eq('id', closureId).single();
+    if (fresh.error) throw new Error(fresh.error.message);
+    const { error: updateError } = await supabase.rpc('confirm_commission_collection_v1', {
+      p_closure_id: closureId, p_expected_snapshot: fresh.data.snapshot,
     });
-    const payload =
-      closure.status === 'preliminary'
-        ? {
-            snapshot,
-            status: 'closed',
-            closed_at: now,
-            closed_by_user_id: user.id,
-            updated_at: now,
-          }
-        : { snapshot, updated_at: now };
-    const { error: updateError } = await supabase
-      .from('advisor_commission_closures')
-      .update(payload)
-      .eq('id', closureId);
 
     if (updateError) throw new Error(updateError.message);
     await bestEffortCommissionNotification('review resolved', () =>

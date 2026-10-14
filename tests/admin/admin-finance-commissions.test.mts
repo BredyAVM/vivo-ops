@@ -139,3 +139,21 @@ test('new RPC is invoker/admin-only, preserves RLS, excludes pending/voided/fee 
   assert.match(sql, /status = 'confirmed' and direction = 'outflow' and movement_type = 'expense_payment'/);
   assert.doesNotMatch(sql, /\b(?:insert into|update public|delete from|security definer)\b/i);
 });
+
+test('finance overview shows released collections without changing the agreed amount or flagging a legitimate supplemental payment', async () => {
+  const data = { ...payload([closure({ status: 'paid' })], [payment({ amount_usd_equivalent: 80 })]),
+    definitionVersion: 'admin-finance-commissions-v2', paymentLinkBasis: 'structural_with_legacy_references', linkedPayments: [{ movementId: 3, closureId: 1 }] };
+  const live = { closureId: 1, supported: true, checkedAt: now.toISOString(), agreedPayableUsd: 70,
+    paidUsd: 80, customerDebtUsd: 0, carriedCommissionUsd: 0, priorAdvisorDebtUsd: 0, creditUsd: 90,
+    payableUsd: 90, pendingUsd: 10, retainedUsd: 0, remainingCreditUsd: 10, advisorDebtUsd: 0,
+    overpaidUsd: 0, orders: [], incomingTransferCount: 0, transferredToClosureId: null };
+  const result = await loadCommissionsOverview({ asOf: now, supabase: { async rpc(name) {
+    return { data: name === 'admin_finance_commissions_read_v2' ? data : [live], error: null };
+  } } });
+  assert.equal(result.status,'ready');
+  if (result.status !== 'ready') return;
+  assert.equal(result.data.rows[0].payableUsd,70);
+  assert.equal(result.data.rows[0].pendingUsd,10);
+  assert.equal(result.data.rows[0].retainedUsd,0);
+  assert.equal(result.data.rows[0].issues.includes('Abonos identificados superiores a liquidación'),false);
+});
