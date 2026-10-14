@@ -96,7 +96,7 @@ export default function CommissionPaymentForm({
       <input name="closureId" type="hidden" value={closureId} />
       <input name="periodId" type="hidden" value={periodId} />
 
-      <div data-testid="commission-payment-primary" className="grid grid-cols-2 gap-2 md:grid-cols-3">
+      <div data-testid="commission-payment-primary" className="grid grid-cols-2 items-end gap-2 md:grid-cols-3">
         <label className="col-span-2 block min-w-0 md:col-span-1">
           <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
             Cuenta de pago
@@ -152,7 +152,7 @@ export default function CommissionPaymentForm({
         </label>
 
       </div>
-      <div data-testid="commission-payment-secondary" className="grid grid-cols-2 gap-2 md:grid-cols-3">
+      <div data-testid="commission-payment-secondary" className="grid grid-cols-2 items-end gap-2 md:grid-cols-3">
         <label className="block min-w-0">
           <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
             Fecha
