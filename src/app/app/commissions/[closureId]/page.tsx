@@ -151,7 +151,7 @@ function paymentTimingLabel(value: CommissionAuditOrder['paymentTiming']) {
 }
 
 function closureStatus(status: string) {
-  if (status === 'paid') return { label: 'Pagada', classes: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' };
+  if (status === 'paid') return { label: 'Acuerdo pagado', classes: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' };
   if (status === 'closed') return { label: 'Cerrada', classes: 'border-amber-400/30 bg-amber-400/10 text-amber-100' };
   return { label: 'Preliminar', classes: 'border-[#3B3B47] bg-[#1B1B23] text-[#C9C9D3]' };
 }
@@ -440,7 +440,7 @@ export default async function CommissionAuditPage({
           <AuditNavCard closureId={closure.id} section="commission" active={activeSection === 'commission'} value={money(closure.gross_commission_usd)} note={`Base individual ${commissionAuditNumber(closure.base_commission_pct).toFixed(2)}%`} />
           <AuditNavCard closureId={closure.id} section="deductions" active={activeSection === 'deductions'} value={money(totalDeductionsUsd)} note={`${snapshot.gifts.length} obsequios + ${directDeductions.length} cargos`} />
           <AuditNavCard closureId={closure.id} section="debts" active={activeSection === 'debts'} value={money(live?.supported ? live.customerDebtUsd : closure.pending_collection_usd)} note={`${snapshot.pendingOrders.length} facturas pendientes actuales`} />
-          <AuditNavCard closureId={closure.id} section="settlement" active={activeSection === 'settlement'} value={money(closure.payable_usd)} note={`${money(audit.settlement.retainedCommissionUsd)} retenidos`} />
+          <AuditNavCard closureId={closure.id} section="settlement" active={activeSection === 'settlement'} value={money(closure.payable_usd)} note={`Retención original: ${money(audit.settlement.retainedCommissionUsd)}`} />
           <AuditNavCard closureId={closure.id} section="payments" active={activeSection === 'payments'} value={money(audit.paidUsd)} note={`${money(live?.supported ? live.pendingUsd : audit.paymentBalanceUsd)} por pagar`} />
         </nav>
 
