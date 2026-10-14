@@ -23,7 +23,7 @@ export default function CollectionSummary({ state, initialPendingIds = [], error
     {state.transferredToClosureId ? <p className="text-xs text-sky-100">Saldo trasladado ({money(state.transferredCreditUsd ?? 0)}) a la liquidación #{state.transferredToClosureId}. No se paga de nuevo en este origen.</p> : null}
     {state.overpaidUsd > 0 ? <p className="text-xs text-amber-200">Revisar: hay {money(state.overpaidUsd)} pagados por encima de lo disponible actual. No se altera el historial.</p> : null}
     {orders.length ? <details>
-      <summary className="cursor-pointer text-xs font-semibold text-sky-100">Ver seguimiento de {orders.length} órdenes</summary>
+      <summary className="cursor-pointer text-xs font-semibold text-sky-100">Ver seguimiento de órdenes ({orders.length})</summary>
       <div className="mt-2 divide-y divide-sky-400/15">{orders.map((o) => <div key={o.orderId} className="grid grid-cols-[1fr_auto] gap-2 py-2 text-xs">
         <div><span className="font-semibold">{formatOrderDisplayNumber(o.orderId)}</span> · {o.clientName}<div className="mt-1 text-[#A6A6B0]">Pagado validado: {money(o.confirmedPaidUsd)}</div></div>
         <span className={o.pendingUsd > 0 ? 'text-amber-200' : 'text-emerald-300'}>{o.pendingUsd > 0 ? `Pendiente ${money(o.pendingUsd)}` : 'Pagada'}</span>
