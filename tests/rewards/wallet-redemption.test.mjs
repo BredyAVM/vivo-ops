@@ -19,6 +19,8 @@ async function setup(){
  insert into profiles(id,full_name) values('${admin}','Admin'),('${advisor}','Advisor'),('${other}','Other');
  insert into user_roles values('${admin}','admin'),('${advisor}','advisor'),('${other}','advisor');`);
  await db.exec(read('./fixtures/redemption-installed-routines.sql'));
+ await db.exec(`create type public.order_status as enum('created','queued','confirmed','in_kitchen','ready','out_for_delivery','delivered','cancelled');create type public.order_source as enum('advisor','master','walk_in');`);
+ await db.exec(read('./fixtures/redemption-retention-helpers.sql'));
  await db.exec(`create type public.product_type as enum('service','delivery','gambit');alter table products alter column type type public.product_type using type::public.product_type;`);
  await db.exec(`create table advisor_commission_periods(id bigint primary key,date_from date,date_to date,status text);
  create table advisor_commission_carry_transfers(source_closure_id bigint,destination_closure_id bigint,credit_usd numeric,advisor_debt_usd numeric,order_ids bigint[],created_at timestamptz);
@@ -85,6 +87,24 @@ test('canonical order creation stores a funded configurable line exactly once an
   assert.equal((await db.query('select count(*)::int n from orders')).rows[0].n,1);assert.equal((await db.query('select count(*)::int n from order_items')).rows[0].n,1);
   assert.equal((await balances(db,g)).reserved_amount,'4.00');await assert.rejects(()=>create(crypto.randomUUID()),/suficiente/);
   assert.equal((await db.query('select count(*)::int n from orders')).rows[0].n,1);
+ }finally{await db.close();}
+});
+
+test('canonical edit releases removed gifts, retains composition and never resurrects a removed reservation',async()=>{
+ const db=await setup();try{
+  const g=await grant(db,{amount:20});await user(db,advisor);const o=await order(db);await db.query("update orders set source='advisor' where id=$1",[o]);
+  const first=await item(db,o,g,4),second=await item(db,o,g,4);
+  const input={...second,order_item_id:second.id,notes:'3 Tequeños\n3 Empanadas'};
+  const patch={client_id:1,attributed_advisor_id:advisor,source:'advisor',status:'created',fulfillment:'pickup',extra_fields:{pricing:{fx_rate:850},schedule:{date:'2099-10-31'}}};
+  await db.query('select app_private.update_order_core_atomic_v1($1,null,$2::jsonb,$3::jsonb)',[o,JSON.stringify(patch),JSON.stringify([input])]);
+  const current=(await db.query('select * from order_items where order_id=$1',[o])).rows;
+  assert.equal(current.length,1);assert.equal(current[0].id,second.id);assert.match(current[0].notes,/3 Tequeños/);
+  assert.equal((await balances(db,g)).reserved_amount,'4.00');
+  assert.equal((await db.query('select status from advisor_reward_uses where order_item_id=$1',[first.id])).rows[0].status,'released');
+  const modified=(await db.query('select last_modified_at from orders where id=$1',[o])).rows[0].last_modified_at;
+  await db.query('select app_private.update_order_core_atomic_v1($1,$2,$3::jsonb,$4::jsonb)',[o,modified,JSON.stringify(patch),JSON.stringify([{...input,notes:'2 Tequeños\n4 Empanadas'}])]);
+  assert.equal((await balances(db,g)).reserved_amount,'4.00');
+  assert.equal((await db.query('select count(*)::int n from advisor_reward_uses where status=\'reserved\'')).rows[0].n,1);
  }finally{await db.close();}
 });
 

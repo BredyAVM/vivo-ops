@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import {revalidateRewardWallet} from '@/lib/rewards/revalidate-wallet';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
@@ -1190,6 +1191,7 @@ export async function createAdvisorOrderAction(input: CreateAdvisorOrderInput) {
     revalidatePath('/app/advisor/drafts');
     revalidatePath('/app/master/ops');
     revalidatePath('/app/master/dashboard');
+    revalidateRewardWallet();
 
     return {
       ok: true as const,
@@ -1373,6 +1375,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
   if (replaceItemsError) {
     throw new Error(replaceItemsError.message);
   }
+  revalidateRewardWallet();
 
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');

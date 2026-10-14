@@ -865,6 +865,8 @@ export async function recordCounterDeliveryReturnAction(
   if (error) throw new Error(error.message);
   const result = asRecord(data);
 
+  revalidatePath('/app/advisor/wallet');
+  revalidatePath('/app/admin/premios');
   revalidatePath('/app/counter');
   revalidatePath('/app/master/ops');
   revalidatePath('/app/advisor');
@@ -1169,6 +1171,8 @@ export async function changeCounterPickupItemsAction(
   if (error) throw new Error(directSaleErrorMessage(error.message));
   const result = asRecord(data);
 
+  revalidatePath('/app/advisor/wallet');
+  revalidatePath('/app/admin/premios');
   revalidatePath('/app/counter');
   revalidatePath('/app/kitchen');
   revalidatePath('/app/master/ops');
@@ -1208,6 +1212,8 @@ export async function completeCounterPickupAction(input: {
   if (error) throw new Error(error.message);
   const result = asRecord(data);
 
+  revalidatePath('/app/advisor/wallet');
+  revalidatePath('/app/admin/premios');
   revalidatePath('/app/counter');
   revalidatePath('/app/master/ops');
   revalidatePath('/app/advisor');

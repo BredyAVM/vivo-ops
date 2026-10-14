@@ -18,7 +18,7 @@ export default function RewardIssueControls({ id, version, mode }: { id: number;
       });
     }}>
       <p className="text-xs leading-5 text-amber-100">{mode === 'issue'
-        ? 'Se otorgará el premio y se congelarán sus condiciones. No confirma un ganador calculado ni permite gastar todavía en pedidos.'
+        ? 'Se otorgará el premio y se congelarán sus condiciones. El asesor podrá seleccionarlo en pedidos según sus usos y vencimiento. Esto no cambia la evaluación publicada.'
         : 'Se retirará la vigencia del premio sin borrar sus movimientos. Este mismo diseño no podrá emitirse otra vez.'}</p>
       <fieldset disabled={pending} className="space-y-3 disabled:opacity-60">
         <label className="block text-xs">Motivo · visible para el asesor<textarea required minLength={10} maxLength={500} rows={2} value={reason} onChange={e => setReason(e.target.value)} className="mt-1 w-full rounded-lg border border-[#303040] bg-[#0B0B10] p-2 text-sm" /></label>

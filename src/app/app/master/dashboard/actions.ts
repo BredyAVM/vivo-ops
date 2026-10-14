@@ -82,6 +82,8 @@ function rejectLegacyInventoryAdministration(): void {
 }
 
 function revalidateMasterDashboardFinancialReferences() {
+  revalidatePath('/app/advisor/wallet');
+  revalidatePath('/app/admin/premios');
   updateTag(MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG);
   revalidatePath('/app/admin', 'layout');
   revalidatePath('/app/master/dashboard');
@@ -3267,6 +3269,8 @@ export async function markDeliveredAction(input: {
     ],
   });
 
+  revalidatePath('/app/advisor/wallet');
+  revalidatePath('/app/admin/premios');
   revalidatePath('/app/counter');
   revalidatePath('/app/kitchen');
   revalidatePath('/app/master/dashboard');
@@ -9159,6 +9163,8 @@ export async function updateOrderAction(input: {
     });
   }
 
+  revalidatePath('/app/advisor/wallet');
+  revalidatePath('/app/admin/premios');
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/master/ops');
   revalidatePath('/app/admin/ordenes');
