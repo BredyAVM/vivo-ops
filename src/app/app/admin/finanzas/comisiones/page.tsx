@@ -3,6 +3,7 @@ import { requireAdminContext } from '@/lib/auth';
 import { loadCommissionsOverview, type CommissionsRpcClient } from '@/lib/admin-finance/commissions-data';
 import { normalizeCommissionFilters } from '@/lib/admin-finance/commissions-model';
 import CommissionsOverview from './_components/CommissionsOverview';
+import CollectionRefresh from '@/components/commissions/CollectionRefresh';
 
 export default async function AdminCommissionsPage({ searchParams }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -15,5 +16,5 @@ export default async function AdminCommissionsPage({ searchParams }: {
     <p className="mt-2 text-sm text-red-100">{result.message}</p>
     <Link href="/app/commissions" prefetch={false} className="mt-3 inline-flex min-h-11 items-center text-white underline">Abrir módulo de comisiones</Link>
   </section>;
-  return <CommissionsOverview data={result.data} filters={filters} />;
+  return <><CollectionRefresh checkedAt={result.data.asOf} /><CommissionsOverview data={result.data} filters={filters} /></>;
 }

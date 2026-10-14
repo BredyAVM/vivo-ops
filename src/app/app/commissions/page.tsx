@@ -33,6 +33,9 @@ import CommissionPaymentForm, {
   type CommissionPaymentAccountOption,
 } from './CommissionPaymentForm';
 import CommissionCalculationButton from './CommissionCalculationButton';
+import { transferCommissionCollectionAction } from './collection-actions';
+import CollectionRefresh from '@/components/commissions/CollectionRefresh';
+import { loadCommissionLiveCollections, type CommissionLiveCollection } from '@/lib/commissions/live-collections';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -154,7 +157,7 @@ function caracasToday() {
 
 function closureStatus(status: string) {
   if (status === 'paid') {
-    return { label: 'Pagada', classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' };
+    return { label: 'Acuerdo pagado', classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' };
   }
   if (status === 'closed') {
     return { label: 'Cerrada', classes: 'border-amber-400/30 bg-amber-400/10 text-amber-200' };
@@ -494,6 +497,14 @@ export default async function CommissionAdministrationPage({
       : numberValue(activeRateResult.data?.rate_bs_per_usd) || null;
   }
 
+  let liveCollections = new Map<number, CommissionLiveCollection>();
+  let collectionError: string | null = null;
+  try { liveCollections = await loadCommissionLiveCollections(ctx.supabase, closures.map((c) => Number(c.id))); }
+  catch (error) { collectionError = error instanceof Error ? error.message : 'Cobranza no disponible'; }
+  const futurePeriodIds = selectedPeriod ? periods.filter((p) => p.date_from > selectedPeriod.date_from && p.status === 'open').map((p) => Number(p.id)) : [];
+  const transferDestinations = futurePeriodIds.length ? await ctx.supabase.from('advisor_commission_closures')
+    .select('id,period_id,advisor_user_id').in('period_id', futurePeriodIds).eq('status', 'preliminary') : { data: [], error: null };
+
   const bankFeeByMovementGroupId = new Map(
     commissionBankFees
       .filter((fee) => Boolean(fee.movement_group_id))
@@ -547,12 +558,12 @@ export default async function CommissionAdministrationPage({
       const paidUsd = roundMoney(
         payments.reduce((sum, payment) => sum + numberValue(payment.amount_usd_equivalent), 0)
       );
-      const paymentBalanceUsd = roundMoney(
-        Math.max(0, numberValue(closure.payable_usd) - paidUsd)
-      );
+      const live = liveCollections.get(Number(closure.id));
+      const paymentBalanceUsd = live?.supported ? live.pendingUsd : roundMoney(Math.max(0, numberValue(closure.payable_usd) - paidUsd));
 
       return {
         closure,
+        live,
         advisorName:
           advisorNames.get(closure.advisor_user_id) ??
           getSnapshotAdvisorName(closure.snapshot) ??
@@ -622,11 +633,11 @@ export default async function CommissionAdministrationPage({
     (result, row) => {
       result.billedUsd += numberValue(row.closure.billed_usd);
       result.grossCommissionUsd += numberValue(row.closure.gross_commission_usd);
-      result.pendingCollectionUsd += numberValue(row.closure.pending_collection_usd);
+        result.pendingCollectionUsd += row.live?.supported ? row.live.customerDebtUsd : numberValue(row.closure.pending_collection_usd);
       result.payableUsd += numberValue(row.closure.payable_usd);
       result.paidUsd += row.paidUsd;
       result.paymentBalanceUsd += row.paymentBalanceUsd;
-      result.retainedCommissionUsd += row.settlement.retainedCommissionUsd;
+        result.retainedCommissionUsd += row.live?.supported ? row.live.retainedUsd : row.settlement.retainedCommissionUsd;
       result.deductionsUsd +=
         numberValue(row.closure.gift_deductions_usd) + row.registeredManualDeductionsUsd;
       if (row.hasDeductionDifference) result.differences += 1;
@@ -830,10 +841,13 @@ export default async function CommissionAdministrationPage({
                 lastCalculatedLabel={commissionCalculationTimeLabel(latestPreliminaryCalculation(closures))}
               />
               <p className="text-[11px] leading-4 text-[#92929E] md:col-span-3">
-                Solo se recalculan los preliminares. Los cierres cerrados o pagados conservan su cálculo; esto no es una actualización en tiempo real.
+                Este botón recalcula solo los preliminares. Lo acordado queda protegido; la cobranza se consulta aparte incluso después de pagar.
               </p>
             </WorkspaceForm>
           ) : null}
+          <div className="mt-3 border-t border-[#24242D] pt-3">
+            <CollectionRefresh checkedAt={[...liveCollections.values()][0]?.checkedAt} error={collectionError} />
+          </div>
         </section>
 
         {closureLoadFailed ? (
@@ -1017,12 +1031,12 @@ export default async function CommissionAdministrationPage({
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'debts')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Deuda clientes</div>
-                          <div className="mt-1 font-semibold text-amber-200">{money(row.closure.pending_collection_usd)}</div>
+                          <div className="mt-1 font-semibold text-amber-200">{money(row.live?.supported ? row.live.customerDebtUsd : row.closure.pending_collection_usd)}</div>
                           <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver clientes →</div>
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'settlement')}>
-                          <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Liquidación acordada</div>
-                          <div className="mt-1 font-semibold text-[#FFFF00]">{money(row.closure.payable_usd)}</div>
+                          <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">{row.closure.status === 'preliminary' ? 'Propuesta actual' : 'Liquidación acordada'}</div>
+                          <div className="mt-1 font-semibold text-[#FFFF00]">{money(row.closure.status === 'preliminary' && row.live?.supported ? row.live.payableUsd : row.closure.payable_usd)}</div>
                           <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver cálculo →</div>
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'payments')}>
@@ -1039,11 +1053,11 @@ export default async function CommissionAdministrationPage({
                         <div className="mt-4 grid gap-2 rounded-2xl border border-[#2D2D37] bg-[#101014] p-3 text-xs sm:grid-cols-3">
                           <div>
                             <span className="text-[#8F8F9B]">Comisión arrastrada</span>
-                            <div className="mt-1 font-semibold">{money(row.settlement.carriedCommissionUsd)}</div>
+                            <div className="mt-1 font-semibold">{money(row.live?.supported ? row.live.carriedCommissionUsd : row.settlement.carriedCommissionUsd)}</div>
                           </div>
                           <div>
-                            <span className="text-[#8F8F9B]">Retenida para próximo periodo</span>
-                            <div className="mt-1 font-semibold">{money(row.settlement.retainedCommissionUsd)}</div>
+                            <span className="text-[#8F8F9B]">Retenida por cobranza</span>
+                            <div className="mt-1 font-semibold">{money(row.live?.supported ? row.live.retainedUsd : row.settlement.retainedCommissionUsd)}</div>
                           </div>
                           <div>
                             <span className="text-[#8F8F9B]">Deuda propia arrastrada</span>
@@ -1230,6 +1244,33 @@ export default async function CommissionAdministrationPage({
                         </details>
                       ) : null}
 
+                      {row.live?.supported ? <div className="mt-3 rounded-xl border border-sky-400/20 bg-sky-400/5 px-3 py-2 text-xs leading-5 text-sky-100">
+                        {row.live.transferredToClosureId
+                          ? <>Saldo trasladado: {money(row.live.transferredCreditUsd)}. Se paga únicamente en <Link className="underline" href={adminCommissionAuditHref(row.live.transferredToClosureId, 'settlement')}>la liquidación de destino</Link>.</>
+                          : <>Cobranza actual: {money(row.live.customerDebtUsd)} · Disponible total: {money(row.live.payableUsd)} · Pagado: {money(row.live.paidUsd)} · Pendiente: {money(row.live.pendingUsd)}.</>}
+                        {row.live.overpaidUsd > 0 ? <p className="text-amber-200">Los pagos superan lo disponible actual en {money(row.live.overpaidUsd)}. Requiere revisión; no se altera el acuerdo.</p> : null}
+                      </div> : null}
+                      {row.live?.supported && !row.live.transferredToClosureId && (row.closure.status === 'closed' || row.closure.status === 'paid')
+                        && (row.live.remainingCreditUsd > 0 || row.live.advisorDebtUsd > 0 || row.live.customerDebtUsd > 0) ? (
+                        <details className="mt-3 rounded-xl border border-[#34343F] p-3">
+                          <summary className="cursor-pointer text-xs font-semibold">Trasladar saldo y cobranza a otro período</summary>
+                          <p className="mt-2 text-xs text-[#A6A6B0]">Transfiere {money(row.live.remainingCreditUsd)} de comisión sin pagar y su cobranza. El origen dejará de admitir nuevos abonos.</p>
+                          <WorkspaceForm action={transferCommissionCollectionAction} className="mt-3 grid gap-2">
+                            <input type="hidden" name="periodId" value={selectedPeriod?.id} />
+                            <input type="hidden" name="sourceClosureId" value={row.closure.id} />
+                            <label className="text-xs">Período de destino
+                              <select name="destinationClosureId" required className="mt-1 w-full rounded-xl border border-[#34343F] bg-[#141419] p-2">
+                                <option value="">Seleccionar preliminar del mismo asesor</option>
+                                {(transferDestinations.data ?? []).filter((d) => d.advisor_user_id === row.closure.advisor_user_id).map((d) =>
+                                  <option key={d.id} value={d.id}>{periods.find((p) => Number(p.id) === Number(d.period_id))?.name ?? `Período ${d.period_id}`}</option>)}
+                              </select>
+                            </label>
+                            <label className="text-xs">Motivo<input name="reason" required minLength={3} maxLength={500} className="mt-1 w-full rounded-xl border border-[#34343F] bg-[#141419] p-2" /></label>
+                            <button type="submit" disabled={Boolean(collectionError || transferDestinations.error)} className="rounded-xl border border-sky-400/40 p-2 text-xs font-semibold text-sky-100 disabled:opacity-40">Confirmar traslado</button>
+                          </WorkspaceForm>
+                        </details>
+                      ) : null}
+
                       {row.closure.status === 'preliminary' && settlementIsCurrent ? (
                         <WorkspaceForm action={confirmCommissionClosureAction} className="mt-4">
                           <input name="closureId" type="hidden" value={row.closure.id} />
@@ -1259,7 +1300,7 @@ export default async function CommissionAdministrationPage({
                         </WorkspaceForm>
                       ) : null}
 
-                      {row.closure.status === 'closed' && conformityStatus === 'confirmed' && row.paymentBalanceUsd > 0 ? (
+                      {(row.closure.status === 'closed' || row.closure.status === 'paid') && conformityStatus === 'confirmed' && row.paymentBalanceUsd > 0 && row.live?.supported && !collectionError ? (
                         <div className="mt-4 rounded-2xl border border-[#34343F] bg-[#101014] p-4">
                           <div className="text-sm font-semibold">Registrar abono</div>
                           <p className="mt-1 text-xs text-[#92929E]">

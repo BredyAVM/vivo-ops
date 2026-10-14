@@ -6,6 +6,9 @@ import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { calculateAdvisorGoalScore, type AdvisorGoalMetricKey } from '@/lib/commissions/goal-engine';
 import { summarizeAdvisorNewClients } from '@/lib/commissions/commercial-criteria';
 import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
+import { loadCommissionLiveCollections, mergeCommissionLiveOrders, type CommissionLiveCollection } from '@/lib/commissions/live-collections';
+import CollectionRefresh from '@/components/commissions/CollectionRefresh';
+import CollectionSummary from '@/components/commissions/CollectionSummary';
 import {
   readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
@@ -212,7 +215,7 @@ function dateLabel(value: string | null | undefined) {
 }
 
 function closureStatus(status: string) {
-  if (status === 'paid') return { label: 'Pagada', tone: 'success' as const };
+  if (status === 'paid') return { label: 'Acuerdo pagado', tone: 'success' as const };
   if (status === 'closed') return { label: 'Cerrada', tone: 'warning' as const };
   return { label: 'Preliminar', tone: 'neutral' as const };
 }
@@ -511,7 +514,16 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
 
   const snapshot = closure?.snapshot ?? {};
   const orders = Array.isArray(snapshot.orders) ? snapshot.orders : [];
-  const pendingOrders = Array.isArray(snapshot.pending_orders) ? snapshot.pending_orders : [];
+  const initialPendingOrders = Array.isArray(snapshot.pending_orders) ? snapshot.pending_orders : [];
+  let live: CommissionLiveCollection | undefined;
+  let collectionError: string | null = null;
+  if (closure) {
+    try { live = (await loadCommissionLiveCollections(ctx.supabase, [Number(closure.id)])).get(Number(closure.id)); }
+    catch (error) { collectionError = error instanceof Error ? error.message : 'Cobranza no disponible'; }
+  }
+  const pendingOrders = live?.supported
+    ? mergeCommissionLiveOrders(orders, live.orders).filter((o) => o.pendingUsd > 0)
+    : initialPendingOrders;
   const paidOrders = Array.isArray(snapshot.paid_orders) ? snapshot.paid_orders : [];
   const punctualOrders = Array.isArray(snapshot.punctual_orders)
     ? snapshot.punctual_orders
@@ -802,7 +814,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                                 : activeDetail === 'deductions-direct'
                                   ? 'Deducibles directos'
                                   : activeDetail === 'payable'
-                                    ? 'Monto a pagar'
+                                    ? 'Monto del acuerdo original'
                                     : '';
 
   return (
@@ -812,6 +824,10 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
         title="Mis comisiones"
         description="Consulta el cierre generado por administración. Esta vista no modifica porcentajes, órdenes ni deducciones."
       />
+      {closure ? <>
+        <CollectionRefresh checkedAt={live?.checkedAt} error={collectionError} />
+        <CollectionSummary state={live} initialPendingIds={initialPendingOrders.map((o) => Number(o.orderId))} error={collectionError} />
+      </> : null}
 
       <SectionCard title="Período" subtitle="Selecciona el cierre que quieres revisar.">
         {periodError ? (
@@ -1298,7 +1314,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Pendientes</div>
                     <div className="mt-1.5 text-2xl font-semibold text-[#F7DA66]">{pendingOrders.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(closure.pending_collection_usd)}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(live?.supported ? live.customerDebtUsd : closure.pending_collection_usd)}</div>
                     <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
                   </Link>
                 </div>
