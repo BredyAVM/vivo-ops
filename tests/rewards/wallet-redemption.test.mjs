@@ -34,6 +34,9 @@ async function setup(){
  create trigger order_items_pricing_guard before insert or update on order_items for each row execute function trg_order_items_pricing_guard();
  create trigger order_items_set_pricing before insert or update on order_items for each row execute function trg_order_items_set_pricing();`);
  for(const file of ['20261013141407_advisor_reward_wallet_foundation.sql','20261013143845_reward_wallet_lock_order.sql','20261013151045_advisor_reward_issuance.sql','20261014182352_advisor_reward_redemption_lifecycle.sql','20261014182408_advisor_reward_debt_and_read_models.sql']) await db.exec(read('../../supabase/migrations/'+file));
+ await db.exec(`grant select,insert,update,delete on public.orders,public.order_items,public.order_timeline_events,public.advisor_order_drafts to authenticated;
+ grant select on public.clients,public.products,public.exchange_rates to authenticated;
+ grant usage,select on sequence public.orders_id_seq,public.order_items_id_seq,public.advisor_order_drafts_id_seq to authenticated;`);
  await user(db,admin);return db;
 }
 async function grant(db,overrides={}){
@@ -73,6 +76,7 @@ test('migration patches canonical creation/edit; funding is atomic, reserved, de
 test('canonical order creation stores a funded configurable line exactly once and failed funding leaves no half-order',async()=>{
  const db=await setup();try{
   const g=await grant(db,{amount:4});await user(db,advisor);
+  await db.exec('set role authenticated');
   const token=crypto.randomUUID();
   const inputs=[{product_id:1,qty:1,pricing_origin_currency:'USD',pricing_origin_amount:4,unit_price_usd_snapshot:0,line_total_usd:0,unit_price_bs_snapshot:0,line_total_bs_snapshot:0,
     product_name_snapshot:'Single Pack',notes:'2 Tequeños\n4 Empanadas',reward_grant_id:g,reward_purpose:'customer_gift',reward_amount_usd:4}];
