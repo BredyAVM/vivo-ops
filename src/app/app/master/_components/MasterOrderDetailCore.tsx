@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { orderDetailCollectionSnapshot, orderDetailLineBs, orderDetailLineCurrency, orderDetailPrimaryCurrency } from "@/lib/orders/detail-money-presentation";
 import { sortOrderItemsByPriority } from "@/lib/orders/order-item-priority";
 import CrmOrderValidityPanel from "../ops/CrmOrderValidityPanel";
+import RewardOrderBadge, {type RewardOrderFunding} from '@/components/rewards/RewardOrderBadge';
 import {
   formatOrderDisplayNumber,
   getPaymentMethodLabel,
@@ -25,6 +26,7 @@ export type MasterOrderPaymentVerify = "none" | "pending" | "confirmed" | "rejec
 export type MasterOrderDetailTab = "detalle" | "entrega" | "pagos" | "eventos" | "notas" | "ajustes";
 
 export type MasterOrderDetailLine = {
+  rewardFunding?:RewardOrderFunding;
   name: string;
   qty: number;
   unitsPerService: number;
@@ -562,6 +564,7 @@ export function MasterOrderDetailBody({
               <div key={`${line.name}-${index}`} className="leading-5">
                 <div className="text-[#F5F5F7]">{masterOrderLineText(line, orderDetailLineCurrency(line, order.paymentCollectionMode))}</div>
                 <MasterOrderCrmBenefitBadge line={line} />
+                <RewardOrderBadge funding={line.rewardFunding} />
                 {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
                     {line.editableDetailLines.slice(0, 12).map((text, detailIndex) => (

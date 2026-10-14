@@ -18,6 +18,9 @@ import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/pl
 import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persistence';
 import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import { refreshAdvisorAsapSchedule } from '@/lib/orders/advisor-creation-schedule';
+import RewardLineSelector from '@/components/rewards/RewardLineSelector';
+import { REWARD_GRANT_SELECT, type RewardGrant } from '@/lib/rewards/wallet-model';
+import { fundedOrderSnapshot, rewardDraftAvailable, type RewardLineFunding } from '@/lib/rewards/order-funding';
 import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
 import { shouldResolveCatalogGift } from '@/lib/crm/catalog-gift';
 import {
@@ -144,6 +147,7 @@ type ConfigOption = ProductRow & {
 };
 
 type DraftItem = {
+  reward?: RewardLineFunding;
   localId: string;
   persistedOrderItemId?: number;
   product_id: number;
@@ -257,6 +261,9 @@ type ExistingOrderRow = {
 };
 
 type ExistingOrderItemRow = {
+  reward_grant_id?: number | null;
+  reward_purpose?: 'customer_gift' | 'personal_purchase' | null;
+  reward_amount_usd?: number | string | null;
   id: number;
   product_id: number;
   qty: number | string;
@@ -1521,6 +1528,10 @@ export default function AdvisorOrderComposer({
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [qty, setQty] = useState('1');
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
+  const [rewardGrants, setRewardGrants] = useState<RewardGrant[]>([]);
+  const [rewardPersonalClientId, setRewardPersonalClientId] = useState<number | null>(null);
+  const [rewardOrderReserved, setRewardOrderReserved] = useState<Record<number,number>>({});
+  const [rewardLoadError, setRewardLoadError] = useState('');
 
   const [searchTerm, setSearchTerm] = useState('');
   const [clientResults, setClientResults] = useState<ClientRow[]>([]);
@@ -1652,7 +1663,8 @@ export default function AdvisorOrderComposer({
         fxRate: fxRateNumber,
         fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
       });
-      return countsTowardCrmMinimum({ productName: item.product_name_snapshot, isCrmBenefit: Boolean(item.crm_benefit), lineUsd: snapshot.lineUsd }) ? sum + snapshot.lineUsd : sum;
+      const funded=fundedOrderSnapshot(snapshot,item.reward,item.qty,fxRateNumber);
+      return countsTowardCrmMinimum({ productName: item.product_name_snapshot, isCrmBenefit: Boolean(item.crm_benefit), lineUsd: funded.lineUsd }) ? sum + funded.lineUsd : sum;
     }, 0);
     return Number((subtotal * (1 - (discountEnabled ? discountPctNumber : 0) / 100)).toFixed(2));
   }, [discountEnabled, discountPctNumber, draftItems, fxRateNumber]);
@@ -1689,16 +1701,35 @@ export default function AdvisorOrderComposer({
               unitPriceUsdSnapshot: item.unit_price_usd_snapshot, lineTotalUsd: item.line_total_usd,
             }, originalItemPricesRef.current.get(Number(item.persistedOrderItemId)), Number(originalEditSnapshot?.fxRate || 0))
           : null;
-        return preserved ?? calculateOrderLineSnapshot({
+        const base = preserved ?? calculateOrderLineSnapshot({
           sourceCurrency: effectiveDraftPricing[index]?.sourceCurrency ?? item.source_price_currency,
           sourceAmount: effectiveDraftPricing[index]?.sourceAmount ?? Number(item.source_price_amount || 0),
           quantity: Number(item.qty || 0),
           fxRate: fxRateNumber,
           fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
         });
+        return fundedOrderSnapshot(base, item.reward, item.qty, fxRateNumber);
       }),
     [draftItems, effectiveDraftPricing, fxRateNumber, isEditingOrder, advisorRecalculationMode, originalEditSnapshot?.fxRate]
   );
+  useEffect(() => {
+    if (!authUserId) return;
+    let cancelled=false;
+    async function load() {
+      const [grants,personal,uses]=await Promise.all([
+        supabase.from('advisor_reward_grants').select(REWARD_GRANT_SELECT).eq('advisor_id',authUserId).eq('status','active').order('id',{ascending:false}).limit(101),
+        supabase.from('advisor_reward_personal_clients').select('client_id').eq('advisor_id',authUserId).maybeSingle(),
+        existingOrderId ? supabase.from('advisor_reward_uses').select('grant_id,amount').eq('order_id',existingOrderId).eq('status','reserved') : Promise.resolve({data:[],error:null}),
+      ]);
+      if(cancelled)return;
+      if(grants.error||personal.error||uses.error||(grants.data?.length??0)>100){setRewardLoadError('No se pudo verificar el monedero. Los pedidos normales siguen disponibles; actualiza antes de usar un premio.');return;}
+      setRewardLoadError('');setRewardGrants((grants.data??[]) as RewardGrant[]);
+      setRewardPersonalClientId(personal.data?Number(personal.data.client_id):null);
+      const amounts:Record<number,number>={};for(const use of uses.data??[])amounts[Number(use.grant_id)]=(amounts[Number(use.grant_id)]??0)+Number(use.amount);
+      setRewardOrderReserved(amounts);
+    }
+    void load();return ()=>{cancelled=true;};
+  },[authUserId,existingOrderId,supabase]);
   const displayDraftItems = sortOrderItemsByPriority(
     draftItems.map((item, index) => ({ item, index })),
     ({ item }) => ({
@@ -2075,7 +2106,7 @@ export default function AdvisorOrderComposer({
             supabase
               .from('order_items')
               .select(
-                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, sku_snapshot, product_name_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, product:products(type, units_per_service)'
+                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, sku_snapshot, product_name_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, reward_grant_id, reward_purpose, reward_amount_usd, product:products(type, units_per_service)'
               )
               .eq('order_id', Number(sourceOrderId))
               .order('id', { ascending: true }),
@@ -2261,6 +2292,11 @@ export default function AdvisorOrderComposer({
                 ? persistableOrderDetailLines(item.notes.split('\n'))
                 : [],
               crm_benefit: crmBenefit,
+              reward: item.reward_grant_id && item.reward_purpose ? {
+                grantId:Number(item.reward_grant_id),title:'Premio #'+item.reward_grant_id,purpose:item.reward_purpose,
+                amountUsd:Number(item.reward_amount_usd),kind:'credit' as const,
+                retainedSnapshot:{unitUsd:Number(item.unit_price_usd_snapshot),lineUsd:Number(item.line_total_usd),unitBs:Number(item.unit_price_bs_snapshot),lineBs:Number(item.line_total_bs_snapshot)},
+              } : undefined,
             };
           }).filter((item): item is DraftItem => !!item);
           const schedule = order.extra_fields?.schedule;
@@ -2767,6 +2803,10 @@ export default function AdvisorOrderComposer({
   }
 
   async function saveCurrentDraft(status: AdvisorOrderDraftStatus = 'draft', quoteText?: string | null) {
+    if (draftItems.some(item=>item.reward)) {
+      setError('Los premios se reservan al guardar el pedido, no al cotizar. Quita el premio para guardar una cotización normal.');
+      return false;
+    }
     if (savingDraftRef.current) return false;
 
     clearMessages();
@@ -3240,6 +3280,7 @@ export default function AdvisorOrderComposer({
         source_price_amount: next.sourceAmount,
         unit_price_usd_snapshot: next.snapshot.unitUsd,
         line_total_usd: next.snapshot.lineUsd,
+        ...(item.reward ? {persistedOrderItemId:undefined,reward:{...item.reward,retainedSnapshot:undefined,amountUsd:item.reward.kind==='product_units'?next.snapshot.lineUsd:item.reward.amountUsd}} : {}),
       };
     });
 
@@ -3550,8 +3591,9 @@ export default function AdvisorOrderComposer({
           ...(editingItem && editingItem.product_id === configProduct.id && editingItem.qty === configQty
             ? { ...editingItem, editable_detail_lines: detailLines }
             : buildDraftItem(configProduct, configQty, detailLines)),
-          persistedOrderItemId: editingItem?.persistedOrderItemId,
+          persistedOrderItemId: editingItem?.reward && editingItem.qty!==configQty ? undefined : editingItem?.persistedOrderItemId,
           crm_benefit: editingItem?.crm_benefit,
+          reward: editingItem?.qty===configQty ? editingItem.reward : undefined,
         } satisfies DraftItem;
 
     if (configPendingCrmItem) {
@@ -3562,7 +3604,7 @@ export default function AdvisorOrderComposer({
       setDraftItems((current) => current.map((draft) =>
         draft.localId === configEditingLocalId ? { ...item, localId: draft.localId } : draft
       ));
-      setInfo(`Composición actualizada: ${configProduct.name}`);
+      setInfo(`Composición actualizada: ${configProduct.name}${editingItem?.reward&&editingItem.qty!==configQty?' · Cambió la cantidad: vuelve a elegir el premio si quieres aplicarlo.':''}`);
     } else {
       rememberProduct(configProduct.id);
       setDraftItems((current) => [...current, item]);
@@ -3613,11 +3655,8 @@ export default function AdvisorOrderComposer({
     if (draftItems.length === 0) {
       parts.push('- Sin items cargados');
     } else {
-      for (const { item } of displayDraftItems) {
-        const lineBs =
-          item.source_price_currency === 'VES'
-            ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
-            : Number(item.line_total_usd || 0) * fxRateNumber;
+      for (const { item, index } of displayDraftItems) {
+        const lineBs = draftItemSnapshots[index].lineBs;
         parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
         const visibleDetails = getVisibleDetailLines(item.editable_detail_lines);
         if (visibleDetails.length > 0) {
@@ -3693,11 +3732,8 @@ export default function AdvisorOrderComposer({
     if (draftItems.length === 0) {
       parts.push('- Sin items cargados');
     } else {
-      for (const { item } of displayDraftItems) {
-        const lineBs =
-          item.source_price_currency === 'VES'
-            ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
-            : Number(item.line_total_usd || 0) * fxRateNumber;
+      for (const { item, index } of displayDraftItems) {
+        const lineBs = draftItemSnapshots[index].lineBs;
         parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
         for (const detail of getVisibleDetailLines(item.editable_detail_lines)) {
           const normalizedDetail = String(detail || '').trim();
@@ -3762,8 +3798,8 @@ export default function AdvisorOrderComposer({
       clientPhone,
       receiverName,
       receiverPhone,
-      lines: displayDraftItems.map(({ item }) => ({
-        text: formatDraftItemWhatsAppLine(item),
+      lines: displayDraftItems.map(({ item,index }) => ({
+        text: item.reward ? `${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(draftItemSnapshots[index].lineBs)}` : formatDraftItemWhatsAppLine(item),
         detailLines: getVisibleDetailLines(item.editable_detail_lines),
         priority: {
           productType: item.product_type,
@@ -4192,7 +4228,10 @@ export default function AdvisorOrderComposer({
 
         return {
           orderItemId: item.persistedOrderItemId ?? null,
-          draftPriceAgreementKey: activeDraftId && !isEditingOrder ? item.localId : null,
+          draftPriceAgreementKey: activeDraftId && !isEditingOrder && !item.reward ? item.localId : null,
+          rewardGrantId: item.reward?.grantId ?? null,
+          rewardPurpose: item.reward?.purpose ?? null,
+          rewardAmountUsd: item.reward?.amountUsd ?? null,
           productId: Number(item.product_id),
           qty: Number(item.qty || 0),
           sourcePriceCurrency: effectivePricing?.sourceCurrency ?? item.source_price_currency,
@@ -4825,6 +4864,7 @@ export default function AdvisorOrderComposer({
                 </div>
               ) : null}
 
+              {rewardLoadError ? <p role="alert" className="text-xs text-amber-200">{rewardLoadError}</p> : null}
               {displayDraftItems.map(({ item, index }) => {
                 const snapshot = draftItemSnapshots[index];
                 const catalogProduct = productById.get(item.product_id);
@@ -4867,6 +4907,14 @@ export default function AdvisorOrderComposer({
                       {item.crm_benefit && crmPurchaseEligible && lineBs <= 0.01 ? 'Incluido' : formatBs(lineBs)}
                     </div>
                   </div>
+
+                  {!item.crm_benefit && item.product_type!=='gambit' ? <RewardLineSelector
+                    grants={rewardGrants} productId={item.product_id} quantity={item.qty}
+                    grossUsd={calculateOrderLineSnapshot({sourceCurrency:item.source_price_currency,sourceAmount:item.source_price_amount,quantity:item.qty,fxRate:fxRateNumber}).lineUsd}
+                    funding={item.reward} available={grant=>rewardDraftAvailable(grant,draftItems,rewardOrderReserved[grant.id]??0)}
+                    personalClient={selectedClient?.id===rewardPersonalClientId} disabled={Boolean(rewardLoadError)}
+                    onChange={reward=>setDraftItems(current=>current.map(row=>row.localId===item.localId?{...row,reward,persistedOrderItemId:undefined}:row))}
+                  /> : null}
 
                   {getVisibleDetailLines(item.editable_detail_lines).length > 0 ? (
                     <div className="mt-2 space-y-1 rounded-[14px] bg-[#0B0F15] px-3 py-2 text-xs text-[#AAB2C5]">

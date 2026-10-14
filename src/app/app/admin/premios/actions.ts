@@ -33,8 +33,26 @@ export async function issueRewardDraftAction(id: number, version: number, reason
     if (error) return { ok: false, message: error.message };
     revalidatePath('/app/admin/premios'); revalidatePath('/app/advisor/wallet');
     const result = data as { status: string };
-    return { ok: true, message: result.status === 'revoked' ? 'Este diseño ya se emitió y su premio fue revocado. No se volvió a abonar.' : 'Premio emitido una sola vez. Su uso en pedidos sigue en preparación.' };
+    return { ok: true, message: result.status === 'revoked' ? 'Este diseño ya se emitió y su premio fue revocado. No se volvió a abonar.' : 'Premio emitido una sola vez. Ya puede seleccionarse en los pedidos según sus condiciones.' };
   } catch (e) { return { ok: false, message: e instanceof Error ? e.message : 'No se pudo emitir el premio.' }; }
+}
+export async function setRewardPersonalClientAction(advisorId:string,clientId:number) {
+  try {
+    const ctx=await requireAdminContext();
+    if(!UUID_PATTERN.test(advisorId)||!Number.isSafeInteger(clientId)||clientId<=0)return {ok:false,message:'Selecciona un asesor y un número de cliente válido.'};
+    const {error}=await ctx.supabase.rpc('reward_set_personal_client_v1',{p_advisor:advisorId,p_client:clientId});
+    if(error)return {ok:false,message:error.message};
+    revalidatePath('/app/admin/premios');revalidatePath('/app/advisor/wallet');return {ok:true,message:'Ficha personal vinculada. Los premios conservan sus restricciones originales.'};
+  }catch(e){return {ok:false,message:e instanceof Error?e.message:'No se pudo vincular.'};}
+}
+export async function lookupRewardPersonalClientAction(clientId:number) {
+  try{
+    const ctx=await requireAdminContext();
+    if(!Number.isSafeInteger(clientId)||clientId<=0)return {message:'Número de cliente inválido.'};
+    const {data,error}=await ctx.supabase.from('clients').select('id,full_name,phone').eq('id',clientId).maybeSingle();
+    if(error||!data)return {message:'No se encontró el cliente o no pudo consultarse.'};
+    return {message:'Comprueba que esta es la ficha del asesor antes de vincularla.',client:{id:Number(data.id),name:String(data.full_name),phone:data.phone as string|null}};
+  }catch(e){return {message:e instanceof Error?e.message:'No se pudo consultar.'};}
 }
 export async function revokeRewardGrantAction(id: number, reason: string) {
   try {

@@ -14,7 +14,12 @@ export default function RewardGrantCard({ grant, action, asOf }: { grant: Reward
     <p className="mt-1 text-xs text-[#AAB2C5]">{REWARD_MODES[grant.terms_snapshot.mode]} · {restrictions.uses}</p>
     <p className="mt-1 text-xs text-[#AAB2C5]">{restrictions.products}</p>
     <p className="mt-1 text-xs text-[#AAB2C5]">{grant.expires_on ? 'Último día: ' + grant.expires_on : 'Sin vencimiento'} · No transferible · Sin efectivo.</p>
-    <p className="mt-2 text-xs text-amber-100">Premio otorgado. Su aplicación en pedidos aún no está habilitada.</p>
+    <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+      <div><dt className="text-[#AAB2C5]">Disponible</dt><dd className="text-emerald-200">{state.validAmount}{grant.kind==='credit'?' USD':' unidades'}</dd></div>
+      <div><dt className="text-[#AAB2C5]">Reservado</dt><dd>{state.reserved}</dd></div>
+      <div><dt className="text-[#AAB2C5]">Utilizado</dt><dd>{state.used}</dd></div>
+      {state.expiredAmount>0?<div><dt className="text-[#AAB2C5]">Vencido sin usar</dt><dd>{state.expiredAmount}</dd></div>:null}
+    </dl>
     <details className="mt-2 text-xs"><summary className="cursor-pointer">Motivo e historial</summary><div className="mt-2 space-y-2 text-[#AAB2C5]">
       {grant.events.slice().sort((a,b) => a.created_at.localeCompare(b.created_at)).map(e => <p key={e.event_type}>{e.event_type === 'issued' ? 'Otorgado' : 'Revocado'} · {date(e.created_at)} · {e.reason}</p>)}
       <p>Condiciones conservadas desde la emisión. No son deuda del cliente ni dinero recibido en caja.</p>

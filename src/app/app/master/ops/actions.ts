@@ -1,5 +1,6 @@
 "use server";
 import { countsTowardCrmMinimum } from "@/lib/crm/benefit-eligibility";
+import type {RewardOrderFunding} from '@/components/rewards/RewardOrderBadge';
 
 import { revalidatePath } from "next/cache";
 import { isCrmOnlyCatalogProduct } from "@/lib/crm/play-order";
@@ -471,6 +472,9 @@ export async function loadMasterOpsOrderDetailAction(input: {
 
     if (orderItemsResult.error) throw new Error(orderItemsResult.error.message);
     const orderItems = (orderItemsResult.data ?? []) as MasterOpsDetailItemRow[];
+    const rewardResult=await supabase.rpc('reward_order_funding_v1',{p_order:orderId});
+    if(rewardResult.error)throw new Error('No se pudo verificar la financiación por premios del pedido.');
+    const rewardByItem=new Map(((rewardResult.data??[]) as RewardOrderFunding[]).map(row=>[row.orderItemId,row]));
     const integrityStatus: MasterOpsOrderDetailPayload["integrityStatus"] =
       orderItems.length === 0 && orderResult.data.status !== "cancelled"
         ? "missing_items"
@@ -552,6 +556,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
 
       return {
         name: productName,
+        rewardFunding:rewardByItem.get(Number(item.id)),
         qty: Number(item.qty ?? 0),
         unitsPerService:
           Number.isFinite(productUnits) && productUnits > 0
@@ -1798,6 +1803,9 @@ type MasterOpsSaveComponentRow = {
 };
 
 type MasterOpsExistingSaveItemRow = {
+  reward_grant_id?: number | null;
+  reward_purpose?: 'customer_gift' | 'personal_purchase' | null;
+  reward_amount_usd?: number | string | null;
   pricing_fx_rate_snapshot?: number | string | null;
   id: number | string;
   product_id: number | string | null;
@@ -1872,6 +1880,9 @@ async function loadMasterOpsOrderFinancialStateForValidation(
 
 function stripMasterOpsOrderItem(item: MasterOpsOrderSaveItem): MasterOpsOrderSaveItem {
   return {
+    rewardGrantId:item.rewardGrantId ?? null,
+    rewardPurpose:item.rewardPurpose ?? null,
+    rewardAmountUsd:item.rewardAmountUsd ?? null,
     orderItemId: item.orderItemId ?? null,
     productId: item.productId,
     skuSnapshot: item.skuSnapshot,
@@ -2004,7 +2015,7 @@ async function prepareMasterOpsOrderSave(
         ? ctx.supabase
             .from("order_items")
             .select(
-              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id"
+              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, reward_grant_id, reward_purpose, reward_amount_usd"
             )
             .eq("order_id", Number(orderId))
         : Promise.resolve({ data: [], error: null }),
@@ -2098,6 +2109,9 @@ async function prepareMasterOpsOrderSave(
     const liveProduct = liveProducts.get(productId) ?? null;
     const orderItemId = Number(item.orderItemId || 0) > 0 ? Number(item.orderItemId) : null;
     const existingItem = orderItemId ? existingItemsById.get(orderItemId) ?? null : null;
+    if(existingItem?.reward_grant_id && (Number(item.productId)!==Number(existingItem.product_id)||Number(item.qty)!==Number(existingItem.qty)||item.adminPriceOverrideUsd!=null)) {
+      throw new Error('Esta línea está financiada por un premio. Conserva su producto y cantidad; para cambiarlos, retira la línea y vuelve a agregar el producto normal.');
+    }
     const newCrmChoice = !existingItem && item.crmPlayMemberId != null && newCrmContext
       ? resolveCrmOrderBenefit(newCrmContext, Number(item.crmPlayBenefitId), item.crmPlayBenefitUpgradeId ?? null)
       : null;
@@ -2231,6 +2245,9 @@ async function prepareMasterOpsOrderSave(
       validateOverride: isNewLine || overrideChanged,
       crmPlayMemberId:
         newCrmChoice?.crmPlayMemberId ?? (existingItem?.crm_play_member_id == null ? null : Number(existingItem.crm_play_member_id)),
+      rewardGrantId:existingItem?.reward_grant_id ?? null,
+      rewardPurpose:existingItem?.reward_purpose ?? null,
+      rewardAmountUsd:existingItem?.reward_amount_usd==null?null:Number(existingItem.reward_amount_usd),
       crmPlayBenefitId:
         newCrmChoice?.crmPlayBenefitId ?? (existingItem?.crm_play_benefit_id == null ? null : Number(existingItem.crm_play_benefit_id)),
       crmPlayBenefitUpgradeId:

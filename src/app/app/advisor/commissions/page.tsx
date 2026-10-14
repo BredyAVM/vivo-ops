@@ -1245,7 +1245,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   </div>
                   {settlementIsCurrent && settlement.positiveAdjustmentsUsd > 0 ? (
                     <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-sm">
-                      <span className="text-[#AAB2C5]">Ajustes a favor</span>
+                      <span className="text-[#AAB2C5]">Ajustes a favor{settlement.rewardDebtCreditUsd>0?` · incluye ${money(settlement.rewardDebtCreditUsd)} de premio aplicado a deuda`:''}</span>
                       <span className="font-semibold text-emerald-300">+{money(settlement.positiveAdjustmentsUsd)}</span>
                     </div>
                   ) : null}

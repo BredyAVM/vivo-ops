@@ -30,6 +30,7 @@ export type AdvisorCommissionClosureSnapshotV2 = JsonRecord & {
 };
 
 export type AdvisorCommissionSettlementSnapshotState = {
+  rewardDebtCreditUsd: number;
   snapshotVersion: number;
   formulaVersion: string;
   carrySource: 'none' | 'settlement' | 'legacy-inferred' | 'manual-bootstrap' | 'unknown';
@@ -132,6 +133,7 @@ export function readAdvisorCommissionSettlementSnapshot(
       : null;
 
   return {
+    rewardDebtCreditUsd:money(settlement.rewardDebtCreditUsd),
     snapshotVersion: Number(snapshotRecord.version ?? 1),
     formulaVersion:
       typeof settlement.formulaVersion === 'string'

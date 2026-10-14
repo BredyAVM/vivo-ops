@@ -24,9 +24,11 @@ const grant = {
   events:[{event_type:'issued',amount:20,reason:'Reconocimiento comercial aprobado.',created_at:'2026-10-13T14:00:00Z'}],
 };
 const render = item => renderToStaticMarkup(createElement(Card,{grant:item,asOf:new Date('2026-10-13T15:00:00Z')}));
-test('real server card explains restrictions and does not claim order spending is active',()=>{
+test('real server card explains restrictions and separates available, reserved and used balances',()=>{
   const html=render(grant);
-  for(const expected of ['Crédito para deliveries','Alquimista','Fondo comercial','Obsequios a clientes','Delivery Zona 1','Vigente','Sin efectivo','aún no está habilitada'])assert.ok(html.includes(expected));
+  for(const expected of ['Crédito para deliveries','Alquimista','Fondo comercial','Obsequios a clientes','Delivery Zona 1','Vigente','Sin efectivo','Disponible','Reservado','Utilizado'])assert.ok(html.includes(expected));
+  const partial=model.rewardGrantState({...grant,reserved_amount:4,used_amount:6},new Date('2026-10-13T15:00:00Z'));
+  assert.equal(partial.validAmount,10);assert.equal(partial.reserved,4);assert.equal(partial.used,6);
 });
 test('product award renders units, not a monetary balance',()=>{
   const html=render({...grant,kind:'product_units',amount:3,terms_snapshot:{...grant.terms_snapshot,kind:'product_units',product_name_snapshot:'Single Pack',product_names_snapshot:['Single Pack']}});

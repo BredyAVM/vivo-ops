@@ -87,6 +87,7 @@ test('lee snapshots historicos sin exigir campos nuevos', () => {
   });
 
   assert.deepEqual(state, {
+    rewardDebtCreditUsd: 0,
     snapshotVersion: 1,
     formulaVersion: 'legacy',
     carrySource: 'unknown',

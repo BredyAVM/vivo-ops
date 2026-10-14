@@ -23,6 +23,9 @@ const STALE_ORDER_EDIT_MESSAGE =
   'No se guardaron los cambios porque otra persona actualizó esta orden después de que la abriste. Para evitar pisar su trabajo, actualiza la orden, revisa lo nuevo y vuelve a guardar si todavía aplica.';
 
 type ReplaceAdvisorOrderItemInput = {
+  rewardGrantId?: number | null;
+  rewardPurpose?: 'customer_gift' | 'personal_purchase' | null;
+  rewardAmountUsd?: number | null;
   orderItemId: number | null;
   draftPriceAgreementKey?: string | null;
   productId: number;
@@ -1144,6 +1147,9 @@ export async function createAdvisorOrderAction(input: CreateAdvisorOrderInput) {
         crm_play_member_id: crmPlayMemberId,
         crm_play_benefit_id: crmPlayBenefitId,
         crm_play_benefit_upgrade_id: crmPlayBenefitUpgradeId,
+        reward_grant_id: item.rewardGrantId ?? null,
+        reward_purpose: item.rewardPurpose ?? null,
+        reward_amount_usd: item.rewardAmountUsd ?? null,
       };
     });
 
@@ -1243,6 +1249,9 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
   const details = await normalizeAdvisorItemDetails(ctx.supabase, input.items);
   const itemsPayload = input.items.map((item, index) => ({
+    reward_grant_id: item.rewardGrantId ?? null,
+    reward_purpose: item.rewardPurpose ?? null,
+    reward_amount_usd: item.rewardAmountUsd ?? null,
     order_item_id: toFiniteNumber(item.orderItemId, 0) > 0
       ? Math.trunc(toFiniteNumber(item.orderItemId))
       : null,

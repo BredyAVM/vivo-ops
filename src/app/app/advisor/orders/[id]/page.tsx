@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import RewardOrderBadge,{type RewardOrderFunding} from '@/components/rewards/RewardOrderBadge';
 import { getAuthContext } from '@/lib/auth';
 import {
   OPERATIONAL_PHASES,
@@ -954,6 +955,8 @@ export default async function AdvisorOrderDetailPage({
     ]);
 
   const items = sortOrderItemsByPriority((itemsResult.data ?? []) as OrderItemRow[], orderItemPriorityInput);
+  const rewardResult=await ctx.supabase.rpc('reward_order_funding_v1',{p_order:orderId});
+  const rewardFundingByItem=new Map(((rewardResult.data??[]) as RewardOrderFunding[]).map(row=>[row.orderItemId,row]));
   const payments = (paymentsResult.data ?? []) as PaymentReportRow[];
   if (financialActivityResult.error) {
     console.warn('read_order_financial_activity skipped in advisor order detail', financialActivityResult.error.message);
@@ -1394,6 +1397,7 @@ export default async function AdvisorOrderDetailPage({
           <EmptyBlock title="Sin items" detail="Todavia no hay productos visibles en esta orden." />
         ) : (
           <div className="space-y-2.5">
+            {rewardResult.error?<p role="alert" className="text-xs text-amber-200">No se pudo verificar la financiación por premios.</p>:null}
             {items.map((item) => (
               <article
                 key={item.id}
@@ -1403,6 +1407,7 @@ export default async function AdvisorOrderDetailPage({
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-[#F5F7FB]">
                       {safeText(item.product_name_snapshot, 'Item')}
+                      <RewardOrderBadge funding={rewardFundingByItem.get(item.id)} />
                     </div>
                     <div className="mt-1 text-xs text-[#8B93A7]">Cantidad: {Number(item.qty || 0)}</div>
                   </div>

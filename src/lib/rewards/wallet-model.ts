@@ -31,16 +31,20 @@ export type RewardGrant = {
   id: number; advisor_id: string; advisor_name_snapshot: string; amount: number | string;
   kind: RewardDraft['kind']; period: string; status: 'active' | 'revoked'; issued_at: string;
   expires_on: string | null; issue_reason: string; revoke_reason: string | null;
+  reserved_amount?: number | string; used_amount?: number | string;
   terms_snapshot: Omit<RewardDraft, 'id' | 'version' | 'status' | 'updated_at' | 'note'>;
   events: { event_type: 'issued' | 'revoked'; amount: number | string; reason: string; created_at: string }[];
 };
-export const REWARD_GRANT_SELECT = 'id,advisor_id,advisor_name_snapshot,amount,kind,period,status,issued_at,expires_on,issue_reason,revoke_reason,terms_snapshot,events:advisor_reward_events(event_type,amount,reason,created_at)';
-export function rewardGrantState(grant: Pick<RewardGrant, 'status' | 'expires_on' | 'amount'>, asOf = new Date()) {
+export const REWARD_GRANT_SELECT = 'id,advisor_id,advisor_name_snapshot,amount,reserved_amount,used_amount,kind,period,status,issued_at,expires_on,issue_reason,revoke_reason,terms_snapshot,events:advisor_reward_events(event_type,amount,reason,created_at)';
+export function rewardGrantState(grant: Pick<RewardGrant, 'status' | 'expires_on' | 'amount' | 'reserved_amount' | 'used_amount'>, asOf = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(asOf);
   const today = `${parts.find(p => p.type === 'year')?.value}-${parts.find(p => p.type === 'month')?.value}-${parts.find(p => p.type === 'day')?.value}`;
   const expired = Boolean(grant.expires_on && grant.expires_on < today);
-  return { label: grant.status === 'revoked' ? 'Revocado' : expired ? 'Vencido' : 'Vigente', expired,
-    validAmount: grant.status === 'active' && !expired ? Number(grant.amount) : 0 };
+  const reserved = Number(grant.reserved_amount ?? 0), used = Number(grant.used_amount ?? 0);
+  const unspent = Math.max(0, Math.round((Number(grant.amount)-reserved-used)*100)/100);
+  return { label: grant.status === 'revoked' ? 'Revocado' : expired ? 'Vencido' : unspent === 0 ? 'Sin disponible' : 'Vigente', expired,
+    reserved, used, expiredAmount: expired ? unspent : 0,
+    validAmount: grant.status === 'active' && !expired ? unspent : 0 };
 }
 
 export function allowedPurposes(mode: RewardMode): RewardPurpose[] {
@@ -87,6 +91,6 @@ export function rewardAmountLabel(reward: Pick<RewardDraft, 'kind' | 'amount' | 
 
 export function rewardRestrictions(reward: Pick<RewardDraft, 'purposes' | 'product_scope' | 'product_names_snapshot' | 'kind'>) {
   const uses = reward.purposes.map(p => REWARD_PURPOSES[p]).join(' · ');
-  const products = reward.product_scope === 'selected_products' ? reward.product_names_snapshot.join(', ') : 'Todo el catálogo';
+  const products = reward.product_scope === 'selected_products' ? reward.product_names_snapshot.join(', ') : 'Catálogo normal de venta · no beneficios exclusivos CRM';
   return { uses, products, transferable: false, redeemableForCash: false, upgradesAllowed: false } as const;
 }

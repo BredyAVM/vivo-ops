@@ -7411,6 +7411,9 @@ export async function createOrderAction(input: {
     crmPlayMemberId?: number | null;
     crmPlayBenefitId?: number | null;
     crmPlayBenefitUpgradeId?: number | null;
+    rewardGrantId?: number | null;
+    rewardPurpose?: 'customer_gift' | 'personal_purchase' | null;
+    rewardAmountUsd?: number | null;
     commissionInheritedMode?: OrderCommissionMode;
     commissionInheritedValue?: number | null;
     commissionInheritedSource?: 'catalog' | 'event';
@@ -8244,6 +8247,9 @@ export async function updateOrderAction(input: {
     crmPlayMemberId?: number | null;
     crmPlayBenefitId?: number | null;
     crmPlayBenefitUpgradeId?: number | null;
+    rewardGrantId?: number | null;
+    rewardPurpose?: 'customer_gift' | 'personal_purchase' | null;
+    rewardAmountUsd?: number | null;
     commissionInheritedMode?: OrderCommissionMode;
     commissionInheritedValue?: number | null;
     commissionInheritedSource?: 'catalog' | 'event';
@@ -8747,6 +8753,9 @@ export async function updateOrderAction(input: {
       crm_play_benefit_id: item.crmPlayBenefitId == null ? null : Number(item.crmPlayBenefitId),
       crm_play_benefit_upgrade_id:
         item.crmPlayBenefitUpgradeId == null ? null : Number(item.crmPlayBenefitUpgradeId),
+      reward_grant_id: item.rewardGrantId ?? null,
+      reward_purpose: item.rewardPurpose ?? null,
+      reward_amount_usd: item.rewardAmountUsd ?? null,
     };
   });
 
