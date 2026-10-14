@@ -1303,11 +1303,13 @@ export default async function CommissionAdministrationPage({
                       ) : null}
 
                       {(row.closure.status === 'closed' || row.closure.status === 'paid') && conformityStatus === 'confirmed' && row.paymentBalanceUsd > 0 && row.live?.supported && !collectionError ? (
-                        <div className="mt-4 rounded-2xl border border-[#34343F] bg-[#101014] p-4">
-                          <div className="text-sm font-semibold">Registrar abono</div>
-                          <p className="mt-1 text-xs text-[#92929E]">
-                            Saldo pendiente: {money(row.paymentBalanceUsd)}. Verás el equivalente en bolívares antes de confirmar.
-                          </p>
+                        <div data-testid="commission-payment-panel" className="mt-3 rounded-2xl border border-[#34343F] bg-[#101014] p-3">
+                          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <div className="text-sm font-semibold">Registrar abono</div>
+                            <p className="text-xs text-[#92929E]">
+                              Saldo pendiente: {money(row.paymentBalanceUsd)}. Verás el equivalente en bolívares antes de confirmar.
+                            </p>
+                          </div>
                           <CommissionPaymentForm
                             requestId={crypto.randomUUID()}
                             accounts={commissionPaymentAccounts}
