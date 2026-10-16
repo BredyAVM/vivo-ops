@@ -22,6 +22,7 @@ import RewardLineSelector from '@/components/rewards/RewardLineSelector';
 import { REWARD_GRANT_SELECT, type RewardGrant } from '@/lib/rewards/wallet-model';
 import { fundedOrderSnapshot, rewardDraftAvailable, type RewardLineFunding } from '@/lib/rewards/order-funding';
 import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
+import { readDraftCrmBenefit, restoreDraftCrmItems, type DraftCrmBenefit } from '@/lib/crm/order-benefit-preservation';
 import { shouldResolveCatalogGift } from '@/lib/crm/catalog-gift';
 import {
   buildWhatsAppOrderSummaryText,
@@ -161,15 +162,7 @@ type DraftItem = {
   unit_price_usd_snapshot: number;
   line_total_usd: number;
   editable_detail_lines: string[];
-  crm_benefit?: {
-    playMemberId: number;
-    playBenefitId: number;
-    playBenefitUpgradeId: number | null;
-    eligibleUnitPriceUsd: number;
-    catalogSourceCurrency: CurrencyCode;
-    catalogSourceAmount: number;
-    redemptionStatus?: 'reserved' | 'redeemed' | null;
-  };
+  crm_benefit?: DraftCrmBenefit;
 };
 
 type ClientAddress = {
@@ -1078,7 +1071,7 @@ function normalizeDraftItemsPayload(value: unknown): DraftItem[] {
   if (!Array.isArray(value)) return [];
 
   return value
-    .map((item, index) => {
+    .map((item, index): DraftItem | null => {
       if (!item || typeof item !== 'object') return null;
       const row = item as Partial<DraftItem>;
       const productId = Number(row.product_id || 0);
@@ -1101,6 +1094,7 @@ function normalizeDraftItemsPayload(value: unknown): DraftItem[] {
         source_price_amount: Number(row.source_price_amount || 0) || 0,
         unit_price_usd_snapshot: Number(row.unit_price_usd_snapshot || 0) || 0,
         line_total_usd: Number(row.line_total_usd || 0) || 0,
+        crm_benefit: readDraftCrmBenefit(row.crm_benefit),
         editable_detail_lines: Array.isArray(row.editable_detail_lines)
           ? persistableOrderDetailLines(row.editable_detail_lines)
           : [],
@@ -1678,7 +1672,7 @@ export default function AdvisorOrderComposer({
         sourceAmount: Number(item.source_price_amount || 0),
       };
     }
-    if (crmPurchaseEligible || (isEditingOrder && item.persistedOrderItemId)) {
+    if (crmPurchaseEligible || (isEditingOrder && item.persistedOrderItemId) || activeDraftId != null) {
       return {
         sourceCurrency: 'USD' as const,
         sourceAmount: Number(item.crm_benefit.eligibleUnitPriceUsd || 0),
@@ -1688,7 +1682,7 @@ export default function AdvisorOrderComposer({
       sourceCurrency: item.crm_benefit.catalogSourceCurrency,
       sourceAmount: Number(item.crm_benefit.catalogSourceAmount || 0),
     };
-  }), [crmPurchaseEligible, draftItems, isEditingOrder]);
+  }), [crmPurchaseEligible, draftItems, isEditingOrder, activeDraftId]);
   const draftItemSnapshots = useMemo(
     () =>
       draftItems.map((item, index) => {
@@ -1745,6 +1739,7 @@ export default function AdvisorOrderComposer({
     if (existingOrderStatus === 'delivered' || existingOrderStatus === 'cancelled') return [];
 
     return draftItems.filter((item) => {
+      if (item.crm_benefit) return false;
       const product = productById.get(item.product_id);
       if (!product) return false;
       return draftItemHasCatalogPriceDrift(item, product, fxRateNumber);
@@ -2237,7 +2232,8 @@ export default function AdvisorOrderComposer({
           const orderItems = existingOrderItems.map((item) => {
             const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
 
-            if (isRepeatingOrder || recalculationRequested) {
+            // Repeating is a new purchase; recalculating an existing order is not.
+            if (isRepeatingOrder) {
               const currentProduct = activeProductById.get(Number(item.product_id));
               if (!currentProduct) {
                 skippedRepeatItems.push(item);
@@ -2273,6 +2269,12 @@ export default function AdvisorOrderComposer({
                   redemptionStatus: redemptionStatusByOrderItemId.get(Number(item.id)) ?? null,
                 }
               : undefined;
+
+            if (recalculationRequested && !crmBenefit) {
+              const product = activeProductById.get(Number(item.product_id));
+              if (!product) { skippedRepeatItems.push(item); return null; }
+              return buildRepeatedDraftItemFromCatalog({ item, product, activeRate: editFxRate });
+            }
 
             return {
               localId: `existing-${item.id}`,
@@ -2668,9 +2670,23 @@ export default function AdvisorOrderComposer({
       setSearchTerm(phone || fullName);
     }
 
-    const normalizedItems = normalizeDraftItemsPayload(payload.items);
+    let normalizedItems: DraftItem[];
+    try { normalizedItems = normalizeDraftItemsPayload(payload.items); }
+    catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : 'Revisa la jugada del borrador.');
+      return;
+    }
+    setCrmContext(initialCrmContext);
+    let restoredItems = normalizedItems;
+    try {
+      restoredItems = restoreDraftCrmItems(normalizedItems, initialCrmContext);
+    } catch (restoreError) {
+      // Keep the gift visible and its reference intact, but do not allow an
+      // unavailable campaign to become a paid catalog line on restoration.
+      setError(restoreError instanceof Error ? restoreError.message : 'Revisa la jugada del borrador.');
+    }
     setClientResults([]);
-    setDraftItems(normalizedItems);
+    setDraftItems(restoredItems);
     setFulfillment(payload.fulfillment === 'delivery' ? 'delivery' : 'pickup');
     setDeliveryDate(String(payload.deliveryDate || ''));
     setDeliveryHour12(String(payload.deliveryHour12 || ''));
@@ -3262,6 +3278,7 @@ export default function AdvisorOrderComposer({
 
     let changedCount = 0;
     const nextItems = draftItems.map((item) => {
+      if (item.crm_benefit) return item;
       const product = productById.get(item.product_id);
       if (!product) return item;
 
@@ -4002,6 +4019,21 @@ export default function AdvisorOrderComposer({
 
     clearMessages();
 
+    const restoredGifts = activeDraftId != null && !isEditingOrder
+      ? draftItems.filter(item => item.crm_benefit)
+      : [];
+    if (restoredGifts.length > 0) {
+      try { restoreDraftCrmItems(restoredGifts, crmContext); }
+      catch (restoreError) {
+        setError(restoreError instanceof Error ? restoreError.message : 'Revisa la jugada del borrador.');
+        return;
+      }
+      if (!crmPurchaseEligible) {
+        setError('El borrador conserva el obsequio, pero falta completar la compra mínima. Ajusta la compra o retira el beneficio expresamente antes de guardar.');
+        return;
+      }
+    }
+
     const blockedDraft = draftItems.find((item) =>
       availabilityByProductId.get(item.product_id)?.inventory_blocks_submission,
     );
@@ -4364,7 +4396,7 @@ export default function AdvisorOrderComposer({
                       : 'Elige uno o varios beneficios para armar la combinación del cliente.'
                     : crmPurchaseEligible
                     ? 'Beneficio activo: el producto base queda incluido y una ampliación cobra solo la diferencia.'
-                    : isEditingOrder && draftItems.some((item) => item.crm_benefit && item.persistedOrderItemId)
+                    : draftItems.some((item) => item.crm_benefit && (item.persistedOrderItemId || activeDraftId != null))
                       ? `La compra quedó por debajo del mínimo de ${formatUsd(Number(crmContext.minimumOrderAmountUsd ?? 0))}. Completa el consumo o retira el obsequio antes de guardar. Conservarlo requiere una excepción del administrador.`
                       : `Faltan ${formatUsd(Math.max(0, Number(crmContext.minimumOrderAmountUsd ?? 0) - commercialSubtotalAfterDiscountUsd))} en otros productos. Mientras tanto, el producto conserva su precio normal.`}
                 </p>

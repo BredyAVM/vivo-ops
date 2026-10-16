@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { readEventBudgetPayload } from '@/lib/events/event-budget';
 import { loadAdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context';
 import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
+import { savedDraftCrmMemberId } from '@/lib/crm/order-benefit-preservation';
 
 type SearchParams = Promise<{
   fromOrder?: string;
@@ -45,6 +46,19 @@ export default async function AdvisorNewOrderPage({
         redirect(`/app/advisor/drafts/${draftId}`);
       }
       initialDraft = data;
+      if (data?.client_id) {
+        try {
+          const memberId = savedDraftCrmMemberId(data.payload?.items);
+          if (memberId) initialCrmContext = await loadAdvisorCrmOrderContext({
+            supabase: ctx.supabase, advisorUserId: ctx.user.id,
+            clientId: Number(data.client_id), playMemberId: memberId,
+          });
+        } catch (error) {
+          // The editor retains the saved gift and blocks submitting it without
+          // a verified membership. Never recover by substituting a paid product.
+          console.warn('No se pudo recuperar la jugada del borrador.', error instanceof Error ? error.message : error);
+        }
+      }
     }
   }
 
