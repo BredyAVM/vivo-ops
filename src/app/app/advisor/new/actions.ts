@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import {revalidateRewardWallet} from '@/lib/rewards/revalidate-wallet';
+import { rewardFundingChanged } from '@/lib/rewards/order-funding';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
@@ -1283,7 +1284,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
   const { data: existingItems, error: existingItemsError } = await adminSupabase
     .from('order_items')
-    .select('id, product_id, product_name_snapshot, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id')
+    .select('id, product_id, product_name_snapshot, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, reward_grant_id, reward_purpose, reward_amount_usd')
     .eq('order_id', orderId);
 
   if (existingItemsError) {
@@ -1292,7 +1293,11 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
   // Re-read persisted evidence, never browser totals or a product-name match.
   const originalPrices = new Map((existingItems ?? []).map((item) => [Number(item.id), storedApprovedPriceLine(item)]));
+  const originalFunding = new Map((existingItems ?? []).map((item) => [Number(item.id), item]));
   for (const [index, item] of input.items.entries()) {
+    // Never restore the former customer's charge over a newly selected prize
+    // (or restore the former discount when the advisor removes/changes it).
+    if (rewardFundingChanged(item, originalFunding.get(Number(item.orderItemId)))) continue;
     const snapshot = preservedAgreedPriceSnapshot({ ...item, adminPriceOverrideUsd: null, adminPriceOverrideReason: null },
       originalPrices.get(Number(item.orderItemId)), Number((order.extra_fields as { pricing?: { fx_rate?: number | string } } | null)?.pricing?.fx_rate || 0));
     if (!snapshot) continue;

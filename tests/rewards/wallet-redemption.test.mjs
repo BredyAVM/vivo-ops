@@ -35,7 +35,7 @@ async function setup(){
  insert into exchange_rates(rate_bs_per_usd,is_active,effective_at) values(850,true,now());
  create trigger order_items_pricing_guard before insert or update on order_items for each row execute function trg_order_items_pricing_guard();
  create trigger order_items_set_pricing before insert or update on order_items for each row execute function trg_order_items_set_pricing();`);
- for(const file of ['20261013141407_advisor_reward_wallet_foundation.sql','20261013143845_reward_wallet_lock_order.sql','20261013151045_advisor_reward_issuance.sql','20261014182352_advisor_reward_redemption_lifecycle.sql','20261014182408_advisor_reward_debt_and_read_models.sql']) await db.exec(read('../../supabase/migrations/'+file));
+ for(const file of ['20261013141407_advisor_reward_wallet_foundation.sql','20261013143845_reward_wallet_lock_order.sql','20261013151045_advisor_reward_issuance.sql','20261014182352_advisor_reward_redemption_lifecycle.sql','20261014182408_advisor_reward_debt_and_read_models.sql','20261016185432_reward_order_edit_funding_integrity.sql']) await db.exec(read('../../supabase/migrations/'+file));
  await db.exec(`grant select,insert,update,delete on public.orders,public.order_items,public.order_timeline_events,public.advisor_order_drafts to authenticated;
  grant select on public.clients,public.products,public.exchange_rates to authenticated;
  grant usage,select on sequence public.orders_id_seq,public.order_items_id_seq,public.advisor_order_drafts_id_seq to authenticated;`);
@@ -54,6 +54,78 @@ async function item(db,o,g,amount=4,product=1,qty=1,purpose='customer_gift'){
  return (await db.query("insert into order_items(order_id,product_id,qty,reward_grant_id,reward_purpose,reward_amount_usd,pricing_fx_rate_snapshot,notes) values($1,$2,$3,$4,$5,$6,850,'2 Tequeños\n4 Empanadas') returning *",[o,product,qty,g,purpose,amount])).rows[0];
 }
 const balances=async(db,g)=>(await db.query('select reserved_amount,used_amount from advisor_reward_grants where id=$1',[g])).rows[0];
+
+test('existing ordinary item accepts full/partial funding even with its retained ID and former price',async()=>{
+ const db=await setup();try{
+  const g=await grant(db);await user(db,advisor);const o=await order(db);
+  await db.query("update orders set source='advisor' where id=$1",[o]);
+  const original=(await db.query("insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,pricing_fx_rate_snapshot) values($1,1,1,'USD',4,850) returning *",[o])).rows[0];
+  const patch={client_id:1,attributed_advisor_id:advisor,source:'advisor',status:'created',fulfillment:'pickup',extra_fields:{pricing:{fx_rate:850},schedule:{date:'2099-10-30'}}};
+  const edit=async(input)=>{
+   const stamp=(await db.query('select last_modified_at from orders where id=$1',[o])).rows[0].last_modified_at;
+   return db.query('select app_private.update_order_core_atomic_v1($1,$2,$3::jsonb,$4::jsonb)',[o,stamp,JSON.stringify(patch),JSON.stringify([input])]);
+  };
+  await edit({...original,order_item_id:original.id,reward_grant_id:g,reward_purpose:'customer_gift',reward_amount_usd:4});
+  let current=(await db.query('select * from order_items where order_id=$1',[o])).rows[0];
+  assert.notEqual(current.id,original.id);assert.equal(current.line_total_usd,'0.00');assert.equal(current.reward_grant_id,g);
+  assert.deepEqual(await balances(db,g),{reserved_amount:'4.00',used_amount:'0.00'});
+  await edit({...current,order_item_id:current.id,notes:'3 Tequeños\n3 Empanadas'});
+  assert.equal((await db.query('select id from order_items where order_id=$1',[o])).rows[0].id,current.id);
+  assert.equal((await db.query("select count(*)::int n from advisor_reward_uses where status='reserved'")).rows[0].n,1);
+  await edit({...current,order_item_id:current.id,reward_amount_usd:1.5});
+  current=(await db.query('select * from order_items where order_id=$1',[o])).rows[0];
+  assert.equal(current.line_total_usd,'2.50');assert.equal(current.line_total_bs_snapshot,'2125.00');
+  assert.deepEqual(await balances(db,g),{reserved_amount:'1.50',used_amount:'0.00'});
+  await edit({...current,order_item_id:current.id,reward_grant_id:null,reward_purpose:null,reward_amount_usd:null});
+  current=(await db.query('select * from order_items where order_id=$1',[o])).rows[0];
+  assert.equal(current.reward_grant_id,null);assert.equal(Number(current.line_total_usd),4);
+  assert.deepEqual(await balances(db,g),{reserved_amount:'0.00',used_amount:'0.00'});
+  const before=JSON.stringify(current);
+  await assert.rejects(()=>edit({...current,order_item_id:current.id,reward_grant_id:g,reward_purpose:'customer_gift',reward_amount_usd:25}),/superar|suficiente/);
+  assert.equal(JSON.stringify((await db.query('select * from order_items where order_id=$1',[o])).rows[0]),before);
+  assert.deepEqual(await balances(db,g),{reserved_amount:'0.00',used_amount:'0.00'});
+ }finally{await db.close();}
+});
+
+test('missing reservation aborts the entire edit rather than saving a silent untracked discount',async()=>{
+ const db=await setup();try{
+  const g=await grant(db);await user(db,advisor);const o=await order(db);
+  await db.query("update orders set source='advisor' where id=$1",[o]);
+  const original=(await db.query("insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,pricing_fx_rate_snapshot) values($1,1,1,'USD',4,850) returning *",[o])).rows[0];
+  // Fault injection is LOCAL only: prove the postcondition catches a broken hook.
+  await db.exec('alter table order_items disable trigger reward_item_reserve');
+  const patch={client_id:1,attributed_advisor_id:advisor,source:'advisor',status:'created',fulfillment:'pickup',extra_fields:{pricing:{fx_rate:850},schedule:{date:'2099-10-30'}}};
+  await assert.rejects(()=>db.query('select app_private.update_order_core_atomic_v1($1,null,$2::jsonb,$3::jsonb)',[o,JSON.stringify(patch),JSON.stringify([{...original,order_item_id:original.id,reward_grant_id:g,reward_purpose:'customer_gift',reward_amount_usd:4}])]),/No se pudo conservar el premio/);
+  assert.equal((await db.query('select id from order_items where order_id=$1',[o])).rows[0].id,original.id);
+  assert.deepEqual(await balances(db,g),{reserved_amount:'0.00',used_amount:'0.00'});
+ }finally{await db.close();}
+});
+
+test('ordinary historical quantity reductions still retain the original item and certified prices',async()=>{
+ const db=await setup();try{
+  await user(db,advisor);const o=await order(db);await db.query("update orders set source='advisor' where id=$1",[o]);
+  const original=(await db.query("insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,pricing_fx_rate_snapshot) values($1,1,2,'USD',4,850) returning *",[o])).rows[0];
+  await db.exec('update products set source_price_amount=5 where id=1');
+  const patch={client_id:1,attributed_advisor_id:advisor,source:'advisor',status:'created',fulfillment:'pickup',extra_fields:{pricing:{fx_rate:850},schedule:{date:'2099-10-30'}}};
+  await db.query('select app_private.update_order_core_atomic_v1($1,null,$2::jsonb,$3::jsonb)',[o,JSON.stringify(patch),JSON.stringify([{...original,order_item_id:original.id,qty:1,line_total_usd:4,line_total_bs_snapshot:3400}])]);
+  const current=(await db.query('select * from order_items where order_id=$1',[o])).rows[0];
+  assert.equal(current.id,original.id);assert.equal(Number(current.line_total_usd),4);assert.equal(Number(current.qty),1);
+ }finally{await db.close();}
+});
+
+test('a wallet-funded ordinary line can coexist with an unchanged CRM benefit without recharging it',async()=>{
+ const db=await setup();try{
+  const g=await grant(db);await user(db,advisor);const o=await order(db);await db.query("update orders set source='advisor' where id=$1",[o]);
+  const crm=(await db.query("insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,pricing_fx_rate_snapshot,unit_price_usd_snapshot,line_total_usd,unit_price_bs_snapshot,line_total_bs_snapshot,crm_play_member_id,crm_play_benefit_id,notes) values($1,1,1,'USD',0,850,0,0,0,0,10,11,'2 Tequeños\n4 Empanadas') returning *",[o])).rows[0];
+  const ordinary=(await db.query("insert into order_items(order_id,product_id,qty,pricing_origin_currency,pricing_origin_amount,pricing_fx_rate_snapshot) values($1,1,1,'USD',4,850) returning *",[o])).rows[0];
+  const patch={client_id:1,attributed_advisor_id:advisor,source:'advisor',status:'created',fulfillment:'pickup',extra_fields:{pricing:{fx_rate:850},schedule:{date:'2099-10-30'}}};
+  await db.query('select app_private.update_order_core_atomic_v1($1,null,$2::jsonb,$3::jsonb)',[o,JSON.stringify(patch),JSON.stringify([{...crm,order_item_id:crm.id},{...ordinary,order_item_id:ordinary.id,reward_grant_id:g,reward_purpose:'customer_gift',reward_amount_usd:1.5}])]);
+  const rows=(await db.query('select * from order_items where order_id=$1 order by id',[o])).rows;
+  assert.equal(rows.length,2);assert.equal(rows[0].id,crm.id);assert.equal(Number(rows[0].line_total_usd),0);assert.equal(rows[0].crm_play_member_id,10);assert.equal(rows[0].reward_grant_id,null);
+  assert.equal(rows[1].reward_grant_id,g);assert.equal(rows[1].line_total_usd,'2.50');
+  assert.deepEqual(await balances(db,g),{reserved_amount:'1.50',used_amount:'0.00'});
+ }finally{await db.close();}
+});
 
 test('migration patches canonical creation/edit; funding is atomic, reserved, delivered once, and cancellable',async()=>{
  const db=await setup();try{
