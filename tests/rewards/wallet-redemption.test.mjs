@@ -35,7 +35,7 @@ async function setup(){
  insert into exchange_rates(rate_bs_per_usd,is_active,effective_at) values(850,true,now());
  create trigger order_items_pricing_guard before insert or update on order_items for each row execute function trg_order_items_pricing_guard();
  create trigger order_items_set_pricing before insert or update on order_items for each row execute function trg_order_items_set_pricing();`);
- for(const file of ['20261013141407_advisor_reward_wallet_foundation.sql','20261013143845_reward_wallet_lock_order.sql','20261013151045_advisor_reward_issuance.sql','20261014182352_advisor_reward_redemption_lifecycle.sql','20261014182408_advisor_reward_debt_and_read_models.sql','20261016185432_reward_order_edit_funding_integrity.sql']) await db.exec(read('../../supabase/migrations/'+file));
+ for(const file of ['20261013141407_advisor_reward_wallet_foundation.sql','20261013143845_reward_wallet_lock_order.sql','20261013151045_advisor_reward_issuance.sql','20261014182352_advisor_reward_redemption_lifecycle.sql','20261014182408_advisor_reward_debt_and_read_models.sql','20261016192154_reward_order_edit_funding_integrity.sql']) await db.exec(read('../../supabase/migrations/'+file));
  await db.exec(`grant select,insert,update,delete on public.orders,public.order_items,public.order_timeline_events,public.advisor_order_drafts to authenticated;
  grant select on public.clients,public.products,public.exchange_rates to authenticated;
  grant usage,select on sequence public.orders_id_seq,public.order_items_id_seq,public.advisor_order_drafts_id_seq to authenticated;`);
