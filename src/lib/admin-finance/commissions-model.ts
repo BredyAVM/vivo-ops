@@ -26,10 +26,10 @@ function text(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error('Missing commission text');
   return value;
 }
-function money(value: unknown): number {
+function money(value: unknown, allowSigned = false): number {
   if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) throw new Error('Missing commission amount');
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) throw new Error('Invalid commission amount');
+  if (!Number.isFinite(parsed) || (!allowSigned && parsed < 0)) throw new Error('Invalid commission amount');
   return parsed;
 }
 function id(value: unknown): number {
@@ -78,18 +78,19 @@ export function parseCommissionsOverview(value: unknown, requestedAt: Date): Com
     const snapshot = object(c.snapshot);
     const settlement = object(snapshot.settlement);
     const totals = object(snapshot.totals);
-    const grossUsd = money(c.gross_commission_usd), payableUsd = money(c.payable_usd);
+    const grossUsd = money(c.gross_commission_usd), payableUsd = money(c.payable_usd, c.status === 'preliminary');
     const giftUsd = money(c.gift_deductions_usd), manualUsd = money(c.manual_deductions_usd), customerDebt = money(c.pending_collection_usd);
     let retainedUsd: number | null = null;
     let retainedBasis: CommissionRow['retainedBasis'] = 'unavailable';
     const issues: string[] = [];
+    if (payableUsd < 0) issues.push('Propuesta preliminar con saldo en contra: actualizar antes de conformar');
     let calculationAt = timestamp(c.generated_at);
     if (Number(snapshot.version ?? 1) === 2 && settlement.formulaVersion === 'advisor-settlement-v1') {
       try {
         money(settlement.retainedCommissionUsd);
         calculationAt = timestamp(settlement.calculationCutoffAt);
         if (Math.abs(money(totals.grossCommissionUsd) - grossUsd) > 0.000001
-          || Math.abs(money(totals.payableUsd) - payableUsd) > 0.000001) throw new Error('Snapshot mismatch');
+          || Math.abs(money(totals.payableUsd, c.status === 'preliminary') - payableUsd) > 0.000001) throw new Error('Snapshot mismatch');
         retainedUsd = getAdvisorCommissionCarryState({ snapshot, grossCommissionUsd: grossUsd, giftDeductionsUsd: giftUsd,
           directDeductionsUsd: manualUsd, pendingCollectionUsd: customerDebt }).commissionCarryUsd;
         retainedBasis = 'snapshot';

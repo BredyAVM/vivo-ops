@@ -35,7 +35,7 @@ import CommissionPaymentForm, {
 import CommissionCalculationButton from './CommissionCalculationButton';
 import { transferCommissionCollectionAction } from './collection-actions';
 import CollectionRefresh from '@/components/commissions/CollectionRefresh';
-import { loadCommissionLiveCollections, type CommissionLiveCollection } from '@/lib/commissions/live-collections';
+import { loadCommissionLiveCollectionResults } from '@/lib/commissions/live-collections';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -497,10 +497,11 @@ export default async function CommissionAdministrationPage({
       : numberValue(activeRateResult.data?.rate_bs_per_usd) || null;
   }
 
-  let liveCollections = new Map<number, CommissionLiveCollection>();
-  let collectionError: string | null = null;
-  try { liveCollections = await loadCommissionLiveCollections(ctx.supabase, closures.map((c) => Number(c.id))); }
-  catch (error) { collectionError = error instanceof Error ? error.message : 'Cobranza no disponible'; }
+  const { collections: liveCollections, errors: collectionErrors } = await loadCommissionLiveCollectionResults(
+    ctx.supabase, closures.map((c) => Number(c.id)), {
+      preliminaryClosureIds: closures.filter((c) => c.status === 'preliminary').map((c) => Number(c.id)),
+    },
+  );
   const futurePeriodIds = selectedPeriod ? periods.filter((p) => p.date_from > selectedPeriod.date_from && p.status === 'open').map((p) => Number(p.id)) : [];
   const transferDestinations = futurePeriodIds.length ? await ctx.supabase.from('advisor_commission_closures')
     .select('id,period_id,advisor_user_id').in('period_id', futurePeriodIds).eq('status', 'preliminary') : { data: [], error: null };
@@ -559,11 +560,14 @@ export default async function CommissionAdministrationPage({
         payments.reduce((sum, payment) => sum + numberValue(payment.amount_usd_equivalent), 0)
       );
       const live = liveCollections.get(Number(closure.id));
+      const collectionError = collectionErrors.get(Number(closure.id))
+        ?? (!live?.supported ? 'Este cierre requiere conciliación antes de verificar la cobranza actual.' : null);
       const paymentBalanceUsd = live?.supported ? live.pendingUsd : roundMoney(Math.max(0, numberValue(closure.payable_usd) - paidUsd));
 
       return {
         closure,
         live,
+        collectionError,
         advisorName:
           advisorNames.get(closure.advisor_user_id) ??
           getSnapshotAdvisorName(closure.snapshot) ??
@@ -655,6 +659,7 @@ export default async function CommissionAdministrationPage({
       differences: 0,
     }
   );
+  const unverifiedCollectionCount = rows.filter((row) => row.collectionError).length;
 
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F7F7F8]">
@@ -846,7 +851,8 @@ export default async function CommissionAdministrationPage({
             </WorkspaceForm>
           ) : null}
           <div className="mt-3 border-t border-[#24242D] pt-3">
-            <CollectionRefresh checkedAt={[...liveCollections.values()][0]?.checkedAt} error={collectionError} />
+            <CollectionRefresh checkedAt={[...liveCollections.values()][0]?.checkedAt}
+              warning={unverifiedCollectionCount ? `Cobranza parcial: ${unverifiedCollectionCount} sin verificar. Cada asesor se consulta independientemente.` : null} />
           </div>
         </section>
 
@@ -898,8 +904,8 @@ export default async function CommissionAdministrationPage({
               <Stat label="Facturación entregada" value={money(totals.billedUsd)} note="Desglosada abajo por asesor" href="#advisor-closures" />
               <Stat label="Comisión bruta" value={money(totals.grossCommissionUsd)} note="Desglosada abajo por asesor" href="#advisor-closures" />
               <Stat label="Deducibles" value={money(totals.deductionsUsd)} note="Obsequios y cargos por asesor" href="#advisor-closures" />
-              <Stat label="Comisión retenida" value={money(totals.retainedCommissionUsd)} note="Arrastre detallado por asesor" href="#advisor-closures" />
-              <Stat label="Saldo por pagar" value={money(totals.paymentBalanceUsd)} note={`${money(totals.paidUsd)} ya abonados · ver relación`} href="#advisor-closures" />
+              <Stat label="Comisión retenida" value={unverifiedCollectionCount ? 'Sin verificar' : money(totals.retainedCommissionUsd)} note="Arrastre detallado por asesor" href="#advisor-closures" />
+              <Stat label="Saldo por pagar" value={unverifiedCollectionCount ? 'Sin verificar' : money(totals.paymentBalanceUsd)} note={`${money(totals.paidUsd)} ya abonados · ver relación`} href="#advisor-closures" />
             </section>
 
             {totals.differences > 0 ? (
@@ -1013,6 +1019,9 @@ export default async function CommissionAdministrationPage({
                         </div>
                       </div>
 
+                      {row.collectionError ? <p role="status" className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-200">
+                        Cobranza de este asesor sin verificar. No se habilitan pagos ni traslados. {row.collectionError}
+                      </p> : null}
                       <div data-testid="commission-advisor-amounts" className="mt-3 grid grid-cols-2 gap-x-2 gap-y-2 border-y border-[#272730] py-3 sm:grid-cols-3 xl:grid-cols-6">
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'billing')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Facturación</div>
@@ -1033,11 +1042,11 @@ export default async function CommissionAdministrationPage({
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'debts')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Deuda clientes</div>
-                          <div className="mt-1 font-semibold text-amber-200">{money(row.live?.supported ? row.live.customerDebtUsd : row.closure.pending_collection_usd)}</div>
+                          <div className="mt-1 font-semibold text-amber-200">{row.collectionError ? 'Sin verificar' : money(row.live?.supported ? row.live.customerDebtUsd : row.closure.pending_collection_usd)}</div>
                           <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver clientes →</div>
                         </Link>
                         <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'settlement')}>
-                          <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">{row.closure.status === 'preliminary' ? 'Propuesta actual' : 'Liquidación acordada'}</div>
+                          <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">{row.closure.status === 'preliminary' ? row.collectionError ? 'Propuesta guardada' : 'Propuesta actual' : 'Liquidación acordada'}</div>
                           <div className="mt-1 font-semibold text-[#FFFF00]">{money(row.closure.status === 'preliminary' && row.live?.supported ? row.live.payableUsd : row.closure.payable_usd)}</div>
                           <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver cálculo →</div>
                         </Link>
@@ -1045,7 +1054,7 @@ export default async function CommissionAdministrationPage({
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Pagado / pendiente</div>
                           <div className="mt-1 font-semibold">
                             {money(row.paidUsd)} <span className="text-[#777784]">/</span>{' '}
-                            <span className="text-[#FFFF00]">{money(row.paymentBalanceUsd)}</span>
+                            <span className="text-[#FFFF00]">{row.collectionError ? 'Sin verificar' : money(row.paymentBalanceUsd)}</span>
                           </div>
                           <div className="mt-1 text-[10px] font-semibold text-[#FFFF00]">Ver abonos →</div>
                         </Link>
@@ -1059,7 +1068,7 @@ export default async function CommissionAdministrationPage({
                           </div>
                           <div>
                             <span className="text-[#8F8F9B]">Retenida por cobranza</span>
-                            <div className="mt-1 font-semibold">{money(row.live?.supported ? row.live.retainedUsd : row.settlement.retainedCommissionUsd)}</div>
+                            <div className="mt-1 font-semibold">{row.collectionError ? 'Sin verificar' : money(row.live?.supported ? row.live.retainedUsd : row.settlement.retainedCommissionUsd)}</div>
                           </div>
                           <div>
                             <span className="text-[#8F8F9B]">Deuda propia arrastrada</span>
@@ -1268,7 +1277,7 @@ export default async function CommissionAdministrationPage({
                               </select>
                             </label>
                             <label className="text-xs">Motivo<input name="reason" required minLength={3} maxLength={500} className="mt-1 w-full rounded-xl border border-[#34343F] bg-[#141419] p-2" /></label>
-                            <button type="submit" disabled={Boolean(collectionError || transferDestinations.error)} className="rounded-xl border border-sky-400/40 p-2 text-xs font-semibold text-sky-100 disabled:opacity-40">Confirmar traslado</button>
+                            <button type="submit" disabled={Boolean(row.collectionError || transferDestinations.error)} className="rounded-xl border border-sky-400/40 p-2 text-xs font-semibold text-sky-100 disabled:opacity-40">Confirmar traslado</button>
                           </WorkspaceForm>
                         </details>
                       ) : null}
@@ -1302,7 +1311,7 @@ export default async function CommissionAdministrationPage({
                         </WorkspaceForm>
                       ) : null}
 
-                      {(row.closure.status === 'closed' || row.closure.status === 'paid') && conformityStatus === 'confirmed' && row.paymentBalanceUsd > 0 && row.live?.supported && !collectionError ? (
+                      {(row.closure.status === 'closed' || row.closure.status === 'paid') && conformityStatus === 'confirmed' && row.paymentBalanceUsd > 0 && row.live?.supported && !row.collectionError ? (
                         <div data-testid="commission-payment-panel" className="mt-3 rounded-2xl border border-[#34343F] bg-[#101014] p-3">
                           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                             <div className="text-sm font-semibold">Registrar abono</div>

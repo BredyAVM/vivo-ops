@@ -1,6 +1,6 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { loadCommissionLiveCollections } from '../commissions/live-collections.ts';
+import { loadCommissionLiveCollectionResults } from '../commissions/live-collections.ts';
 import { parseCommissionsOverview, type CommissionsOverview } from './commissions-model';
 export type CommissionsRpcClient = {
   rpc: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string } | null }>;
@@ -17,10 +17,18 @@ export async function loadCommissionsOverview(input: { supabase: CommissionsRpcC
     if (version === 'admin-finance-commissions-v2') {
       const candidates = overview.rows.filter((row) => row.retainedBasis === 'snapshot' && ((row.retainedUsd ?? 0) > 0 || row.referencedPaidUsd > row.payableUsd));
       for (let offset = 0; offset < candidates.length; offset += 100) {
-        const states = await loadCommissionLiveCollections(input.supabase as unknown as SupabaseClient, candidates.slice(offset,offset+100).map((row) => row.id));
-        for (const row of candidates.slice(offset,offset+100)) {
-          const state = states.get(row.id);
-          if (!state?.supported) throw new Error('La cobranza del resumen no se pudo verificar.');
+        const batch = candidates.slice(offset,offset+100);
+        const result = await loadCommissionLiveCollectionResults(input.supabase as unknown as SupabaseClient, batch.map((row) => row.id), {
+          preliminaryClosureIds: batch.filter((row) => row.status === 'preliminary').map((row) => row.id),
+        });
+        for (const row of batch) {
+          const state = result.collections.get(row.id);
+          if (result.errors.has(row.id) || !state?.supported) {
+            row.retainedUsd = null;
+            row.pendingUsd = null;
+            row.issues.push('Cobranza actual no verificada; revisar este asesor');
+            continue;
+          }
           row.retainedUsd = state.retainedUsd;
           if (row.conformed && row.paymentBasis !== 'legacy' && Math.abs(row.referencedPaidUsd-state.paidUsd)<0.005) {
             row.pendingUsd = state.pendingUsd;

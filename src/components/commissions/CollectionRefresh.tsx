@@ -3,7 +3,7 @@
 import { useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function CollectionRefresh({ checkedAt, error }: { checkedAt?: string; error?: string | null }) {
+export default function CollectionRefresh({ checkedAt, error, warning }: { checkedAt?: string; error?: string | null; warning?: string | null }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   useEffect(() => {
@@ -22,8 +22,8 @@ export default function CollectionRefresh({ checkedAt, error }: { checkedAt?: st
       className="rounded-xl border border-sky-400/40 bg-sky-400/10 px-3 py-2 font-semibold text-sky-100 disabled:opacity-50">
       {pending ? 'Consultando cobranza…' : '↻ Actualizar cobranza'}
     </button>
-    <span role="status" aria-live="polite" className={error ? 'text-amber-200' : 'text-[#A6A6B0]'}>
-      {error ? 'Cobranza no verificada. No se habilitan pagos.' : `Consultada ${label} · actualiza cada 30 s mientras esta vista está visible`}
+    <span role="status" aria-live="polite" className={error || warning ? 'text-amber-200' : 'text-[#A6A6B0]'}>
+      {error ? 'Cobranza no verificada. No se habilitan pagos.' : `${warning ? `${warning} ` : ''}Consultada ${label} · actualiza cada 30 s mientras esta vista está visible`}
     </span>
   </div>;
 }

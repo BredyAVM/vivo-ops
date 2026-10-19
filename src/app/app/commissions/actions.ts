@@ -194,7 +194,8 @@ async function applySettlementToPreliminaryClosures(input: {
     return { updated: 0, skippedLocked: (currentData ?? []).length };
   }
 
-  const liveCollections = await loadCommissionLiveCollections(supabase, currentClosures.map((c) => Number(c.id)));
+  const preliminaryClosureIds = currentClosures.map((c) => Number(c.id));
+  const liveCollections = await loadCommissionLiveCollections(supabase, preliminaryClosureIds, { preliminaryClosureIds });
 
   const calculationCutoffAt = new Date().toISOString();
   const updates = currentClosures.map((closure) => {

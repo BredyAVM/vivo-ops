@@ -351,7 +351,9 @@ export default async function CommissionAuditPage({
   const initialPendingIds = snapshot.pendingOrders.map((o) => Number(o.orderId));
   let live: CommissionLiveCollection | undefined;
   let collectionError: string | null = null;
-  try { live = (await loadCommissionLiveCollections(ctx.supabase, [closureId])).get(closureId); }
+  try { live = (await loadCommissionLiveCollections(ctx.supabase, [closureId], {
+    preliminaryClosureIds: closure.status === 'preliminary' ? [closureId] : [],
+  })).get(closureId); }
   catch (error) { collectionError = error instanceof Error ? error.message : 'Cobranza no disponible'; }
   if (live?.supported) snapshot.pendingOrders = mergeCommissionLiveOrders(snapshot.orders, live.orders).filter((o) => o.pendingUsd > 0);
   const audit = buildAdminCommissionAuditCalculation({ closure, deductions, payments });

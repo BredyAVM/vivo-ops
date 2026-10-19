@@ -157,3 +157,53 @@ test('finance overview shows released collections without changing the agreed am
   assert.equal(result.data.rows[0].retainedUsd,0);
   assert.equal(result.data.rows[0].issues.includes('Abonos identificados superiores a liquidación'),false);
 });
+
+test('finance accepts a signed preliminary proposal without treating it as an agreed obligation', () => {
+  const result = parseCommissionsOverview(payload([
+    closure(), closure({ id: 2, advisor_user_id: 'other', eligible_now: false, status: 'preliminary', closed_at: null,
+      payable_usd: -4.03, snapshot: { version: 1 } }),
+  ]), now);
+  assert.equal(result.rows[0].payableUsd,70);
+  assert.equal(result.rows[1].payableUsd,-4.03);
+  assert.equal(result.rows[1].conformed,false);
+  assert.equal(result.rows[1].pendingUsd,null);
+  assert.ok(result.rows[1].issues.some(issue => issue.includes('saldo en contra')));
+  assert.throws(() => parseCommissionsOverview(payload([closure({ payable_usd: -4.03 })]),now));
+});
+
+test('finance releases Martin zero agreement without rewriting it', async () => {
+  const c = closure({ gross_commission_usd:20.88, gift_deductions_usd:2, payable_usd:0, pending_collection_usd:84 });
+  c.snapshot.totals = { grossCommissionUsd:20.88, payableUsd:0 };
+  c.snapshot.settlement.retainedCommissionUsd = 18.88;
+  const data = { ...payload([c]), definitionVersion:'admin-finance-commissions-v2',
+    paymentLinkBasis:'structural_with_legacy_references', linkedPayments:[] };
+  const live = { closureId:1,supported:true,checkedAt:now.toISOString(),agreedPayableUsd:0,
+    paidUsd:0,customerDebtUsd:0,carriedCommissionUsd:0,priorAdvisorDebtUsd:0,creditUsd:18.88,
+    payableUsd:18.88,pendingUsd:18.88,retainedUsd:0,remainingCreditUsd:18.88,advisorDebtUsd:0,overpaidUsd:0,orders:[] };
+  const result = await loadCommissionsOverview({ asOf:now,supabase:{ async rpc(name) {
+    return { data:name === 'admin_finance_commissions_read_v2' ? data : [live],error:null };
+  } } });
+  assert.equal(result.status,'ready');
+  if (result.status !== 'ready') return;
+  assert.equal(result.data.rows[0].payableUsd,0);
+  assert.equal(result.data.rows[0].pendingUsd,18.88);
+  assert.equal(commissionPeriodView(result.data,filters).summary.pendingUsd,18.88);
+});
+
+test('finance isolates one unverified collection and marks aggregate totals unavailable, not zero', async () => {
+  const data = { ...payload([closure(),closure({ id:2,advisor_user_id:'other',eligible_now:false })]),
+    definitionVersion:'admin-finance-commissions-v2',paymentLinkBasis:'structural_with_legacy_references',linkedPayments:[] };
+  const live = { closureId:1,supported:true,checkedAt:now.toISOString(),agreedPayableUsd:70,
+    paidUsd:0,customerDebtUsd:0,carriedCommissionUsd:0,priorAdvisorDebtUsd:0,creditUsd:90,
+    payableUsd:90,pendingUsd:90,retainedUsd:0,remainingCreditUsd:90,advisorDebtUsd:0,overpaidUsd:0,orders:[] };
+  const result = await loadCommissionsOverview({ asOf:now,supabase:{ async rpc(name) {
+    return { data:name === 'admin_finance_commissions_read_v2' ? data : [live,{ ...live,closureId:2,pendingUsd:-1 }],error:null };
+  } } });
+  assert.equal(result.status,'ready');
+  if (result.status !== 'ready') return;
+  assert.equal(result.data.rows[0].pendingUsd,90);
+  assert.equal(result.data.rows[1].pendingUsd,null);
+  assert.equal(result.data.rows[1].retainedUsd,null);
+  assert.ok(result.data.rows[1].issues.some(issue => issue.includes('Cobranza actual no verificada')));
+  assert.equal(commissionPeriodView(result.data,filters).summary.pendingUsd,null);
+});

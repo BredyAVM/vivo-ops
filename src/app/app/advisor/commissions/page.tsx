@@ -518,7 +518,9 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   let live: CommissionLiveCollection | undefined;
   let collectionError: string | null = null;
   if (closure) {
-    try { live = (await loadCommissionLiveCollections(ctx.supabase, [Number(closure.id)])).get(Number(closure.id)); }
+    try { live = (await loadCommissionLiveCollections(ctx.supabase, [Number(closure.id)], {
+      preliminaryClosureIds: closure.status === 'preliminary' ? [Number(closure.id)] : [],
+    })).get(Number(closure.id)); }
     catch (error) { collectionError = error instanceof Error ? error.message : 'Cobranza no disponible'; }
   }
   const pendingOrders = live?.supported
