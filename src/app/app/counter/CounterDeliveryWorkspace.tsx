@@ -241,6 +241,7 @@ export function CounterDeliveryDispatchPanel({
   );
   const [cashChangeLines, setCashChangeLines] = useState<CashDraft[]>([]);
   const [digitalChangeLines, setDigitalChangeLines] = useState<DigitalDraft[]>([]);
+  const [changeOptionsOpen, setChangeOptionsOpen] = useState(order.paymentRequiresChange);
   const [step, setStep] = useState<'eta' | 'money' | 'review'>('eta');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -287,7 +288,7 @@ export function CounterDeliveryDispatchPanel({
   const cashChangeLabel = cashChangeLines.map((line) => {
     const account = cashAccounts.find((item) => item.accountId === line.accountId);
     return amountLabel(decimal(line.amount), account?.currencyCode ?? 'USD');
-  }).join(' + ') || 'Sin efectivo para cambio';
+  }).join(' + ') || 'Sin cambio en efectivo';
   const suggestedCashAccount = cashAccounts.find(
     (account) => account.currencyCode === expectedCurrency
   ) ?? cashAccounts[0] ?? null;
@@ -406,8 +407,8 @@ export function CounterDeliveryDispatchPanel({
   }
 
   return (
-    <div>
-      <div className={`mb-4 grid gap-2 ${needsChangeStep ? 'grid-cols-3' : 'grid-cols-2'}`}>
+    <div className="flex max-h-[calc(92dvh-140px)] min-h-0 flex-col">
+      <div className={`mb-4 grid shrink-0 gap-2 ${needsChangeStep ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {([
           ['eta', 'Tiempo'],
           ...(needsChangeStep ? [['money', 'Efectivo']] : []),
@@ -436,7 +437,8 @@ export function CounterDeliveryDispatchPanel({
       </div>
 
       {step === 'eta' ? (
-        <div>
+        <div className="flex min-h-0 flex-col">
+          <div className="min-h-0 overflow-y-auto">
           <div className="text-center">
             <div className="text-lg font-semibold text-[#F5F5F7]">¿Cuánto tardará el motorizado?</div>
             <div className="mt-1 text-xs text-[#9FA0AA]">Selecciona lo que él indique.</div>
@@ -484,7 +486,8 @@ export function CounterDeliveryDispatchPanel({
               <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-[#9FA0AA]">min</span>
             </div>
           </label>
-          <div className="mt-5 grid grid-cols-2 gap-2">
+          </div>
+          <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-[#303044] bg-[#101014] pt-3 mt-3">
             <button type="button" onClick={onCancel} className="min-h-11 rounded-[8px] border border-[#303044] px-3 py-2 text-sm font-semibold text-[#C7C8D1]">Cancelar</button>
             <button type="button" onClick={continueFromEta} disabled={!etaIsValid} className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45">
               Continuar
@@ -494,13 +497,20 @@ export function CounterDeliveryDispatchPanel({
       ) : null}
 
       {step === 'money' ? (
-        <div>
-          <div className="rounded-[10px] border border-orange-400/35 bg-orange-950/15 p-4 text-center">
-            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-orange-200/75">Entrega al motorizado</div>
-            <div className="mt-1 text-3xl font-bold text-[#FEEF00]">{cashChangeLabel}</div>
-            <div className="mt-1 text-xs text-orange-100/75">El cliente entregará {expectedCollectionLabel}</div>
+        <div className="flex min-h-0 flex-col">
+          <div className="min-h-0 overflow-y-auto">
+          <div className="rounded-[10px] border border-emerald-400/30 bg-emerald-950/15 p-4 text-center">
+            <div className="text-sm font-semibold text-[#C7C8D1]">El motorizado cobrará</div>
+            <div className="mt-1 text-3xl font-bold text-[#F5F5F7]">{expectedCollectionLabel}</div>
+            <div className="mt-1 text-sm text-emerald-200">
+              {cashChangeLines.length === 0 && digitalChangeLines.length === 0
+                ? 'Sin cambio'
+                : `Cambio en efectivo: ${cashChangeLabel}`}
+            </div>
           </div>
 
+          <details className="mt-3 rounded-[8px] border border-[#303044] p-3">
+            <summary className="cursor-pointer text-sm font-semibold text-[#C7C8D1]">Modificar monto o moneda del cobro</summary>
           <DeliveryValueDrafts
             title="¿Cuánto efectivo recibirá del cliente?"
             helper="Monto completo del billete o efectivo, antes de restar el cambio. Puede ser un abono."
@@ -508,6 +518,15 @@ export function CounterDeliveryDispatchPanel({
             onChange={(lines) => { invalidate(); setExpectedLines(lines); }}
             addLabel="Agregar otra moneda"
           />
+          </details>
+          <details
+            open={changeOptionsOpen}
+            onToggle={(event) => setChangeOptionsOpen(event.currentTarget.open)}
+            className="mt-3 rounded-[8px] border border-[#303044] p-3"
+          >
+            <summary className="cursor-pointer text-sm font-semibold text-[#C7C8D1]">
+              {cashChangeLines.length > 0 || digitalChangeLines.length > 0 ? 'Revisar cambio' : '¿Necesitas enviar cambio?'}
+            </summary>
           <DeliveryCashDrafts
             title="¿Cuánto cambio lleva y de cuál caja sale?"
             helper="Solo el efectivo que entregas ahora. No necesitas completar todo el cambio ni saldar la orden."
@@ -530,11 +549,13 @@ export function CounterDeliveryDispatchPanel({
               }}
             />
           </details>
+          </details>
 
           <div className="mt-3 text-center text-xs text-[#9FA0AA]">
-            El cobro se registra cuando regrese el dinero. La orden puede quedar con deuda o saldo a favor.
+            Puedes dar salida sin haber recibido el pago. El ingreso se registra cuando regrese el dinero.
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-2">
+          </div>
+          <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-[#303044] bg-[#101014] pt-3 mt-3">
             <button type="button" onClick={() => setStep('eta')} className="min-h-11 rounded-[8px] border border-[#303044] px-3 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
             <button type="button" onClick={continueFromMoney} className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45">Continuar</button>
           </div>
@@ -542,7 +563,8 @@ export function CounterDeliveryDispatchPanel({
       ) : null}
 
       {step === 'review' ? (
-        <div>
+        <div className="flex min-h-0 flex-col">
+          <div className="min-h-0 overflow-y-auto">
           <div className="rounded-[10px] border border-[#FEEF00]/35 bg-[#FEEF00]/[0.06] p-4">
             <div className="text-center text-lg font-semibold text-[#F5F5F7]">Confirma la salida</div>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -576,7 +598,8 @@ export function CounterDeliveryDispatchPanel({
             />
           </details>
 
-          <div className="mt-5 grid grid-cols-2 gap-2">
+          </div>
+          <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-[#303044] bg-[#101014] pt-3 mt-3">
             <button type="button" onClick={() => setStep(needsChangeStep ? 'money' : 'eta')} className="min-h-11 rounded-[8px] border border-[#303044] px-3 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
             <button
               type="button"
@@ -590,7 +613,7 @@ export function CounterDeliveryDispatchPanel({
         </div>
       ) : null}
 
-      {error ? <div className="mt-3 rounded-[8px] border border-red-400/35 bg-red-950/25 p-3 text-xs font-semibold text-red-100">{error}</div> : null}
+      {error ? <div role="alert" className="mt-3 shrink-0 rounded-[8px] border border-red-400/35 bg-red-950/25 p-3 text-xs font-semibold text-red-100">{error}</div> : null}
     </div>
   );
 }

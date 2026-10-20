@@ -38,6 +38,20 @@ function driver(overrides={}) {
 }
 const cash=(amount)=>[{id:'cash-test',accountId:1,amount,referenceCode:''}];
 const expected=(amount)=>[{id:'expected-test',currencyCode:'USD',amount,referenceCode:''}];
+test('exact cash 27 with no change has a neutral summary and completes dispatch',async()=>{
+  const ui=driver({balanceUsd:27,paymentRequiresChange:false,paymentChangeFor:null,
+    paymentQuote:{pendingUsd:27,pendingBs:23810.76,exchangeRate:881.88,collectionMode:'snapshot_quote'}});
+  ui.click('Continuar');
+  ui.find(n=>n.props?.children==='El motorizado cobrará');
+  ui.find(n=>n.props?.children==='Sin cambio');
+  assert.equal(ui.find(n=>n.type==='details'&&typeof n.props.onToggle==='function').props.open,false);
+  const footer=ui.find(n=>n.props?.className?.includes('shrink-0 grid-cols-2'));
+  assert.ok(!footer.props.className.includes('overflow-y-auto'));
+  ui.click('Continuar');ui.click('Entregar y marcar en camino');await Promise.resolve();
+  assert.equal(ui.calls[0].expectedCollectionLines[0].amount,27);
+  assert.deepEqual(ui.calls[0].cashChangeLines,[]);
+  assert.deepEqual(ui.calls[0].digitalChangeLines,[]);
+});
 test('ETA → actual cash 24 → confirm expected 100 without forced digital', async()=>{
   const ui=driver();ui.click('Continuar');ui.edit('DeliveryCashDrafts',cash('24'));ui.click('Continuar');
   assert.equal(ui.find(n=>n.props?.label==='Efectivo enviado para cambio').props.value,'$24.00');
