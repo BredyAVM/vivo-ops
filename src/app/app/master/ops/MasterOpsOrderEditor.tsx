@@ -7,6 +7,7 @@ import CrmOrderMinimumPanel from "./CrmOrderMinimumPanel";
 import { useDialogFocus } from "@/components/ui/useDialogFocus";
 import { currencyLabel } from "@/lib/ui/currency-label";
 import { selectInputValue } from "@/lib/ui/select-input-value";
+import { parseOrderPriceDraft } from "@/lib/ui/order-price-draft";
 import CrmOrderValidityPanel from "./CrmOrderValidityPanel";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot } from "@/lib/orders/approved-price-preservation";
@@ -329,6 +330,7 @@ export default function MasterOpsOrderEditor({
   const commercialSectionRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<MasterOpsEditData | null>(null);
   const [form, setForm] = useState<MasterOpsEditOrder | null>(null);
+  const [itemPriceDrafts, setItemPriceDrafts] = useState<Record<string, { currency: MasterOpsEditCurrency; text: string }>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -352,6 +354,7 @@ export default function MasterOpsOrderEditor({
   const productQtyRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    setItemPriceDrafts({});
     if (!isOpen) {
       setData(null);
       setForm(null);
@@ -627,6 +630,10 @@ export default function MasterOpsOrderEditor({
   }
   if (isAdmin && form) {
     for (const item of form.items) {
+      const priceDraft = itemPriceDrafts[item.localId];
+      if (priceDraft && parseOrderPriceDraft(priceDraft.text) === null) {
+        validationIssues.push({ code: "price_override", message: `Completa el precio en ${currencyLabel(priceDraft.currency)} de ${item.productNameSnapshot}. Usa coma o punto para los decimales.` });
+      }
       try {
         prepareEditorCommissionFields(item, originalItemsById.get(Number(item.orderItemId)) ?? {}, true);
       } catch (error) {
@@ -1067,8 +1074,10 @@ export default function MasterOpsOrderEditor({
   }
 
   function updateItemOverride(item: MasterOpsEditOrderItem, currency: MasterOpsEditCurrency, rawValue: string) {
-    const amount = toNumber(rawValue, Number.NaN);
-    if (!Number.isFinite(amount) || amount < 0) return;
+    // Keep separators, trailing zeros and an empty field intact while typing.
+    setItemPriceDrafts(current => ({ ...current, [item.localId]: { currency, text: rawValue } }));
+    const amount = parseOrderPriceDraft(rawValue);
+    if (amount === null) return;
     const unitUsd = currency === "VES" && fxRate > 0 ? amount / fxRate : amount;
     const snapshot = calculateOrderLineSnapshot({
       sourceCurrency: currency,
@@ -1085,6 +1094,16 @@ export default function MasterOpsOrderEditor({
       adminPriceOverrideUsd: unitUsd,
       adminPriceOverrideCurrency: currency,
       adminPriceOverrideReason: item.adminPriceOverrideReason || "Ajuste administrativo",
+    });
+  }
+
+  function clearItemPriceDraft(localId: string, onlyIfValid = false) {
+    setItemPriceDrafts(current => {
+      const draft = current[localId];
+      if (!draft || (onlyIfValid && parseOrderPriceDraft(draft.text) === null)) return current;
+      const next = { ...current };
+      delete next[localId];
+      return next;
     });
   }
 
@@ -1879,10 +1898,13 @@ export default function MasterOpsOrderEditor({
                                   <Field label="Precio unitario · USD">
                                   <input
                                     className={fieldClass()}
-                                    value={item.sourcePriceCurrency === "USD" ? compact(item.sourcePriceAmount, 6) : compact(item.unitPriceUsdSnapshot, 6)}
+                                    value={itemPriceDrafts[item.localId]?.currency === "USD" ? itemPriceDrafts[item.localId].text : item.sourcePriceCurrency === "USD" ? compact(item.sourcePriceAmount, 6) : compact(item.unitPriceUsdSnapshot, 6)}
                                     onChange={(event) => updateItemOverride(item, "USD", event.target.value)}
+                                    onBlur={() => clearItemPriceDraft(item.localId, true)}
                                     onFocus={selectInputValue}
                                     inputMode="decimal"
+                                    required
+                                    aria-invalid={itemPriceDrafts[item.localId]?.currency === "USD" && parseOrderPriceDraft(itemPriceDrafts[item.localId].text) === null}
                                     placeholder="USD unit."
                                     aria-label={`Precio unitario USD: ${item.productNameSnapshot}`}
                                   />
@@ -1890,10 +1912,13 @@ export default function MasterOpsOrderEditor({
                                   <Field label="Precio unitario · Bs">
                                   <input
                                     className={fieldClass()}
-                                    value={item.sourcePriceCurrency === "VES" ? compact(item.sourcePriceAmount, 2) : compact(item.unitPriceUsdSnapshot * fxRate, 2)}
+                                    value={itemPriceDrafts[item.localId]?.currency === "VES" ? itemPriceDrafts[item.localId].text : item.sourcePriceCurrency === "VES" ? compact(item.sourcePriceAmount, 2) : compact(item.unitPriceUsdSnapshot * fxRate, 2)}
                                     onChange={(event) => updateItemOverride(item, "VES", event.target.value)}
+                                    onBlur={() => clearItemPriceDraft(item.localId, true)}
                                     onFocus={selectInputValue}
                                     inputMode="decimal"
+                                    required
+                                    aria-invalid={itemPriceDrafts[item.localId]?.currency === "VES" && parseOrderPriceDraft(itemPriceDrafts[item.localId].text) === null}
                                     placeholder="Bs unit."
                                     aria-label={`Precio unitario Bs: ${item.productNameSnapshot}`}
                                   />
@@ -1913,6 +1938,7 @@ export default function MasterOpsOrderEditor({
                                     onClick={() => {
                                       const productBase = catalogById.get(item.productId);
                                       if (!productBase) return;
+                                      clearItemPriceDraft(item.localId);
                                       const snapshot = calculateOrderLineSnapshot({
                                         sourceCurrency: productBase.sourcePriceCurrency,
                                         sourceAmount: productBase.sourcePriceAmount,
