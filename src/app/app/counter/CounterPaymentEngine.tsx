@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useTransition, type ReactNode } from 'react';
 import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { paymentCollectionValueRate } from '@/lib/orders/collection-policy';
+import { withRateReviewRequest } from '@/lib/payments/rate-review';
 import { CounterAmountReview } from './CounterAmountReview';
 import { COUNTER_AMOUNT_HINT, formatCounterAmount, parseCounterAmount } from './amount-review';
 import {
@@ -232,6 +233,7 @@ export function CounterPaymentEngine({
     firstAccount ? createPaymentDraft(firstAccount, order.paymentQuote) : null
   );
   const [paymentReceipt, setPaymentReceipt] = useState<CounterPaymentOperationResult | null>(null);
+  const [requestedRateReview, setRequestedRateReview] = useState(false);
   const [changeAvailableUsd, setChangeAvailableUsd] = useState(
     roundMoney(order.changeAvailableUsd)
   );
@@ -275,7 +277,14 @@ export function CounterPaymentEngine({
           paymentAccount.currencyCode === 'VES' ? canonicalValueRate : null
         )
     : 0;
-  const paymentConfirmsNow = isImmediateAccount(paymentAccount);
+  const suspectedBudgetPayment = paymentAccount?.currencyCode === 'VES'
+    && paymentQuote.collectionMode === 'native_usd'
+    && paymentQuote.snapshotRate > 0
+    && paymentQuote.snapshotRate !== paymentQuote.exchangeRate
+    && paymentAmount !== paymentQuote.pendingBs
+    && paymentAmount === roundMoney(paymentQuote.pendingUsd * paymentQuote.snapshotRate);
+  const paymentConfirmsNow = isImmediateAccount(paymentAccount)
+    && !(requestedRateReview && paymentAccount?.currencyCode === 'VES') && !suspectedBudgetPayment;
   const paymentConfirmedUsd = paymentConfirmsNow ? paymentAmountUsd : 0;
   const projectedAppliedUsd = Math.min(paymentConfirmedUsd, paymentQuote.pendingUsd);
   const projectedPendingUsd = Math.max(0, roundMoney(paymentQuote.pendingUsd - projectedAppliedUsd));
@@ -416,7 +425,7 @@ export function CounterPaymentEngine({
         referenceCode: referenceCode || null,
         bankName: paymentDraft.bankName.trim() || null,
         payerName: paymentDraft.payerName.trim() || null,
-        notes: paymentDraft.notes.trim() || null,
+        notes: withRateReviewRequest(paymentDraft.notes, requestedRateReview && paymentAccount.currencyCode === 'VES') || null,
       }],
       overpaymentHandling: projectedFundUsd > 0.005 ? 'store_fund' : null,
       changeLines: [],
@@ -436,6 +445,7 @@ export function CounterPaymentEngine({
         idempotencyKey: paymentKeyRef.current,
       });
       setPaymentReceipt(result);
+        setRequestedRateReview(false);
       setChangeAvailableUsd((current) => roundMoney(current + result.fundCreditUsd));
       setPaymentStage('receipt');
       setError(null);
@@ -704,6 +714,12 @@ export function CounterPaymentEngine({
                           <input value={paymentDraft.exchangeRate} readOnly className="counter-field cursor-not-allowed text-[#9FA0AA]" />
                         </Field>
                       ) : null}
+                      {paymentAccount.currencyCode === 'VES' ? <label className="flex min-h-11 items-center gap-2 text-xs text-[#C7C8D1] sm:col-span-2">
+                        <input type="checkbox" checked={requestedRateReview} onChange={event => {
+                          setRequestedRateReview(event.target.checked); invalidatePayment();
+                        }} />
+                        El cliente pagó con un presupuesto anterior · revisar tasa con Administración
+                      </label> : null}
                       {paymentRequirements.requiresOperationDate ? (
                         <Field label="Fecha de operacion">
                           <input
@@ -833,6 +849,7 @@ export function CounterPaymentEngine({
                 <ReceiptMetric label="Falta por cobrar" value={moneyUsd(paymentReceipt.pendingUsd)} />
                 <ReceiptMetric label="Disponible para cambio" value={moneyUsd(changeAvailableUsd)} />
               </div>
+              {paymentReceipt.pendingReportCount > 0 ? <p className="mt-3 text-xs text-amber-200">El pago ya está reportado: no lo cargues de nuevo. Si hay una diferencia de tasa, Administración debe revisar el presupuesto pagado antes de confirmarlo.</p> : null}
               <div className="mt-4 flex flex-wrap justify-end gap-2">
                 {paymentReceipt.pendingUsd > 0.005 ? (
                   <button type="button" onClick={() => void startAnotherPayment()} disabled={quoteLoading} className="min-h-11 rounded-[8px] border border-emerald-200/40 px-4 py-2 text-sm font-semibold text-emerald-50 disabled:opacity-60">

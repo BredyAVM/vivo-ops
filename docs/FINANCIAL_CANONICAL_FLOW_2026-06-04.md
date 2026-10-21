@@ -111,6 +111,50 @@ de residuos inferiores a USD 0,01 sigue vigente y no crea dinero ficticio.
 Implementación y comprobaciones: `docs/ADMIN_MODULAR_COMPLETION_2026-10-01.md`,
 apartados Cobranza USD por versión, Diferencias de jugadas y Activación.
 
+### Protección de pagos de presupuestos anteriores (2026-10-21)
+
+Esta protección es prospectiva: no migra, revaloriza ni modifica reportes,
+movimientos o coberturas históricos. Tampoco cambia `get_order_financial_state`
+ni la política `native_usd`: el saldo todavía no abonado se convierte a tasa
+vigente y una consulta/cotización no congela la tasa.
+
+- «Cotizar pago de hoy» conserva evidencia inmutable del saldo, equivalente Bs,
+  tasa, fecha de Caracas, actor y versión monetaria de esa orden. La referencia
+  Q es una cotización, no un pago ni una autorización de tasa indefinida.
+- Un reporte VES nuevo cuyo importe coincide con una cotización anterior o con
+  el saldo del presupuesto original a otra tasa queda sujeto a revisión. La
+  coincidencia por sí sola nunca prueba un acuerdo ni cierra la deuda.
+- Para abonos u otros casos que no puedan inferirse del importe, Mostrador,
+  Asesor y el tablero compartido permiten solicitar revisión de tasa.
+- Mostrador conserva un único reporte pendiente, incluso si es por punto, sin
+  confirmar automáticamente una cobertura dudosa. No debe cargarse otra vez.
+- Solo Administración puede comprobar el acuerdo y elegir entre respetar el
+  presupuesto pagado o conservar la tasa registrada como abono. La decisión,
+  motivo y actor quedan en el historial; por sí sola no mueve dinero.
+- La confirmación habitual conserva cuenta, fecha, monto Bs y valoración de
+  caja. Solo la cobertura precisa de ese reporte puede usar la tasa acordada.
+  Si se pagó completo el equivalente exacto de la cotización, cubre exactamente
+  su saldo USD. Los abonos posteriores no heredan esa tasa.
+- La aprobación se invalida para confirmar si cambiaron los precios, cliente,
+  líneas, importe del reporte o saldo por otro pago; requiere revisión individual.
+  No se aplica una cotización antigua automáticamente a un pedido modificado.
+- Una anulación deja de aplicar su cobertura sin borrar la evidencia. Ni un
+  reintento, ni otro movimiento, ni la reactivación de un pago anulado pueden
+  consumir dos veces la misma aprobación.
+
+Pruebas aisladas: `tests/admin/payment-rate-protection-db.mjs` ejecuta las
+rutinas reales de precisión, estado financiero, confirmación atómica de Admin
+y cobro por punto de Mostrador. Incluye preservación histórica, 36 combinaciones
+de tasas/importes, abonos, monedas mixtas, cambios de orden, anulaciones,
+reintentos, permisos y acceso directo denegado a las evidencias privadas.
+
+Las evidencias permanecen en `app_private`, sin permisos directos de tabla para
+la aplicación. Los RPC públicos son invocadores sin privilegios y delegan en
+comandos privados que verifican usuario y rol persistido. El aviso informativo
+[RLS sin políticas](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
+es intencional aquí: no se habilita lectura/escritura directa; solo se consultan
+las evidencias necesarias mediante esos comandos autorizados.
+
 ### Construccion del snapshot por moneda de origen
 
 Las reglas de protección Bs y de cobranza posterior a la entrega descritas a

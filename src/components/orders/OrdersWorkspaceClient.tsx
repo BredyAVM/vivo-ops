@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import OrderPaymentQuoteButton from "@/components/orders/OrderPaymentQuoteButton";
 import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
 import { canResolveOperationalOrderExcess } from "@/lib/orders/order-excess-policy";
+import { RATE_REVIEW_MARKER, withRateReviewRequest } from "@/lib/payments/rate-review";
 import ContextLink from "@/components/navigation/ContextLink";
 import { currencyLabel } from "@/lib/ui/currency-label";
 import { buildOperationStats, type OperationalKpiAmounts } from "@/lib/orders/operational-kpis";
@@ -3141,6 +3142,10 @@ function OrderDetailPanel({
                       ) : null}
                     </div>
 
+                    {!paymentReportIsRetention && selectedPaymentAccount?.currencyCode === 'VES' ? <label className="mt-2 flex min-h-11 items-center gap-2 text-xs text-[#B7B7C2]">
+                      <input type="checkbox" checked={paymentReportNotes.includes(RATE_REVIEW_MARKER)} onChange={event => setPaymentReportNotes(withRateReviewRequest(paymentReportNotes, event.target.checked))} />
+                      Pagó con un presupuesto anterior · solicitar revisión de tasa
+                    </label> : null}
                     <label className="mt-2 block text-[11px] text-[#B7B7C2]">
                       Notas
                       <textarea

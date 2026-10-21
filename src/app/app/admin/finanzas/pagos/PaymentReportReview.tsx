@@ -9,6 +9,7 @@ import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { useDialogFocus } from '@/components/ui/useDialogFocus';
 import { loadAdminPaymentReviewAction, reviewAdminPaymentAction } from './actions';
 import PaymentReportVoid from './PaymentReportVoid';
+import PaymentRateReview from '@/components/orders/PaymentRateReview';
 
 const money = new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const labels: Record<string, string> = { pending: 'Por revisar', confirmed: 'Confirmado', rejected: 'Rechazado' };
@@ -117,6 +118,7 @@ export default function PaymentReportReview({ reportId, orderId, children }: {
           }} /> : null}
           {context?.voidUnavailable ? <p className="text-orange-200">{context.voidUnavailable}</p> : null}
         </> : <>
+          {report.reported_currency_code === 'VES' ? <PaymentRateReview reportId={reportId} /> : null}
           {rejecting ? <form onSubmit={event => { event.preventDefault(); submit('reject'); }} className="space-y-2">
             <label className="grid gap-1 text-[11px] text-[#B7B7C2]">Motivo del rechazo
               <textarea required maxLength={2000} autoFocus rows={2} value={reason} onChange={event => setReason(event.target.value)}

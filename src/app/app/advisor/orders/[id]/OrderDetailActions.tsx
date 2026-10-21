@@ -9,6 +9,7 @@ import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orde
 import { parseDecimalInput } from '@/lib/number-input';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { paymentCollectionGuidance } from '@/lib/orders/collection-policy';
+import { RATE_REVIEW_MARKER, withRateReviewRequest } from '@/lib/payments/rate-review';
 import {
   getPaymentReportRequirements,
   isAdvisorPaymentReportMethod,
@@ -863,6 +864,10 @@ export default function OrderDetailActions({
               </Field>
             ) : null}
 
+            {selectedAccount?.currencyCode === 'VES' ? <label className="flex min-h-11 items-center gap-2 text-xs text-[#CCD3E2]">
+              <input type="checkbox" checked={notes.includes(RATE_REVIEW_MARKER)} onChange={event => setNotes(withRateReviewRequest(notes, event.target.checked))} />
+              Pagó con un presupuesto anterior · solicitar revisión de tasa
+            </label> : null}
             <Field label="Notas">
               <textarea
                 value={notes}

@@ -1,11 +1,11 @@
 'use server';
 
 import { requireAuthContext } from '@/lib/auth';
-import { readOrderPaymentQuote, type PaymentQuoteState } from '@/lib/orders/payment-quote';
+import { buildOrderPaymentQuote, readOrderPaymentQuote, type PaymentQuoteState } from '@/lib/orders/payment-quote';
 
 export async function loadOrderPaymentQuoteAction(input: { orderId: number }) {
   const ctx = await requireAuthContext();
-  return readOrderPaymentQuote({
+  const quote = await readOrderPaymentQuote({
     orderId: input.orderId, actor: { userId: ctx.user.id, roles: ctx.roles }, now: new Date(),
     reader: {
       async readOrder(orderId) {
@@ -29,4 +29,15 @@ export async function loadOrderPaymentQuoteAction(input: { orderId: number }) {
       },
     },
   });
+  if (quote.pendingUsd <= 0 || quote.pendingBs <= 0) return quote;
+  // The database recomputes the balance/rate itself; no browser-supplied totals
+  // become evidence. This snapshot does not create a payment or freeze the rate.
+  const { data, error } = await ctx.supabase.rpc('record_order_payment_quote_v1', { p_order_id: input.orderId });
+  if (error) throw new Error(error.message);
+  if (!data?.certificateId) throw new Error('El saldo cambió durante la consulta. Vuelve a cotizar para ver el importe actual.');
+  const certified = buildOrderPaymentQuote({ orderId: input.orderId, activeRate: Number(data.activeRate), now: new Date(data.generatedAt),
+    state: { order_id: input.orderId, pending_usd: data.pendingUsd, pending_bs: data.pendingBs,
+      snapshot_rate_bs_per_usd: data.exchangeRate, collection_mode: data.collectionMode,
+      pending_reports_count: data.pendingReportsCount, effective_operation_date: data.operationDate } });
+  return { ...certified, text: `${certified.text}\nCotización registrada: Q${data.certificateId}` };
 }

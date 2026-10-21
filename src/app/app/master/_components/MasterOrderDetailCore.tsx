@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import PaymentRateReview from '@/components/orders/PaymentRateReview';
 import { orderDetailCollectionSnapshot, orderDetailLineBs, orderDetailLineCurrency, orderDetailPrimaryCurrency } from "@/lib/orders/detail-money-presentation";
 import { sortOrderItemsByPriority } from "@/lib/orders/order-item-priority";
 import CrmOrderValidityPanel from "../ops/CrmOrderValidityPanel";
@@ -780,6 +781,7 @@ export function MasterOrderDetailBody({
                     ) : null}
                   </div>
                   {report.notes ? <div className="mt-2 text-[11px] text-[#B7B7C2]">Notas: <span className="text-[#F5F5F7]">{report.notes}</span></div> : null}
+                  {report.status === 'pending' && report.currencyCode === 'VES' ? <PaymentRateReview reportId={report.id} /> : null}
                 </div>
               ))}
             </div>
