@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import OrderPaymentQuoteButton from "@/components/orders/OrderPaymentQuoteButton";
 import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
+import { canResolveOperationalOrderExcess } from "@/lib/orders/order-excess-policy";
 import ContextLink from "@/components/navigation/ContextLink";
 import { currencyLabel } from "@/lib/ui/currency-label";
 import { buildOperationStats, type OperationalKpiAmounts } from "@/lib/orders/operational-kpis";
@@ -1424,7 +1425,7 @@ function OrderDetailPanel({
     moneyPayoutOptions.find((option) => option.currencyCode === "USD") ?? moneyPayoutOptions[0] ?? null;
   const clientFundAvailableUsd = Math.max(0, Number(order.clientFundBalanceUsd || 0));
   const canResolveOrderExcess = !isIncompleteOrder && activeTab === "pagos" &&
-    ["created", "queued", "confirmed", "in_kitchen", "ready"].includes(order.status) && Number(order.overpaidUsd || 0) > 0.005;
+    canResolveOperationalOrderExcess(order.status, isAdmin) && Number(order.overpaidUsd || 0) > 0.005;
   const suggestedFundApplyUsd = Math.min(order.balanceUsd, clientFundAvailableUsd);
   const priceProtected = isOrderPriceProtected(order);
   const canProtectPrice =
