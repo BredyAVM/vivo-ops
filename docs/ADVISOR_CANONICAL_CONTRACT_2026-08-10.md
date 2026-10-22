@@ -63,6 +63,10 @@ Este documento fija los límites operativos del módulo Asesor para que futuras 
 
 ## Notificaciones y seguimiento
 
+- Pedidos nuevos: el evento atómico incluye destinatarios Máster/Admin y Asesor;
+  el push posterior se reserva de forma durable y no se duplica por reintentos.
+  Contrato: `MASTER_NEW_ORDER_NOTIFICATIONS_2026-10-22.md`.
+
 - La fuente canónica del inbox del asesor es `order_timeline_events` junto con `order_timeline_event_recipients`.
 - La tabla `notifications` es legado y no debe usarse para construir el inbox ni sus contadores.
 - Cada evento dirigido al asesor debe tener `target_user_id` igual al asesor atribuido a la orden.

@@ -259,6 +259,11 @@ order by trigger_name;
 
 ## 10) Historial de decisiones
 
+* Notificaciones de pedidos nuevos de Asesor (2026-10-22): evento y destinatarios
+  atómicos; envío posterior con reserva durable única, enlace al detalle de Máster
+  Ops y sin reenvío histórico ni cambios a pantallas de Dashboard. Contrato:
+  `MASTER_NEW_ORDER_NOTIFICATIONS_2026-10-22.md`.
+
 * Búsqueda operativa (2026-09-21): órdenes y fichas de cliente son resultados
   diferentes. El cliente no necesita una orden actual para aparecer; las compras
   importadas se consultan desde su ficha bajo demanda. Teléfonos normalizados con

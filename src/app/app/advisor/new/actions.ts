@@ -1,6 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
+import { randomUUID } from 'node:crypto';
+import { deliverAdvisorCreatedPush } from '@/lib/orders/advisor-created-push';
 import {revalidateRewardWallet} from '@/lib/rewards/revalidate-wallet';
 import { rewardFundingChanged } from '@/lib/rewards/order-funding';
 import { createClient } from '@supabase/supabase-js';
@@ -108,6 +111,41 @@ function createSupabaseServiceRoleServer() {
       autoRefreshToken: false,
     },
   });
+}
+
+function scheduleAdvisorCreatedPush(orderId: number, advisorId: string) {
+  try {
+    after(async () => {
+      try {
+        const supabase = createSupabaseServiceRoleServer();
+        const claimId = randomUUID();
+        await deliverAdvisorCreatedPush({ orderId, claimId }, {
+          claim: async () => {
+            const { data, error } = await supabase.rpc('claim_advisor_created_push_v1', {
+              p_order_id: orderId, p_advisor_id: advisorId, p_claim_id: claimId,
+            });
+            if (error) throw new Error(error.message);
+            const receipt = sanitizePlainObject(data);
+            return { claimed: receipt.claimed === true, eventId: Number(receipt.eventId) };
+          },
+          send: sendPushToRoleDevices,
+          finish: async (receipt) => {
+            const { data, error } = await supabase.rpc('finish_advisor_created_push_v1', {
+              p_event_id: receipt.eventId, p_claim_id: receipt.claimId, p_status: receipt.status,
+              p_delivered: receipt.delivered, p_failures: receipt.failures,
+            });
+            if (error || data !== true) throw new Error('No se pudo registrar el resultado de la alerta.');
+          },
+          report: (receipt) => console.info('advisor_created_push', receipt),
+        });
+      } catch {
+        // The order is already committed: a transport error must not invite recreation.
+        console.warn('advisor_created_push_incomplete', { orderId });
+      }
+    });
+  } catch {
+    console.warn('advisor_created_push_not_scheduled', { orderId });
+  }
 }
 
 function toFiniteNumber(value: unknown, fallback = 0) {
@@ -642,70 +680,7 @@ export async function ensureAdvisorOrderCreatedEventAction(input: { orderId: num
     throw new Error('No puedes registrar el evento inicial de esta orden.');
   }
 
-  const { data: existingEvent, error: existingEventError } = await adminSupabase
-    .from('order_timeline_events')
-    .select('id')
-    .eq('order_id', orderId)
-    .eq('event_type', 'order_created')
-    .maybeSingle();
-
-  if (existingEventError) throw new Error(existingEventError.message);
-  if (existingEvent) return;
-
-  const schedule = sanitizePlainObject(sanitizePlainObject(order.extra_fields).schedule);
-  const { data: event, error: eventError } = await adminSupabase
-    .from('order_timeline_events')
-    .insert({
-      order_id: orderId,
-      order_number: order.order_number,
-      event_type: 'order_created',
-      event_group: 'approval',
-      title: 'Orden creada',
-      message: 'La orden fue creada y quedo pendiente de aprobacion.',
-      severity: 'warning',
-      actor_user_id: order.created_by_user_id || ctx.user.id,
-      payload: {
-      fulfillment: order.fulfillment,
-      source: 'advisor',
-      urgent: Boolean(schedule.asap),
-      delivery_time: `${String(schedule.date || '').trim()} ${String(schedule.time_24 || '').trim()}`.trim() || null,
-      },
-      created_at: order.created_at,
-    })
-    .select('id')
-    .single();
-
-  if (eventError || !event) {
-    throw new Error(eventError?.message || 'No se pudo registrar el evento de creación.');
-  }
-
-  const recipientRows = [
-    { event_id: event.id, target_role: 'master', target_user_id: null, requires_action: true },
-    { event_id: event.id, target_role: null, target_user_id: ctx.user.id, requires_action: false },
-  ];
-  const { error: recipientsError } = await adminSupabase
-    .from('order_timeline_event_recipients')
-    .insert(recipientRows);
-
-  if (recipientsError) throw new Error(recipientsError.message);
-
-  try {
-    const orderLabel = formatOrderDisplayLabel(orderId);
-    await sendPushToRoleDevices({
-      roles: ['master', 'admin'],
-      title: `${orderLabel}: Orden creada`,
-      body: 'La orden fue creada por un asesor y requiere aprobacion.',
-      url: '/app/master/dashboard',
-      tag: `master-order-${orderId}-order_created`,
-      tone: 'critical',
-      requireInteraction: true,
-    });
-  } catch (pushError) {
-    console.warn(
-      'advisor order_created role push skipped',
-      pushError instanceof Error ? pushError.message : 'unknown push error',
-    );
-  }
+  scheduleAdvisorCreatedPush(orderId, ctx.user.id);
 
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');
@@ -1185,6 +1160,9 @@ export async function createAdvisorOrderAction(input: CreateAdvisorOrderInput) {
     if (orderId <= 0) {
       throw new Error('La creación terminó sin identificar la orden. Actualiza la pantalla antes de intentarlo nuevamente.');
     }
+
+    // Replays use the same durable event claim; never infer deduplication locally.
+    scheduleAdvisorCreatedPush(orderId, ctx.user.id);
 
     revalidatePath(`/app/advisor/orders/${orderId}`);
     revalidatePath('/app/advisor/orders');

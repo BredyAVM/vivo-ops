@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:master-new-order-alerts": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/master-ops/advisor-created-push.test.mts tests/master-ops/advisor-created-push-db.mjs",
     "test:crm-benefit-preservation": "node --test tests/crm/order-benefit-preservation.test.mjs",
     "test:reward-wallet": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/rewards/wallet-foundation.test.mjs tests/rewards/wallet-issuance.test.mjs tests/rewards/wallet-redemption.test.mjs tests/rewards/wallet-card.test.mjs tests/rewards/order-funding.test.mts tests/rewards/wallet-model.test.mts tests/rewards/wallet-order-edit-action.test.mjs",
     "test:award-evaluation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/rewards/evaluation-query.test.mjs tests/rewards/evaluation-model.test.mts tests/rewards/evaluation-ui.test.mjs tests/rewards/evaluation-publication.test.mjs tests/rewards/evaluation-advisor-ui.test.mjs tests/rewards/evaluation-actions.test.mjs",
