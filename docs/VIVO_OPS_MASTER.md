@@ -279,6 +279,7 @@ order by trigger_name;
 * `order_items.qty` (✅) en vez de `quantity`.
 * `orders.fulfillment` (✅) existe; no `fulfillment_type`.
 * `source` enum: `advisor | master | walk_in`.
+* Direcciones del cliente en el editor compartido (2026-10-23): Master/Admin proponen la dirección y GPS guardados al elegir cliente o delivery solo si ambos campos están vacíos y no se han editado manualmente. Al abrir una orden existente no se cambia su entrega. Las direcciones alternativas se muestran como opciones explícitas; elegir una sustituye el par dirección/GPS por decisión del operador. No se agregan consultas, cambios de tarifas ni escrituras al perfil al usar una sugerencia.
 * Repetir pedido (2026-10-23): el tablero compartido Master/Admin abre el mismo editor de creación bajo demanda con una plantilla comercial de la orden elegida. No cambia de módulo ni escribe al abrir. Usa catálogo/tasa actuales, conserva cliente, entrega y composición revisable; descarta identificadores anteriores, fecha pasada, pagos, cambios, uso de fondo, descuentos, ajustes de comisión y derechos CRM/premios. Los productos inactivos o exclusivos de jugada se omiten con aviso. No modifica la orden original ni amplía permisos; se guarda mediante el comando normal de creación.
 * `delivery_mode` enum: `pickup | internal | external`.
 * Regla activa: pickup no debe tener delivery_mode (según trigger).

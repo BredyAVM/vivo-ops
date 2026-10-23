@@ -44,6 +44,7 @@ import MasterOpsGiftAppend from "./MasterOpsGiftAppend";
 import MasterOpsBeverageAppend from "./MasterOpsBeverageAppend";
 import { prepareEditorCommissionFields } from "./order-editor-commission";
 import { formatOrderCommissionTerms, type OrderCommissionMode } from "@/lib/commissions/order-commission-terms";
+import { clientDeliveryAddresses, suggestSavedClientDeliveryAddress } from "@/lib/orders/client-delivery-address";
 
 type Props = {
   intent?: "general" | "commercial";
@@ -354,6 +355,8 @@ export default function MasterOpsOrderEditor({
   const [crmError, setCrmError] = useState<string | null>(null);
   const [crmReload, setCrmReload] = useState(0);
   const productQtyRef = useRef<HTMLInputElement | null>(null);
+  const deliveryAddressTouched = useRef(false);
+  const savedClientAddresses = clientDeliveryAddresses(form?.client?.recentAddresses);
 
   useEffect(() => {
     setItemPriceDrafts({});
@@ -384,11 +387,14 @@ export default function MasterOpsOrderEditor({
         const paymentCurrency =
           getPaymentReportCurrency(result.order.paymentMethod) ?? result.order.paymentCurrency;
         setData(result);
-        setForm({
+        deliveryAddressTouched.current = false;
+        const loadedForm = {
           ...result.order,
           paymentCurrency,
           items: result.order.items.map((item) => ({ ...item })),
-        });
+        };
+        // Merely opening an existing order must not edit its recorded delivery.
+        setForm(isCreateMode ? suggestSavedClientDeliveryAddress(loadedForm, false) : loadedForm);
         const initialClient = initialNewClientFromOrder(result.order);
         setNewClientName(initialClient.name);
         setNewClientPhone(initialClient.phone);
@@ -732,7 +738,8 @@ export default function MasterOpsOrderEditor({
       return;
     }
     setConfigState(null);
-    patchForm({
+    setForm((current) => current ? suggestSavedClientDeliveryAddress({
+      ...current,
       selectedClientId: client.id,
       client,
       invoiceCompanyName: client.billingCompanyName,
@@ -743,7 +750,7 @@ export default function MasterOpsOrderEditor({
       deliveryNoteDocumentId: client.deliveryNoteDocumentId,
       deliveryNoteAddress: client.deliveryNoteAddress,
       deliveryNotePhone: client.deliveryNotePhone,
-    });
+    }, deliveryAddressTouched.current) : current);
     setNewClientName(client.fullName);
     setNewClientPhone(client.phone);
     setNewClientType(client.clientType);
@@ -1505,7 +1512,12 @@ export default function MasterOpsOrderEditor({
                         <select
                           className={fieldClass()}
                           value={form.fulfillment}
-                          onChange={(event) => patchForm({ fulfillment: event.target.value as "pickup" | "delivery" })}
+                          onChange={(event) => {
+                            const fulfillment = event.target.value as "pickup" | "delivery";
+                            setForm((current) => current ? suggestSavedClientDeliveryAddress(
+                              { ...current, fulfillment }, deliveryAddressTouched.current,
+                            ) : current);
+                          }}
                         >
                           <option value="pickup">Pickup</option>
                           <option value="delivery">Delivery</option>
@@ -1570,11 +1582,39 @@ export default function MasterOpsOrderEditor({
                       </Field>
                       {form.fulfillment === "delivery" ? (
                         <>
+                          {savedClientAddresses.length > 0 ? (
+                            <div className="min-w-0 sm:col-span-2">
+                              <div className="mb-1.5 text-xs text-[#B7B7C2]">Direcciones guardadas</div>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {savedClientAddresses.map((address, index) => {
+                                  const selected = form.deliveryAddress.trim() === address.addressText && form.deliveryGpsUrl.trim() === address.gpsUrl;
+                                  return (
+                                    <button key={JSON.stringify(address)} type="button" aria-pressed={selected}
+                                      aria-label={`Usar dirección guardada ${index + 1}: ${address.addressText || "Ubicación GPS"}`}
+                                      title={address.addressText || address.gpsUrl}
+                                      className={`min-w-0 rounded-lg border px-2.5 py-2 text-left text-xs transition ${selected
+                                        ? "border-[#FFFF00]/45 bg-[#FFFF00]/10 text-[#FFFF00]"
+                                        : "border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:border-[#FFFF00]/45"}`}
+                                      onClick={() => {
+                                        deliveryAddressTouched.current = true;
+                                        patchForm({ deliveryAddress: address.addressText, deliveryGpsUrl: address.gpsUrl });
+                                      }}>
+                                      <span className="font-semibold">{selected ? "Seleccionada" : `Usar dirección ${index + 1}`}</span>
+                                      <span className="mt-0.5 block line-clamp-2 break-words text-[#B7B7C2]">{address.addressText || "Ubicación GPS guardada"}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null}
                           <Field label="Direccion" className="sm:col-span-2">
                             <textarea
                               className={`${fieldClass()} min-h-[74px]`}
                               value={form.deliveryAddress}
-                              onChange={(event) => patchForm({ deliveryAddress: event.target.value })}
+                              onChange={(event) => {
+                                deliveryAddressTouched.current = true;
+                                patchForm({ deliveryAddress: event.target.value });
+                              }}
                               placeholder="Direccion completa"
                             />
                           </Field>
@@ -1582,7 +1622,10 @@ export default function MasterOpsOrderEditor({
                             <input
                               className={fieldClass()}
                               value={form.deliveryGpsUrl}
-                              onChange={(event) => patchForm({ deliveryGpsUrl: event.target.value })}
+                              onChange={(event) => {
+                                deliveryAddressTouched.current = true;
+                                patchForm({ deliveryGpsUrl: event.target.value });
+                              }}
                               placeholder="Link de ubicacion"
                             />
                           </Field>
