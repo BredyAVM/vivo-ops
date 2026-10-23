@@ -19,6 +19,7 @@ export function parseDeliveryDistanceInput(value: unknown): number | null {
 }
 
 export function deliveryCostSourceLabel(source: string | null): string {
+  if (source === 'own_transport_v1') return 'Transporte propio · sin pago por viaje';
   if (source === 'admin_payment_tariff_confirmation_v1') return 'Tarifa confirmada al pagar';
   if (source === 'internal_product_tariff_v1') return 'Tarifa interna al asignar';
   if (source === 'internal_assignment_input') return 'Registrado al asignar · interno';

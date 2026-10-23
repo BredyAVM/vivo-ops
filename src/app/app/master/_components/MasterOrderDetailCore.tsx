@@ -156,6 +156,7 @@ export type MasterOrderDetailOrder = {
   events: MasterOrderEvent[];
   adminAdjustments: MasterOrderAdminAdjustment[];
   riderName: string | null;
+  ownTransportName?: string | null;
   externalPartner: string | null;
 };
 
@@ -237,8 +238,9 @@ export function masterOrderPaymentTone(order: Pick<MasterOrderDetailOrder, "bala
   return order.balanceUsd <= 0.005 ? "green" : "orange";
 }
 
-export function masterOrderAssignmentText(order: Pick<MasterOrderDetailOrder, "fulfillment" | "riderName" | "externalPartner">) {
+export function masterOrderAssignmentText(order: Pick<MasterOrderDetailOrder, "fulfillment" | "riderName" | "externalPartner" | "ownTransportName">) {
   if (order.fulfillment !== "delivery") return "Retiro en local";
+  if (order.ownTransportName) return `Transporte propio: ${order.ownTransportName} · sin pago por viaje`;
   if (order.riderName) return `Interno: ${order.riderName}`;
   if (order.externalPartner) return `Externo: ${order.externalPartner}`;
   return "Sin driver";

@@ -21,6 +21,9 @@ Este contrato especializa para Counter las normas generales de:
 - `docs/FINANCIAL_OPERATIONS_MANUAL_2026-06-18.md`
 - `docs/FINANCIAL_CLOSURE_IMPLEMENTATION_PLAN_2026-06-16.md`
 - `docs/MASTER_ADMIN_SEPARATION_AUDIT_2026-07-17.md`
+- `docs/OWN_TRANSPORT_NO_TRIP_PAY_2026-10-23.md`: transporte propio nominal,
+  sin remuneración por viaje. Counter mantiene el despacho y la custodia del
+  efectivo habituales; costo cero del viaje no implica condonar el cobro.
 
 Si un handoff o una descripción anterior contradice este documento dentro del
 alcance de Counter, prevalece este contrato por ser la decisión operativa más

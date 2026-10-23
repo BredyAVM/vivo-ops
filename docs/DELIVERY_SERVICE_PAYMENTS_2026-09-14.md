@@ -10,6 +10,11 @@ El lector anterior dejó de usar el tabulador cuando faltaba un costo guardado. 
 
 ## Administración → Finanzas → Delivery
 
+Desde 2026-10-23, los viajes de transporte propio identificados por
+`is_own_transport_v1` no entran en esta relación de remuneraciones por liquidar.
+Conservan su historial y custodia; no generan un egreso ni eliminan el cargo al
+cliente. Contrato: `OWN_TRANSPORT_NO_TRIP_PAY_2026-10-23.md`.
+
 Todos los números de orden visibles usan el identificador corto canónico (ID de orden), incluida la descarga, los comprobantes y la custodia. La referencia larga permanece únicamente como evidencia interna.
 
 Período inclusivo en fecha Caracas; filtros por interno/externo, responsable exacto, orden y cliente. Tabla paginada de 30, totales y CSV de toda la selección (máximo 5000 entregas por consulta; no trunca resultados). El costo interno procede de `internal_rider_pay_usd`, no del precio cobrado al cliente. Las propuestas externas usan una única tarifa activa de la empresa para la distancia registrada; huecos y superposiciones quedan pendientes.

@@ -250,6 +250,7 @@ function primaryCounterActionLabel(order: CounterOrder) {
 
 function deliveryAssigneeLabel(order: CounterOrder) {
   if (order.fulfillment !== 'delivery') return null;
+  if (order.ownTransportName) return `Transporte propio: ${order.ownTransportName}`;
   if (!order.deliveryAssigneeName) return 'Sin asignar';
   return order.deliveryAssigneeKind === 'external'
     ? `Externo: ${order.deliveryAssigneeName}`

@@ -7,6 +7,7 @@ import {
   type OrderStatus,
 } from "@/lib/domain/order-domain";
 import { formatOrderDisplayNumber } from "@/lib/orders/order-labels";
+import { readOwnTransport } from "@/lib/orders/own-transport";
 import { buildOperationStats, getOrderOperationalKpiAmounts, indexKpiFinancialStates } from "@/lib/orders/operational-kpis";
 import { getVisibleEditableDetailLines } from "@/lib/orders/order-composer";
 import { getAuthContext, resolveHomePath } from "@/lib/auth";
@@ -665,6 +666,7 @@ function mapOrder(
     riderName:
       (row.internal_driver_user_id ? detail.profileNameById?.get(row.internal_driver_user_id) : null) ??
       (row.internal_driver_user_id ? "Interno asignado" : null),
+    ownTransportName: readOwnTransport(row.extra_fields)?.name ?? null,
     externalPartner: row.external_driver_name?.trim() || (row.external_partner_id ? "Externo asignado" : null),
   };
 }
@@ -685,7 +687,8 @@ function buildStats(dayOrders: MasterOpsOrder[], weekOrders: MasterOpsOrder[]): 
     },
     deliveries: {
       internos: activeDeliveryOrders.filter((order) => Boolean(order.riderName?.trim())).length,
-      externos: activeDeliveryOrders.filter((order) => Boolean(order.externalPartner?.trim())).length,
+      externos: activeDeliveryOrders.filter((order) => !order.ownTransportName && Boolean(order.externalPartner?.trim())).length,
+      propios: activeDeliveryOrders.filter((order) => Boolean(order.ownTransportName)).length,
     },
     kitchen: {
       totalEnCocina: dayOrders.filter((order) => ["confirmed", "in_kitchen", "ready"].includes(order.status)).length,

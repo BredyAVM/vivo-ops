@@ -259,6 +259,11 @@ order by trigger_name;
 
 ## 10) Historial de decisiones
 
+* Transporte propio (2026-10-23): asignación nominal Máster/Admin con pago por viaje
+  cero, sin cambiar el cobro al cliente ni omitir custodia. Subtipo explícito en la
+  metadata de delivery; reutiliza el despacho existente y se excluye de servicios
+  por pagar. Contrato: `OWN_TRANSPORT_NO_TRIP_PAY_2026-10-23.md`.
+
 * Notificaciones de pedidos nuevos de Asesor (2026-10-22): evento y destinatarios
   atómicos; envío posterior con reserva durable única, enlace al detalle de Máster
   Ops y sin reenvío histórico ni cambios a pantallas de Dashboard. Contrato:

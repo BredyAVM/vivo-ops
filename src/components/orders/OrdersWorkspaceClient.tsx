@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { assignOwnTransportAction } from "@/app/app/master/ops/own-transport-actions";
 import OrderPaymentQuoteButton from "@/components/orders/OrderPaymentQuoteButton";
 import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
 import { canResolveOperationalOrderExcess } from "@/lib/orders/order-excess-policy";
@@ -81,6 +82,7 @@ import {
   formatMasterOrderTime,
   formatMasterOrderUSD,
   masterOrderPaymentLabel,
+  masterOrderAssignmentText,
   masterOrderPaymentTone,
   type MasterOrderDetailOrder,
   type MasterOrderDetailTab,
@@ -183,6 +185,7 @@ export type MasterOpsStats = {
   deliveries: {
     internos: number;
     externos: number;
+    propios?: number;
   };
   kitchen: {
     totalEnCocina: number;
@@ -233,6 +236,7 @@ type DirectActionKey =
   | "complete"
   | "assign-internal"
   | "assign-external"
+  | "assign-own"
   | "correct-delivered-internal"
   | "correct-delivered-external"
   | "return-created"
@@ -258,6 +262,8 @@ type MoneyLinePayload = {
   notes?: string | null;
 };
 type DirectActionPayload = {
+  carrierName?: string;
+  carrierPhone?: string;
   reason?: string;
   onExcessStored?: (amountUsd: number) => void;
   recalculatePricing?: boolean;
@@ -745,14 +751,7 @@ function RowProcessTimeline({ order, compact = false }: { order: MasterOpsOrder;
   const orderedKeys = steps.map((step) => step.key);
   const cancelled = order.status === "cancelled";
   const needsDriverUrgent = canAssignMasterOpsDelivery(order);
-  const assignmentLabel =
-    order.fulfillment !== "delivery"
-      ? "Retiro en local"
-      : order.riderName
-        ? `Interno: ${order.riderName}`
-        : order.externalPartner
-          ? `Externo: ${order.externalPartner}`
-          : "Sin driver";
+  const assignmentLabel = masterOrderAssignmentText(order);
 
   return (
     <div className="min-w-0 space-y-1" title={compact ? `${ORDER_STATUS_LABELS[order.status]} · ${assignmentLabel}` : undefined}>
@@ -1352,7 +1351,11 @@ function OrderDetailPanel({
   const [deliveryEtaMinutes, setDeliveryEtaMinutes] = useState("25");
   const [kitchenTakeBoxOpen, setKitchenTakeBoxOpen] = useState(false);
   const [kitchenEtaMinutes, setKitchenEtaMinutes] = useState("15");
-  const [deliveryAssignMode, setDeliveryAssignMode] = useState<null | "internal" | "external">(null);
+  const [deliveryAssignMode, setDeliveryAssignMode] = useState<null | "internal" | "external" | "own">(null);
+  const [ownCarrierName, setOwnCarrierName] = useState("");
+  const [ownCarrierPhone, setOwnCarrierPhone] = useState("");
+  const [ownCarrierNotes, setOwnCarrierNotes] = useState("");
+  const ownTransportRequest = useRef<string | null>(null);
   const [deliveryAssignDriverId, setDeliveryAssignDriverId] = useState("");
   const [deliveryAssignPartnerId, setDeliveryAssignPartnerId] = useState("");
   const [deliveryAssignDistanceKm, setDeliveryAssignDistanceKm] = useState("");
@@ -1834,6 +1837,17 @@ function OrderDetailPanel({
       setDeliveryAssignMode(null);
       setDeliveryCorrectionNotes("");
     }
+  }
+
+  async function handleAssignOwnSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    ownTransportRequest.current ??= crypto.randomUUID();
+    const ok = await onDirectAction(order, "assign-own", {
+      carrierName: ownCarrierName.trim(), carrierPhone: ownCarrierPhone.trim(),
+      notes: ownCarrierNotes.trim(), requestId: ownTransportRequest.current,
+    });
+    if (ok) { ownTransportRequest.current = null; setDeliveryAssignMode(null); }
   }
 
   async function handleConfirmPaymentSubmit(
@@ -2625,6 +2639,11 @@ function OrderDetailPanel({
                       >
                         {canCorrectDeliveredDelivery ? "Corregir externo" : "Asignar externo"}
                       </button>
+                      {!canCorrectDeliveredDelivery ? <button type="button" disabled={busy}
+                        onClick={() => setDeliveryAssignMode(value => value === "own" ? null : "own")}
+                        className="rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FEEF00] disabled:opacity-60">
+                        Transporte propio
+                      </button> : null}
                     </>
                   ) : null}
                   {canReturnQueue ? (
@@ -2806,6 +2825,30 @@ function OrderDetailPanel({
                         {runningAction === `out-delivery:${order.id}` ? "Confirmando..." : "Confirmar salida"}
                       </button>
                     </div>
+                  </form>
+                ) : null}
+
+                {deliveryAssignMode === "own" ? (
+                  <form className="mt-3 space-y-3 rounded-xl border border-[#FEEF00]/30 bg-[#FEEF00]/10 p-3" onSubmit={handleAssignOwnSubmit}>
+                    <h3 className="text-[12px] font-semibold text-[#FEEF00]">Transporte propio · sin pago por viaje</h3>
+                    <fieldset disabled={busy} className="grid min-w-0 gap-3 disabled:opacity-60">
+                      <label className="grid gap-1 text-xs">Quién lleva el pedido
+                        <input value={ownCarrierName} onChange={event => setOwnCarrierName(event.target.value)} required minLength={2} maxLength={160}
+                          placeholder="Nombre del responsable" className="w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2" />
+                      </label>
+                      <label className="grid gap-1 text-xs">Teléfono (opcional)
+                        <input value={ownCarrierPhone} onChange={event => setOwnCarrierPhone(event.target.value)} type="tel" maxLength={50}
+                          className="w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2" />
+                      </label>
+                      <label className="grid gap-1 text-xs">Nota interna (opcional)
+                        <textarea value={ownCarrierNotes} onChange={event => setOwnCarrierNotes(event.target.value)} maxLength={1000}
+                          className="min-h-16 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2" />
+                      </label>
+                      <p className="text-xs text-[#B7B7C2]">Pago por este viaje: $0. No cambia el delivery cobrado al cliente. Si recibe efectivo del cliente, debe rendirlo normalmente.</p>
+                      <button type="submit" className="justify-self-end rounded-xl bg-[#FEEF00] px-3 py-2 text-xs font-semibold text-[#0B0B0D]">
+                        {busy ? "Guardando…" : "Guardar transporte propio"}
+                      </button>
+                    </fieldset>
                   </form>
                 ) : null}
 
@@ -4576,6 +4619,12 @@ export default function OrdersWorkspaceClient({
         });
       } else if (action === "complete") {
         result = await markDeliveredAction({ orderId: order.id });
+      } else if (action === "assign-own") {
+        const response = await assignOwnTransportAction({ orderId: order.id,
+          name: payload.carrierName ?? "", phone: payload.carrierPhone ?? "", notes: payload.notes ?? "",
+          operationId: payload.requestId ?? "" });
+        if (!response.ok) throw new Error(response.message);
+        result = response;
       } else if (action === "assign-internal") {
         const driverUserId = String(payload.driverUserId || "").trim();
         if (!driverUserId) throw new Error("Debes seleccionar un motorizado interno.");
@@ -5086,6 +5135,7 @@ export default function OrdersWorkspaceClient({
             <div className="space-y-1">
               <StatRow label="Internos" value={stats.deliveries.internos} />
               <StatRow label="Externos" value={stats.deliveries.externos} />
+              {stats.deliveries.propios ? <StatRow label="Transporte propio" value={stats.deliveries.propios} /> : null}
             </div>
           </Card>
 

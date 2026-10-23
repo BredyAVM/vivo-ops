@@ -258,6 +258,7 @@ export type CounterOrder = {
   deliveryMode: string | null;
   deliveryAssigneeKind: 'internal' | 'external' | null;
   deliveryAssigneeName: string | null;
+  ownTransportName?: string | null;
   externalReference: string | null;
   notes: string | null;
   hasInvoice: boolean;
@@ -644,6 +645,7 @@ function primaryCounterActionLabel(order: CounterOrder) {
 
 function deliveryAssigneeLabel(order: CounterOrder) {
   if (order.fulfillment !== 'delivery') return null;
+  if (order.ownTransportName) return `Transporte propio: ${order.ownTransportName}`;
   if (!order.deliveryAssigneeName) return 'Sin asignar';
   return order.deliveryAssigneeKind === 'external'
     ? `Externo: ${order.deliveryAssigneeName}`

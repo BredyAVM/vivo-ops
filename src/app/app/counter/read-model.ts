@@ -1,5 +1,6 @@
 import 'server-only';
 import { normalizePaymentCollectionMode } from '@/lib/orders/collection-policy';
+import { readOwnTransport } from '@/lib/orders/own-transport';
 
 import {
   getOrderMoneySnapshot,
@@ -323,6 +324,7 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
     deliveryMode: row.delivery_mode || null,
     deliveryAssigneeKind: row.delivery_assignee_kind || null,
     deliveryAssigneeName: row.delivery_assignee_name?.trim() || null,
+    ownTransportName: readOwnTransport(row.extra_fields)?.name ?? null,
     externalReference: row.external_reference || null,
     notes: row.notes || null,
     hasInvoice,
