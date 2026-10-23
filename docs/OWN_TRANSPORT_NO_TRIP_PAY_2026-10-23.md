@@ -29,6 +29,13 @@ No reabre órdenes entregadas/canceladas ni modifica una custodia existente.
 - No añade tablas, columnas, enums, usuarios, empresas ni cuentas.
 - El guard impide inyectar el subtipo en pedidos nuevos o modificarlo desde
   Asesor/Driver/Counter. Counter despacha sin modificar la identidad.
+- La comprobación de custodia/pagos se hace mediante
+  `app_private.own_transport_has_obligations_v1`, lookup privado de solo lectura
+  que valida sesión y rol persistido Máster/Admin y devuelve únicamente un booleano
+  para una orden delivery asignable. Requiere elevación interna porque Counter
+  cerró el acceso directo a `delivery_settlements` y los pagos de servicio tienen
+  RLS solo Admin. El comando público conserva `SECURITY INVOKER` y sus escrituras
+  bajo RLS. No se conceden permisos de tabla ni acceso financiero adicional.
 - Quitar/reasignar antes de salir limpia el subtipo y snapshot anteriores.
   Convertir a pickup también lo elimina; el guard no cambia importes. Admin
   conserva su corrección histórica autorizada y evidencia de la asignación previa.
@@ -53,10 +60,15 @@ cálculos financieros ni historia anterior.
 
 ## Verificación
 
-- `npm run test:own-transport`: 14 comprobaciones; PostgreSQL aislado con rutinas
+- `npm run test:own-transport`: 17 comprobaciones; PostgreSQL aislado con rutinas
   instaladas capturadas de solo lectura. Asignación, salida Máster/Counter,
   entrega, cobro bajo custodia, cero sin egreso, permisos, reintentos, pickup,
   corrección Admin y rollback si falla la auditoría.
+- Corrección de permisos (2026-10-23): reproduce el error real antes del ajuste
+  con ACL/RLS de custodia y pagos equivalentes a producción. Verifica asignación
+  con solo rol Máster, cierre de tarea, rechazo de obligaciones ocultas por RLS,
+  falta de sesión y otros roles, sin abrir los ledgers. La prueba anterior tenía
+  grants más amplios y no detectaba el acceso directo revocado.
 - Regresiones: `test:orders-workspace` (32), `test:delivery` (42),
   `test:master-new-order-alerts` (19). Compilación de producción correcta.
 - Los adaptadores locales de custodia/comandos no certifican una transferencia
@@ -67,6 +79,10 @@ cálculos financieros ni historia anterior.
   sin polling ni consultas nuevas en la entrada.
 
 Migración aplicada: `20261023152019_own_transport_without_trip_pay.sql`.
+Corrección aplicada: `20261023154557_own_transport_assignment_permission_check.sql`.
+Se comprobó el lookup en producción con contexto autenticado de un Máster sin
+rol Admin, en solo lectura, sin asignar ni modificar ninguna orden real. El acceso
+directo a custodia sigue cerrado y no aparecieron avisos nuevos en los asesores.
 Verificación posterior: permisos sin acceso anónimo y 131 rutinas de inventario,
 estado financiero y despacho/custodia Counter idénticas a las previas.
 Los asesores de Supabase conservaron sus hallazgos previos, sin nuevos avisos de

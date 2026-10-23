@@ -4,6 +4,7 @@ import { readFileSync,readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 const read=p=>readFileSync(new URL('../../'+p,import.meta.url),'utf8');
 const migration=readdirSync(new URL('../../supabase/migrations/',import.meta.url)).find(p=>p.endsWith('_own_transport_without_trip_pay.sql'));
+const permissionMigration=readdirSync(new URL('../../supabase/migrations/',import.meta.url)).find(p=>p.endsWith('_own_transport_assignment_permission_check.sql'));
 const master='00000000-0000-0000-0000-000000000001';
 const advisor='00000000-0000-0000-0000-000000000002';
 const driver='00000000-0000-0000-0000-000000000003';
@@ -11,17 +12,21 @@ const driver='00000000-0000-0000-0000-000000000003';
 test('own transport: installed assignment/dispatch/completion routines, isolated PostgreSQL',async t=>{
  const db=new PGlite();
  const rows=async(sql,args=[])=>(await db.query(sql,args)).rows;
- const actor=async(role)=>db.query("select set_config('test.role',$1,false)",[role]);
+ const actor=async(role)=>{
+  await db.query('delete from public.user_roles where user_id=$1',[master]);
+  if(role) await db.query('insert into public.user_roles(user_id,role) values($1,$2)',[master,role]);
+  await db.query("select set_config('test.uid',$1,false)",[role ? master : '']);
+ };
  const assign=async(id,key=crypto.randomUUID(),name='Bredy',phone=null,notes=null)=>(await rows('select assign_own_transport_v1($1,$2,$3,$4,$5::uuid) result',[id,name,phone,notes,key]))[0].result;
  const seed=async(status='ready',fulfillment='delivery')=>(await rows("insert into orders(order_number,source,fulfillment,status,client_id,attributed_advisor_id,total_usd,total_bs_snapshot,notes,extra_fields) values('FIXTURE','advisor',$1,$2,1,$3,25,22500,'Nota para cliente','{\"pricing\":{\"total_usd\":25,\"fx_rate\":900},\"payment\":{\"method\":\"pending\"},\"unrelated\":true}') returning id",[fulfillment,status,advisor]))[0].id;
  try {
   await db.exec(`create role anon; create role authenticated; create role service_role;
    create schema app_private; create schema auth;
-   create function auth.uid() returns uuid language sql stable as $$select '${master}'::uuid$$;
-   create function public.has_role(text) returns boolean language sql stable as $$select $1=current_setting('test.role',true)$$;
-   create function public.is_master_or_admin() returns boolean language sql stable as $$select current_setting('test.role',true) in ('master','admin')$$;
-   create function public.is_admin() returns boolean language sql stable as $$select current_setting('test.role',true)='admin'$$;
-   create function close_assign_driver_tasks(bigint,uuid) returns void language plpgsql as $$begin return; end$$;
+   create table public.user_roles(user_id uuid,role text);
+   create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('test.uid',true),'')::uuid$$;
+   create function public.has_role(text) returns boolean language sql stable security definer set search_path='' as $$select exists(select 1 from public.user_roles where user_id=auth.uid() and role=$1)$$;
+   create function public.is_master_or_admin() returns boolean language sql stable set search_path='' as $$select auth.uid() is not null and exists(select 1 from public.user_roles where user_id=auth.uid() and role in ('master','admin'))$$;
+   create function public.is_admin() returns boolean language sql stable security definer set search_path='' as $$select public.has_role('admin')$$;
    create type public.delivery_mode as enum('pickup','internal','external');
    create type public.order_status as enum('created','queued','confirmed','in_kitchen','ready','out_for_delivery','delivered','cancelled');
    create type public.currency_code as enum('USD','VES');`);
@@ -29,7 +34,6 @@ test('own transport: installed assignment/dispatch/completion routines, isolated
   await db.exec(schema.slice(0,schema.indexOf('CREATE OR REPLACE FUNCTION')));
   await db.exec(`
    create table profiles(id uuid primary key,full_name text);
-   create table user_roles(user_id uuid,role text);
    insert into profiles values('${master}','Master'),('${advisor}','Advisor'),('${driver}','Driver');
    insert into user_roles values('${master}','admin');
    create table delivery_partners(id bigint primary key,name text,is_active boolean default true,whatsapp_phone text);
@@ -38,6 +42,15 @@ test('own transport: installed assignment/dispatch/completion routines, isolated
    create table order_events(id bigint generated always as identity,order_id bigint,event text,performed_by uuid,meta jsonb,created_at timestamptz default now());
    create table order_timeline_events(id bigint generated always as identity,order_id bigint,order_number text,event_type text,event_group text,title text,message text,severity text,actor_user_id uuid,payload jsonb default '{}',created_at timestamptz default now());
    create table order_timeline_event_recipients(event_id bigint,target_role text,target_user_id uuid,requires_action boolean);
+   create table tasks(order_id bigint,task_type text,status text,done_at timestamptz);
+   -- Installed close_assign_driver_tasks body (read-only capture 2026-10-23).
+   create function close_assign_driver_tasks(p_order_id bigint,p_done_by uuid) returns void language plpgsql as $$
+   begin
+    update public.tasks set status='done',done_at=now()
+      where order_id=p_order_id and task_type='assign_driver' and status='open';
+    insert into public.order_events(order_id,event,performed_by,meta)
+      values(p_order_id,'assign_driver_task_closed',p_done_by,jsonb_build_object('closed',true));
+   end;$$;
    create table money_movements(id bigint,movement_date date,status text,order_id bigint,amount numeric);
    create table payment_reports(id bigint,order_id bigint,amount numeric);
    create table client_fund_movements(id bigint,order_id bigint,amount numeric);
@@ -60,6 +73,15 @@ test('own transport: installed assignment/dispatch/completion routines, isolated
    insert into clients(id,full_name) values(1,'Fixture client');
    grant usage on schema public,app_private,auth to authenticated;
    grant select,insert,update on all tables in schema public to authenticated;
+   revoke all on public.delivery_settlements from authenticated;
+   revoke all on public.delivery_service_payment_items from authenticated;
+   grant select on public.delivery_service_payment_items to authenticated;
+   alter table public.delivery_settlements enable row level security;
+   create policy "Delivery settlements are operationally readable" on public.delivery_settlements
+     for select to authenticated using(public.is_master_or_admin() or public.has_role('counter'));
+   alter table public.delivery_service_payment_items enable row level security;
+   create policy delivery_service_payment_items_read on public.delivery_service_payment_items
+     for select to authenticated using(exists(select 1 from public.user_roles where user_id=auth.uid() and role='admin'));
    grant usage,select on all sequences in schema public to authenticated;`);
   await db.exec(read('tests/master-ops/fixtures/own-transport-installed.sql'));
   await db.exec(read('tests/master-ops/fixtures/own-transport-correction.sql'));
@@ -67,6 +89,13 @@ test('own transport: installed assignment/dispatch/completion routines, isolated
     create trigger orders_external_partner_guard before insert or update on orders for each row execute function trg_orders_external_partner_guard();`);
   await db.exec(read('supabase/migrations/'+migration));
   await actor('master');
+  await t.test('reproduces the installed RPC-only custody permission error before the correction',async()=>{
+   const id=await seed();await db.exec('set role authenticated');
+   try{await assert.rejects(()=>assign(id),/permission denied for table delivery_settlements/);}
+   finally{await db.exec('reset role');}
+   assert.equal((await rows('select external_driver_name from orders where id=$1',[id]))[0].external_driver_name,null);
+  });
+  await db.exec(read('supabase/migrations/'+permissionMigration));
   await t.test('assigns a name and explicit zero without altering customer terms or ledgers',async()=>{
    const id=await seed('in_kitchen');
    await db.query('insert into order_items(order_id,qty,line_total_usd) values($1,1,25)',[id]);
@@ -128,8 +157,42 @@ test('own transport: installed assignment/dispatch/completion routines, isolated
    await assert.rejects(()=>assign(paid),/custodia o un pago/);
   });
   await t.test('authenticated Master can execute the invoker command without a privileged server key',async()=>{
-   await actor('master');const id=await seed();await db.exec('set role authenticated');
-   try{assert.equal((await assign(id)).ok,true);}finally{await db.exec('reset role');}
+   await actor('master');const id=await seed();
+   await db.query("insert into tasks(order_id,task_type,status) values($1,'assign_driver','open')",[id]);
+   await db.exec('set role authenticated');
+   try{
+    assert.equal((await rows('select is_master_or_admin() master,is_admin() admin'))[0].admin,false);
+    assert.equal((await assign(id)).ok,true);
+    assert.equal((await rows("select prosecdef from pg_proc where oid='assign_own_transport_v1(bigint,text,text,text,uuid)'::regprocedure"))[0].prosecdef,false);
+    assert.equal((await rows('select status from tasks where order_id=$1',[id]))[0].status,'done');
+    await assert.rejects(()=>rows('select * from delivery_settlements'),/permission denied/);
+    assert.equal((await rows('select count(*)::int n from delivery_service_payment_items'))[0].n,0);
+   }finally{await db.exec('reset role');}
+  });
+  await t.test('authenticated Master detects custody AND Admin-only paid items without exposing either ledger',async()=>{
+   await actor('master');const custody=await seed(),paid=await seed();
+   await db.query("insert into delivery_settlements(order_id,status,delivery_mode,responsible_name) values($1,'open','external','Custodian')",[custody]);
+   await db.query('insert into delivery_service_payment_items(order_id) values($1)',[paid]);
+   await db.exec('set role authenticated');
+   try{
+    assert.equal((await rows('select count(*)::int n from delivery_service_payment_items where order_id=$1',[paid]))[0].n,0,'RLS hides the paid item from Master');
+    for(const id of [custody,paid]) await assert.rejects(()=>assign(id),/custodia o un pago/);
+   }finally{await db.exec('reset role');}
+   for(const id of [custody,paid]) assert.equal((await rows('select external_driver_name from orders where id=$1',[id]))[0].external_driver_name,null);
+  });
+  await t.test('private boolean lookup rejects other roles, missing session and unavailable orders',async()=>{
+   const id=await seed();
+   for(const role of ['advisor','counter','driver','']){
+    await actor(role);await db.exec('set role authenticated');
+    try{await assert.rejects(()=>rows('select app_private.own_transport_has_obligations_v1($1)',[id]),/Solo Máster/);}
+    finally{await db.exec('reset role');}
+   }
+   await actor('master');await db.exec('set role authenticated');
+   try{await assert.rejects(()=>rows('select app_private.own_transport_has_obligations_v1(-1)'),/Orden no disponible/);}
+   finally{await db.exec('reset role');}
+   assert.equal((await rows("select has_function_privilege('anon','app_private.own_transport_has_obligations_v1(bigint)','execute') allowed"))[0].allowed,false);
+   const adminId=await seed();await actor('admin');await db.exec('set role authenticated');
+   try{assert.equal((await assign(adminId)).ok,true);}finally{await db.exec('reset role');await actor('master');}
   });
   await t.test('clearing/reassigning before departure removes own subtype; internal/external flows remain available',async()=>{
    const id=await seed();await assign(id);await db.query("select clear_delivery_assignment($1,'Cambio responsable')",[id]);
