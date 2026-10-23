@@ -85,6 +85,8 @@ Este documento fija los límites operativos del módulo Asesor para que futuras 
 
 ## Pendientes posteriores
 
+- Repetir pedido (2026-10-23): disponible en el listado y detalle, incluso si la orden aún admite modificación. Abre una compra nueva revisable con cliente, productos y cantidades, a precios y tasa vigentes; no transfiere pagos ni beneficios CRM de la compra anterior. Los enlaces de repetición no precargan el compositor para cada tarjeta.
+
 - Diseñar la conformidad del cierre de comisiones con comentario, estado y auditoría.
 - Incorporar señales de disponibilidad cuando finalice el contrato canónico de inventario.
 - Ejecutar QA móvil de recorridos completos con datos reales: pedido, edición, presupuesto, pago, cobranza, alertas y comisiones.

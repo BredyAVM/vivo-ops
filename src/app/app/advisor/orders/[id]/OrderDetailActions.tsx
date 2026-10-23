@@ -413,10 +413,11 @@ export default function OrderDetailActions({
 
         {canDuplicateOrder ? (
           <Link
+            prefetch={false}
             href={withAdvisorReturnTo(`/app/advisor/new?duplicateFrom=${orderId}`, orderDetailReturnTo)}
             className="inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#F5F7FB]"
           >
-            Repetir
+            Repetir pedido
           </Link>
         ) : null}
 

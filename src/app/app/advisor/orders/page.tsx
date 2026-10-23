@@ -908,7 +908,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                     </div>
                   </Link>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="mt-3 flex flex-wrap gap-2 [&>a]:flex-1 [&>a]:whitespace-nowrap">
                     {canAdvisorModifyOrder(order.status) ? (
                       <Link
                         href={withAdvisorReturnTo(`/app/advisor/new?fromOrder=${order.id}`, ordersReturnTo)}
@@ -916,14 +916,14 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                       >
                         Modificar
                       </Link>
-                    ) : (
-                      <Link
-                        href={withAdvisorReturnTo(`/app/advisor/new?duplicateFrom=${order.id}`, ordersReturnTo)}
-                        className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
-                      >
-                        Repetir
-                      </Link>
-                    )}
+                    ) : null}
+                    <Link
+                      prefetch={false}
+                      href={withAdvisorReturnTo(`/app/advisor/new?duplicateFrom=${order.id}`, ordersReturnTo)}
+                      className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+                    >
+                      Repetir pedido
+                    </Link>
                     {unpaid ? (
                       <Link
                         href={withAdvisorReturnTo(

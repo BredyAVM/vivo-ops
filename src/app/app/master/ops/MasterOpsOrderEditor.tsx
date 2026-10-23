@@ -49,6 +49,7 @@ type Props = {
   intent?: "general" | "commercial";
   mode?: "create" | "edit";
   orderId?: number | null;
+  templateOrderId?: number | null;
   open?: boolean;
   focusDate?: string;
   roles: string[];
@@ -316,6 +317,7 @@ export default function MasterOpsOrderEditor({
   intent = "general",
   mode = "edit",
   orderId = null,
+  templateOrderId = null,
   open = false,
   focusDate,
   roles,
@@ -373,7 +375,7 @@ export default function MasterOpsOrderEditor({
     setQuantitySplitNotice(null);
 
     const loadData = isCreateMode
-      ? loadMasterOpsOrderCreateDataAction(focusDate)
+      ? loadMasterOpsOrderCreateDataAction(focusDate, templateOrderId)
       : loadMasterOpsOrderEditDataAction(Number(orderId));
 
     loadData
@@ -410,7 +412,7 @@ export default function MasterOpsOrderEditor({
     return () => {
       cancelled = true;
     };
-  }, [focusDate, isCreateMode, isOpen, orderId]);
+  }, [focusDate, isCreateMode, isOpen, orderId, templateOrderId]);
 
   useEffect(() => {
     const query = clientSearch.trim();
@@ -1228,14 +1230,14 @@ export default function MasterOpsOrderEditor({
           <div>
             <div id="order-editor-title" className="text-base font-semibold">
               {isCreateMode
-                ? "Nuevo pedido"
+                ? templateOrderId ? `Repetir pedido #${formatOrderDisplayNumber(templateOrderId)}` : "Nuevo pedido"
                 : form
                   ? `${form.status === "out_for_delivery" ? "Agregar al envío · Orden" : "Modificar orden"} #${formatOrderDisplayNumber(form.id)}`
                   : "Modificar orden"}
             </div>
             <div className="mt-0.5 text-xs text-[#8A8A96]">
               {isCreateMode
-                ? "Crea una orden con las reglas vigentes del negocio."
+                ? templateOrderId ? "Pedido nuevo · Precios y tasa vigentes. Revisa fecha, entrega y pago." : "Crea una orden con las reglas vigentes del negocio."
                 : "Carga datos solo para esta orden."}
             </div>
           </div>
@@ -1265,6 +1267,11 @@ export default function MasterOpsOrderEditor({
         {!loading && form && form.status !== "out_for_delivery" ? (
           <form className="flex min-h-0 flex-1 flex-col" onSubmit={saveOrder}>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {data?.repeatSummary?.skippedItems.length ? (
+                <div role="status" className="mb-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                  No se copiaron productos no disponibles o exclusivos de jugada: {data.repeatSummary.skippedItems.join(", ")}. Revisa el pedido.
+                </div>
+              ) : null}
               {!isCreateMode && data ? <MasterOpsGiftAppend key={data.order.id}
                 order={data.order} catalog={data.catalogItems} onSaved={onSaved}
                 disabled={saving || JSON.stringify(form) !== JSON.stringify({

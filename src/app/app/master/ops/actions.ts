@@ -37,6 +37,7 @@ import type {
   MasterOrderPaymentReport,
 } from "../_components/MasterOrderDetailCore";
 import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
+import { buildRepeatedMasterOpsOrder, type RepeatOrderSource } from "./order-repeat";
 import {
   isMasterOpsOrderPaymentMethod,
   normalizeMasterOpsOrderPaymentMethod,
@@ -1616,6 +1617,7 @@ export type MasterOpsEditOrder = {
 };
 
 export type MasterOpsEditData = {
+  repeatSummary?: { sourceOrderId: number; skippedItems: string[] };
   order: MasterOpsEditOrder;
   catalogItems: MasterOpsEditCatalogItem[];
   productComponents: MasterOpsEditProductComponent[];
@@ -1730,7 +1732,7 @@ function normalizeProductType(value: unknown): "product" | "combo" | "service" |
   return "product";
 }
 
-function mapClient(client: RawOrderClientEditRow): MasterOpsEditClient {
+function mapClient(client: Omit<RawOrderClientEditRow, "primary_advisor_id">): MasterOpsEditClient {
   return {
     id: Number(client.id),
     fullName: cleanText(client.full_name, "Cliente"),
@@ -2766,13 +2768,21 @@ async function loadMasterOpsOrderComposerLookups(
 }
 
 export async function loadMasterOpsOrderCreateDataAction(
-  focusDateInput?: string | null
+  focusDateInput?: string | null,
+  templateOrderIdInput?: number | null
 ): Promise<MasterOpsEditData> {
   const ctx = await requireMasterOrAdminContext();
-  const lookups = await loadMasterOpsOrderComposerLookups(ctx);
-  const schedule = getDefaultScheduleFields(focusDateInput);
+  if (templateOrderIdInput != null && (!Number.isSafeInteger(templateOrderIdInput) || templateOrderIdInput <= 0)) {
+    throw new Error("Orden base inválida.");
+  }
+  const [lookups, repeatSource] = await Promise.all([
+    loadMasterOpsOrderComposerLookups(ctx),
+    templateOrderIdInput == null ? null : loadMasterOpsRepeatSource(ctx, templateOrderIdInput),
+  ]);
+  // A historical list's focus date must not schedule a repeated purchase in the past.
+  const schedule = getDefaultScheduleFields(repeatSource ? null : focusDateInput);
 
-  return {
+  const defaults: MasterOpsEditData = {
     order: {
       id: 0,
       orderNumber: "",
@@ -2816,6 +2826,44 @@ export async function loadMasterOpsOrderCreateDataAction(
       items: [],
     },
     ...lookups,
+  };
+  return repeatSource ? buildRepeatedMasterOpsOrder(defaults, repeatSource) : defaults;
+}
+
+async function loadMasterOpsRepeatSource(
+  ctx: Awaited<ReturnType<typeof requireMasterOrAdminContext>>, orderId: number,
+): Promise<RepeatOrderSource> {
+  // Use the signed-in user's RLS context. Never load payments, movements or financial history.
+  const [orderResult, itemsResult] = await Promise.all([
+    ctx.supabase.from("orders").select(`
+      id, source, attributed_advisor_id, fulfillment, receiver_name, receiver_phone, delivery_address, extra_fields,
+      client:clients!orders_client_id_fkey (
+        id, full_name, phone, client_type, fund_balance_usd, recent_addresses,
+        billing_company_name, billing_tax_id, billing_address, billing_phone,
+        delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone
+      )
+    `).eq("id", orderId).single(),
+    ctx.supabase.from("order_items").select("product_id, product_name_snapshot, qty, notes")
+      .eq("order_id", orderId).order("id", { ascending: true }),
+  ]);
+  if (orderResult.error || itemsResult.error) {
+    throw new Error(orderResult.error?.message ?? itemsResult.error?.message ?? "No se pudo cargar el pedido base.");
+  }
+  if (!orderResult.data) throw new Error("No se pudo acceder al pedido base.");
+  const row = orderResult.data;
+  const extra = asOpsRecord(row.extra_fields);
+  const delivery = asOpsRecord(extra.delivery);
+  const receiver = asOpsRecord(extra.receiver);
+  const client = one(row.client);
+  return {
+    id: Number(row.id), source: String(row.source), attributedAdvisorUserId: row.attributed_advisor_id,
+    client: client ? mapClient(client) : null, fulfillment: String(row.fulfillment),
+    receiverName: cleanText(receiver.name, cleanText(row.receiver_name)),
+    receiverPhone: cleanText(receiver.phone, cleanText(row.receiver_phone)),
+    deliveryAddress: cleanText(delivery.address, cleanText(row.delivery_address)),
+    deliveryGpsUrl: cleanText(delivery.gps_url),
+    items: (itemsResult.data ?? []).map(item => ({ productId: Number(item.product_id),
+      productName: cleanText(item.product_name_snapshot, "Producto"), qty: Number(item.qty), notes: item.notes })),
   };
 }
 

@@ -1301,6 +1301,7 @@ function OrderDetailPanel({
   onRetryDetail,
   onClose,
   onEditOrder,
+  onRepeatOrder,
   onDirectAction,
   onCreatePaymentReport,
   drivers,
@@ -1320,6 +1321,7 @@ function OrderDetailPanel({
   onRetryDetail: () => void;
   onClose: () => void;
   onEditOrder: (order: MasterOpsOrder, intent?: "general" | "commercial") => void;
+  onRepeatOrder: (order: MasterOpsOrder) => void;
   onDirectAction: (order: MasterOpsOrder, action: DirectActionKey, payload?: DirectActionPayload) => Promise<boolean>;
   onCreatePaymentReport: (order: MasterOpsOrder, payload: PaymentReportDraft) => Promise<boolean>;
   drivers: DriverOption[];
@@ -2140,6 +2142,13 @@ function OrderDetailPanel({
                 ) : null}
               </div>
               <div className="flex max-w-full flex-wrap items-center justify-end gap-2 self-end sm:max-w-[55%] sm:self-start">
+                {!isIncompleteOrder && (isAdmin || roles.includes("master")) ? (
+                  <button type="button" disabled={busy || detailLoading || Boolean(detailError)}
+                    onClick={() => onRepeatOrder(order)}
+                    className="rounded-lg border border-[#FFFF00]/40 bg-[#FFFF00]/10 px-3 py-2 text-xs font-semibold text-[#FFFF00] hover:border-[#FFFF00] disabled:opacity-50">
+                    Repetir pedido
+                  </button>
+                ) : null}
                 {!isIncompleteOrder && !detailLoading && order.status !== "cancelled" && (isAdmin || roles.includes("master"))
                   ? <OrderPaymentQuoteButton key={order.id} orderId={order.id} /> : null}
                 <button
@@ -4069,6 +4078,7 @@ export default function OrdersWorkspaceClient({
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [editingIntent, setEditingIntent] = useState<"general" | "commercial">("general");
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const [repeatOrderId, setRepeatOrderId] = useState<number | null>(null);
   const [rateEditorOpen, setRateEditorOpen] = useState(false);
   const [exchangeRateInput, setExchangeRateInput] = useState(activeRate ? String(activeRate) : "");
   const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
@@ -5239,7 +5249,7 @@ export default function OrdersWorkspaceClient({
             <button
               className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/40"
               type="button"
-              onClick={() => setCreateOrderOpen(true)}
+              onClick={() => { setRepeatOrderId(null); setCreateOrderOpen(true); }}
             >
               Nuevo pedido
             </button>
@@ -5474,6 +5484,7 @@ export default function OrdersWorkspaceClient({
           onRetryDetail={refreshSelectedOrderDetail}
           onClose={closeOrderDetail}
           onEditOrder={(order, intent = "general") => { setEditingIntent(intent); setEditingOrderId(order.id); }}
+          onRepeatOrder={(order) => { setRepeatOrderId(order.id); closeOrderDetail(); setCreateOrderOpen(true); }}
           onDirectAction={runDirectOrderAction}
           onCreatePaymentReport={runCreatePaymentReport}
           drivers={drivers}
@@ -5483,6 +5494,7 @@ export default function OrdersWorkspaceClient({
       ) : null}
       {createOrderOpen ? <MasterOpsOrderEditor
         mode="create"
+        templateOrderId={repeatOrderId}
         open={createOrderOpen}
         focusDate={focusDate}
         roles={roles}
