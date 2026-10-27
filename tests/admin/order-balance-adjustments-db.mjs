@@ -80,6 +80,7 @@ const legacyGain=await order();const legacyReport=await report(legacyGain,14.5);
 const legacyReceipt=await confirm(legacyReport,14.5),legacyGainBefore=await record(legacyGain),legacyGainState=await state(legacyGain);
 const paidClosures=(await db.query("select * from advisor_commission_closures where status='paid'")).rows;
 await db.exec(read('supabase/migrations/20261027141044_separate_order_balance_adjustments.sql'));
+await db.exec(read('supabase/migrations/20261027142431_order_shortfall_half_dollar_limit.sql'));
 
 test('separate balance adjustments — real PostgreSQL',async t=>{
  try {
@@ -110,6 +111,28 @@ test('separate balance adjustments — real PostgreSQL',async t=>{
    await voidPayment(m);assert.equal(Number((await state(id)).pending_usd),14);
    await assert.rejects(close(id,0.02,key),/anuló un movimiento/);
    assert.deepEqual(await record(id),before,'void never rewrites the price or sale metadata');
+  });
+  await t.test('Admin can waive through USD0.50 inclusive, without changing prices, cash or commissions',async()=>{
+   for(const amount of [0.09,0.10,0.49,0.50]) for(const currency of ['USD','VES']) {
+    const id=await order(),paid=Number((14-amount).toFixed(2)),native=currency==='USD'?paid:paid*900;
+    const movement=await pay(id,native,currency,900),before=await record(id),key=randomUUID();
+    const first=await close(id,amount,key),retry=await close(id,amount,key),s=await state(id,1000);
+    assert.equal(first.adjustmentId,retry.adjustmentId);assert.equal(retry.replayed,true);
+    assert.deepEqual(await record(id),before);assert.equal(Number(s.pending_usd),0);assert.equal(Number(s.pending_bs),0);
+    assert.equal(Number(s.total_usd),14);assert.equal(Number(s.confirmed_paid_usd),paid);
+    assert.equal(getOrderCommercialNetUsd(await record(id))*0.05,getOrderCommercialNetUsd(before)*0.05);
+    assert.equal(Number((await db.query('select amount from money_movements where id=$1',[movement])).rows[0].amount),native);
+    assert.equal(Number((await db.query('select amount_usd from order_balance_adjustments_v1 where order_id=$1',[id])).rows[0].amount_usd),amount);
+   }
+   const id=await order();await pay(id,13.49);const before=await record(id);
+   await assert.rejects(close(id,0.51),/USD 0,50/);
+   await assert.rejects(close(id,0.50),/saldo cambió/);
+   assert.equal(Number((await state(id)).pending_usd),0.51);assert.deepEqual(await record(id),before);
+   assert.equal(Number((await db.query('select count(*) n from order_balance_adjustments_v1 where order_id=$1',[id])).rows[0].n),0);
+  });
+  await t.test('both order screens use the same fifty-cent shortfall limit',()=>{
+   for(const path of ['src/components/orders/OrdersWorkspaceClient.tsx','src/app/app/master/dashboard/MasterDashboardClient.tsx'])
+    assert.match(read(path),/ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0\.50;/);
   });
   await t.test('a waiver never masks a later authorized increase or an additional payment',async()=>{
    const id=await order();await pay(id,13.98);await close(id,0.02);
@@ -164,7 +187,7 @@ test('separate balance adjustments — real PostgreSQL',async t=>{
   });
   await t.test('limits, stale balances, cancelled orders, anonymous and non-admin callers fail closed',async()=>{
    const id=await order();await pay(id,13.95);
-   await assert.rejects(close(id,0.04),/saldo cambió/);await assert.rejects(close(id,0.5),/límite/);
+   await assert.rejects(close(id,0.04),/saldo cambió/);await assert.rejects(close(id,0.51),/límite/);
    await db.exec("set test.role='advisor'");await assert.rejects(close(id,0.05),/Solo Administración/);
    await db.exec("set test.role='master'");await assert.rejects(close(id,0.05),/Solo Administración/);
    await db.exec("set test.role='admin'");await db.query("update orders set status='cancelled' where id=$1",[id]);

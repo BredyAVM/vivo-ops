@@ -394,7 +394,7 @@ Ver [implementación y pruebas](ORDER_BALANCE_ADJUSTMENTS_2026-10-27.md).
 
 Reglas:
 
-- si falta dinero, solo Administración puede cerrar una diferencia máxima de `0.09 USD`;
+- si falta dinero, solo Administración puede cerrar una diferencia máxima de `0.50 USD` (ampliación aprobada el 27/10/2026);
 - si sobra dinero y el cliente solicita recibirlo, se entrega como cambio;
 - si el cliente desea conservarlo, se mantiene en su fondo;
 - si el cliente manifiesta que deja voluntariamente el remanente, Counter puede cerrar directamente hasta `1.00 USD` como diferencia cedida;

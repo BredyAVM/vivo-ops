@@ -460,7 +460,7 @@ function getLoadedMasterOpsPaymentSuggestion(
   };
 }
 
-const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.09;
+const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.50;
 const ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD = 1;
 
 function getPaymentAccountLabel(option: MasterOpsPaymentAccountOption) {

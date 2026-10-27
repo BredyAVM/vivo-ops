@@ -8,10 +8,16 @@ comisión. El cobro real continúa siendo el cobro real, no se aumenta para simu
 que el cliente pagó lo perdonado. La diferencia queda en un ledger independiente
 y en el historial administrativo de la orden.
 
-- Faltante: solo Administración, máximo USD 0,09, límite existente sin ampliación.
+- Faltante: solo Administración, máximo USD 0,50 inclusive. El usuario amplió
+  explícitamente el límite anterior de USD 0,09 el 27/10/2026.
 - Cambio cedido al confirmar: Administración, máximo USD 1,00, límite existente.
 - Counter conserva su cierre de remanentes de hasta USD 1,00 y su débito exacto
   del fondo previamente acreditado. No hay otro ingreso o egreso de efectivo.
+
+Ampliación aplicada mediante `20261027142431_order_shortfall_half_dollar_limit.sql`:
+solo modifica el techo de autorización del comando y sus dos pantallas. Pruebas
+con USD 0,09 / 0,10 / 0,49 / 0,50 en USD y VES; USD 0,51 rechazado incluso si se
+envía un saldo esperado de 0,50. Reintentos, caja, precio y comisión sin cambios.
 - La lectura canónica agrega esos ajustes únicamente al pendiente/saldo a favor;
   no los incorpora a facturación ni al dinero confirmado. Cero pendiente puede
   significar cobro completo **o** cobro más ajuste documentado.
@@ -62,7 +68,8 @@ la migración sobre PostgreSQL aislado (PGlite), con registros ficticios:
 
 No ejecuta operaciones reales ni es una prueba de carga concurrente. Se conserva
 el motor de comisiones y el comportamiento de conversión precisa; no se cambian
-los permisos de conceder descuentos ni los límites monetarios vigentes.
+los permisos de conceder descuentos. La ampliación posterior del límite de
+faltantes a USD 0,50 no modifica el límite de cambio cedido de USD 1,00.
 
 ## Publicación
 

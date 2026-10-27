@@ -1271,7 +1271,7 @@ type MasterInboxStateItemInput = {
 
 type ViewMode = 'operations' | 'settings' | 'calculations';
 
-const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.09;
+const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.50;
 const ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD = 1;
 const QUOTE_PRICE_REVIEW_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 type ToastState = {
