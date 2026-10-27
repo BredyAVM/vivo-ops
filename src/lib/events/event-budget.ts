@@ -3,6 +3,12 @@ export type EventCommissionMode = 'default' | 'fixed_item' | 'fixed_order' | 'no
 export type EventBudgetCurrency = 'USD' | 'VES';
 export type EventBudgetFulfillment = 'pickup' | 'delivery';
 
+// Creation default only. Never use this to reinterpret an existing event or closure.
+export const NEW_EVENT_BUDGET_COMMISSION = Object.freeze({
+  mode: 'fixed_item' as const,
+  value: 5,
+});
+
 export type EventBudgetComponent = {
   productId: number;
   productName: string;

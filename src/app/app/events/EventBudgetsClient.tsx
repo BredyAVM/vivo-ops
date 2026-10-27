@@ -4,6 +4,7 @@ import Link from '@/components/navigation/ContextLink';
 import { useMemo, useState, useTransition } from 'react';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import {
+  NEW_EVENT_BUDGET_COMMISSION,
   type EventBudgetData,
   type EventCommissionMode,
   type EventPreparationMode,
@@ -114,8 +115,8 @@ export default function EventBudgetsClient({
   const [notes, setNotes] = useState('');
   const [negotiatedCurrency, setNegotiatedCurrency] = useState<'USD' | 'VES'>('USD');
   const [negotiatedAmount, setNegotiatedAmount] = useState('');
-  const [commissionMode, setCommissionMode] = useState<EventCommissionMode>('default');
-  const [commissionValue, setCommissionValue] = useState('');
+  const [commissionMode, setCommissionMode] = useState<EventCommissionMode>(NEW_EVENT_BUDGET_COMMISSION.mode);
+  const [commissionValue, setCommissionValue] = useState(String(NEW_EVENT_BUDGET_COMMISSION.value));
   const [productSearch, setProductSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
   const [componentQty, setComponentQty] = useState('1');
@@ -153,8 +154,8 @@ export default function EventBudgetsClient({
     setNotes('');
     setNegotiatedCurrency('USD');
     setNegotiatedAmount('');
-    setCommissionMode('default');
-    setCommissionValue('');
+    setCommissionMode(NEW_EVENT_BUDGET_COMMISSION.mode);
+    setCommissionValue(String(NEW_EVENT_BUDGET_COMMISSION.value));
     setProductSearch('');
     setSelectedProductId('');
     setComponents([]);
@@ -372,7 +373,7 @@ export default function EventBudgetsClient({
               <label className="text-xs text-[#B9B9C3]">Dirección<input value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} disabled={fulfillment !== 'delivery'} className={`${fieldClass()} mt-1 disabled:opacity-50`} /></label>
               {fulfillment === 'delivery' && !hasDeliveryComponent ? <div className="md:col-span-2 rounded-xl border border-amber-400/35 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">Falta agregar el producto de delivery correspondiente antes de convertir este presupuesto en orden.</div> : null}
               <label className="text-xs text-[#B9B9C3]">Moneda y precio negociado<div className="mt-1 grid grid-cols-[100px_1fr] gap-2"><select value={negotiatedCurrency} onChange={(event) => setNegotiatedCurrency(event.target.value as 'USD' | 'VES')} className={fieldClass()}><option value="USD">USD</option><option value="VES">VES</option></select><input value={negotiatedAmount} onChange={(event) => setNegotiatedAmount(event.target.value)} inputMode="decimal" className={fieldClass()} /></div></label>
-              <label className="text-xs text-[#B9B9C3]">Comisión<select value={commissionMode} onChange={(event) => setCommissionMode(event.target.value as EventCommissionMode)} className={`${fieldClass()} mt-1`}><option value="default">Comisión general</option><option value="fixed_item">Porcentaje específico</option><option value="none">Sin comisión</option></select>{commissionMode === 'fixed_item' ? <input value={commissionValue} onChange={(event) => setCommissionValue(event.target.value)} inputMode="decimal" className={`${fieldClass()} mt-2`} placeholder="Porcentaje" /> : null}</label>
+              <label className="text-xs text-[#B9B9C3]">Comisión<select value={commissionMode} onChange={(event) => setCommissionMode(event.target.value as EventCommissionMode)} className={`${fieldClass()} mt-1`}><option value="default">Comisión general</option><option value="fixed_item">Porcentaje fijo del evento</option><option value="none">Sin comisión</option></select>{commissionMode === 'fixed_item' ? <input aria-label="Porcentaje de comisión del evento" value={commissionValue} onChange={(event) => setCommissionValue(event.target.value)} inputMode="decimal" className={`${fieldClass()} mt-2`} placeholder="Porcentaje" /> : null}</label>
             </div>
             <label className="block text-xs text-[#B9B9C3]">Notas y condiciones<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} className={`${fieldClass()} mt-1 resize-y`} /></label>
 

@@ -54,6 +54,16 @@ El pago real es un hecho posterior e independiente. Debe registrarse en la moned
 
 ## Comisión
 
+Desde el 2026-10-27, el formulario de **Nuevo evento** comienza con **5% fijo**
+sobre el importe negociado de la línea del evento (`fixed_item`). Incluye los
+servicios que formen parte de ese importe; una línea independiente de delivery
+conserva su propia regla. Administración puede elegir explícitamente otra condición.
+
+Es exclusivamente un valor inicial de creación y de «Nuevo evento»: abrir o convertir
+un borrador existente conserva sus términos guardados. No se modifica el producto
+técnico `PACK_EVENTO`, no se migran órdenes anteriores ni se recalculan cierres
+históricos, especialmente los ya pagados.
+
 La propuesta permite:
 
 - comisión general del asesor;
