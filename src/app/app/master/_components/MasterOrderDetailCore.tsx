@@ -521,6 +521,7 @@ export function MasterOrderDetailBody({
   actionLabel,
   showDeliveryProcessDetails = true,
   showPaymentExchangeRate = true,
+  showPaymentRateReview = true,
   renderPaymentReportAction,
 }: {
   order: MasterOrderDetailOrder;
@@ -528,6 +529,7 @@ export function MasterOrderDetailBody({
   actionLabel: string;
   showDeliveryProcessDetails?: boolean;
   showPaymentExchangeRate?: boolean;
+  showPaymentRateReview?: boolean;
   renderPaymentReportAction?: (report: MasterOrderPaymentReport) => ReactNode;
 }) {
   const paymentLabel = masterOrderPaymentLabel(order);
@@ -784,7 +786,7 @@ export function MasterOrderDetailBody({
                     ) : null}
                   </div>
                   {report.notes ? <div className="mt-2 text-[11px] text-[#B7B7C2]">Notas: <span className="text-[#F5F5F7]">{report.notes}</span></div> : null}
-                  {report.status === 'pending' && report.currencyCode === 'VES' ? <PaymentRateReview reportId={report.id} /> : null}
+                  {showPaymentRateReview && report.status === 'pending' && report.currencyCode === 'VES' ? <PaymentRateReview reportId={report.id} /> : null}
                 </div>
               ))}
             </div>

@@ -2465,6 +2465,7 @@ function OrderDetailPanel({
                     order={order}
                     showDeliveryProcessDetails={false}
                     showPaymentExchangeRate={false}
+                    showPaymentRateReview={false}
                     renderPaymentReportAction={(report) => (
                       <PaymentVerificationCopyButton
                         input={{ orderId: order.id, clientName: order.clientName, report }}

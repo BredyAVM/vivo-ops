@@ -181,6 +181,7 @@ test('Workspace loads only the selected pending payment on explicit review, gate
   assert.match(open, /if \(paymentConfirmationLoading.current\) return/);
   assert.match(ui, /!overpaymentDecisionValid \|\| !rateReviewReady/);
   assert.match(ui, /<PaymentRateReview key=\{report.id\}/);
+  assert.match(ui, /showPaymentRateReview=\{false\}/);
   assert.match(ui, /readOnly=\{paymentRateFieldsLocked\}/);
   assert.match(ui, /paymentRateCoveragePreview\(payload.paymentRateReview/);
   const area = ui.slice(ui.indexOf('<PaymentRateReview key={report.id}'), ui.indexOf('Datos que se registraran al confirmar'));
