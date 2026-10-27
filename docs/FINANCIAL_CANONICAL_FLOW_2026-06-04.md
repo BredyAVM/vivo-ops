@@ -386,6 +386,12 @@ Resultado canonico:
 
 ### 9. Cierre por redondeo o diferencia cedida
 
+Actualización prospectiva del 27/10/2026: todo cierre nuevo es un ajuste de saldo
+separado en `order_balance_adjustments_v1`. No cambia el total USD/Bs de la orden,
+sus ítems, impuestos ni base de comisión; no fabrica un pago o movimiento de caja.
+Los cierres históricos y las liquidaciones ya pagadas se conservan sin recálculo.
+Ver [implementación y pruebas](ORDER_BALANCE_ADJUSTMENTS_2026-10-27.md).
+
 Reglas:
 
 - si falta dinero, solo Administración puede cerrar una diferencia máxima de `0.09 USD`;
@@ -399,7 +405,7 @@ Reglas:
 Resultado:
 
 - debe quedar registro auditable en `order_admin_adjustments`
-- debe quedar un movimiento de fondo ligado a la orden, el operador y la operación idempotente;
+- solo cuando el excedente ya estaba guardado en fondo, debe quedar su débito ligado a la orden, el operador y la operación idempotente;
 - no se crea un movimiento de efectivo adicional porque el ingreso real ya fue registrado.
 
 ### 9.1 Cambio superior al excedente disponible

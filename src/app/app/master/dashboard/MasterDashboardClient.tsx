@@ -3223,6 +3223,8 @@ function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
     })),
     adminAdjustments: order.adminAdjustments.map((adjustment) => ({
       id: adjustment.id,
+      balanceAdjustmentUsd: adjustment.payload?.kind === 'order_balance_adjustment_v1'
+        ? Number(adjustment.payload.amount_usd ?? 0) : null,
       adjustmentType: adjustment.adjustmentType,
       reason: adjustment.reason,
       notes: adjustment.notes,
@@ -4996,6 +4998,8 @@ const [paymentGiveChangeLines, setPaymentGiveChangeLines] = useState<ClientFundP
 const [paymentGiveChangeNotes, setPaymentGiveChangeNotes] = useState('');
 const fundPayoutRequestRef = useRef<string | null>(null);
 const fundPayoutBusyRef = useRef(false);
+const roundingRequestRef = useRef<{ key: string; id: string } | null>(null);
+const roundingBusyRef = useRef(false);
 const [fundPayoutSaving, setFundPayoutSaving] = useState(false);
 const [paymentConfirmBoxOpen, setPaymentConfirmBoxOpen] = useState(false);
 const [paymentConfirmReportId, setPaymentConfirmReportId] = useState<number | null>(null);
@@ -7665,6 +7669,7 @@ const handleDeliverClientChange = async (o: Order) => {
 };
 
 const handleCloseRoundingBalance = async (o: Order) => {
+  if (roundingBusyRef.current) return;
   try {
     if (!permissions.canCloseOrderRoundingBalance) {
       showToast('error', 'No tienes permiso para cerrar diferencias.');
@@ -7684,11 +7689,16 @@ const handleCloseRoundingBalance = async (o: Order) => {
       return;
     }
 
-    const notes =
-      window.prompt('Nota del cierre por redondeo (opcional):', 'Ajuste por redondeo') ?? '';
+    const notes = window.prompt('Se perdonará el saldo sin cambiar el precio ni la comisión. Motivo:', 'Ajuste por redondeo');
+    if (notes === null) return;
+    const key = JSON.stringify([o.id, o.balanceUsd, notes.trim()]);
+    if (roundingRequestRef.current?.key !== key) roundingRequestRef.current = { key, id: crypto.randomUUID() };
+    roundingBusyRef.current = true;
 
     const result = await closeOrderRoundingBalanceAction({
       orderId: o.id,
+      requestId: roundingRequestRef.current.id,
+      expectedDifferenceUsd: o.balanceUsd,
       notes: notes.trim() || null,
     });
 
@@ -7697,6 +7707,7 @@ const handleCloseRoundingBalance = async (o: Order) => {
       return;
     }
 
+    roundingRequestRef.current = null;
     showToast(
       'success',
       result.auditWarning
@@ -7708,6 +7719,8 @@ const handleCloseRoundingBalance = async (o: Order) => {
     const message =
       err instanceof Error ? err.message : 'Error cerrando la diferencia.';
     showToast('error', message);
+  } finally {
+    roundingBusyRef.current = false;
   }
 };
 
@@ -7716,7 +7729,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
     const today = new Date().toISOString().slice(0, 10);
     const isRetentionConfirmation = Boolean(rp.isRetention);
     const predictedExcessUsd = Number(
-      Math.max(0, o.confirmedPaidUsd + rp.usdEquivalent - o.totalUsd).toFixed(2)
+      Math.max(0, rp.usdEquivalent - o.balanceUsd).toFixed(2)
     );
     const reviewNotes = paymentConfirmReviewNotes.trim();
     let overpaymentHandling: 'change_given' | 'store_fund' | 'close_difference' | null =
@@ -7874,7 +7887,7 @@ const handleRejectPayment = async (rp: PaymentReportItem) => {
 
 const openConfirmPaymentBox = (o: Order, rp: PaymentReportItem) => {
   const predictedExcessUsd = Number(
-    Math.max(0, o.confirmedPaidUsd + rp.usdEquivalent - o.totalUsd).toFixed(2)
+    Math.max(0, rp.usdEquivalent - o.balanceUsd).toFixed(2)
   );
 
   setPaymentConfirmReportId(rp.id);
@@ -12166,7 +12179,7 @@ const selectedConfirmPaymentExcessUsd =
     ? Number(
         Math.max(
           0,
-          selectedOrder.confirmedPaidUsd + selectedConfirmPaymentReport.usdEquivalent - selectedOrder.totalUsd
+          selectedConfirmPaymentReport.usdEquivalent - selectedOrder.balanceUsd
         ).toFixed(2)
       )
     : 0;
@@ -13810,6 +13823,7 @@ const selectedCreateOrderClientAddresses = useMemo(
             changedFields,
             changedFieldLabels,
             adjustmentKind: typeof payload.kind === 'string' ? payload.kind : '',
+            balanceAdjustmentUsd: Number(payload.amount_usd ?? 0),
           };
         })
       )
@@ -18632,6 +18646,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     <td className="px-3 py-3">
                       {row.adjustmentKind === 'admin_full_edit' || row.adjustmentKind === 'master_full_edit'
                         ? row.adjustmentKind === 'master_full_edit' ? 'Modificación master' : 'Modificación admin'
+                        : row.adjustmentKind === 'order_balance_adjustment_v1'
+                          ? 'Ajuste de saldo'
                         : row.adjustmentKind === 'rounding_writeoff' || row.adjustmentKind === 'rounding_gain_close'
                           ? 'Cierre por redondeo'
                           : row.adjustmentType === 'item_price_override'
@@ -18644,11 +18660,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           ? row.changedFieldLabels.length > 0
                             ? row.changedFieldLabels.join(', ')
                             : 'Modificación auditada'
+                          : row.adjustmentKind === 'order_balance_adjustment_v1'
+                            ? 'Precio y comisiones sin cambios'
                           : row.adjustmentKind === 'rounding_writeoff' || row.adjustmentKind === 'rounding_gain_close'
                             ? 'Total ajustado al monto confirmado'
                             : row.productName}
                       </div>
-                      {row.adjustmentKind === 'admin_full_edit' || row.adjustmentKind === 'master_full_edit' ? null : (
+                      {row.adjustmentKind === 'admin_full_edit' || row.adjustmentKind === 'master_full_edit' || row.adjustmentKind === 'order_balance_adjustment_v1' ? null : (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">
                           {fmtUSD(row.originalUnitUsd)} {'->'} {fmtUSD(row.overrideUnitUsd)}
                           {row.qty > 0 ? ` · x${row.qty}` : ''}
@@ -18663,7 +18681,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </td>
                     <td className="px-3 py-3">
                       <span className={row.deltaUsd < 0 ? 'text-orange-400' : row.deltaUsd > 0 ? 'text-emerald-400' : 'text-[#B7B7C2]'}>
-                        {row.deltaUsd > 0 ? '+' : ''}{fmtUSD(row.deltaUsd)}
+                        {row.adjustmentKind === 'order_balance_adjustment_v1' ? fmtUSD(row.balanceAdjustmentUsd) : <>{row.deltaUsd > 0 ? '+' : ''}{fmtUSD(row.deltaUsd)}</>}
                       </span>
                     </td>
                   </tr>
@@ -20861,6 +20879,7 @@ onClose={() => {
           const qty = Number(payload.qty ?? 0);
           const changedFieldLabels = getAdjustmentChangedFields(payload).map(mapAdjustmentFieldLabel);
           const isFullOrderEdit = payload.kind === 'admin_full_edit' || payload.kind === 'master_full_edit';
+          const isBalanceAdjustment = payload.kind === 'order_balance_adjustment_v1';
 
           return (
             <div
@@ -20872,6 +20891,8 @@ onClose={() => {
                   <div className="text-sm font-medium text-[#F5F5F7]">
                     {isFullOrderEdit
                       ? payload.kind === 'master_full_edit' ? 'Modificación master' : 'Modificación administrativa'
+                      : isBalanceAdjustment
+                      ? 'Ajuste de saldo'
                       : payload.kind === 'rounding_writeoff' || payload.kind === 'rounding_gain_close'
                       ? 'Cierre por redondeo'
                       : adjustment.adjustmentType === 'item_price_override'
@@ -20884,7 +20905,7 @@ onClose={() => {
                 </div>
 
                 <SmallBadge
-                  label={deltaUsd !== 0 ? `${deltaUsd > 0 ? '+' : ''}${fmtUSD(deltaUsd)}` : 'Sin delta'}
+                  label={isBalanceAdjustment ? fmtUSD(Number(payload.amount_usd ?? 0)) : deltaUsd !== 0 ? `${deltaUsd > 0 ? '+' : ''}${fmtUSD(deltaUsd)}` : 'Sin delta'}
                   tone={deltaUsd < 0 ? 'brand' : deltaUsd > 0 ? 'warn' : 'muted'}
                 />
               </div>
@@ -20904,13 +20925,15 @@ onClose={() => {
                         : 'Modificación auditada'
                       : payload.kind === 'rounding_writeoff' || payload.kind === 'rounding_gain_close'
                         ? 'Total ajustado al monto confirmado'
+                        : isBalanceAdjustment
+                        ? 'Precio y comisiones sin cambios'
                         : productName}
                     {!isFullOrderEdit && qty > 0 ? ` · x${qty}` : ''}
                   </div>
                 </div>
               </div>
 
-              {isFullOrderEdit ? null : (
+              {isFullOrderEdit || isBalanceAdjustment ? null : (
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
                     <div className="text-[10px] text-[#8A8A96]">Precio original</div>

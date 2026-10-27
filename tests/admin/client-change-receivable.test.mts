@@ -36,10 +36,12 @@ test('both payout forms guard double clicks and show the receivable before confi
   assert.doesNotMatch(opsUi, /disabled=\{busy \|\| fundPayoutTotalUsd <= 0\.005 \|\| fundPayoutExceedsAvailable\}/);
 });
 
-test('rounding uses the same canonical debt as collections instead of all raw outflows', () => {
-  const body = actions.slice(actions.indexOf('export async function closeOrderRoundingBalanceAction'), actions.indexOf('export async function closeOrderRoundingBalanceAction') + 8500);
-  assert.match(body, /rpc\('get_order_financial_state'/);
-  assert.match(body, /roundMoney\(financial.pending_usd\)/);
+test('rounding delegates to one atomic balance-only command without editing the order price', () => {
+  const body = actions.slice(actions.indexOf('export async function closeOrderRoundingBalanceAction'), actions.indexOf('function normalizeTagList'));
+  assert.match(body, /rpc\('close_order_balance_difference_v1'/);
+  assert.match(body, /p_expected_usd: input.expectedDifferenceUsd/);
+  assert.match(body, /p_request_id: input.requestId/);
+  assert.doesNotMatch(body, /\.update\(|\.insert\(|nextTotalUsd/);
 });
 
 test('explicit change debt is preserved exactly and absent legacy consent remains absent', () => {

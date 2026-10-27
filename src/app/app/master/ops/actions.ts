@@ -23,6 +23,7 @@ import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApp
 import { preservedAgreedPriceSnapshot, preservedOperationalSnapshot } from "@/lib/orders/operational-edit-pricing";
 import {
   cancelOrderAction,
+  closeOrderRoundingBalanceAction,
   confirmPaymentReportAction,
   createOrderAction,
   searchMasterOrdersAction,
@@ -51,7 +52,6 @@ import type {
 } from "../../counter/pickup-contract";
 
 const MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD = 1;
-const MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD = 0.09;
 const MASTER_OPS_DETAIL_ITEM_RETRY_DELAYS_MS = [120, 320] as const;
 
 export type MasterOpsOrderSearchResult = {
@@ -203,6 +203,8 @@ type MasterOpsDetailEventRow = {
 };
 
 type MasterOpsDetailAdjustmentRow = {
+  payload_kind: string | null;
+  balance_adjustment_usd: number | string | null;
   id: number;
   adjustment_type: string | null;
   reason: string | null;
@@ -428,7 +430,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
         .limit(250),
       supabase
         .from("order_admin_adjustments")
-        .select("id, adjustment_type, reason, notes, created_at, created_by_user_id")
+        .select("id, adjustment_type, reason, notes, created_at, created_by_user_id, payload_kind:payload->>kind, balance_adjustment_usd:payload->>amount_usd")
         .eq("order_id", orderId)
         .order("created_at", { ascending: false }),
       supabase
@@ -656,6 +658,8 @@ export async function loadMasterOpsOrderDetailAction(input: {
     const adminAdjustments: MasterOrderAdminAdjustment[] = orderAdjustments.map((adjustment) => ({
       id: Number(adjustment.id),
       adjustmentType: masterOpsAdjustmentLabel(adjustment.adjustment_type),
+      balanceAdjustmentUsd: adjustment.payload_kind === "order_balance_adjustment_v1"
+        ? roundOpsMoney(adjustment.balance_adjustment_usd) : null,
       reason: cleanText(adjustment.reason, "--"),
       notes: adjustment.notes ?? null,
       createdAt: adjustment.created_at,
@@ -1048,14 +1052,6 @@ type MasterOpsServerClient = Awaited<
   ReturnType<typeof requireMasterOrAdminContext>
 >["supabase"];
 
-type MasterOpsFinancialState = {
-  totalUsd: number;
-  totalBs: number;
-  appliedPaidUsd: number;
-  clientFundUsedUsd: number;
-  pendingUsd: number;
-};
-
 function roundOpsMoney(value: unknown) {
   const amount = Number(value);
   return Number.isFinite(amount) ? Number(amount.toFixed(2)) : 0;
@@ -1065,32 +1061,6 @@ function asOpsRecord(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? { ...(value as Record<string, any>) }
     : {};
-}
-
-async function loadMasterOpsFinancialState(
-  supabase: MasterOpsServerClient,
-  orderId: number,
-  activeBsRate: number | null = null
-): Promise<MasterOpsFinancialState> {
-  const { data, error } = await (supabase as any).rpc("get_orders_financial_state", {
-    p_order_ids: [orderId],
-    p_operation_date: null,
-    p_active_bs_rate: activeBsRate,
-  });
-
-  if (error) throw new Error(error.message);
-  const row = Array.isArray(data)
-    ? data.find((item) => Number(item?.order_id || 0) === orderId)
-    : null;
-  if (!row) throw new Error("No se pudo cargar el estado financiero actual de la orden.");
-
-  return {
-    totalUsd: roundOpsMoney(row.total_usd),
-    totalBs: roundOpsMoney(row.total_bs),
-    appliedPaidUsd: roundOpsMoney(row.confirmed_paid_usd),
-    clientFundUsedUsd: roundOpsMoney(row.client_fund_used_usd),
-    pendingUsd: Math.max(0, roundOpsMoney(row.pending_usd)),
-  };
 }
 
 async function validateMasterOpsMoneyLines(
@@ -1178,135 +1148,10 @@ export async function settleMasterOpsClientFundPayoutAction(input: {
   return settleClientFundPayoutAction(input);
 }
 
-export async function closeMasterOpsRoundingBalanceAction(input: {
-  orderId: number;
-  notes?: string | null;
-}) {
-  try {
-    const { supabase, user, roles } = await requireMasterOrAdminContext();
-    if (!roles.includes("admin")) {
-      throw new Error("Solo admin puede cerrar diferencias de redondeo.");
-    }
-
-    const orderId = Number(input.orderId || 0);
-    if (!Number.isFinite(orderId) || orderId <= 0) throw new Error("Orden invalida.");
-
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .select("id, status, total_usd, total_bs_snapshot, extra_fields")
-      .eq("id", orderId)
-      .maybeSingle();
-
-    if (orderError) throw new Error(orderError.message);
-    if (!order) throw new Error("No se pudo cargar la orden.");
-    if (order.status === "cancelled") {
-      throw new Error("No puedes cerrar diferencias en una orden cancelada.");
-    }
-
-    const extraFields = asOpsRecord(order.extra_fields);
-    const pricing = asOpsRecord(extraFields.pricing);
-    const payment = asOpsRecord(extraFields.payment);
-    const fxRate = Number(pricing.fx_rate || 0);
-    const financialState = await loadMasterOpsFinancialState(
-      supabase,
-      orderId,
-      Number.isFinite(fxRate) && fxRate > 0 ? fxRate : null
-    );
-    const pendingUsd = financialState.pendingUsd;
-
-    if (pendingUsd <= 0.005) {
-      throw new Error("Esta orden ya no tiene una diferencia pendiente por cerrar.");
-    }
-    if (pendingUsd > MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD) {
-      throw new Error(
-        `Solo se pueden cerrar diferencias de hasta ${MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD.toFixed(2)} USD.`
-      );
-    }
-
-    const currentTotalUsd = financialState.totalUsd || roundOpsMoney(order.total_usd);
-    const currentTotalBs = financialState.totalBs || roundOpsMoney(order.total_bs_snapshot);
-    const nextTotalUsd = roundOpsMoney(currentTotalUsd - pendingUsd);
-    const nextTotalBs =
-      Number.isFinite(fxRate) && fxRate > 0
-        ? roundOpsMoney(nextTotalUsd * fxRate)
-        : currentTotalUsd > 0
-          ? roundOpsMoney((currentTotalBs / currentTotalUsd) * nextTotalUsd)
-          : currentTotalBs;
-    const nowIso = new Date().toISOString();
-    const notes = String(input.notes || "").trim() || null;
-
-    pricing.total_usd = nextTotalUsd;
-    pricing.total_bs = nextTotalBs;
-    pricing.rounding_closed_usd = pendingUsd;
-    pricing.rounding_close_applied_at = nowIso;
-    pricing.rounding_close_applied_by = user.id;
-    payment.rounding_close = {
-      closed_balance_usd: pendingUsd,
-      previous_total_usd: currentTotalUsd,
-      next_total_usd: nextTotalUsd,
-      applied_at: nowIso,
-      applied_by: user.id,
-      notes,
-    };
-    extraFields.pricing = pricing;
-    extraFields.payment = payment;
-
-    const { data: updatedOrder, error: updateOrderError } = await supabase
-      .from("orders")
-      .update({
-        total_usd: nextTotalUsd,
-        total_bs_snapshot: nextTotalBs,
-        extra_fields: extraFields,
-        last_modified_at: nowIso,
-        last_modified_by: user.id,
-      })
-      .eq("id", orderId)
-      .neq("status", "cancelled")
-      .select("id")
-      .maybeSingle();
-
-    if (updateOrderError) throw new Error(updateOrderError.message);
-    if (!updatedOrder) throw new Error("La orden cambio antes de cerrar la diferencia.");
-
-    const { error: adjustmentError } = await supabase
-      .from("order_admin_adjustments")
-      .insert({
-        order_id: orderId,
-        order_item_id: null,
-        adjustment_type: "other",
-        reason: "Cierre de diferencia por redondeo",
-        notes,
-        payload: {
-          kind: "rounding_writeoff",
-          delta_usd: -pendingUsd,
-          original_unit_price_usd: currentTotalUsd,
-          override_unit_price_usd: nextTotalUsd,
-          product_name: "Cierre por redondeo",
-          qty: 1,
-          closed_balance_usd: pendingUsd,
-          previous_total_usd: currentTotalUsd,
-          previous_total_bs: currentTotalBs,
-          applied_paid_usd: financialState.appliedPaidUsd,
-          client_fund_used_usd: financialState.clientFundUsedUsd,
-          next_total_usd: nextTotalUsd,
-          next_total_bs: nextTotalBs,
-        },
-        created_by_user_id: user.id,
-      });
-
-    revalidatePath("/app/master/ops");
-    revalidatePath("/app/admin/ordenes");
-    return {
-      ok: true as const,
-      id: orderId,
-      auditWarning: adjustmentError?.message ?? null,
-    };
-  } catch (error) {
-    return {
-      ok: false as const,
-      message: error instanceof Error ? error.message : "Error cerrando la diferencia por redondeo.",
-    };
-  }
+export async function closeMasterOpsRoundingBalanceAction(
+  input: Parameters<typeof closeOrderRoundingBalanceAction>[0]
+) {
+  return closeOrderRoundingBalanceAction(input);
 }
 
 export async function cancelMasterOpsOrderAction(input: Parameters<typeof cancelOrderAction>[0]) {

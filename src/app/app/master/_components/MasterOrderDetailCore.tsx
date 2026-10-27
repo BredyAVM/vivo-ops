@@ -72,6 +72,7 @@ export type MasterOrderEvent = {
 };
 
 export type MasterOrderAdminAdjustment = {
+  balanceAdjustmentUsd?: number | null;
   id: number;
   adjustmentType: string;
   reason: string;
@@ -859,12 +860,13 @@ export function MasterOrderDetailBody({
             <div key={adjustment.id} className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[#F5F5F7]">{adjustment.adjustmentType || "Ajuste"}</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">{adjustment.balanceAdjustmentUsd != null ? "Ajuste de saldo" : adjustment.adjustmentType || "Ajuste"}</div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
                     {adjustment.createdByName} - {formatMasterOrderDateTime(adjustment.createdAt)}
                   </div>
                 </div>
               </div>
+              {adjustment.balanceAdjustmentUsd != null ? <div className="mt-1 text-[12px] text-[#B7B7C2]">{formatMasterOrderUSD(adjustment.balanceAdjustmentUsd)} · Precio y comisiones sin cambios.</div> : null}
               <div className="mt-2 text-[12px] text-[#B7B7C2]">
                 Motivo: <span className="text-[#F5F5F7]">{adjustment.reason || "--"}</span>
               </div>

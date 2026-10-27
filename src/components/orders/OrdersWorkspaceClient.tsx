@@ -1396,6 +1396,8 @@ function OrderDetailPanel({
   const [returnQueueReason, setReturnQueueReason] = useState("");
   const [roundingBoxOpen, setRoundingBoxOpen] = useState(false);
   const [roundingNotes, setRoundingNotes] = useState("Ajuste por redondeo");
+  const roundingRequestRef = useRef<{ key: string; id: string } | null>(null);
+  const roundingBusyRef = useRef(false);
   const [cancelBoxOpen, setCancelBoxOpen] = useState(false);
   const cancellation = useOrderCancellationPreview(cancelBoxOpen ? order.id : null);
   const cancellationBusyRef = useRef(false);
@@ -1746,10 +1748,20 @@ function OrderDetailPanel({
 
   async function handleCloseRoundingSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const ok = await onDirectAction(order, "close-rounding", {
-      notes: roundingNotes,
-    });
-    if (ok) setRoundingBoxOpen(false);
+    if (roundingBusyRef.current) return;
+    const key = JSON.stringify([order.id, order.balanceUsd, roundingNotes.trim()]);
+    if (roundingRequestRef.current?.key !== key) roundingRequestRef.current = { key, id: crypto.randomUUID() };
+    roundingBusyRef.current = true;
+    try {
+      const ok = await onDirectAction(order, "close-rounding", {
+        notes: roundingNotes,
+        requestId: roundingRequestRef.current.id,
+        expectedDifferenceUsd: order.balanceUsd,
+      });
+      if (ok) { setRoundingBoxOpen(false); roundingRequestRef.current = null; }
+    } finally {
+      roundingBusyRef.current = false;
+    }
   }
 
   async function handleCancelSubmit(event: FormEvent<HTMLFormElement>) {
@@ -3412,6 +3424,7 @@ function OrderDetailPanel({
                     <div className="text-[12px] font-semibold text-[#FEEF00]">
                       Cerrar diferencia de {formatMasterOrderUSD(order.balanceUsd)}
                     </div>
+                    <p className="mt-1 text-xs text-[#C5C5CD]">Se perdona el saldo; no cambia el precio ni la base de comisiones.</p>
                     <input
                       className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
                       value={roundingNotes}
@@ -4858,6 +4871,8 @@ export default function OrdersWorkspaceClient({
       } else if (action === "close-rounding") {
         result = await closeMasterOpsRoundingBalanceAction({
           orderId: order.id,
+          requestId: payload.requestId || "",
+          expectedDifferenceUsd: payload.expectedDifferenceUsd ?? order.balanceUsd,
           notes: payload.notes?.trim() || null,
         });
       } else if (action === "add-note") {

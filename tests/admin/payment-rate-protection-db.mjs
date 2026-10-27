@@ -183,7 +183,8 @@ test('rate protection — actual PostgreSQL regressions',async(t)=>{
   });
   await t.test('the actual Admin atomic confirmation is replay-safe and cannot bypass the review',async()=>{
    const id=await makeOrder(),r=await report(id,84395.92);
-   const input={reportId:r,orderId:id,accountId:1,currency:'VES',amount:84395.92,rate:883.40,date:'2026-10-21',reviewNotes:'Comprobado',reference:'2468',overrideOperationDate:true,requireExplicitHandling:true,requireExactChange:true,changeLines:[]};
+   const operationDate=(await db.query('select current_date::text as value')).rows[0].value;
+   const input={reportId:r,orderId:id,accountId:1,currency:'VES',amount:84395.92,rate:883.40,date:operationDate,reviewNotes:'Comprobado',reference:'2468',overrideOperationDate:true,requireExplicitHandling:true,requireExactChange:true,changeLines:[]};
    const call=()=>db.query('select app_private.confirm_payment_report_atomic_v1($1) v',[JSON.stringify(input)]);
    await assert.rejects(call(),/Administración.*revisar/);await approve(r);
    const first=(await call()).rows[0].v;const second=(await call()).rows[0].v;

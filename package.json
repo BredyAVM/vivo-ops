@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:balance-adjustments": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/order-balance-adjustments-db.mjs tests/admin/client-change-receivable.test.mts",
     "test:own-transport": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/master-ops/own-transport-db.mjs tests/master-ops/own-transport.test.mts",
     "test:master-new-order-alerts": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/master-ops/advisor-created-push.test.mts tests/master-ops/advisor-created-push-db.mjs",
     "test:crm-benefit-preservation": "node --test tests/crm/order-benefit-preservation.test.mjs",

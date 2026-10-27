@@ -340,7 +340,6 @@ function canUseSnapshotForPaymentOperation(
   return compareDateOnly(effectiveOperationDate, deliveryDate) <= 0;
 }
 
-const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.09;
 const ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD = 1;
 const MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD = 10;
 
@@ -5022,152 +5021,30 @@ export async function createOrderAdminAdjustmentAction(input: {
 
 export async function closeOrderRoundingBalanceAction(input: {
   orderId: number;
+  requestId: string;
+  expectedDifferenceUsd: number;
   notes?: string | null;
 }) {
   try {
-  const { supabase, user, roles } = await requireMasterOrAdmin();
-
-  if (!getMasterDashboardPermissions(roles).canCloseOrderRoundingBalance) {
-    throw new Error('No tienes permiso para cerrar diferencias de redondeo.');
-  }
-
-  const orderId = Number(input.orderId);
-  if (!Number.isFinite(orderId) || orderId <= 0) {
-    throw new Error('Orden inválida.');
-  }
-
-  const { data: currentOrder, error: currentOrderError } = await supabase
-    .from('orders')
-    .select('id, status, total_usd, total_bs_snapshot, extra_fields')
-    .eq('id', orderId)
-    .single();
-
-  if (currentOrderError || !currentOrder) {
-    throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
-  }
-
-  if (currentOrder.status === 'cancelled') {
-    throw new Error('No puedes cerrar diferencias en una orden cancelada.');
-  }
-
-  const { data: financialRows, error: financialError } = await supabase.rpc('get_order_financial_state', {
-    p_order_id: orderId,
-  });
-  const financial = Array.isArray(financialRows) ? financialRows[0] : financialRows;
-  if (financialError || !financial) throw new Error(financialError?.message || 'No se pudo consultar el saldo de la orden.');
-  const confirmedPaidUsd = roundMoney(financial.confirmed_paid_usd);
-  const currentTotalUsd = roundMoney(financial.total_usd);
-  const currentTotalBs = roundMoney(financial.total_bs);
-  const pendingUsd = roundMoney(financial.pending_usd);
-
-  if (pendingUsd <= 0.005) {
-    throw new Error('Esta orden ya no tiene una diferencia pendiente por cerrar.');
-  }
-
-  if (pendingUsd > ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD) {
-    throw new Error(
-      `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD.toFixed(2)} USD.`
-    );
-  }
-
-  const extraFields =
-    currentOrder.extra_fields &&
-    typeof currentOrder.extra_fields === 'object' &&
-    !Array.isArray(currentOrder.extra_fields)
-      ? ({ ...currentOrder.extra_fields } as Record<string, any>)
-      : {};
-
-  const pricing =
-    extraFields.pricing && typeof extraFields.pricing === 'object' && !Array.isArray(extraFields.pricing)
-      ? { ...extraFields.pricing }
-      : {};
-
-  const payment =
-    extraFields.payment && typeof extraFields.payment === 'object' && !Array.isArray(extraFields.payment)
-      ? { ...extraFields.payment }
-      : {};
-
-  const fxRate = toSafeNumber(pricing.fx_rate, 0);
-  const nextTotalUsd = roundMoney(confirmedPaidUsd);
-  const nextTotalBs =
-    fxRate > 0
-      ? Number((nextTotalUsd * fxRate).toFixed(2))
-      : currentTotalUsd > 0
-        ? Number(((currentTotalBs / currentTotalUsd) * nextTotalUsd).toFixed(2))
-        : currentTotalBs;
-
-  const nowIso = new Date().toISOString();
-  const roundedPendingUsd = roundMoney(pendingUsd);
-
-  pricing.total_usd = nextTotalUsd;
-  pricing.total_bs = nextTotalBs;
-  pricing.rounding_closed_usd = roundedPendingUsd;
-  pricing.rounding_close_applied_at = nowIso;
-  pricing.rounding_close_applied_by = user.id;
-
-  payment.rounding_close = {
-    closed_balance_usd: roundedPendingUsd,
-    previous_total_usd: Number(currentTotalUsd.toFixed(2)),
-    next_total_usd: nextTotalUsd,
-    applied_at: nowIso,
-    applied_by: user.id,
-    notes: String(input.notes || '').trim() || null,
-  };
-
-  extraFields.pricing = pricing;
-  extraFields.payment = payment;
-
-  const { error: updateOrderError } = await supabase
-    .from('orders')
-    .update({
-      total_usd: nextTotalUsd,
-      total_bs_snapshot: nextTotalBs,
-      extra_fields: extraFields,
-      last_modified_at: nowIso,
-      last_modified_by: user.id,
-    })
-    .eq('id', orderId);
-
-  if (updateOrderError) {
-    throw new Error(updateOrderError.message);
-  }
-
-  const { error: adjustmentError } = await supabase
-    .from('order_admin_adjustments')
-    .insert({
-      order_id: orderId,
-      order_item_id: null,
-      adjustment_type: 'other',
-      reason: 'Cierre de diferencia por redondeo',
-      notes: String(input.notes || '').trim() || null,
-      payload: {
-        kind: 'rounding_writeoff',
-        delta_usd: -roundedPendingUsd,
-        original_unit_price_usd: Number(currentTotalUsd.toFixed(2)),
-        override_unit_price_usd: nextTotalUsd,
-        product_name: 'Cierre por redondeo',
-        qty: 1,
-        closed_balance_usd: roundedPendingUsd,
-        previous_total_usd: Number(currentTotalUsd.toFixed(2)),
-        previous_total_bs: Number(currentTotalBs.toFixed(2)),
-        confirmed_paid_usd: Number(confirmedPaidUsd.toFixed(2)),
-        next_total_usd: nextTotalUsd,
-        next_total_bs: nextTotalBs,
-      },
-      created_by_user_id: user.id,
+    const { supabase, roles } = await requireMasterOrAdmin();
+    if (!roles.includes('admin')) throw new Error('Solo Administración puede perdonar un faltante.');
+    const { data, error } = await supabase.rpc('close_order_balance_difference_v1', {
+      p_request_id: input.requestId,
+      p_order_id: input.orderId,
+      p_expected_usd: input.expectedDifferenceUsd,
+      p_notes: input.notes?.trim() || null,
     });
-
-  if (adjustmentError) {
-    console.warn('rounding adjustment audit insert skipped', adjustmentError.message);
-  }
-
-  revalidatePath('/app/master/dashboard');
-  return { ok: true, id: orderId, auditWarning: adjustmentError?.message ?? null };
+    if (error) throw new Error(error.message);
+    if (!data || Number(data.id) !== input.orderId || !(Number(data.adjustmentId) > 0)) {
+      throw new Error('No se pudo verificar el cierre de la diferencia. Actualiza la orden.');
+    }
+    revalidatePath('/app/master/dashboard');
+    revalidatePath('/app/master/ops');
+    revalidatePath('/app/admin/ordenes');
+    revalidatePath('/app/admin/finanzas/cobranzas');
+    return { ok: true as const, id: input.orderId, auditWarning: null };
   } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : 'Error cerrando la diferencia por redondeo.',
-    };
+    return { ok: false as const, message: error instanceof Error ? error.message : 'Error cerrando la diferencia.' };
   }
 }
 
