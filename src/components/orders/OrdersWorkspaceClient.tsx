@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { assignOwnTransportAction } from "@/app/app/master/ops/own-transport-actions";
 import OrderPaymentQuoteButton from "@/components/orders/OrderPaymentQuoteButton";
 import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
+import { useCoalescedRefresh } from "@/lib/refresh/use-coalesced-refresh";
 import { canResolveOperationalOrderExcess } from "@/lib/orders/order-excess-policy";
 import { RATE_REVIEW_MARKER, withRateReviewRequest } from "@/lib/payments/rate-review";
 import PaymentRateReview from "@/components/orders/PaymentRateReview";
@@ -4179,12 +4180,20 @@ export default function OrdersWorkspaceClient({
     };
   }, [snapshotAt, isAdminSurface]);
 
-  const requestOpsRefresh = useCallback(() => {
+  const runOpsRefresh = useCallback(() => {
     lastRefreshRequestAtRef.current = Date.now();
     startTransition(() => {
       router.refresh();
     });
   }, [router]);
+
+  const scheduleOpsRefresh = useCoalescedRefresh(runOpsRefresh, isRefreshing);
+  const requestOpsRefresh = useCallback(() => {
+    scheduleOpsRefresh({ immediate: true });
+  }, [scheduleOpsRefresh]);
+  const requestOpsAlertRefresh = useCallback(() => {
+    scheduleOpsRefresh();
+  }, [scheduleOpsRefresh]);
 
   const kitchenDispatch = useKitchenDispatch({
     send: sendToKitchenAction, check: readKitchenDispatchAction,
@@ -4201,9 +4210,10 @@ export default function OrdersWorkspaceClient({
     if (isAdminSurface) return;
     const refreshIfStale = () => {
       if (document.visibilityState !== "visible") return;
+      if (!navigator.onLine) return;
       if (selectedOrderId || editingOrderId || createOrderOpen || rateEditorOpen || inboxMode) return;
       if (Date.now() - lastRefreshRequestAtRef.current < 120_000) return;
-      requestOpsRefresh();
+      scheduleOpsRefresh({ immediate: true, queueIfBusy: false });
     };
 
     const intervalId = window.setInterval(refreshIfStale, 120_000);
@@ -4220,7 +4230,7 @@ export default function OrdersWorkspaceClient({
     editingOrderId,
     inboxMode,
     rateEditorOpen,
-    requestOpsRefresh,
+    scheduleOpsRefresh,
     selectedOrderId,
     isAdminSurface,
   ]);
@@ -5050,7 +5060,7 @@ export default function OrdersWorkspaceClient({
                   </div>
                 </button>
 
-                <MasterOpsAlerts publicVapidKey={publicVapidKey} onRefresh={requestOpsRefresh} />
+                <MasterOpsAlerts publicVapidKey={publicVapidKey} onRefresh={requestOpsAlertRefresh} />
               </div>
 
               <div className={isAdminSurface ? "contents" : "flex min-w-0 flex-wrap items-center gap-2.5 xl:col-span-2 xl:row-start-2 xl:flex-nowrap xl:justify-between"}>

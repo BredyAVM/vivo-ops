@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { useCoalescedRefresh } from '@/lib/refresh/use-coalesced-refresh';
 
 export type KitchenConnectionState = 'connecting' | 'live' | 'fallback' | 'offline';
 export type KitchenRefreshReason =
@@ -15,7 +16,6 @@ export type KitchenRefreshReason =
   | 'push'
   | 'action';
 
-const REFRESH_DEBOUNCE_MS = 280;
 const FALLBACK_REFRESH_MS = 20_000;
 const LIVE_REPAIR_MS = 60_000;
 const RESUME_REFRESH_MS = 5_000;
@@ -23,35 +23,23 @@ const SYNC_TICK_MS = 5_000;
 
 export function useKitchenLiveSync(
   supabase: ReturnType<typeof createSupabaseBrowser>,
-  onRefresh: (reason: KitchenRefreshReason) => void
+  onRefresh: (reason: KitchenRefreshReason) => void,
+  isRefreshing: boolean
 ) {
   const lastRefreshAtRef = useRef(0);
-  const refreshTimerRef = useRef<number | null>(null);
   const pendingReasonRef = useRef<KitchenRefreshReason>('fallback');
   const [connectionState, setConnectionState] = useState<KitchenConnectionState>('connecting');
   const [lastRealtimeEventAt, setLastRealtimeEventAt] = useState<string | null>(null);
 
+  const runRefresh = useCallback(() => {
+    lastRefreshAtRef.current = Date.now();
+    onRefresh(pendingReasonRef.current);
+  }, [onRefresh]);
+  const scheduleRefresh = useCoalescedRefresh(runRefresh, isRefreshing);
   const requestRefresh = useCallback((reason: KitchenRefreshReason, immediate = false) => {
     pendingReasonRef.current = reason;
-
-    if (refreshTimerRef.current != null) {
-      window.clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-    }
-
-    const run = () => {
-      refreshTimerRef.current = null;
-      lastRefreshAtRef.current = Date.now();
-      onRefresh(pendingReasonRef.current);
-    };
-
-    if (immediate) {
-      run();
-      return;
-    }
-
-    refreshTimerRef.current = window.setTimeout(run, REFRESH_DEBOUNCE_MS);
-  }, [onRefresh]);
+    scheduleRefresh({ immediate, queueIfBusy: reason !== 'fallback' });
+  }, [scheduleRefresh]);
 
   useEffect(() => {
     let disposed = false;
@@ -162,7 +150,7 @@ export function useKitchenLiveSync(
     const onFocus = () => refreshVisibleOrders('resume', RESUME_REFRESH_MS);
     const onOnline = () => {
       setConnectionState(isLive ? 'live' : 'connecting');
-      refreshVisibleOrders('online', 0);
+      // useCoalescedRefresh reconciles the network gap once on reconnect.
     };
     const onOffline = () => setConnectionState('offline');
     const intervalId = window.setInterval(() => {
@@ -180,10 +168,6 @@ export function useKitchenLiveSync(
     return () => {
       disposed = true;
       if (initialOfflineTimerId != null) window.clearTimeout(initialOfflineTimerId);
-      if (refreshTimerRef.current != null) {
-        window.clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', onFocus);

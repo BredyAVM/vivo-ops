@@ -459,6 +459,7 @@ export default function KitchenClient({
   const { connectionState, lastRealtimeEventAt, requestRefresh } = useKitchenLiveSync(
     supabase,
     refreshOrders,
+    isRefreshPending,
   );
 
   useEffect(() => {
