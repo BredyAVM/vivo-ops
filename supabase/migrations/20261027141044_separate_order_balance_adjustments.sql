@@ -1,5 +1,6 @@
 -- Prospective balance adjustments only. No historical order, payment, price or
 -- commission closure is rewritten or enrolled by this migration.
+-- Filename aligned with the production migration version assigned on application.
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='60s';

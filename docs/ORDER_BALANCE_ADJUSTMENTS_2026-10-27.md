@@ -18,7 +18,7 @@ y en el historial administrativo de la orden.
 
 ## Implementación
 
-`20261027134835_separate_order_balance_adjustments.sql` crea un ledger vacío, sin
+`20261027141044_separate_order_balance_adjustments.sql` crea un ledger vacío, sin
 backfill. Verifica las versiones instaladas antes de modificar las funciones.
 No actualiza órdenes, cobros ni cierres de comisiones históricos al instalarse.
 

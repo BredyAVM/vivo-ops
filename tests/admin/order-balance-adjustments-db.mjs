@@ -79,7 +79,7 @@ const historicalOrder=await record(historical),historicalState=await state(histo
 const legacyGain=await order();const legacyReport=await report(legacyGain,14.5);
 const legacyReceipt=await confirm(legacyReport,14.5),legacyGainBefore=await record(legacyGain),legacyGainState=await state(legacyGain);
 const paidClosures=(await db.query("select * from advisor_commission_closures where status='paid'")).rows;
-await db.exec(read('supabase/migrations/20261027134835_separate_order_balance_adjustments.sql'));
+await db.exec(read('supabase/migrations/20261027141044_separate_order_balance_adjustments.sql'));
 
 test('separate balance adjustments — real PostgreSQL',async t=>{
  try {
