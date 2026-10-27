@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { isCrmOnlyCatalogProduct } from "@/lib/crm/play-order";
 import { inventoryUnitLabel } from "@/app/app/inventory/display";
 import { requireMasterOrAdminContext } from "@/lib/auth";
+import { paymentActionFailure } from "@/lib/payments/action-result";
 import { loadMasterCrmOrderContext } from "@/lib/crm/advisor-order-context";
 import { resolveCrmOrderBenefit, validateMasterCrmBenefitSelection } from "@/lib/crm/master-order-benefit";
 import {
@@ -1021,14 +1022,19 @@ export type MasterOpsPaymentConfirmationInput = {
 };
 
 export async function confirmMasterOpsPaymentReportAction(input: MasterOpsPaymentConfirmationInput) {
-  await requireMasterOrAdminContext();
-  return confirmPaymentReportAction({
-    ...input,
-    clientId: null,
-    overrideOperationDate: true,
-    requireExplicitHandling: true,
-    requireExactChange: true,
-  });
+  try {
+    await requireMasterOrAdminContext();
+    await confirmPaymentReportAction({
+      ...input,
+      clientId: null,
+      overrideOperationDate: true,
+      requireExplicitHandling: true,
+      requireExactChange: true,
+    });
+    return { ok: true as const };
+  } catch (error) {
+    return paymentActionFailure(error, 'No se pudo comprobar la confirmación. Actualiza la orden y revisa si el pago ya aparece confirmado antes de reintentarlo.');
+  }
 }
 
 export type MasterOpsMoneyLineInput = {

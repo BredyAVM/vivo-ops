@@ -6,6 +6,10 @@ import OrderPaymentQuoteButton from "@/components/orders/OrderPaymentQuoteButton
 import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
 import { canResolveOperationalOrderExcess } from "@/lib/orders/order-excess-policy";
 import { RATE_REVIEW_MARKER, withRateReviewRequest } from "@/lib/payments/rate-review";
+import PaymentRateReview from "@/components/orders/PaymentRateReview";
+import { readPaymentRateReviewAction } from "@/lib/payments/rate-review-actions";
+import { paymentRateCoveragePreview, type PaymentRateReview as RateReview } from "@/lib/payments/rate-review-model";
+import type { PaymentActionResult } from "@/lib/payments/action-result";
 import ContextLink from "@/components/navigation/ContextLink";
 import { currencyLabel } from "@/lib/ui/currency-label";
 import { buildOperationStats, type OperationalKpiAmounts } from "@/lib/orders/operational-kpis";
@@ -284,6 +288,7 @@ type DirectActionPayload = {
   payerName?: string | null;
   description?: string | null;
   isRetention?: boolean;
+  paymentRateReview?: RateReview | null;
   fundAmountUsd?: number | null;
   payrollAmountUsd?: number;
   paidHandling?: "store_fund" | "refund" | null;
@@ -1369,6 +1374,12 @@ function OrderDetailPanel({
   const [paymentRejectReportId, setPaymentRejectReportId] = useState<number | null>(null);
   const [paymentRejectNotes, setPaymentRejectNotes] = useState("");
   const [paymentConfirmationDraft, setPaymentConfirmationDraft] = useState<PaymentConfirmationDraft | null>(null);
+  const [paymentRateResult, setPaymentRateResult] = useState<PaymentActionResult<RateReview> | null>(null);
+  const [paymentRateLoading, setPaymentRateLoading] = useState(false);
+  const paymentConfirmationRequest = useRef(0);
+  const paymentConfirmationLoading = useRef(false);
+  const paymentRateReview = paymentRateResult?.ok ? paymentRateResult.value : null;
+  const paymentRateFieldsLocked = Boolean(paymentRateResult && (!paymentRateResult.ok || paymentRateResult.value.available));
   const [paymentReportOpen, setPaymentReportOpen] = useState(false);
   const [staffPayrollOpen, setStaffPayrollOpen] = useState(false);
   const [paymentReportIsRetention, setPaymentReportIsRetention] = useState(false);
@@ -1581,14 +1592,32 @@ function OrderDetailPanel({
     draft: PaymentConfirmationDraft,
     account: MasterOpsPaymentAccountOption | null
   ) {
-    return Number(Math.max(0, getPaymentConfirmationUsd(draft, account) - order.balanceUsd).toFixed(2));
+    const coverage = paymentRateCoveragePreview(paymentRateReview, parseDecimal(draft.amount),
+      parseDecimal(draft.exchangeRate), account?.currencyCode ?? '', getPaymentConfirmationUsd(draft, account));
+    return Number(Math.max(0, coverage - order.balanceUsd).toFixed(2));
   }
 
-  function openPaymentConfirmation(report: MasterOrderPaymentReport) {
+  async function openPaymentConfirmation(report: MasterOrderPaymentReport) {
+    if (paymentConfirmationLoading.current) return;
+    const request = ++paymentConfirmationRequest.current;
     if (paymentConfirmationDraft?.reportId === report.id) {
       setPaymentConfirmationDraft(null);
+      setPaymentRateResult(null);
       return;
     }
+
+    setPaymentConfirmationDraft(null);
+    setPaymentRateResult(null);
+    let rateResult: PaymentActionResult<RateReview> | null = null;
+    if (report.currencyCode === 'VES') {
+      paymentConfirmationLoading.current = true;
+      setPaymentRateLoading(true);
+      try { rateResult = await readPaymentRateReviewAction(report.id); }
+      catch { rateResult = { ok: false, code: 'unavailable', message: 'No se pudo consultar la revisión de tasa. Vuelve a consultar antes de confirmar.' }; }
+      finally { paymentConfirmationLoading.current = false; setPaymentRateLoading(false); }
+      if (request !== paymentConfirmationRequest.current) return;
+    }
+    setPaymentRateResult(rateResult);
 
     const options = getConfirmationOptions(report);
     const account =
@@ -1596,7 +1625,7 @@ function OrderDetailPanel({
     const exchangeRate =
       account?.currencyCode === "VES"
         ? report.exchangeRate && report.exchangeRate > 0
-          ? compactDecimal(report.exchangeRate, 4)
+          ? compactDecimal(report.exchangeRate, 6)
           : getSuggestedPaymentExchangeRate(order, activeRate)
         : "";
 
@@ -1871,6 +1900,8 @@ function OrderDetailPanel({
     event.preventDefault();
     const draft = paymentConfirmationDraft;
     if (!draft || draft.reportId !== report.id) return;
+    if (report.currencyCode === 'VES' &&
+      (!paymentRateResult?.ok || (paymentRateReview?.available && (!paymentRateReview.decision || paymentRateReview.applied)))) return;
     const account = moneyAccountByKey.get(draft.accountKey) ?? null;
     const predictedExcessUsd = getConfirmationExcessUsd(draft, account);
     const ok = await onDirectAction(order, "confirm-payment", {
@@ -1885,6 +1916,7 @@ function OrderDetailPanel({
       payerName: report.payerName,
       description: `Pago confirmado desde Master Ops - orden ${order.id} - reporte ${report.id}`,
       isRetention: Boolean(report.isRetention),
+      paymentRateReview,
       notes: draft.reviewNotes,
       overpaymentHandling:
         predictedExcessUsd > 0.005 ? draft.overpaymentHandling || null : null,
@@ -3640,6 +3672,9 @@ function OrderDetailPanel({
                       confirmationChangeTotalUsd >= predictedExcessUsd - 0.01;
                     const confirmationAmount = confirmationDraft ? parseDecimal(confirmationDraft.amount) : 0;
                     const confirmationRate = confirmationDraft ? parseDecimal(confirmationDraft.exchangeRate) : 0;
+                    const requiresRateRead = report.currencyCode === 'VES';
+                    const rateReviewReady = !requiresRateRead || Boolean(paymentRateResult?.ok &&
+                      (!paymentRateReview?.available || (paymentRateReview.decision && !paymentRateReview.applied)));
                     const confirmationFieldsValid = Boolean(
                       confirmationDraft &&
                         confirmationAccount &&
@@ -3708,16 +3743,17 @@ function OrderDetailPanel({
                             <button
                               className="min-w-0 whitespace-nowrap rounded-xl border border-emerald-500/50 bg-emerald-500/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 disabled:cursor-wait disabled:opacity-60"
                               type="button"
-                              disabled={busy}
+                              disabled={busy || paymentRateLoading}
                               onClick={() => openPaymentConfirmation(report)}
                             >
-                              {confirmationDraft ? "Cerrar revision" : "Revisar y confirmar"}
+                              {paymentRateLoading ? "Consultando tasa…" : confirmationDraft ? "Cerrar revisión" : "Revisar y confirmar"}
                             </button>
                             <button
                               className="whitespace-nowrap rounded-xl border border-red-500/45 bg-red-500/10 px-3 py-1.5 text-[12px] font-semibold text-red-200 disabled:cursor-wait disabled:opacity-60"
                               type="button"
                               disabled={busy}
                               onClick={() => {
+                                paymentConfirmationRequest.current += 1;
                                 setPaymentConfirmationDraft(null);
                                 setPaymentRejectReportId((current) => (current === report.id ? null : report.id));
                                 setPaymentRejectNotes("");
@@ -3727,6 +3763,11 @@ function OrderDetailPanel({
                             </button>
                           </div>
                         </div>
+                        {confirmationDraft && requiresRateRead && paymentRateResult &&
+                          (!paymentRateResult.ok || paymentRateReview?.available) ? (
+                          <PaymentRateReview key={report.id} reportId={report.id} initialResult={paymentRateResult}
+                            onResult={setPaymentRateResult} />
+                        ) : null}
                         {confirmationDraft ? (
                           <form
                             className="mt-3 rounded-xl border border-emerald-500/30 bg-[#0B0B0D] p-3"
@@ -3741,6 +3782,7 @@ function OrderDetailPanel({
                                 <select
                                   className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
                                   value={confirmationDraft.accountKey}
+                                  disabled={paymentRateFieldsLocked}
                                   onChange={(event) => handlePaymentConfirmationAccountChange(report, event.target.value)}
                                 >
                                   {confirmationOptions.length === 0 ? <option value="">Sin cuentas disponibles</option> : null}
@@ -3756,6 +3798,7 @@ function OrderDetailPanel({
                                 <input
                                   className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
                                   value={confirmationDraft.amount}
+                                  readOnly={paymentRateFieldsLocked}
                                   onChange={(event) =>
                                     updatePaymentConfirmationDraft(
                                       report.id,
@@ -3768,10 +3811,11 @@ function OrderDetailPanel({
                               </label>
                               {confirmationAccount?.currencyCode === "VES" ? (
                                 <label className="text-[11px] text-[#B7B7C2]">
-                                  Tasa Bs/USD
+                                  {paymentRateReview?.available ? 'Tasa registrada para caja · Bs/USD' : 'Tasa Bs/USD'}
                                   <input
                                     className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
                                     value={confirmationDraft.exchangeRate}
+                                    readOnly={paymentRateFieldsLocked}
                                     onChange={(event) =>
                                       updatePaymentConfirmationDraft(
                                         report.id,
@@ -3796,7 +3840,8 @@ function OrderDetailPanel({
                               </label>
                             </div>
                             <div className="mt-2 rounded-lg border border-[#242433] bg-[#121218] px-3 py-2 text-[11px] text-[#B7B7C2]">
-                              Equivalente confirmado {formatMasterOrderUSD(confirmationUsd)} - saldo actual {formatMasterOrderUSD(order.balanceUsd)}
+                              Equivalente del registro {formatMasterOrderUSD(confirmationUsd)} · saldo actual {formatMasterOrderUSD(order.balanceUsd)}
+                              {paymentRateReview?.decision === 'quoted' ? <div className="mt-1 text-emerald-200">Cobertura con tasa acordada: {formatMasterOrderUSD(paymentRateCoveragePreview(paymentRateReview, confirmationAmount, confirmationRate, confirmationAccount?.currencyCode ?? '', confirmationUsd))}. No se modifica el dinero recibido.</div> : null}
                             </div>
 
                             {predictedExcessUsd > 0.005 ? (
@@ -3967,9 +4012,9 @@ function OrderDetailPanel({
                               <button
                                 className="rounded-xl border border-emerald-400 bg-emerald-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
                                 type="submit"
-                                disabled={busy || !confirmationFieldsValid || !overpaymentDecisionValid}
+                                disabled={busy || !confirmationFieldsValid || !overpaymentDecisionValid || !rateReviewReady}
                               >
-                                {isRunningConfirm ? "Confirmando..." : "Confirmar pago revisado"}
+                                {isRunningConfirm ? "Confirmando..." : !rateReviewReady ? "Requiere revisión de tasa" : "Confirmar pago revisado"}
                               </button>
                             </div>
                           </form>
@@ -4741,7 +4786,8 @@ export default function OrdersWorkspaceClient({
           throw new Error("Debes indicar una tasa valida para el pago en VES.");
         }
 
-        const confirmedUsd = Number((currencyCode === "VES" ? amount / Number(exchangeRate) : amount).toFixed(2));
+        const confirmedUsd = paymentRateCoveragePreview(payload.paymentRateReview, amount, Number(exchangeRate), currencyCode,
+          Number((currencyCode === "VES" ? amount / Number(exchangeRate) : amount).toFixed(2)));
         const predictedExcessUsd = Number(Math.max(0, confirmedUsd - order.balanceUsd).toFixed(2));
         const overpaymentHandling = payload.overpaymentHandling ?? null;
         if (predictedExcessUsd > 0.005 && !overpaymentHandling) {

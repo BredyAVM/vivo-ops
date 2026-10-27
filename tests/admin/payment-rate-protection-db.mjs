@@ -202,6 +202,25 @@ test('rate protection — actual PostgreSQL regressions',async(t)=>{
     assert.equal(Number(s.overpaid_usd),0,JSON.stringify({original,active,total}));
    }
   });
+  await t.test('remaining balance like 3504 accepts its documented rate after prior coverage without changing cash or double posting',async()=>{
+   const id=await makeOrder(109.04,884.75);await confirm(id,11.28,null,'USD');
+   const before=await snapshot(),r=await report(id,86493.16,887.30);
+   assert.equal((await review(r)).available,true);
+   const operationDate=(await db.query('select current_date::text as value')).rows[0].value;
+   const input={reportId:r,orderId:id,accountId:1,currency:'VES',amount:86493.16,rate:887.30,date:operationDate,
+     reviewNotes:'Tasa acordada con cliente que paga por fecha',reference:'909163',overrideOperationDate:true,
+     requireExplicitHandling:true,requireExactChange:true,changeLines:[]};
+   const call=()=>db.query('select app_private.confirm_payment_report_atomic_v1($1) v',[JSON.stringify(input)]);
+   await assert.rejects(call(),/Administración.*revisar/);
+   await approve(r);const first=(await call()).rows[0].v;const retry=(await call()).rows[0].v;
+   assert.equal(first.movementId,retry.movementId);assert.equal(retry.replayed,true);
+   const s=await state(id,1000);assert.equal(Number(s.pending_usd),0);assert.equal(Number(s.overpaid_usd),0);
+   const saved=(await db.query('select amount,exchange_rate_ves_per_usd from money_movements where id=$1',[first.movementId])).rows[0];
+   assert.equal(Number(saved.amount),86493.16);assert.equal(Number(saved.exchange_rate_ves_per_usd),887.30);
+   const a=(await db.query('select applied_usd,coverage_rate from order_payment_precision_allocations where movement_id=$1',[first.movementId])).rows[0];
+   assert.equal(Number(a.applied_usd),97.76);assert.equal(Number(a.coverage_rate),884.75);
+   assert.deepEqual((await snapshot()).money.filter(m=>before.money.some(old=>old.id===m.id)),before.money);
+  });
   await t.test('cancelled orders and reports edited after approval cannot consume the rate agreement',async()=>{
    const id=await makeOrder(),r=await report(id,84395.92);await approve(r);
    await db.query("update orders set status='cancelled' where id=$1",[id]);

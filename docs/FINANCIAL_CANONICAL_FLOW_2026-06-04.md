@@ -155,6 +155,29 @@ comandos privados que verifican usuario y rol persistido. El aviso informativo
 es intencional aquí: no se habilita lectura/escritura directa; solo se consultan
 las evidencias necesarias mediante esos comandos autorizados.
 
+#### Integración de revisión de tasa en Órdenes — 2026-10-27
+
+El tablero compartido de Administración/Máster consulta la revisión del reporte
+VES seleccionado únicamente al pulsar «Revisar y confirmar», no al cargar el
+listado. Muestra las tasas del registro y del presupuesto/acuerdo y explica
+que el máster debe contactar a Administración si hay una discrepancia.
+Administración comprueba la evidencia, documenta el acuerdo (incluidos clientes
+con retenciones o pago por fecha) y aprueba el tratamiento de ese reporte.
+Después se confirma ese mismo pago desde la misma pantalla.
+
+La aprobación del acuerdo y la confirmación del dinero son pasos distintos.
+Se conserva el monto Bs, cuenta, referencia y tasa registrada para caja; la
+cobertura acordada de la deuda se presenta por separado. No hay autorización
+general por cliente, nueva tasa fija ni perdón automático de diferencias.
+Si la revisión no pudo consultarse o aún requiere aprobación, no se habilita
+la confirmación. Las validaciones se devuelven como mensajes legibles, no como
+excepciones de producción de React. No se modifican funciones SQL, pagos
+históricos ni la política monetaria de órdenes nuevas.
+
+Regresiones: `tests/admin/payment-rate-review-screen.test.mts` y
+`tests/admin/payment-rate-protection-db.mjs` (caso sintético equivalente al
+pendiente de la #3504, con cobertura previa y reintento idempotente).
+
 ### Construccion del snapshot por moneda de origen
 
 Las reglas de protección Bs y de cobranza posterior a la entrega descritas a
