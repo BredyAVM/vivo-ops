@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useId, useMemo, useState, useTransition } from 'react';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { parseDecimalInput } from '@/lib/number-input';
+import { receiptCaptureIssue, RECEIPT_UNCONFIRMED_MESSAGE, type ReceiptCaptureIssue } from '@/lib/inventory/receipt-validation';
 import {
   cancelInventoryExpectedReceiptAction,
   receiveInventoryStockAction,
@@ -160,13 +161,13 @@ function capturePayload(capture: CaptureDraft) {
   return {
     quantityUnknown: capture.quantityUnknown,
     sourceName: capture.sourceName,
-    looseUnits: capture.quantityUnknown ? 0 : numericInput(capture.looseUnits),
+    looseUnits: capture.quantityUnknown || !capture.looseUnits.trim() ? 0 : parseDecimalInput(capture.looseUnits),
     presentations: capture.quantityUnknown
       ? []
       : capture.lines.map((line) => ({
           presentationId: Number(line.presentationId),
-          quantity: numericInput(line.quantity),
-          baseUnitsPerPresentation: numericInput(line.factor),
+          quantity: parseDecimalInput(line.quantity),
+          baseUnitsPerPresentation: parseDecimalInput(line.factor),
         })),
   };
 }
@@ -180,6 +181,8 @@ export default function InventoryReceiptWorkspaceClient({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [expectedIssue, setExpectedIssue] = useState<ReceiptCaptureIssue | null>(null);
+  const [receiptIssue, setReceiptIssue] = useState<ReceiptCaptureIssue | null>(null);
 
   const [expectedItemId, setExpectedItemId] = useState('');
   const [expectedAt, setExpectedAt] = useState('');
@@ -218,6 +221,7 @@ export default function InventoryReceiptWorkspaceClient({
   const selectedReceiptItem = itemById.get(Number(receiptItemId));
 
   function resetExpectedForm() {
+    setExpectedIssue(null);
     setExpectedItemId('');
     setExpectedAt('');
     setExpectedCapture(emptyCapture());
@@ -232,6 +236,9 @@ export default function InventoryReceiptWorkspaceClient({
       setError('Selecciona el ítem y la fecha esperada.');
       return;
     }
+    const issue = receiptCaptureIssue(capturePayload(expectedCapture), true);
+    setExpectedIssue(issue);
+    if (issue) return;
 
     startTransition(async () => {
       try {
@@ -243,6 +250,11 @@ export default function InventoryReceiptWorkspaceClient({
           notes: expectedNotes,
           replacesFlowId,
         });
+        if (!result.ok) {
+          setExpectedIssue(result.issue);
+          setError(result.issue ? null : result.message);
+          return;
+        }
         setMessage(
           replacesFlowId
             ? `La expectativa #${replacesFlowId} fue reemplazada por la #${result.expectedFlowId}.`
@@ -250,12 +262,8 @@ export default function InventoryReceiptWorkspaceClient({
         );
         resetExpectedForm();
         router.refresh();
-      } catch (submissionError) {
-        setError(
-          submissionError instanceof Error
-            ? submissionError.message
-            : 'No se pudo guardar la expectativa.',
-        );
+      } catch {
+        setError('No se pudo confirmar la expectativa. Actualiza la lista antes de volver a enviarla.');
       }
     });
   }
@@ -278,20 +286,18 @@ export default function InventoryReceiptWorkspaceClient({
     setMessage(null);
     startTransition(async () => {
       try {
-        await cancelInventoryExpectedReceiptAction({ expectedFlowId: expectation.id });
+        const result = await cancelInventoryExpectedReceiptAction({ expectedFlowId: expectation.id });
+        if (!result.ok) { setError(result.message); return; }
         setMessage(`Expectativa #${expectation.id} cancelada.`);
         router.refresh();
-      } catch (cancellationError) {
-        setError(
-          cancellationError instanceof Error
-            ? cancellationError.message
-            : 'No se pudo cancelar la expectativa.',
-        );
+      } catch {
+        setError('No se pudo confirmar la cancelación. Actualiza la lista de expectativas.');
       }
     });
   }
 
   function selectReceiptExpectation(value: string) {
+    setReceiptIssue(null);
     setReceiptExpectationId(value);
     const expectation = expectationById.get(Number(value));
     if (expectation) {
@@ -317,6 +323,9 @@ export default function InventoryReceiptWorkspaceClient({
       setError('El ítem requiere una apertura aceptada antes de registrar entradas reales.');
       return;
     }
+    const issue = receiptCaptureIssue(capturePayload(receiptCapture), false);
+    setReceiptIssue(issue);
+    if (issue) return;
 
     startTransition(async () => {
       try {
@@ -329,6 +338,11 @@ export default function InventoryReceiptWorkspaceClient({
           expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
           notes: receiptNotes,
         });
+        if (!result.ok) {
+          setReceiptIssue(result.issue);
+          setError(result.issue ? null : result.message);
+          return;
+        }
         const difference = result.differenceQuantityUnits;
         setMessage(
           difference == null
@@ -344,12 +358,8 @@ export default function InventoryReceiptWorkspaceClient({
         setExpiresAt('');
         setReceiptNotes('');
         router.refresh();
-      } catch (submissionError) {
-        setError(
-          submissionError instanceof Error
-            ? submissionError.message
-            : 'No se pudo registrar la mercancía recibida.',
-        );
+      } catch {
+        setError(RECEIPT_UNCONFIRMED_MESSAGE);
       }
     });
   }
@@ -410,7 +420,8 @@ export default function InventoryReceiptWorkspaceClient({
               item={itemById.get(Number(expectedItemId))}
               presentations={presentations}
               capture={expectedCapture}
-              onChange={setExpectedCapture}
+              onChange={(value) => { setExpectedCapture(value); setExpectedIssue(null); setError(null); }}
+              issue={expectedIssue}
               allowUnknown
               disabled={isPending}
             />
@@ -454,7 +465,7 @@ export default function InventoryReceiptWorkspaceClient({
               </label>
               <label className="text-xs text-[#A6A6B2]">
                 <span className="mb-1.5 block">Ítem recibido</span>
-                <select value={receiptItemId} onChange={(event) => { setReceiptItemId(event.target.value); setReceiptCapture(emptyCapture()); }} disabled={isPending || Boolean(receiptExpectationId)} className={inputClass}>
+                <select value={receiptItemId} onChange={(event) => { setReceiptItemId(event.target.value); setReceiptCapture(emptyCapture()); setReceiptIssue(null); setError(null); }} disabled={isPending || Boolean(receiptExpectationId)} className={inputClass}>
                   <option value="">Seleccionar…</option>
                   {items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
@@ -472,7 +483,8 @@ export default function InventoryReceiptWorkspaceClient({
               item={selectedReceiptItem}
               presentations={presentations}
               capture={receiptCapture}
-              onChange={setReceiptCapture}
+              onChange={(value) => { setReceiptCapture(value); setReceiptIssue(null); setError(null); }}
+              issue={receiptIssue}
               allowUnknown={false}
               disabled={isPending}
             />
@@ -569,6 +581,7 @@ function CaptureEditor({
   onChange,
   allowUnknown,
   disabled,
+  issue,
 }: {
   itemId: number | null;
   item?: ReceiptWorkspaceItem;
@@ -577,8 +590,19 @@ function CaptureEditor({
   onChange: (capture: CaptureDraft) => void;
   allowUnknown: boolean;
   disabled: boolean;
+  issue: ReceiptCaptureIssue | null;
 }) {
+  const errorId = useId();
   const available = presentations.filter((presentation) => presentation.inventory_item_id === itemId);
+  const issueIndex = issue?.field.match(/^presentations\.(\d+)\./)?.[1];
+  const issuePresentation = issueIndex == null ? null : available.find(p => p.id === Number(capture.lines[Number(issueIndex)]?.presentationId));
+  const issueMessage = issuePresentation && issue
+    ? issue.message.replace(`Presentación ${Number(issueIndex) + 1}`, `«${issuePresentation.name}»${item ? ` de ${item.name}` : ''}`)
+    : issue?.message;
+  const invalidProps = (field: string) => ({
+    'aria-invalid': issue?.field === field || undefined,
+    'aria-describedby': issue?.field === field ? errorId : undefined,
+  });
   const selectedIds = new Set(capture.lines.map((line) => Number(line.presentationId)));
   const total = capture.quantityUnknown
     ? null
@@ -610,15 +634,16 @@ function CaptureEditor({
 
   return (
     <div className="mt-4 rounded-xl border border-[#292938] bg-[#14141C] p-4">
+      {issueMessage ? <p id={errorId} role="alert" className="mb-3 rounded-lg border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">{issueMessage}</p> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-xs text-[#A6A6B2]">
           <span className="mb-1.5 block">Fuente o proveedor opcional</span>
-          <input value={capture.sourceName} onChange={(event) => onChange({ ...capture, sourceName: event.target.value })} maxLength={160} disabled={disabled} className={inputClass} />
+          <input {...invalidProps('sourceName')} value={capture.sourceName} onChange={(event) => onChange({ ...capture, sourceName: event.target.value })} maxLength={160} disabled={disabled} className={inputClass} />
         </label>
         {!capture.quantityUnknown ? (
           <label className="text-xs text-[#A6A6B2]">
             <span className="mb-1.5 block">Unidades sueltas ({item?.unit_name ?? 'unidad base'})</span>
-            <input value={capture.looseUnits} onChange={(event) => onChange({ ...capture, looseUnits: event.target.value })} inputMode="decimal" disabled={disabled} className={inputClass} />
+            <input {...invalidProps('looseUnits')} value={capture.looseUnits} onChange={(event) => onChange({ ...capture, looseUnits: event.target.value })} inputMode="decimal" disabled={disabled} className={`${inputClass} aria-invalid:border-amber-400`} />
           </label>
         ) : null}
       </div>
@@ -633,13 +658,14 @@ function CaptureEditor({
       {!capture.quantityUnknown ? (
         <>
           <div className="mt-4 space-y-3">
-            {capture.lines.map((line) => {
+            {capture.lines.map((line, index) => {
               const selected = available.find((presentation) => presentation.id === Number(line.presentationId));
               return (
                 <div key={line.key} className="grid gap-2 rounded-lg border border-[#2D2D3B] p-3 sm:grid-cols-[1fr_110px_130px_auto] sm:items-end">
                   <label className="text-xs text-[#A6A6B2]">
                     <span className="mb-1 block">Presentación</span>
                     <select
+                      {...invalidProps(`presentations.${index}.presentationId`)}
                       value={line.presentationId}
                       onChange={(event) => {
                         const next = available.find((presentation) => presentation.id === Number(event.target.value));
@@ -660,11 +686,11 @@ function CaptureEditor({
                   </label>
                   <label className="text-xs text-[#A6A6B2]">
                     <span className="mb-1 block">Cantidad</span>
-                    <input value={line.quantity} onChange={(event) => updateLine(line.key, { quantity: event.target.value })} inputMode="decimal" disabled={disabled} className={inputClass} />
+                    <input {...invalidProps(`presentations.${index}.quantity`)} value={line.quantity} onChange={(event) => updateLine(line.key, { quantity: event.target.value })} inputMode="decimal" disabled={disabled} className={`${inputClass} aria-invalid:border-amber-400`} />
                   </label>
                   <label className="text-xs text-[#A6A6B2]">
                     <span className="mb-1 block">Conversión</span>
-                    <input value={line.factor} onChange={(event) => updateLine(line.key, { factor: event.target.value })} inputMode="decimal" disabled={disabled} className={inputClass} />
+                    <input {...invalidProps(`presentations.${index}.factor`)} value={line.factor} onChange={(event) => updateLine(line.key, { factor: event.target.value })} inputMode="decimal" disabled={disabled} className={`${inputClass} aria-invalid:border-amber-400`} />
                   </label>
                   <button type="button" onClick={() => onChange({ ...capture, lines: capture.lines.filter((candidate) => candidate.key !== line.key) })} disabled={disabled} aria-label={`Quitar ${selected?.name ?? 'presentación'}`} className="rounded-lg border border-red-400/25 px-3 py-2 text-xs text-red-200">Quitar</button>
                 </div>
