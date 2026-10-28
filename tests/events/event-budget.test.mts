@@ -52,9 +52,11 @@ test('historical event terms are read unchanged, without applying the new defaul
 
 test('conversion preserves saved terms and reuses already converted orders', () => {
   const actions = readFileSync(new URL('../../src/app/app/events/actions.ts', import.meta.url), 'utf8');
-  assert.match(actions, /if \(draft\.converted_order_id\) return/);
-  assert.match(actions, /commission_mode: budget\.commissionMode/);
-  assert.match(actions, /commission_value: budget\.commissionValue/);
+  const migration = readFileSync(new URL('../../supabase/migrations/20261028165146_admin_event_order_operations_v1.sql', import.meta.url), 'utf8');
+  assert.match(actions, /rpc\('convert_event_budget_atomic_v1'/);
+  assert.match(migration, /if d\.converted_order_id is not null then/);
+  assert.match(migration, /mode:=coalesce\(ev->>'commission_mode','default'\)/);
+  assert.match(migration, /commission:=\(ev->>'commission_value'\)::numeric/);
   assert.match(actions, /existing\.status === 'converted' \|\| existing\.status === 'archived'/);
   assert.doesNotMatch(actions, /NEW_EVENT_BUDGET_COMMISSION|advisor_commission_closures/);
 });

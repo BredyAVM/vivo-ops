@@ -292,6 +292,7 @@ export default function EventBudgetsClient({
     startTransition(async () => {
       try {
         const result = await convertEventBudgetToOrderAction(draftId);
+        if (!result.ok) { setError(result.error); return; }
         setMessage(`Evento convertido en la orden #${result.id}. El inventario comienza a comprometerse desde esa orden.`);
         router.refresh();
       } catch (convertError) {

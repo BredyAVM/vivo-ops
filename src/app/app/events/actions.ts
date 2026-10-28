@@ -10,7 +10,7 @@ import {
   type EventCommissionMode,
   type EventPreparationMode,
 } from '@/lib/events/event-budget';
-import { createOrderAction, searchClientsAction } from '../master/dashboard/actions';
+import { searchClientsAction } from '../master/dashboard/actions';
 
 export async function searchEventClientsAction(input: {
   query: string;
@@ -93,23 +93,8 @@ function normalizeTime(value: unknown) {
   return text;
 }
 
-function splitTime(value: string) {
-  const [hourRaw, minuteRaw] = value.split(':');
-  const hour = Number(hourRaw);
-  const hour12 = hour % 12 || 12;
-  return {
-    deliveryHour12: String(hour12),
-    deliveryMinute: minuteRaw,
-    deliveryAmPm: hour >= 12 ? ('PM' as const) : ('AM' as const),
-  };
-}
-
 function isInternalProduct(product: CatalogProductRow) {
   return object(product.extra_fields).catalog_access_scope === 'admin_internal';
-}
-
-function isDeliveryProduct(product: CatalogProductRow) {
-  return finite(product.internal_rider_pay_usd) > 0 || clean(product.name).toLowerCase().includes('delivery');
 }
 
 function componentMode(value: unknown): EventPreparationMode {
@@ -387,240 +372,25 @@ export async function archiveEventBudgetAction(draftIdInput: number) {
 }
 
 export async function convertEventBudgetToOrderAction(draftIdInput: number) {
-  const ctx = await requireAuthContext();
-  requireAdmin(ctx.roles);
-  const draftId = Math.trunc(finite(draftIdInput));
-  if (draftId <= 0) throw new Error('El presupuesto no es válido.');
-
-  const { data: draft, error: draftError } = await ctx.supabase
-    .from('advisor_order_drafts')
-    .select('id, advisor_user_id, status, client_id, client_snapshot, new_client_snapshot, payload, total_usd, fx_rate, converted_order_id')
-    .eq('id', draftId)
-    .maybeSingle();
-  if (draftError || !draft) throw new Error(draftError?.message || 'El presupuesto ya no existe.');
-  if (draft.converted_order_id) return { id: Number(draft.converted_order_id), reused: true as const };
-  if (draft.status === 'archived') throw new Error('El presupuesto está archivado.');
-
-  const budget = readEventBudgetPayload(draft.payload);
-  if (!budget) throw new Error('Este borrador no es un presupuesto de evento.');
-  if (budget.components.length === 0) throw new Error('El evento no tiene componentes para convertir.');
-
-  const productIds = Array.from(new Set(budget.components.map((component) => component.productId)));
-  const [eventProductResult, productsResult] = await Promise.all([
-    ctx.supabase
-      .from('products')
-      .select('id, sku, name')
-      .eq('sku', 'PACK_EVENTO')
-      .maybeSingle(),
-    ctx.supabase
-      .from('products')
-      .select('id, sku, name, is_active, source_price_currency, source_price_amount, base_price_usd, internal_rider_pay_usd, extra_fields')
-      .in('id', productIds),
-  ]);
-  const queryError = eventProductResult.error ?? productsResult.error;
-  if (queryError) throw new Error(queryError.message);
-  if (!eventProductResult.data) throw new Error('Falta el identificador interno del evento.');
-
-  const productById = new Map(
-    ((productsResult.data ?? []) as CatalogProductRow[]).map((product) => [Number(product.id), product] as const)
-  );
-  const deliveryComponents = budget.components.filter((component) => {
-    const product = productById.get(component.productId);
-    return product ? isDeliveryProduct(product) : false;
-  });
-  const composedComponents = budget.components.filter(
-    (component) => !deliveryComponents.some((delivery) => delivery.productId === component.productId)
-  );
-  if (composedComponents.length === 0) {
-    throw new Error('Agrega al menos un producto real al evento, además del servicio de entrega.');
+  try {
+    const ctx = await requireAuthContext();
+    requireAdmin(ctx.roles);
+    if (!Number.isSafeInteger(draftIdInput) || draftIdInput <= 0) {
+      return { ok: false as const, error: 'El presupuesto no es válido.' };
+    }
+    const { data, error } = await ctx.supabase.rpc('convert_event_budget_atomic_v1', { p_draft_id: draftIdInput });
+    if (error) return { ok: false as const, error: error.message };
+    const result = data as { id: number; reused: boolean };
+    try {
+      revalidatePath('/app/events', 'layout');
+      revalidatePath('/app/admin/eventos', 'layout');
+      revalidatePath('/app/advisor/drafts');
+      revalidatePath('/app/advisor/orders');
+      revalidatePath('/app/master/ops');
+      revalidatePath('/app/admin/ordenes');
+    } catch { console.warn('Event conversion saved; view refresh deferred.'); }
+    return { ok: true as const, id: Number(result.id), reused: result.reused };
+  } catch {
+    return { ok: false as const, error: 'No se pudo confirmar la conversión. Puedes reintentar: el presupuesto no generará otra orden.' };
   }
-  if (budget.fulfillment === 'delivery' && deliveryComponents.length === 0) {
-    throw new Error('Para convertir un evento con entrega, agrega un producto de delivery al presupuesto.');
-  }
-
-  const parentProductId = Number(eventProductResult.data.id);
-  const componentRows = composedComponents.map((component, index) => ({
-    parent_product_id: parentProductId,
-    component_product_id: component.productId,
-    component_mode: 'selectable',
-    quantity: 1,
-    counts_toward_detail_limit: true,
-    is_required: false,
-    sort_order: 1000 + index,
-    notes: 'Componente habilitado por presupuesto administrativo de evento.',
-  }));
-  const { error: componentError } = await ctx.supabase
-    .from('product_components')
-    .upsert(componentRows, { onConflict: 'parent_product_id,component_product_id,component_mode' });
-  if (componentError) throw new Error(componentError.message);
-
-  const detailLines = composedComponents.flatMap((component) => [
-    `${component.qty} ${component.productName}`,
-    `@sel|${component.productId}|${component.qty}`,
-    `@prep|${component.productId}|${component.preparationMode}`,
-  ]);
-  detailLines.push(`@event|draft|${draftId}`);
-
-  const clientSnapshot = object(draft.client_snapshot);
-  const newClientSnapshot = object(draft.new_client_snapshot);
-  const selectedClientId = Math.trunc(finite(draft.client_id));
-  const fxRate = finite(draft.fx_rate);
-  if (fxRate <= 0) throw new Error('El presupuesto no conserva una tasa válida.');
-  const totalUsd = finite(draft.total_usd, budget.totalUsd);
-  const time = splitTime(budget.eventTime);
-  const mainItem = {
-    productId: parentProductId,
-    skuSnapshot: eventProductResult.data.sku,
-    productNameSnapshot: budget.title,
-    qty: 1,
-    sourcePriceCurrency: budget.negotiatedCurrency,
-    sourcePriceAmount: budget.negotiatedAmount,
-    unitPriceUsdSnapshot: totalUsd,
-    lineTotalUsd: totalUsd,
-    adminPriceOverrideUsd: totalUsd,
-    adminPriceOverrideCurrency: budget.negotiatedCurrency,
-    adminPriceOverrideReason: `Precio negociado del evento: ${budget.title}`,
-    editableDetailLines: detailLines,
-  } as const;
-  const deliveryItems = deliveryComponents.map((component) => {
-    const product = productById.get(component.productId)!;
-    return {
-      productId: component.productId,
-      skuSnapshot: product.sku,
-      productNameSnapshot: component.productName,
-      qty: component.qty,
-      sourcePriceCurrency: 'USD' as const,
-      sourcePriceAmount: 0,
-      unitPriceUsdSnapshot: 0,
-      lineTotalUsd: 0,
-      adminPriceOverrideUsd: 0,
-      adminPriceOverrideCurrency: 'USD' as const,
-      adminPriceOverrideReason: 'Incluido dentro del precio negociado del evento.',
-      editableDetailLines: [],
-    };
-  });
-
-  const created = await createOrderAction({
-    source: 'advisor',
-    attributedAdvisorUserId: String(draft.advisor_user_id),
-    fulfillment: budget.fulfillment,
-    selectedClientId: selectedClientId > 0 ? selectedClientId : null,
-    newClientName: clean(newClientSnapshot.full_name ?? newClientSnapshot.fullName ?? clientSnapshot.full_name),
-    newClientPhone: clean(newClientSnapshot.phone ?? clientSnapshot.phone),
-    newClientType: 'assigned',
-    deliveryDate: budget.eventDate,
-    ...time,
-    isAsap: false,
-    receiverName: clean(clientSnapshot.full_name ?? newClientSnapshot.full_name),
-    receiverPhone: clean(clientSnapshot.phone ?? newClientSnapshot.phone),
-    deliveryAddress: budget.deliveryAddress,
-    deliveryGpsUrl: '',
-    note: budget.notes,
-    discountEnabled: false,
-    discountPct: '0',
-    invoiceTaxPct: '16',
-    fxRate: String(fxRate),
-    paymentMethod: '',
-    paymentCurrency: budget.negotiatedCurrency,
-    paymentRequiresChange: false,
-    paymentChangeFor: '',
-    paymentChangeCurrency: budget.negotiatedCurrency,
-    paymentNote: '',
-    useClientFund: false,
-    clientFundAmountUsd: '',
-    hasDeliveryNote: false,
-    hasInvoice: false,
-    invoiceDataNote: '',
-    invoiceCompanyName: '',
-    invoiceTaxId: '',
-    invoiceAddress: '',
-    invoicePhone: '',
-    deliveryNoteName: '',
-    deliveryNoteDocumentId: '',
-    deliveryNoteAddress: '',
-    deliveryNotePhone: '',
-    preserveClientCommercialProfile: true,
-    items: [mainItem, ...deliveryItems],
-  });
-
-  const orderId = Number(created.id);
-  const { data: orderItem, error: orderItemError } = await ctx.supabase
-    .from('order_items')
-    .select('id')
-    .eq('order_id', orderId)
-    .eq('product_id', parentProductId)
-    .maybeSingle();
-  if (orderItemError || !orderItem) throw new Error(orderItemError?.message || 'No se pudo congelar la composición del evento.');
-
-  const commercialPayload = {
-    kind: 'event_commercial_terms',
-    schema_version: 1,
-    draft_id: draftId,
-    negotiated_currency: budget.negotiatedCurrency,
-    negotiated_amount: budget.negotiatedAmount,
-    total_usd: totalUsd,
-    fx_rate: fxRate,
-    commission_mode: budget.commissionMode,
-    commission_value: budget.commissionValue,
-    components: budget.components.map((component) => ({
-      product_id: component.productId,
-      product_name: component.productName,
-      qty: component.qty,
-      preparation_mode: component.preparationMode,
-    })),
-  };
-  const { error: termsError } = await ctx.supabase
-    .from('order_admin_adjustments')
-    .insert({
-      order_id: orderId,
-      order_item_id: Number(orderItem.id),
-      adjustment_type: 'other',
-      reason: 'Condiciones comerciales del evento',
-      notes: 'Fotografía canónica del presupuesto aceptado.',
-      payload: commercialPayload,
-      created_by_user_id: ctx.user.id,
-    });
-  if (termsError) throw new Error(termsError.message);
-
-  const { data: order, error: orderError } = await ctx.supabase
-    .from('orders')
-    .select('extra_fields')
-    .eq('id', orderId)
-    .single();
-  if (orderError) throw new Error(orderError.message);
-  const { error: orderUpdateError } = await ctx.supabase
-    .from('orders')
-    .update({
-      extra_fields: {
-        ...object(order.extra_fields),
-        event_budget: {
-          draft_id: draftId,
-          title: budget.title,
-          commission_mode: budget.commissionMode,
-          commission_value: budget.commissionValue,
-        },
-      },
-      last_modified_at: new Date().toISOString(),
-      last_modified_by: ctx.user.id,
-    })
-    .eq('id', orderId);
-  if (orderUpdateError) throw new Error(orderUpdateError.message);
-
-  const { error: draftUpdateError } = await ctx.supabase
-    .from('advisor_order_drafts')
-    .update({
-      status: 'converted',
-      converted_order_id: orderId,
-      converted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', draftId)
-    .in('status', ['draft', 'quoted']);
-  if (draftUpdateError) throw new Error(draftUpdateError.message);
-
-  revalidatePath('/app/events');
-  revalidatePath('/app/advisor/drafts');
-  revalidatePath('/app/advisor/orders');
-  revalidatePath('/app/master/ops');
-  return { id: orderId, orderNumber: created.orderNumber, reused: false as const };
 }

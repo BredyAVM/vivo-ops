@@ -21,6 +21,7 @@ import { adminWorkspaceHref } from "@/lib/navigation/admin-workspace";
 import { appContextHref } from "@/lib/navigation/return-navigation";
 import DeliveredOrderCommissionEditor from "@/app/app/commissions/_components/DeliveredOrderCommissionEditor";
 const DeliveredOrderPriceEditor = dynamic(() => import("@/components/orders/DeliveredOrderPriceEditor"), { ssr: false });
+const EventOrderEditor = dynamic(() => import("@/components/orders/EventOrderEditor"), { ssr: false });
 import MasterClientSearchResults from "@/app/app/master/_components/MasterClientSearchResults";
 import { ordersWorkspaceNavigation, type OrdersWorkspaceSurface } from "@/lib/orders/workspace-navigation";
 import type { ClientSearchSummary } from "@/lib/search/client-search";
@@ -1326,7 +1327,7 @@ function OrderDetailPanel({
   onTabChange: (tab: DetailTab) => void;
   onRetryDetail: () => void;
   onClose: () => void;
-  onEditOrder: (order: MasterOpsOrder, intent?: "general" | "commercial") => void;
+  onEditOrder: (order: MasterOpsOrder, intent?: "general" | "commercial" | "event") => void;
   onRepeatOrder: (order: MasterOpsOrder) => void;
   onDirectAction: (order: MasterOpsOrder, action: DirectActionKey, payload?: DirectActionPayload) => Promise<boolean>;
   onCreatePaymentReport: (order: MasterOpsOrder, payload: PaymentReportDraft) => Promise<boolean>;
@@ -4072,6 +4073,13 @@ function OrderDetailPanel({
                       Precios y comisiones
                     </button>
                   ) : null}
+                  {isAdmin && order.status !== "cancelled" && order.lines.some(line => line.isEvent) ? (
+                    <button type="button" disabled={busy}
+                      className="rounded-xl border border-[#FFFF00]/35 bg-[#FFFF00]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FFFF00]"
+                      onClick={() => onEditOrder(order, "event")}>
+                      Modificar evento
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -4136,6 +4144,7 @@ export default function OrdersWorkspaceClient({
   const detailRequestTokenRef = useRef(0);
   const appliedOpenOrderRouteRef = useRef<string | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
+  const [editingEventId, setEditingEventId] = useState<number | null>(null);
   const [editingIntent, setEditingIntent] = useState<"general" | "commercial">("general");
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [repeatOrderId, setRepeatOrderId] = useState<number | null>(null);
@@ -4211,7 +4220,7 @@ export default function OrdersWorkspaceClient({
     const refreshIfStale = () => {
       if (document.visibilityState !== "visible") return;
       if (!navigator.onLine) return;
-      if (selectedOrderId || editingOrderId || createOrderOpen || rateEditorOpen || inboxMode) return;
+      if (selectedOrderId || editingOrderId || editingEventId || createOrderOpen || rateEditorOpen || inboxMode) return;
       if (Date.now() - lastRefreshRequestAtRef.current < 120_000) return;
       scheduleOpsRefresh({ immediate: true, queueIfBusy: false });
     };
@@ -4228,6 +4237,7 @@ export default function OrdersWorkspaceClient({
   }, [
     createOrderOpen,
     editingOrderId,
+    editingEventId,
     inboxMode,
     rateEditorOpen,
     scheduleOpsRefresh,
@@ -5555,7 +5565,11 @@ export default function OrdersWorkspaceClient({
           onTabChange={setSelectedDetailTab}
           onRetryDetail={refreshSelectedOrderDetail}
           onClose={closeOrderDetail}
-          onEditOrder={(order, intent = "general") => { setEditingIntent(intent); setEditingOrderId(order.id); }}
+          onEditOrder={(order, intent = "general") => {
+            if (roles.includes("admin") && intent === "event" && order.lines.some(line => line.isEvent)) {
+              setEditingEventId(order.id);
+            } else { setEditingIntent(intent === "event" ? "general" : intent); setEditingOrderId(order.id); }
+          }}
           onRepeatOrder={(order) => { setRepeatOrderId(order.id); closeOrderDetail(); setCreateOrderOpen(true); }}
           onDirectAction={runDirectOrderAction}
           onCreatePaymentReport={runCreatePaymentReport}
@@ -5577,6 +5591,9 @@ export default function OrdersWorkspaceClient({
           requestOpsRefresh();
         }}
       /> : null}
+      {editingEventId !== null ? <EventOrderEditor orderId={editingEventId} onClose={() => setEditingEventId(null)} onSaved={() => {
+        setEditingEventId(null); refreshSelectedOrderDetail(); requestOpsRefresh();
+      }} /> : null}
       {editingOrderId !== null ? <MasterOpsOrderEditor
         mode="edit"
         orderId={editingOrderId}

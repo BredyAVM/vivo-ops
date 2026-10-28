@@ -27,6 +27,7 @@ export type MasterOrderPaymentVerify = "none" | "pending" | "confirmed" | "rejec
 export type MasterOrderDetailTab = "detalle" | "entrega" | "pagos" | "eventos" | "notas" | "ajustes";
 
 export type MasterOrderDetailLine = {
+  isEvent?: boolean;
   rewardFunding?:RewardOrderFunding;
   name: string;
   qty: number;

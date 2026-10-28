@@ -560,6 +560,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
 
       return {
         name: productName,
+        isEvent: /(?:^|\n)@event\|draft\|\d+(?:\n|$)/.test(item.notes ?? ""),
         rewardFunding:rewardByItem.get(Number(item.id)),
         qty: Number(item.qty ?? 0),
         unitsPerService:

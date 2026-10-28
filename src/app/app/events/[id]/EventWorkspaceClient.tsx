@@ -1,5 +1,6 @@
 'use client';
 import Link from '@/components/navigation/ContextLink';
+import dynamic from 'next/dynamic';
 import { useRef, useState, useTransition } from 'react';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { eventRequestLabel, eventOrderLabel, summarizeEventOrders, type EventWorkspace, type EventTerms, type EventRate, type EventRequest } from '@/lib/events/event-workspace';
@@ -11,6 +12,7 @@ const field = 'w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 te
 const button = 'rounded-lg border border-zinc-700 px-3 py-2 text-sm disabled:opacity-40';
 const money = (value: number | null, currency = 'USD') => value == null ? 'Por definir' : `${currency === 'VES' ? 'Bs' : '$'} ${Number(value).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const emptyTerms: EventTerms = { currency: 'USD', commission_mode: 'default', commission_value: null, rates: [] };
+const EventOrderEditor = dynamic(() => import('@/components/orders/EventOrderEditor'), { ssr: false });
 
 export default function EventWorkspaceClient({ data, payments, paymentError, admin, master }: { data: EventWorkspace; payments: EventPaymentData | null; paymentError?: string; admin: boolean; master: boolean }) {
   const router = useRouter();
@@ -18,6 +20,7 @@ export default function EventWorkspaceClient({ data, payments, paymentError, adm
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [showRequest, setShowRequest] = useState(false);
+  const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [items, setItems] = useState<{ product_id: number; qty: number }[]>([]);
   const [productId, setProductId] = useState('');
   const [qty, setQty] = useState('1');
@@ -56,7 +59,8 @@ export default function EventWorkspaceClient({ data, payments, paymentError, adm
   }
   return <main className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6">
     <header className="flex items-start justify-between gap-3"><div><Link href="/app/events/ongoing" className="text-sm text-zinc-400">← Eventos</Link><h1 className="mt-2 text-2xl font-bold">{data.root.title}</h1></div>
-      <button className={button} onClick={() => router.refresh()}>Actualizar</button></header>
+      <div className="flex flex-wrap gap-2">{admin && data.root.converted_order_id ? <button className={`${button} border-[#FFFF00]/40 text-[#FFFF00]`} onClick={() => setEditingOrderId(data.root.converted_order_id)}>Modificar orden inicial</button> : null}<button className={button} onClick={() => router.refresh()}>Actualizar</button></div></header>
+    {editingOrderId !== null ? <EventOrderEditor orderId={editingOrderId} onClose={() => setEditingOrderId(null)} onSaved={() => { setEditingOrderId(null); router.refresh(); }} /> : null}
     {error ? <p role="alert" className="rounded-lg bg-red-950/50 p-3 text-red-200">{error}</p> : null}
     {message ? <p role="status" className="text-emerald-300">{message}</p> : null}
     <section className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Resumen del evento">
