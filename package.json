@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:brands": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/brands/foundation-model.test.mts tests/brands/foundation-postgres.test.mts tests/brands/foundation-entrypoints.test.mts",
     "test:balance-adjustments": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/admin/order-balance-adjustments-db.mjs tests/admin/client-change-receivable.test.mts",
     "test:own-transport": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/master-ops/own-transport-db.mjs tests/master-ops/own-transport.test.mts",
     "test:master-new-order-alerts": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/master-ops/advisor-created-push.test.mts tests/master-ops/advisor-created-push-db.mjs",
