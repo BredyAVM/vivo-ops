@@ -2,6 +2,7 @@ import Link from '@/components/navigation/ContextLink';
 import WorkspaceForm from '@/components/navigation/WorkspaceForm';
 import { loadMuerdemeMenuList } from '@/lib/brands/menu-data';
 import { menuKinds, menuKindLabels, menuRoot } from '@/lib/brands/menu-model';
+import { safeAppReturnHref } from '@/lib/navigation/return-navigation';
 
 export const dynamic = 'force-dynamic';
 const input = 'min-h-11 min-w-0 rounded-lg border border-[#343442] bg-[#14141C] px-2 text-xs text-[#E4E4EA] md:min-h-8';
@@ -16,7 +17,7 @@ export default async function MuerdemeCataloguePage({ searchParams }: { searchPa
   });
   return <div className="min-w-0 space-y-3">
     <header className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-lg font-semibold text-[#DEDEE6]">Catálogo de Muérdeme</h1>
-      <Link href="/app/admin/negocio/marcas" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FFFF00]">Volver a Marcas</Link></header>
+      {!safeAppReturnHref(query.returnTo) ? <Link href="/app/admin/negocio/marcas" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FFFF00]">Volver a Marcas</Link> : null}</header>
     <details className="rounded-lg border border-[#30303D] bg-[#111117] px-3"><summary className="min-h-11 cursor-pointer content-center text-xs text-[#FFFF00]">Nuevo producto</summary>
       <nav aria-label="Crear producto de Muérdeme" className="flex flex-wrap gap-2 pb-3">{menuKinds.map(kind => <Link key={kind} href={`${menuRoot}/nuevo?tipo=${kind}`} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs text-[#DEDEE6] md:min-h-8">{menuKindLabels[kind]}</Link>)}</nav>
     </details>

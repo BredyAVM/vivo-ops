@@ -3,6 +3,7 @@ import WorkspaceForm from '@/components/navigation/WorkspaceForm';
 import BrandIncentiveForm from '@/components/admin/BrandIncentiveForm';
 import { loadCommercialFoundation } from '@/lib/brands/data';
 import type { CommercialFoundation } from '@/lib/brands/model';
+import { safeAppReturnHref } from '@/lib/navigation/return-navigation';
 import { adminInput, adminPanel } from '../../_components/AdminReadUi';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,7 @@ export default async function CommercialBrandsPage({ searchParams }: {
   return <div className="min-w-0 space-y-3">
     <header className="flex flex-wrap items-center justify-between gap-2">
       <h1 className="text-lg font-semibold text-[#DEDEE6]">Marcas y Muérdeme</h1>
-      <Link href="/app/admin/negocio" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FFFF00]">Volver a Negocio</Link>
+      {!safeAppReturnHref(query.returnTo) ? <Link href="/app/admin/negocio" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FFFF00]">Volver a Negocio</Link> : null}
     </header>
     <nav aria-label="Configuración de Muérdeme"><Link href="/app/admin/negocio/marcas/muerdeme/catalogo" prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#FFFF00]/40 px-3 text-xs text-[#FFFF00] md:min-h-8">Catálogo de Muérdeme →</Link></nav>
     <WorkspaceForm action={root} method="get" className={`${adminPanel} flex flex-wrap items-end gap-2 text-xs`}>

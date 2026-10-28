@@ -20,7 +20,7 @@ function RefSelect({ lookups, kind, value, onChange, title }: {
     value: refValue({ entryId: item.entryId, variantKey: variant.key }),
     text: `${item.name} · ${variant.label}${variant.hasFries ? ' · incluye papas' : ''} · ${variant.priceUsd === null ? 'precio pendiente' : 'USD ' + menuMoneyText(variant.priceUsd)}`,
   })));
-  return <label className={label}>{title}<select className={field} value={value} disabled={options.length === 0} onChange={event => {
+  return <label className={label}>{title}<select aria-label={title} className={field} value={value} disabled={options.length === 0} onChange={event => {
     const [entryId, variantKey] = event.target.value.split('|'); if (entryId && variantKey) onChange({ entryId, variantKey });
   }}><option value="">Seleccionar…</option>{options.map(option => <option key={option.value} value={option.value}>{option.text}</option>)}
     {value && !options.some(o => o.value === value) ? <option value={value}>Opción no disponible; vuelve a seleccionarla</option> : null}
@@ -74,7 +74,7 @@ export default function MuerdemeMenuEditor({ data, kind, returnTo }: { data: Men
           }); })}>+ Presentación</button>
         </div>
         {document.variants.map((variant, index) => <details key={variant.key} open={index === 0} className="min-w-0 rounded-lg border border-[#30303D] bg-[#111117] px-3">
-          <summary className="min-h-11 cursor-pointer content-center break-words text-xs text-[#DEDEE6]">{variant.label || 'Nueva presentación'}{variant.burger ? ` · ${variant.burger.pattyCount === 2 ? 'Doble' : 'Simple'}` : ''}{variant.burger?.includedFries ? ' · incluye papas' : ''}</summary>
+          <summary className="min-h-11 cursor-pointer content-center break-words text-xs text-[#DEDEE6]">{variant.label || 'Nueva presentación'}{variant.burger && variant.label.trim().toLowerCase() !== (variant.burger.pattyCount === 2 ? 'doble' : 'simple') ? ` · ${variant.burger.pattyCount === 2 ? 'Doble' : 'Simple'}` : ''}{variant.burger?.includedFries ? ' · incluye papas' : ''}</summary>
           <div className="min-w-0 space-y-3 pb-3">
             <div className="grid min-w-0 gap-2 sm:grid-cols-2">
               <label className={label}>Nombre de presentación<input className={field} maxLength={100} required value={variant.label} onChange={e => update(d => { d.variants[index].label = e.target.value; })} /></label>
