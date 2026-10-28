@@ -26,6 +26,7 @@ export default async function CommercialBrandsPage({ searchParams }: {
       <h1 className="text-lg font-semibold text-[#DEDEE6]">Marcas y Muérdeme</h1>
       <Link href="/app/admin/negocio" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FFFF00]">Volver a Negocio</Link>
     </header>
+    <nav aria-label="Configuración de Muérdeme"><Link href="/app/admin/negocio/marcas/muerdeme/catalogo" prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#FFFF00]/40 px-3 text-xs text-[#FFFF00] md:min-h-8">Catálogo de Muérdeme →</Link></nav>
     <WorkspaceForm action={root} method="get" className={`${adminPanel} flex flex-wrap items-end gap-2 text-xs`}>
       <input type="hidden" name="consultar" value="1" />
       <label className="grid min-w-0 gap-1 text-[#BDBDC7]">Marca
@@ -59,12 +60,12 @@ export default async function CommercialBrandsPage({ searchParams }: {
         </article>)}
       </section>
       {query.catalogo === '1' ? <section className={adminPanel}>
-        <h2 className="mb-2 text-sm font-medium text-[#DEDEE6]">Catálogo por marca</h2>
+        <h2 className="mb-2 text-sm font-medium text-[#DEDEE6]">Productos de ventas por marca</h2>
         <div className="divide-y divide-[#292937]">{data.catalog.map(item => <article key={item.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 py-2 text-xs">
           <div className="min-w-0"><p className="break-words text-[#DEDEE6]">{item.name}</p><p className="text-[11px] text-[#BDBDC7]">{item.brandCode === 'vivo' ? 'VIVO Fritos' : 'Muérdeme'} · {item.isActive ? 'Activo' : 'Inactivo'}</p></div>
           <span className="shrink-0 tabular-nums text-[#DEDEE6]">{item.currency === 'USD' ? 'USD' : 'Bs'} {money.format(item.amount)}</span>
         </article>)}</div>
-        {!data.catalog.length ? <p className="text-xs text-[#BDBDC7]">No hay productos con estos filtros. El menú de Muérdeme aún no se ha cargado.</p> : null}
+        {!data.catalog.length ? <p className="text-xs text-[#BDBDC7]">No hay productos de ventas con estos filtros. Muérdeme se configura desde su catálogo de preparación.</p> : null}
         {data.hasNext || data.page > 1 ? <nav aria-label="Paginación del catálogo" className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
           {data.page > 1 ? <Link href={href(data.page - 1)} prefetch={false} className="inline-flex min-h-11 items-center text-[#FFFF00]">Anterior</Link> : <span />}
           <span className="text-[#BDBDC7]">Página {data.page}</span>
