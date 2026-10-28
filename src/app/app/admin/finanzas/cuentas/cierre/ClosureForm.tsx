@@ -6,9 +6,20 @@ import { currencyLabel } from '@/lib/ui/currency-label';
 import type { AccountClosureInput, AccountClosureResult } from '@/lib/finance/account-closure-model';
 import { createAdminAccountClosure, previewAdminAccountClosure } from './actions';
 import {clearFinancialAttempt,saveFinancialAttempt} from '@/lib/finance/financial-attempt-storage';
+import { adminMovementHref } from '@/lib/admin-finance/movement-navigation';
 type Account = { id: number; name: string; currencyCode: 'USD' | 'VES' };
 type Preview = Awaited<ReturnType<typeof previewAdminAccountClosure>>;
 const inputClass = queryControl + ' mt-1 block';
+function ClosureOperations({ accountId }: { accountId: number }) {
+  const returnTo = `/app/admin/finanzas/cuentas/cierre?cuenta=${accountId}`;
+  const suffix = `&returnTo=${encodeURIComponent(returnTo)}`;
+  return <nav aria-label="Movimientos de la cuenta seleccionada" className="flex flex-wrap items-center gap-2 border-t border-[#292937] pt-3 text-xs">
+    <span className="text-[#B7B7C2]">¿Vas a sacar dinero?</span>
+    <Link href={adminMovementHref('outflow', accountId) + suffix} prefetch={false} className="inline-flex min-h-9 items-center rounded-lg border border-[#FFFF00]/35 px-3 text-[#FFFF00]">Registrar egreso</Link>
+    <Link href={`/app/admin/finanzas/cuentas/transferencia?cuenta=${accountId}${suffix}`} prefetch={false} className="inline-flex min-h-9 items-center rounded-lg border border-[#30303D] px-3 text-[#C8C8D0]">Traspaso entre cuentas</Link>
+    <span className="text-[#B7B7C2]">Registra la salida y vuelve a contar para cerrar.</span>
+  </nav>;
+}
 export default function ClosureForm({ accounts, initialAccountId, activeRate, today, time, userId }: { accounts: Account[]; initialAccountId: number | null; activeRate: number | null; today: string; time: string; userId:string }) {
   const [accountId, setAccountId] = useState(initialAccountId ?? 0);
   const [date, setDate] = useState(today), [cutTime, setCutTime] = useState(time), [counted, setCounted] = useState('');
@@ -59,6 +70,7 @@ export default function ClosureForm({ accounts, initialAccountId, activeRate, to
       <label className="text-xs">Motivo<input value={reason} maxLength={500} onChange={e => setReason(e.target.value)} className={inputClass} /></label>
       <label className="text-sm sm:col-span-2">Notas (opcional)<textarea value={notes} maxLength={2000} onChange={e => setNotes(e.target.value)} rows={2} className={inputClass} /></label>
     </fieldset>
+    {account && !pending && !uncertain ? <ClosureOperations accountId={account.id} /> : null}
     <section aria-live="polite">{preview?.status === 'ready' ? <div className="grid grid-cols-2 gap-3"><div><h2 className="text-xs text-[#9B9BA7]">Saldo esperado</h2><p className="mt-1 text-base font-semibold tabular-nums">{native(preview.preview.expectedAmount)}</p></div><div><h2 className="text-xs text-[#9B9BA7]">Diferencia estimada</h2><p className="mt-1 text-base font-semibold tabular-nums">{counted.trim() && Number.isFinite(Number(counted.replace(',', '.'))) ? native(Number(counted.replace(',', '.')) - preview.preview.expectedAmount) : '—'}</p></div></div> : <p className="text-sm text-orange-200">{preview?.status === 'error' ? preview.message : !accountId ? 'Selecciona una cuenta para consultar el saldo.' : 'Consultando saldo esperado…'}</p>}</section>
     <p className="text-xs text-[#9B9BA7]">Escribe el saldo que ves en el banco o el efectivo contado a esa hora. Las diferencias quedan para conciliación. El saldo esperado se recalcula al guardar; el traspaso del punto se registra por separado.</p>
     {result && <p role="alert" className="text-sm text-orange-200">{result.message}</p>}

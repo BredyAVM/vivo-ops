@@ -76,9 +76,10 @@ Esta entrega NO completa toda la arquitectura discutida:
 3. **Catálogo configurable:** se admiten productos de composición fija, no Gambits
    ni productos con selección editable. Incorporar el selector canónico para esos
    casos en la siguiente entrega, sin inventar su composición.
-4. **Conversión del presupuesto inicial:** sigue el flujo preexistente. La creación
-   de ampliaciones es atómica; falta migrar la conversión inicial multiescritura a
-   una operación atómica, preservando la creación y el perfil comercial del cliente.
+4. **Conversión del presupuesto inicial:** resuelta en la entrega del 28 de octubre
+   de 2026. Ahora usa `convert_event_budget_atomic_v1`, con bloqueo del borrador,
+   reintento único y conservación del perfil comercial del cliente. Ver
+   [Administración: revisión operativa](ADMIN_OPERATIONAL_PARITY_2026-10-28.md).
 5. **Orden 2667:** no regularizada. Falta conocer cantidad adicional real y precio
    acordado. No usar este flujo operativo para simular preparación de algo ya entregado;
    la regularización histórica requiere revisar los conteos posteriores para no duplicar consumo.
