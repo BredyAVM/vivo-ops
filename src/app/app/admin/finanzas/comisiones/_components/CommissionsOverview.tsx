@@ -33,9 +33,10 @@ export default function CommissionsOverview({ data, filters }: { data: Overview;
   return <div className="space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-3">
       <div><h1 className="text-xl font-semibold text-white">Comisiones</h1><p className="mt-1 text-xs text-[#A3A3AE]">USD · Consulta {dateFormat.format(new Date(data.asOf))}</p></div>
-      <div className="flex flex-wrap gap-2"><Link href={view.period ? `/app/commissions?period=${view.period.id}` : '/app/commissions'} prefetch={false} className={queryAction}>Calcular / conformar / pagar →</Link>
+      <div className="flex flex-wrap gap-2"><Link href={view.period ? `/app/commissions?period=${view.period.id}&consultar=1` : '/app/commissions?consultar=1'} prefetch={false} className={queryPrimary}>Calcular y pagar comisiones →</Link>
         <Link href="/app/commissions/goals" prefetch={false} className={queryAction}>Metas</Link></div>
     </header>
+    <p className="text-xs text-[#B7B7C2]">Este resumen muestra los cálculos guardados. En «Calcular y pagar comisiones» puedes aplicar deducciones, conformar el período y registrar el pago.</p>
     <form key={`${selected.periodId}:${filters.status}:${filters.q}`} action={basePath} method="get" className={`${queryPanel} flex flex-wrap items-end gap-2`}>
       <label className="min-w-0 flex-1 basis-52"><span className="mb-1 block text-[11px] text-[#B7B7C2]">Período de comisión</span>
         <select name="period" defaultValue={selected.periodId ?? ''} className={`${control} w-full`}>
