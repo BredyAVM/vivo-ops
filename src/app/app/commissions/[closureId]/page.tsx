@@ -1,4 +1,5 @@
 import WorkspaceForm from '@/components/navigation/WorkspaceForm';
+import MuerdemeIncentiveBreakdown from'@/components/commissions/MuerdemeIncentiveBreakdown';
 import Link from '@/components/navigation/ContextLink';
 import { notFound, redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
@@ -501,11 +502,12 @@ export default async function CommissionAuditPage({
 
           {activeSection === 'commission' ? (
             <div className="space-y-5">
+              <MuerdemeIncentiveBreakdown snapshot={closure.snapshot}/>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <AmountCard label="Comisión normal" value={money(audit.normalCommissionUsd)} note={`${money(closure.regular_base_usd)} al ${commissionAuditNumber(closure.base_commission_pct).toFixed(2)}%`} />
                 <AmountCard label="Ítems especiales" value={money(audit.specialItemsCommissionUsd)} note={`${money(closure.special_item_base_usd)} de base`} />
                 <AmountCard label="Órdenes especiales" value={money(audit.specialOrdersCommissionUsd)} note={`${money(closure.special_order_base_usd)} de base`} />
-                <AmountCard label="Comisión bruta" value={money(closure.gross_commission_usd)} note="Suma de las tres modalidades" />
+                <AmountCard label="Comisión bruta" value={money(closure.gross_commission_usd)} note="Comisiones y estímulos relacionados" />
               </div>
               <div>
                 <h3 className="mb-3 text-sm font-semibold">Comisión por pedido</h3>

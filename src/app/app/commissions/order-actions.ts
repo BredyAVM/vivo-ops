@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAdminContext } from '@/lib/auth';
+import {isMuerdemeCommissionLine}from'@/lib/brands/order-incentives';
 import { resolveProductCommissionTerms } from '@/lib/commissions/product-commission-policy';
 import { resolveDeliveredCommissionItem, validateDeliveredCommissionChanges, type DeliveredCommissionChange } from '@/lib/commissions/delivered-order-commission';
 import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
@@ -55,7 +56,7 @@ async function loadEditor(orderId: number) {
     const product = Array.isArray(item.product) ? item.product[0] : item.product;
     const catalog = resolveProductCommissionTerms({ currentMode: product?.commission_mode, currentValue: product?.commission_value, extraFields: product?.extra_fields, referenceDate: deliveryDate });
     const payloads = (adjustmentsResult.data ?? []).filter((row) => Number(row.order_item_id) === Number(item.id)).map((row) => row.payload);
-    return { id: Number(item.id), name: item.product_name_snapshot || 'Producto', ...resolveDeliveredCommissionItem(catalog, payloads) };
+    return { id: Number(item.id), name: item.product_name_snapshot || 'Producto', fixedBurgerIncentive:isMuerdemeCommissionLine(item), ...resolveDeliveredCommissionItem(catalog, payloads) };
   });
   return { orderId, lastModifiedAt: order.last_modified_at as string | null, items, protectedReason, closures: allClosures };
 }
@@ -103,6 +104,7 @@ export async function saveDeliveredOrderCommissionEditor(input: {
     const changes = validateDeliveredCommissionChanges(input.changes, input.reason);
     const editor = await loadEditor(input.orderId);
     if (editor.protectedReason) throw new Error(editor.protectedReason);
+    if(changes.some(change=>editor.items.find(item=>item.id===change.itemId)?.fixedBurgerIncentive))throw new Error('Las hamburguesas usan un estímulo fijo por pedido y las papas no generan comisión. Configura los importes desde Marcas.');
     const result = await supabase.rpc('save_delivered_order_commissions_v1', {
       p_order_id: input.orderId, p_expected_last_modified_at: input.lastModifiedAt,
       p_changes: changes, p_reason: input.reason.trim(),

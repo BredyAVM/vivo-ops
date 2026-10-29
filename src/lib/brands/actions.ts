@@ -33,7 +33,7 @@ export async function saveBrandIncentiveDraft(
       throw new Error('El guardado no devolvió una confirmación válida. Vuelve a consultar antes de reintentar.');
     }
     revalidatePath('/app/admin/negocio/marcas');
-    return { ok: true, message: 'Importes guardados en preparación. Se conservó la versión anterior.' };
+    return { ok: true, message: 'Importes guardados para pedidos nuevos. Los pedidos anteriores conservan su versión.' };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : 'No se pudo guardar la configuración.' };
   }

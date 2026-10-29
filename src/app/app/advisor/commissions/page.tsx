@@ -9,6 +9,8 @@ import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closu
 import { loadCommissionLiveCollections, mergeCommissionLiveOrders, type CommissionLiveCollection } from '@/lib/commissions/live-collections';
 import CollectionRefresh from '@/components/commissions/CollectionRefresh';
 import CollectionSummary from '@/components/commissions/CollectionSummary';
+import MuerdemeIncentiveBreakdown from'@/components/commissions/MuerdemeIncentiveBreakdown';
+import {readMuerdemeIncentiveSnapshot}from'@/lib/brands/order-incentives';
 import {
   readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
@@ -744,7 +746,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   );
   const normalCommissionUsd = Math.max(
     0,
-    roundMoney(numberValue(closure?.gross_commission_usd) - specialItemsCommissionUsd - specialOrdersCommissionUsd)
+    roundMoney(numberValue(closure?.gross_commission_usd) - specialItemsCommissionUsd - specialOrdersCommissionUsd - readMuerdemeIncentiveSnapshot(closure?.snapshot).totalUsd)
   );
   const totalDeductionsUsd = roundMoney(
     numberValue(closure?.gift_deductions_usd) + numberValue(closure?.manual_deductions_usd)
@@ -1042,6 +1044,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
             </SectionCard>
           ) : null}
 
+          <MuerdemeIncentiveBreakdown snapshot={closure.snapshot}/>
           <section className="grid grid-cols-2 gap-3">
             <CommissionSummaryLink
               label="Ventas"

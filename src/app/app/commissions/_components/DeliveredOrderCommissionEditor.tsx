@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import Link from'@/components/navigation/ContextLink';
 import { selectInputValue } from '@/lib/ui/select-input-value';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
@@ -40,6 +41,7 @@ export default function DeliveredOrderCommissionEditor({ orderId }: { orderId: n
     setError('');
     const changes: DeliveredCommissionChange[] = [];
     for (const item of editor.items) {
+      if(item.fixedBurgerIncentive)continue;
       const draft = drafts[item.id];
       if (draft.mode === 'inherit') {
         if (item.override) changes.push({ itemId: item.id, action: 'clear' });
@@ -64,7 +66,7 @@ export default function DeliveredOrderCommissionEditor({ orderId }: { orderId: n
     finally { setBusy(false); }
   }
 
-  const effective = editor?.items.map((item) => {
+  const effective = editor?.items.filter(item=>!item.fixedBurgerIncentive).map((item) => {
     const draft = drafts[item.id];
     return draft?.mode === 'inherit' ? item.inherited : { mode: draft?.mode, value: draft?.value };
   }) ?? [];
@@ -82,9 +84,10 @@ export default function DeliveredOrderCommissionEditor({ orderId }: { orderId: n
         <p className="my-3 text-xs text-[#B7B7C2]">Solo cambia la comisión de este pedido. No modifica precios, pagos ni inventario. El cambio queda registrado con su motivo.</p>
         {busy && !editor ? <p role="status">Consultando comisiones…</p> : null}
         {editor?.protectedReason ? <p className="mb-3 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200">{editor.protectedReason}</p> : null}
-        {hasWholeOrderRate ? <p className="mb-3 text-xs text-amber-200">Hay una comisión sobre toda la orden: ese porcentaje prevalece sobre los porcentajes por producto mientras esté activo.</p> : null}
+        {hasWholeOrderRate ? <p className="mb-3 text-xs text-amber-200">{editor?.items.some(item=>item.fixedBurgerIncentive)?'El porcentaje de la orden prevalece en sus productos habituales. Las hamburguesas conservan su estímulo fijo y las papas no generan comisión.':'Hay una comisión sobre toda la orden: ese porcentaje prevalece sobre los porcentajes por producto mientras esté activo.'}</p> : null}
         {editor ? <fieldset disabled={busy || Boolean(editor.protectedReason)} className="space-y-3 disabled:opacity-70">
           {editor.items.map((item) => {
+            if(item.fixedBurgerIncentive)return<div key={item.id}className="rounded-xl border border-[#30303B] p-3 text-xs"><p className="font-medium">{item.name}</p><p className="mt-1 text-[#B7B7C2]">Hamburguesas: estímulo fijo por pedido. Papas y extras: sin porcentaje adicional.</p><Link href="/app/admin/negocio/marcas?consultar=1"prefetch={false}className="mt-2 inline-flex min-h-11 items-center text-[#FFFF00]">Configurar importes por pedido</Link></div>;
             const draft = drafts[item.id];
             const fixed = draft?.mode === 'fixed_item' || draft?.mode === 'fixed_order';
             return <div key={item.id} className="rounded-xl border border-[#30303B] p-3">
@@ -109,7 +112,7 @@ export default function DeliveredOrderCommissionEditor({ orderId }: { orderId: n
           <label className="block text-xs">Motivo del ajuste (obligatorio)
             <textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2} className="mt-1 w-full rounded-lg border border-[#30303B] bg-[#0B0B0D] p-2 text-sm" />
           </label>
-          <button type="button" onClick={save} disabled={busy || !editor.items.length} className="w-full rounded-xl bg-[#FFFF00] px-3 py-2 text-sm font-semibold text-black disabled:opacity-50">{busy ? 'Guardando y actualizando…' : 'Guardar comisiones'}</button>
+          <button type="button" onClick={save} disabled={busy || !editor.items.some(item=>!item.fixedBurgerIncentive)} className="w-full rounded-xl bg-[#FFFF00] px-3 py-2 text-sm font-semibold text-black disabled:opacity-50">{busy ? 'Guardando y actualizando…' : 'Guardar comisiones'}</button>
         </fieldset> : null}
         {error ? <p role="alert" className="mt-3 text-sm text-red-300">{error}</p> : null}
       </dialog>

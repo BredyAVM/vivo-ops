@@ -1,0 +1,361 @@
+function buildAdvisorCommissionSnapshots(params: {
+  orders: AdvisorCommissionOrderRow[];
+  financialStates: Map<number, AdvisorCommissionFinancialStateRow>;
+  paymentCompletionDates: Map<number, string>;
+  firstPurchaseOrdersByClientId: Map<number, AdvisorCommissionFirstOrderRow>;
+  advisorIds: string[];
+  advisorNamesById: Map<string, string>;
+  period: { id: number; name: string; date_from: string; date_to: string };
+  defaultBaseCommissionPct: number;
+  baseCommissionPctByAdvisor: Map<string, number>;
+  commissionTermsByOrderItemId: Map<number, AdvisorCommissionItemTerms>;
+  giftOverridesByOrderItemId: Map<number, AdvisorCommissionGiftOverride>;
+}) {
+  const {
+    orders,
+    financialStates,
+    paymentCompletionDates,
+    firstPurchaseOrdersByClientId,
+    advisorIds,
+    advisorNamesById,
+    period,
+    defaultBaseCommissionPct,
+    baseCommissionPctByAdvisor,
+    commissionTermsByOrderItemId,
+    giftOverridesByOrderItemId,
+  } = params;
+
+  const closuresByAdvisor = new Map<string, {
+    advisorUserId: string;
+    advisorName: string;
+    baseCommissionPct: number;
+    orders: Array<Record<string, unknown>>;
+    paidOrders: Array<Record<string, unknown>>;
+    pendingOrders: Array<Record<string, unknown>>;
+    newClients: Array<Record<string, unknown>>;
+    products: Array<Record<string, unknown>>;
+    gifts: Array<Record<string, unknown>>;
+    totals: {
+      deliveredOrdersCount: number;
+      billedUsd: number;
+      regularBaseUsd: number;
+      specialItemBaseUsd: number;
+      specialOrderBaseUsd: number;
+      grossCommissionUsd: number;
+      pendingCollectionUsd: number;
+      punctualPaidCount: number;
+      latePaidCount: number;
+      pendingPaymentCount: number;
+      newOwnClientsCount: number;
+      newAssignedClientsCount: number;
+      giftDeductionsUsd: number;
+      manualDeductionsUsd: number;
+      payableUsd: number;
+    };
+  }>();
+
+  for (const advisorId of advisorIds) {
+    closuresByAdvisor.set(advisorId, {
+      advisorUserId: advisorId,
+      advisorName: advisorNamesById.get(advisorId) || 'Asesor',
+      baseCommissionPct: baseCommissionPctByAdvisor.get(advisorId) ?? defaultBaseCommissionPct,
+      orders: [],
+      paidOrders: [],
+      pendingOrders: [],
+      newClients: [],
+      products: [],
+      gifts: [],
+      totals: {
+        deliveredOrdersCount: 0,
+        billedUsd: 0,
+        regularBaseUsd: 0,
+        specialItemBaseUsd: 0,
+        specialOrderBaseUsd: 0,
+        grossCommissionUsd: 0,
+        pendingCollectionUsd: 0,
+        punctualPaidCount: 0,
+        latePaidCount: 0,
+        pendingPaymentCount: 0,
+        newOwnClientsCount: 0,
+        newAssignedClientsCount: 0,
+        giftDeductionsUsd: 0,
+        manualDeductionsUsd: 0,
+        payableUsd: 0,
+      },
+    });
+  }
+
+  for (const order of orders) {
+    const advisorId = String(order.attributed_advisor_id || '');
+    const closure = closuresByAdvisor.get(advisorId);
+    if (!closure) continue;
+
+    const orderId = Number(order.id);
+    const items = Array.isArray(order.items) ? order.items : [];
+    const financialState = financialStates.get(orderId);
+    const moneySnapshot = getOrderMoneySnapshot(order);
+    const totalUsd = roundMoney(financialState?.total_usd ?? moneySnapshot.totalUsd);
+    const isCommercialOrder = isAdvisorCommercialOrder(totalUsd);
+    const pendingUsd = getEffectiveOrderPendingUsd({
+      order,
+      financialState,
+      fallbackPendingUsd: Math.max(0, totalUsd),
+    });
+    const confirmedPaidUsd = roundMoney(financialState?.confirmed_paid_usd ?? 0);
+    const deliveryDate = financialState?.delivery_reference_date || getAdvisorCommissionDeliveryDate(order);
+    const discountFactor = isCommercialOrder
+      ? getAdvisorCommissionDiscountFactor(order, items)
+      : 0;
+    const commissionableSubtotalUsd = getOrderCommercialNetUsd(order);
+
+    let regularBaseUsd = 0;
+    let specialItemBaseUsd = 0;
+    let specialItemCommissionUsd = 0;
+    let fixedOrderBaseUsd = 0;
+    let fixedOrderPct: number | null = null;
+    const fixedOrderTerms = items
+      .map((item) =>
+        getAdvisorCommissionItemTerms(item, commissionTermsByOrderItemId, deliveryDate)
+      )
+      .find((terms) => terms.mode === 'fixed_order');
+
+    if (fixedOrderTerms) {
+      fixedOrderBaseUsd = commissionableSubtotalUsd;
+      fixedOrderPct = Math.max(0, toSafeNumber(fixedOrderTerms.value, 0));
+    } else {
+      for (const item of items) {
+        const product = getAdvisorCommissionProduct(item);
+        const commissionTerms = getAdvisorCommissionItemTerms(
+          item,
+          commissionTermsByOrderItemId,
+          deliveryDate
+        );
+        const lineBaseUsd = Math.max(0, getOrderLineTotalUsd(item) * discountFactor);
+        if (commissionTerms.mode === 'fixed_item') {
+          const pct = Math.max(0, toSafeNumber(commissionTerms.value, 0));
+          specialItemBaseUsd += lineBaseUsd;
+          specialItemCommissionUsd += lineBaseUsd * (pct / 100);
+        } else if (commissionTerms.mode !== 'none') {
+          regularBaseUsd += lineBaseUsd;
+        }
+
+        const productType = String(product?.type || '').toLowerCase();
+        const productName = item.product_name_snapshot || product?.name || 'Producto';
+        const giftOverride = giftOverridesByOrderItemId.get(Number(item.id));
+        if (giftOverride || productType === 'gambit' || productName.toLowerCase().includes('obsequio')) {
+          const qty = toSafeNumber(item.qty, 0);
+          const deductionUsd = giftOverride
+            ? roundMoney(giftOverride.advisorChargeUsd)
+            : roundMoney(getAdvisorGiftCostUsd(product) * qty);
+          const unitDeductionUsd = giftOverride && giftOverride.quantity > 0
+            ? roundMoney(deductionUsd / giftOverride.quantity)
+            : getAdvisorGiftCostUsd(product);
+          closure.totals.giftDeductionsUsd += deductionUsd;
+          closure.gifts.push({
+            orderId,
+            orderNumber: order.order_number,
+            productId: product?.id ?? item.product_id,
+            productName,
+            qty,
+            clientName: getAdvisorCommissionClient(order)?.full_name || 'Cliente',
+            unitDeductionUsd,
+            deductionUsd,
+            crmPlayName: giftOverride?.playName ?? null,
+            companyCostUsd: giftOverride?.companyCostUsd ?? null,
+          });
+        }
+
+        closure.products.push({
+          orderId,
+          orderNumber: order.order_number,
+          clientName: getAdvisorCommissionClient(order)?.full_name || 'Cliente',
+          productName,
+          productType,
+          qty: toSafeNumber(item.qty, 0),
+          lineBaseUsd: roundMoney(lineBaseUsd),
+          commissionMode: commissionTerms.mode,
+          commissionValue: commissionTerms.value,
+        });
+      }
+
+      if (items.length === 0) {
+        regularBaseUsd = commissionableSubtotalUsd;
+      }
+    }
+
+    const regularCommissionUsd = regularBaseUsd * (closure.baseCommissionPct / 100);
+    const fixedOrderCommissionUsd =
+      fixedOrderPct == null ? 0 : fixedOrderBaseUsd * (fixedOrderPct / 100);
+    const orderCommissionUsd = roundMoney(regularCommissionUsd + specialItemCommissionUsd + fixedOrderCommissionUsd);
+    const roundingClosure = getOrderRoundingClosureSnapshot(order);
+    const paymentStatus = roundingClosure.isClosed
+      ? 'closed_by_rounding'
+      : String(financialState?.payment_status || '').toLowerCase();
+    const isPending = pendingUsd > 0.005;
+    const paymentCompletedDate = isPending
+      ? null
+      : paymentCompletionDates.get(orderId) || deliveryDate || null;
+    const paymentTiming = isPending
+      ? 'pending'
+      : paymentCompletedDate && deliveryDate && paymentCompletedDate > deliveryDate
+        ? 'late'
+        : 'punctual';
+
+    const client = getAdvisorCommissionClient(order);
+    if (isCommercialOrder) {
+      const clientCreatedDate = dateOnlyFromIso(client?.created_at);
+      const clientType = String(client?.client_type || '').toLowerCase();
+      const countedClientType = countedAdvisorNewClientType(clientType);
+      const isLegacyImport = Boolean(clientCreatedDate && clientCreatedDate < ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF);
+      const clientIdNumber = Number(client?.id ?? 0);
+      const firstPurchaseOrder = Number.isFinite(clientIdNumber) && clientIdNumber > 0
+        ? firstPurchaseOrdersByClientId.get(clientIdNumber) ?? null
+        : null;
+      const firstOrderId = Number(firstPurchaseOrder?.id ?? 0);
+      const isFirstPurchaseForThisAdvisor =
+        !isLegacyImport &&
+        firstOrderId === orderId &&
+        String(firstPurchaseOrder?.source || '') === 'advisor' &&
+        String(firstPurchaseOrder?.attributed_advisor_id || '') === advisorId;
+
+      if (isFirstPurchaseForThisAdvisor) {
+        const alreadyAdded = closure.newClients.some((row) => String(row.clientId ?? '') === String(client?.id ?? ''));
+        if (!alreadyAdded) {
+          if (countedClientType === 'own') closure.totals.newOwnClientsCount += 1;
+          if (countedClientType === 'assigned') closure.totals.newAssignedClientsCount += 1;
+          closure.newClients.push({
+            clientId: client?.id,
+            clientName: client?.full_name || 'Cliente',
+            clientType,
+            orderId,
+            orderNumber: order.order_number,
+            createdAt: client?.created_at,
+          });
+        }
+      }
+    }
+
+    const orderSnapshot = {
+      orderId,
+      orderNumber: order.order_number,
+      clientId: client?.id ?? null,
+      clientName: client?.full_name || 'Cliente',
+      deliveryDate,
+      billedUsd: roundMoney(commissionableSubtotalUsd),
+      totalUsd,
+      confirmedPaidUsd,
+      pendingUsd,
+      roundingClosedUsd: roundingClosure.shortfallClosedUsd,
+      roundingGainClosedUsd: roundingClosure.gainClosedUsd,
+      regularBaseUsd: roundMoney(regularBaseUsd),
+      specialItemBaseUsd: roundMoney(specialItemBaseUsd),
+      specialOrderBaseUsd: roundMoney(fixedOrderBaseUsd),
+      commissionUsd: orderCommissionUsd,
+      commissionMode: fixedOrderPct == null ? (specialItemBaseUsd > 0 ? 'mixed_items' : 'default') : 'fixed_order',
+      paymentStatus,
+      paymentCompletedDate,
+      paymentTiming,
+    };
+
+    if (isCommercialOrder) {
+      closure.totals.deliveredOrdersCount += 1;
+      closure.totals.billedUsd += commissionableSubtotalUsd;
+      closure.totals.regularBaseUsd += regularBaseUsd;
+      closure.totals.specialItemBaseUsd += specialItemBaseUsd;
+      closure.totals.specialOrderBaseUsd += fixedOrderBaseUsd;
+      closure.totals.grossCommissionUsd += orderCommissionUsd;
+      closure.totals.pendingCollectionUsd += isPending ? pendingUsd : 0;
+      closure.totals.pendingPaymentCount += isPending ? 1 : 0;
+      closure.totals.punctualPaidCount += paymentTiming === 'punctual' ? 1 : 0;
+      closure.totals.latePaidCount += paymentTiming === 'late' ? 1 : 0;
+      closure.orders.push(orderSnapshot);
+      if (isPending) {
+        closure.pendingOrders.push(orderSnapshot);
+      } else {
+        closure.paidOrders.push(orderSnapshot);
+      }
+    }
+  }
+
+  return Array.from(closuresByAdvisor.values()).map((closure) => {
+    const totals = closure.totals;
+    const byDateThenOrder = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+      const dateA = String(a.deliveryDate ?? a.createdAt ?? '');
+      const dateB = String(b.deliveryDate ?? b.createdAt ?? '');
+      const dateCompare = dateA.localeCompare(dateB);
+      if (dateCompare !== 0) return dateCompare;
+      return Number(a.orderId || 0) - Number(b.orderId || 0);
+    };
+    const byProductThenOrder = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+      const productCompare = String(a.productName || '').localeCompare(String(b.productName || ''));
+      if (productCompare !== 0) return productCompare;
+      return Number(a.orderId || 0) - Number(b.orderId || 0);
+    };
+
+    closure.orders.sort(byDateThenOrder);
+    closure.paidOrders.sort(byDateThenOrder);
+    closure.pendingOrders.sort(byDateThenOrder);
+    closure.newClients.sort((a, b) => {
+      const typeCompare = String(a.clientType || '').localeCompare(String(b.clientType || ''));
+      if (typeCompare !== 0) return typeCompare;
+      return String(a.clientName || '').localeCompare(String(b.clientName || ''));
+    });
+    closure.products.sort(byProductThenOrder);
+    closure.gifts.sort(byProductThenOrder);
+
+    totals.billedUsd = roundMoney(totals.billedUsd);
+    totals.regularBaseUsd = roundMoney(totals.regularBaseUsd);
+    totals.specialItemBaseUsd = roundMoney(totals.specialItemBaseUsd);
+    totals.specialOrderBaseUsd = roundMoney(totals.specialOrderBaseUsd);
+    totals.grossCommissionUsd = roundMoney(totals.grossCommissionUsd);
+    totals.pendingCollectionUsd = roundMoney(totals.pendingCollectionUsd);
+    totals.giftDeductionsUsd = roundMoney(totals.giftDeductionsUsd);
+    totals.manualDeductionsUsd = roundMoney(totals.manualDeductionsUsd);
+    totals.payableUsd = roundMoney(
+      totals.grossCommissionUsd - totals.giftDeductionsUsd - totals.manualDeductionsUsd
+    );
+
+    return {
+      period_id: period.id,
+      advisor_user_id: closure.advisorUserId,
+      status: 'preliminary',
+      base_commission_pct: closure.baseCommissionPct,
+      delivered_orders_count: totals.deliveredOrdersCount,
+      billed_usd: totals.billedUsd,
+      regular_base_usd: totals.regularBaseUsd,
+      special_item_base_usd: totals.specialItemBaseUsd,
+      special_order_base_usd: totals.specialOrderBaseUsd,
+      gross_commission_usd: totals.grossCommissionUsd,
+      pending_collection_usd: totals.pendingCollectionUsd,
+      punctual_paid_count: totals.punctualPaidCount,
+      late_paid_count: totals.latePaidCount,
+      pending_payment_count: totals.pendingPaymentCount,
+      new_own_clients_count: totals.newOwnClientsCount,
+      new_assigned_clients_count: totals.newAssignedClientsCount,
+      gift_deductions_usd: totals.giftDeductionsUsd,
+      manual_deductions_usd: totals.manualDeductionsUsd,
+      payable_usd: totals.payableUsd,
+      snapshot: {
+        version: 1,
+        generated_at: new Date().toISOString(),
+        period,
+        advisor: {
+          id: closure.advisorUserId,
+          name: closure.advisorName,
+        },
+        base_commission_pct: closure.baseCommissionPct,
+        totals,
+        orders: closure.orders,
+        paid_orders: closure.paidOrders,
+        punctual_orders: closure.paidOrders.filter((order) => order.paymentTiming === 'punctual'),
+        late_orders: closure.paidOrders.filter((order) => order.paymentTiming === 'late'),
+        pending_orders: closure.pendingOrders,
+        new_clients: closure.newClients,
+        products: closure.products,
+        gifts: closure.gifts,
+        deductions: [] as AdvisorCommissionManualDeductionSnapshot[],
+      },
+    };
+  });
+}
+

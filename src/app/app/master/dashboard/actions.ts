@@ -29,6 +29,8 @@ import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireAuthContext, requireMasterOrAdminContext } from '@/lib/auth';
 import { verifyMuerdemeOrderItems } from '@/lib/brands/order-menu-save';
+import {isMuerdemeCommissionLine,applyMuerdemeIncentives}from'@/lib/brands/order-incentives';
+import {loadMuerdemeCommissionCandidates}from'@/lib/brands/order-incentive-data';
 import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicates';
@@ -9396,17 +9398,19 @@ function buildAdvisorCommissionSnapshots(params: {
     let specialItemCommissionUsd = 0;
     let fixedOrderBaseUsd = 0;
     let fixedOrderPct: number | null = null;
-    const fixedOrderTerms = items
+    const percentageItems=items.filter(item=>!isMuerdemeCommissionLine(item));
+    const fixedOrderTerms = percentageItems
       .map((item) =>
         getAdvisorCommissionItemTerms(item, commissionTermsByOrderItemId, deliveryDate)
       )
       .find((terms) => terms.mode === 'fixed_order');
 
     if (fixedOrderTerms) {
-      fixedOrderBaseUsd = commissionableSubtotalUsd;
+      fixedOrderBaseUsd = percentageItems.length===items.length?commissionableSubtotalUsd:percentageItems.reduce((sum,item)=>sum+Math.max(0,getOrderLineTotalUsd(item)*discountFactor),0);
       fixedOrderPct = Math.max(0, toSafeNumber(fixedOrderTerms.value, 0));
     } else {
       for (const item of items) {
+        if(isMuerdemeCommissionLine(item))continue;
         const product = getAdvisorCommissionProduct(item);
         const commissionTerms = getAdvisorCommissionItemTerms(
           item,
@@ -10140,7 +10144,8 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     }
   }
 
-  const snapshots = buildAdvisorCommissionSnapshots({
+  const muerdemeIncentives=await loadMuerdemeCommissionCandidates(supabase,periodId,advisorIds.filter(id=>!lockedAdvisorIds.has(id)));
+  const snapshots = applyMuerdemeIncentives(buildAdvisorCommissionSnapshots({
     orders,
     financialStates,
     paymentCompletionDates,
@@ -10157,7 +10162,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     baseCommissionPctByAdvisor,
     commissionTermsByOrderItemId,
     giftOverridesByOrderItemId,
-  });
+  }),muerdemeIncentives);
 
   for (const snapshot of snapshots) {
     const manualDeductions = manualDeductionsByAdvisorId.get(snapshot.advisor_user_id) ?? [];

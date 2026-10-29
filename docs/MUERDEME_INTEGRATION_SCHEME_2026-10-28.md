@@ -1,12 +1,15 @@
 # Integración de Muérdeme en VIVO Ops
 
-Esquema funcional del 28 de octubre de 2026. Muérdeme compartirá clientes, captura de órdenes, pagos y despacho con VIVO. La marca, las configuraciones de cada hamburguesa y los estímulos comerciales tendrán reglas propias. Este esquema prepara el desarrollo; no activa productos ni modifica operaciones existentes.
+Esquema funcional del 28 de octubre de 2026, actualizado con las decisiones del 29 de octubre. Muérdeme compartirá clientes, captura de órdenes, pagos y despacho con VIVO. La marca, las configuraciones de cada hamburguesa y los estímulos comerciales tendrán reglas propias. Este esquema prepara el desarrollo; no activa productos ni modifica operaciones existentes.
 
 ## Acuerdos vigentes
 
 - El alcance inicial contempla hamburguesas solas, hamburguesas con papas y combos de varias hamburguesas con los acompañamientos y bebidas definidos para cada combo. Las hamburguesas admiten presentaciones, ingredientes que el cliente puede retirar y extras permitidos.
 - Los clientes atendidos por asesores podrán comprar Muérdeme por ese canal. Las consultas nuevas de Instagram y del canal directo se atenderán mediante el teléfono de Muérdeme, sin repartirlas automáticamente entre asesores como en VIVO.
 - Se adopta como base un estímulo de **USD 0,30 por primer pedido y USD 0,20 por pedido recurrente gestionado por asesor**. La propuesta original se refiere a pedidos que incluyen hamburguesa: el importe corresponde al pedido, no a cada hamburguesa ni a cada extra.
+- Confirmado el 29 de octubre: una o cien hamburguesas en una orden generan un solo importe. Las papas no generan comisión. Los productos VIVO del mismo pedido conservan su comisión habitual; la excepción no se aplica indiscriminadamente a toda la marca ni al pedido completo.
+- Las bebidas son las mismas del catálogo de VIVO Fritos. No se creará un catálogo comercial de refrescos duplicado. Los ejemplos de «Ensayo Bebida» usados en las pruebas no son productos reales; antes de abrir ventas se debe verificar el vínculo de los componentes de bebida de los combos con el catálogo e inventario compartidos.
+- Primera compra significa primera compra válida de hamburguesa Muérdeme del cliente, aunque ya compre VIVO. El estímulo es liquidable cuando está entregada y cobrada. Solo corresponde al asesor que gestionó la orden; no nace por pertenecer a su cartera y no corresponde al teléfono directo.
 - Administración podrá cambiar esos importes en el futuro. Cada versión tendrá fecha de vigencia e historial; una modificación futura conservará las condiciones guardadas de las órdenes y las liquidaciones acordadas o pagadas.
 - Se reutilizará la ventana de configuración del producto: presentación cuando sea elegible, ingredientes y extras. En los combos, cada hamburguesa tendrá su configuración individual dentro de esa ventana. La interfaz será compacta y adaptable al teléfono.
 
@@ -86,10 +89,10 @@ Antes de activar los pagos deben concretarse estos criterios:
 
 | Criterio | Base propuesta para decidir |
 | --- | --- |
-| Primera compra | Primera compra válida de hamburguesa en Muérdeme, aunque el cliente ya compre VIVO. Confirmar esta definición. |
-| Momento de generar el estímulo | Distinguir pedido registrado, entregado y pagado. La política debe fijar cuándo se gana y cuándo se puede liquidar. |
+| Primera compra | Confirmado: primera compra válida de hamburguesa Muérdeme, aunque el cliente ya compre VIVO. |
+| Momento de generar el estímulo | Confirmado: liquidable una vez entregado y cobrado. Las condiciones se conservan desde la primera incorporación de hamburguesa al pedido. |
 | Cancelación o devolución | Definir la pérdida o reversión del estímulo; cualquier corrección de una liquidación pagada será un ajuste trazable. |
-| Referido atendido por teléfono | Registrar referido y operador; confirmar quién tiene derecho al estímulo y durante cuánto tiempo. |
+| Referido atendido por teléfono | Confirmado: el canal directo no genera automáticamente este estímulo para el asesor propietario del cliente. |
 | Pedido que solo contiene papas | La propuesta original exige hamburguesa. Mantenerlo fuera de la regla inicial salvo decisión expresa. |
 
 Estas definiciones no impiden preparar el catálogo y el editor; sí deben quedar resueltas antes de generar derechos de cobro reales.

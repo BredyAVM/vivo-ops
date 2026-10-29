@@ -54,8 +54,8 @@ export default async function CommercialBrandsPage({ searchParams }: {
           </div>
           {brand.code === 'vivo' ? <p className="mt-2 text-xs text-[#BDBDC7]">Conserva su catálogo y reglas comerciales actuales.</p> : null}
           {brand.incentivePolicy ? <div className="mt-3 space-y-3">
-            <p className="text-xs text-[#BDBDC7]">Estímulo por pedido con hamburguesa gestionado por asesor. Los importes están en preparación; todavía no generan liquidaciones.</p>
-            {!brand.salesEnabled ? <BrandIncentiveForm policy={brand.incentivePolicy} /> : null}
+            <p className="text-xs text-[#BDBDC7]">Un importe fijo por pedido con hamburguesa, entregado y cobrado, para el asesor que lo gestionó. Las papas no generan comisión; los productos VIVO conservan sus reglas.</p>
+            <BrandIncentiveForm policy={brand.incentivePolicy} />
             <p className="text-[11px] text-[#BDBDC7]">Versión {brand.incentivePolicy.revision} · {date.format(new Date(brand.incentivePolicy.createdAt))}</p>
           </div> : null}
         </article>)}

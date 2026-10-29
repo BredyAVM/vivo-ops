@@ -1,3 +1,4 @@
+import {readMuerdemeIncentiveSnapshot}from'../brands/order-incentives.ts';
 import {
   readAdvisorCommissionSettlementSnapshot,
   type AdvisorCommissionSettlementSnapshotState,
@@ -204,10 +205,11 @@ export function buildAdminCommissionAuditCalculation(input: {
   const grossCommissionUsd = roundCommissionAuditMoney(
     input.closure.gross_commission_usd
   );
+  const muerdemeIncentiveUsd=readMuerdemeIncentiveSnapshot(input.closure.snapshot).totalUsd;
   const normalCommissionUsd = Math.max(
     0,
     roundCommissionAuditMoney(
-      grossCommissionUsd - specialItemsCommissionUsd - specialOrdersCommissionUsd
+      grossCommissionUsd - specialItemsCommissionUsd - specialOrdersCommissionUsd - muerdemeIncentiveUsd
     )
   );
   const recalculation = calculateAdvisorCommissionSettlement({
@@ -288,7 +290,7 @@ export function buildAdminCommissionAuditCalculation(input: {
           ),
     perOrderCommissionUsd,
     commissionDifferenceUsd: roundCommissionAuditMoney(
-      grossCommissionUsd - perOrderCommissionUsd
+      grossCommissionUsd - perOrderCommissionUsd - muerdemeIncentiveUsd
     ),
     pendingOrdersUsd,
     pendingCollectionDifferenceUsd: roundCommissionAuditMoney(
