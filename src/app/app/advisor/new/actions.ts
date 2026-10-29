@@ -1046,9 +1046,9 @@ export async function validateAdvisorOrderDetailsAction(items: AdvisorDetailInpu
   return normalizeAdvisorItemDetails(ctx.supabase, items);
 }
 
-export async function validateAdvisorMuerdemeItemsAction(items: Parameters<typeof verifyMuerdemeOrderItems>[1]) {
+export async function validateAdvisorMuerdemeItemsAction(items: Parameters<typeof verifyMuerdemeOrderItems>[1], orderId?:number|null) {
   const ctx = await requireAuthContext();
-  await verifyMuerdemeOrderItems(ctx.supabase, items);
+  await verifyMuerdemeOrderItems(ctx.supabase, items,orderId);
 }
 
 export async function createAdvisorOrderAction(input: CreateAdvisorOrderInput) {
@@ -1235,7 +1235,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
     throw new Error('No puedes modificar esta orden.');
   }
 
-  await verifyMuerdemeOrderItems(ctx.supabase, input.items);
+  await verifyMuerdemeOrderItems(ctx.supabase, input.items,orderId);
   const details = await normalizeAdvisorItemDetails(ctx.supabase, input.items);
   const itemsPayload = input.items.map((item, index) => ({
     reward_grant_id: item.rewardGrantId ?? null,

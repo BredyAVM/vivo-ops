@@ -32,7 +32,7 @@ test('preparation cannot create a Muérdeme order and never asks for a financial
  assert.equal(control.calls.length,1);assert.equal(control.calls[0][0],'muerdeme_order_menu_search_v1');
 });
 test('mixed VIVO/Muérdeme checks preserve the ordinary lines and validate each configurable line',async()=>{
- control.reset();control.setResponse(name=>({data:name==='muerdeme_order_menu_search_v1'?{salesEnabled:true}:quote,error:null}));
+ control.reset();control.setResponse(name=>({data:name==='muerdeme_order_menu_search_v1'?{salesEnabled:true}:name==='muerdeme_inventory_preview_v1'?{snapshot:{status:'ready'}}:quote,error:null}));
  const vivo={productId:1,qty:2,editableDetailLines:['50 Mini tequeños']};const a=item();const b=item();
  const value=await verifyMuerdemeOrderItems(control.supabase,[vivo,a,b]);assert.equal(value.size,1);assert.deepEqual(vivo.editableDetailLines,['50 Mini tequeños']);
  assert.equal(control.calls.filter(c=>c[0]==='muerdeme_order_quote_v1').length,1);assert.deepEqual(a.editableDetailLines,b.editableDetailLines);
@@ -47,6 +47,20 @@ test('forged price, identity, quantities, CRM and reward funding fail before any
 test('stale menu does not silently reprice an order',async()=>{
  control.reset();control.setResponse(name=>name==='muerdeme_order_menu_search_v1'?{data:{salesEnabled:true},error:null}:{data:null,error:{code:'40001'}});
  await assert.rejects(()=>verifyMuerdemeOrderItems(control.supabase,[item()]),/menú cambió/);
+});
+
+test('missing physical preparation rejects before any client/order writer is called',async()=>{
+ control.reset();control.setResponse(name=>({data:name==='muerdeme_order_menu_search_v1'?{salesEnabled:true}:name==='muerdeme_inventory_preview_v1'?{snapshot:{status:'pending'}}:quote,error:null}));
+ await assert.rejects(()=>verifyMuerdemeOrderItems(control.supabase,[item()]),/preparación e inventario/);
+ assert.deepEqual(control.calls.map(c=>c[0]),['muerdeme_order_menu_search_v1','muerdeme_order_quote_v1','muerdeme_inventory_preview_v1']);
+});
+
+test('editing preserves the original server certificate and scopes its read to the order',async()=>{
+ control.reset();control.setResponse(name=>({data:name==='muerdeme_order_menu_search_v1'?{salesEnabled:true}:name==='muerdeme_inventory_preview_v1'?{snapshot:{status:'ready'}}:quote,error:null}));
+ const snapshot={version:1,entryId:quote.selection.entryId,productId:quote.productId,certificateId:'00000000-0000-4000-8000-000000000099',status:'ready',recipeRevisions:{},issues:[],lines:[],kitchen:[]};
+ const a=item();a.editableDetailLines.push('@muerdeme-stock|'+JSON.stringify(snapshot));await verifyMuerdemeOrderItems(control.supabase,[a],10);
+ assert.ok(a.editableDetailLines.some(l=>l==='@muerdeme-stock|'+JSON.stringify(snapshot)));
+ const call=control.calls.find(c=>c[0]==='muerdeme_inventory_preview_v1');assert.equal(call[1].p_order_id,10);assert.equal(call[1].p_certificate_id,snapshot.certificateId);
 });
 test('menu actions authorize independently and validate filters before accessing data',async()=>{
  control.reset();control.setRoles(['kitchen']);await assert.rejects(()=>searchMuerdemeOrderMenu(),/permisos/);assert.deepEqual(control.calls,[['auth']]);

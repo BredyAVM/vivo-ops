@@ -28,6 +28,7 @@ export function isEditableDetailMetadataLine(line: string) {
     EDITABLE_DETAIL_PREPARATION_PREFIX,
     EDITABLE_DETAIL_EVENT_PREFIX,
     '@muerdeme|',
+    '@muerdeme-stock|',
   ].some((prefix) => normalized.startsWith(prefix));
 }
 

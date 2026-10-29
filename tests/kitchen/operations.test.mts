@@ -17,6 +17,9 @@ import ts from 'typescript';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { KitchenOrder } from '../../src/app/app/kitchen/KitchenClient.tsx';
+import { orderMenuGraph, stockRecipes, stocks, ids as menuIds } from '../brands/inventory-menu-fixtures.ts';
+import { defaultMenuOrderSelection, quoteMenuOrder, menuQuoteDetailLines } from '../../src/lib/brands/order-menu.ts';
+import { buildMenuStockSnapshot, MUERDEME_STOCK_PREFIX } from '../../src/lib/brands/inventory-menu.ts';
 
 const packComponents: KitchenComponent[] = [
   { productId: 5, name: 'Mini Tequeños Fritos', mode: 'selectable', quantity: 1, required: true, countsTowardLimit: true, isNested: false },
@@ -347,6 +350,12 @@ test('the actual Kitchen JSX renders the same corrected quantities and review wa
   assert.match(warned, /Revisar cantidades con Máster/);
   assert.match(warned, />Revisar<\/div>/);
   assert.doesNotMatch(warned, /150 piezas en total/);
+  const graph=orderMenuGraph();const selection=defaultMenuOrderSelection(graph.entries.find(e=>e.entryId===menuIds.combo)!);
+  selection.slots[0].removed=['sauce'];selection.slots[1].extras=[{entryId:menuIds.extra,variantKey:'standard',quantity:1}];
+  const quote=quoteMenuOrder(graph,selection),stock=buildMenuStockSnapshot(graph,quote,stockRecipes(graph),stocks);
+  order.items=[{id:123,qty:1,name:quote.title,presentation:getKitchenItemPresentation({qty:1,name:quote.title,unitsPerService:0,notes:[...menuQuoteDetailLines(quote),MUERDEME_STOCK_PREFIX+JSON.stringify(stock)].join('\n')})}];
+  const configured=render();assert.equal((configured.match(/2 hamburguesas · 2 porciones de papas · 1 bebida/g)??[]).length,2);
+  assert.match(configured,/Sin Salsa/);assert.match(configured,/Extra: 1 Ensayo Tocineta/);assert.match(configured,/preparaciones/);assert.doesNotMatch(configured,/@muerdeme|USD 15|1 piezas en total/);
 });
 
 test('Kitchen computes once per item on the server and shares it with screen, counter and ticket', () => {

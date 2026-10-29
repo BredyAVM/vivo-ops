@@ -1,4 +1,5 @@
 import { getWhatsAppLineUnits } from '../orders/whatsapp-summary.ts';
+import { muerdemeKitchenPresentation } from './muerdeme-presentation.ts';
 
 const HIDDEN_DETAIL_PREFIX = '@sel|';
 
@@ -36,6 +37,8 @@ export type KitchenPresentationDetailLine = {
 };
 
 export type KitchenItemPresentation = {
+  brand?: 'muerdeme';
+  preparationSummary?: string;
   detailLines: KitchenPresentationDetailLine[];
   hasCountedDetails: boolean;
   repeatsSameConfiguration: boolean;
@@ -77,7 +80,7 @@ function parseBaseDetailLines(notes: string | null) {
   return String(notes || '')
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line && !/^@(sel|prep|event|crm|muerdeme)\|/i.test(line))
+    .filter((line) => line && !/^@(sel|prep|event|crm|muerdeme(?:-stock)?)\|/i.test(line))
     .map((line) => {
       const match = line.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
       if (!match) return { label: line, qty: null };
@@ -106,6 +109,8 @@ export function getKitchenItemUnits(item: KitchenPresentationItem) {
 export function getKitchenItemPresentation(
   item: KitchenPresentationItem,
 ): KitchenItemPresentation {
+  const muerdeme = muerdemeKitchenPresentation(item);
+  if (muerdeme) return muerdeme;
   const baseDetailLines = parseBaseDetailLines(item.notes);
   const composition = item.composition;
   if (!composition) {

@@ -8168,7 +8168,7 @@ export async function updateOrderAction(input: {
 
   const isAdmin = getMasterDashboardPermissions(roles).isAdmin;
   validateOrderCommissionAdjustmentItems(input.items, isAdmin);
-  await verifyMuerdemeOrderItems(supabase, input.items);
+  await verifyMuerdemeOrderItems(supabase, input.items, Number(input.orderId));
 
   if (source === 'advisor' && !input.attributedAdvisorUserId) {
     throw new Error('Debes seleccionar un asesor.');

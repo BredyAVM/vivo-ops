@@ -1099,6 +1099,7 @@ export default function KitchenClient({
                 0,
               );
               const hasQuantityWarning = order.items.some(item => item.presentation.quantityWarning);
+              const hasMuerdeme = order.items.some(item => item.presentation.brand === 'muerdeme');
               const elapsed =
                 order.status === 'confirmed'
                   ? elapsedMinutes(order.sentToKitchenAt || order.createdAt, currentTimeMs)
@@ -1148,7 +1149,7 @@ export default function KitchenClient({
                         <div key={`print-${item.id}`} className="kitchen-print-line">
                           <strong>{formatQty(printQuantity)} × {item.name}</strong>
                           {presentation.hasCountedDetails ? (
-                            <div>{formatQty(item.qty)} {item.qty === 1 ? 'presentación' : 'presentaciones'} · {presentation.quantityWarning ? 'CANTIDADES POR REVISAR' : `${formatQty(presentation.preparedUnits)} piezas en total · accesorios aparte`}</div>
+                            <div>{formatQty(item.qty)} {item.qty === 1 ? 'presentación' : 'presentaciones'} · {presentation.quantityWarning ? 'CANTIDADES POR REVISAR' : presentation.preparationSummary ?? `${formatQty(presentation.preparedUnits)} piezas en total · accesorios aparte`}</div>
                           ) : null}
                           {presentation.quantityWarning ? <div><strong>REVISAR CANTIDADES:</strong> {presentation.quantityWarning}</div> : null}
                           {presentation.assemblyNote ? <div><strong>ARMADO:</strong> {presentation.assemblyNote}</div> : null}
@@ -1210,7 +1211,7 @@ export default function KitchenClient({
                         {activeColumn.title}
                           </span>
                       <div className="mt-1 text-2xl font-black text-[#F5F5F7]">{hasQuantityWarning ? 'Revisar' : formatQty(totalUnits)}</div>
-                      <div className="text-[10px] uppercase tracking-[0.12em] text-[#8A8A96]">{hasQuantityWarning ? 'cantidades' : 'piezas'}</div>
+                      <div className="text-[10px] uppercase tracking-[0.12em] text-[#8A8A96]">{hasQuantityWarning ? 'cantidades' : hasMuerdeme ? 'preparaciones' : 'piezas'}</div>
                       <button
                         type="button"
                         onClick={() => printKitchenOrder(order.id)}
@@ -1340,7 +1341,7 @@ export default function KitchenClient({
                               {hasComponentDetails ? (
                                 <div className="mt-0.5 text-xs font-semibold text-[#FEEF00]">
                                   {formatQty(item.qty)} {item.qty === 1 ? 'presentación' : 'presentaciones'}{presentation.repeatsSameConfiguration ? ' iguales' : ''}
-                                  {!presentation.quantityWarning ? ` · ${formatQty(presentation.preparedUnits)} piezas en total` : ' · cantidades por revisar'}
+                                  {!presentation.quantityWarning ? ` · ${presentation.preparationSummary ?? `${formatQty(presentation.preparedUnits)} piezas en total`}` : ' · cantidades por revisar'}
                                 </div>
                               ) : itemUnits > 0 && Math.abs(itemUnits - item.qty) > 0.001 ? (
                                 <div className="mt-0.5 text-xs text-[#8A8A96]">
@@ -1375,7 +1376,7 @@ export default function KitchenClient({
                           ) : null}
                           {detailLines.length > 0 ? (
                             <div className="mt-1.5 space-y-1 border-l-2 border-[#FEEF00]/40 pl-3">
-                              {hasComponentDetails ? <div className="text-[10px] font-bold uppercase text-[#B7B7C2]">{presentation.quantityWarning ? 'Desglose registrado · pendiente de revisión' : 'Total para armar · no multiplicar'} · salsas y accesorios aparte</div> : null}
+                              {hasComponentDetails ? <div className="text-[10px] font-bold uppercase text-[#B7B7C2]">{presentation.quantityWarning ? 'Desglose registrado · pendiente de revisión' : 'Total para armar · no multiplicar'}{presentation.brand === 'muerdeme' ? ' · cambios por hamburguesa' : ' · salsas y accesorios aparte'}</div> : null}
                               {detailLines.map((line, idx) => (
                                 line.qty != null ? (
                                   <div

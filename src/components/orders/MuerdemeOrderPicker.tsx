@@ -5,6 +5,8 @@ import { loadMuerdemeOrderMenu, quoteMuerdemeOrderProduct, searchMuerdemeOrderMe
 import { defaultMenuOrderSelection, menuUnit, quoteMenuOrder, type MenuOrderQuote, type MenuOrderSelection,
   type MenuUnitChoice, type OrderMenuGraph } from '@/lib/brands/order-menu';
 import { menuKindLabels } from '@/lib/brands/menu-model';
+import dynamic from 'next/dynamic';
+const MuerdemePreparationPreview = dynamic(() => import('./MuerdemePreparationPreview'));
 
 const field = 'min-h-11 min-w-0 w-full rounded-lg border border-[#393944] bg-[#111117] px-2 text-xs text-[#DEDEE6] md:min-h-8';
 const button = 'inline-flex min-h-11 items-center justify-center rounded-lg border border-[#393944] px-3 text-xs text-[#DEDEE6] hover:border-[#FFFF00]/60 disabled:opacity-50 md:min-h-8';
@@ -96,6 +98,7 @@ export function MuerdemeProductConfigurator({ graph, initial, onCancel, onConfir
     </fieldset>
     {quote ? <details className="min-w-0 text-[#BDBDC7]"><summary className="min-h-9 cursor-pointer content-center">Ver desglose</summary>
       <ul className="space-y-1 break-words">{quote.detailLines.map((line, i) => <li key={i}>{line}</li>)}</ul></details> : null}
+    {quote ? <MuerdemePreparationPreview quote={quote} /> : null}
     {error || issue ? <p role="alert" className="text-red-300">{error || issue}</p> : null}
     <div className="flex flex-wrap items-center justify-end gap-2"><button type="button" className={button} disabled={busy} onClick={onCancel}>Cancelar</button>
       <button type="button" className={`${button} border-[#FFFF00] bg-[#FFFF00] font-medium !text-black`} disabled={busy || !quote} onClick={async () => {

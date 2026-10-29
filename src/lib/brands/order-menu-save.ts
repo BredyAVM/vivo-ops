@@ -1,6 +1,7 @@
 import 'server-only';
 import type { AuthContext } from '@/lib/auth';
 import { hasMenuOrderDetails, menuQuoteDetailLines, readMenuOrderQuote, type MenuOrderQuote } from './order-menu';
+import { readMenuStockSnapshot, MUERDEME_STOCK_PREFIX } from './inventory-menu';
 
 type Item = {
   productId: number; qty: number; sourcePriceCurrency?: string; sourcePriceAmount?: number;
@@ -8,11 +9,12 @@ type Item = {
   crmPlayMemberId?: number | null; rewardGrantId?: number | null;
 };
 /** No query at all for VIVO-only orders. Runs before any client or order write. */
-export async function verifyMuerdemeOrderItems(supabase: AuthContext['supabase'], items: Item[]) {
+export async function verifyMuerdemeOrderItems(supabase: AuthContext['supabase'], items: Item[], orderId?: number | null) {
   if (!Array.isArray(items) || items.some(item => !item || typeof item !== 'object')) throw new Error('Revisa los productos del pedido.');
   const configured = items.filter(item => hasMenuOrderDetails(item.editableDetailLines));
   const quotes = new Map<number, MenuOrderQuote>();
   if (!configured.length) return quotes;
+  if (orderId != null && (!Number.isSafeInteger(orderId) || orderId <= 0)) throw new Error('Revisa la orden que estás modificando.');
   if (configured.length > 60) throw new Error('Se admiten hasta 60 productos configurados de Muérdeme por pedido.');
   const { data: status, error: statusError } = await supabase.rpc('muerdeme_order_menu_search_v1', { p_query: '', p_kind: null, p_page: 1 });
   if (statusError || !status) throw new Error('No se pudo verificar la disponibilidad de Muérdeme.');
@@ -35,7 +37,12 @@ export async function verifyMuerdemeOrderItems(supabase: AuthContext['supabase']
       || item.sourcePriceAmount !== quote.unitUsd || item.adminPriceOverrideUsd != null || item.crmPlayMemberId != null || item.rewardGrantId != null) {
       throw new Error('Cada producto Muérdeme conserva su configuración y precio en USD, sin beneficios VIVO.');
     }
-    item.editableDetailLines = menuQuoteDetailLines(quote);
+    const stock = readMenuStockSnapshot(item.editableDetailLines.join('\n'));
+    const { data, error } = await supabase.rpc('muerdeme_inventory_preview_v1', {
+      p_selection: quote.selection, p_revisions: quote.revisions, p_order_id: orderId ?? null, p_certificate_id: stock?.certificateId ?? null,
+    });
+    if (error || data?.snapshot?.status !== 'ready') throw new Error('Falta completar la preparación e inventario de Muérdeme. Revisa el consumo de cada presentación antes de guardar.');
+    item.editableDetailLines = [...menuQuoteDetailLines(quote), ...(stock?.certificateId ? [MUERDEME_STOCK_PREFIX+JSON.stringify(stock)] : [])];
     quotes.set(item.productId, quote);
   }
   return quotes;

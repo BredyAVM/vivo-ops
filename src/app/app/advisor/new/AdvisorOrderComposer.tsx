@@ -4197,7 +4197,7 @@ export default function AdvisorOrderComposer({
         productId: item.product_id, qty: item.qty, sourcePriceCurrency: item.source_price_currency,
         sourcePriceAmount: item.source_price_amount, editableDetailLines: persistableOrderDetailLines(item.editable_detail_lines),
         crmPlayMemberId: item.crm_benefit?.playMemberId ?? null, rewardGrantId: item.reward?.grantId ?? null,
-      })));
+      })),isEditingOrder?Number(existingOrderId):null);
       const validatedDetails = isEditingOrder
         ? await validateAdvisorOrderDetailsAction(draftItems.map(item => ({
             productId: item.product_id,

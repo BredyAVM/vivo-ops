@@ -29,7 +29,7 @@ export function isPlayOrderAvailableAt({
 
 export function isInternalOrderDetailLine(value: string) {
   const line = String(value || '').trim().toLowerCase();
-  return line.startsWith('@sel|') || line.startsWith('@crm|') || line.startsWith('@muerdeme|');
+  return line.startsWith('@sel|') || line.startsWith('@crm|') || line.startsWith('@muerdeme|') || line.startsWith('@muerdeme-stock|');
 }
 
 // Kept to read and safely normalize legacy orders. New CRM orders use structural

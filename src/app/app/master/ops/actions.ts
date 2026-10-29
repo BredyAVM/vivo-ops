@@ -1785,7 +1785,7 @@ async function prepareMasterOpsOrderSave(
 ) {
   const ctx = await requireMasterOrAdminContext();
   const isAdmin = ctx.roles.includes("admin");
-  const muerdemeQuotes = await verifyMuerdemeOrderItems(ctx.supabase, input.items);
+  const muerdemeQuotes = await verifyMuerdemeOrderItems(ctx.supabase, input.items, mode === 'edit' ? Number((input as MasterOpsOrderUpdateInput).orderId) : null);
 
   if (!["advisor", "master", "walk_in"].includes(String(input.source || ""))) {
     throw new Error("El origen de la orden no es válido.");

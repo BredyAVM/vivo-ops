@@ -10,6 +10,7 @@ import { orderMenuGraph, ids } from './order-menu-fixtures.ts';
 import { defaultMenuOrderSelection } from '../../src/lib/brands/order-menu.ts';
 const stub='data:text/javascript,export async function loadMuerdemeOrderMenu(){};export async function quoteMuerdemeOrderProduct(){};export async function searchMuerdemeOrderMenu(){};';
 Reflect.get(nodeModule,'registerHooks')({resolve(s,c,next){
+ if(s==='next/dynamic')return{url:'data:text/javascript,export default function dynamic(){return function Deferred(){return null;}}',shortCircuit:true};
  if(s==='@/lib/brands/order-menu-actions')return{url:stub,shortCircuit:true};
  if(s.startsWith('@/lib/brands/'))return next(new URL('../../src/lib/brands/'+s.split('/').at(-1)+'.ts',import.meta.url).href,c);
  return next(s,c);
