@@ -28,6 +28,7 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireAuthContext, requireMasterOrAdminContext } from '@/lib/auth';
+import { verifyMuerdemeOrderItems } from '@/lib/brands/order-menu-save';
 import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicates';
@@ -7330,6 +7331,7 @@ export async function createOrderAction(input: {
     throw new Error('Solo admin puede ajustar precios manualmente.');
   }
   validateOrderCommissionAdjustmentItems(input.items, isAdmin);
+  await verifyMuerdemeOrderItems(supabase, input.items);
 
   if (source === 'advisor' && !input.attributedAdvisorUserId) {
     throw new Error('Debes seleccionar un asesor.');
@@ -8166,6 +8168,7 @@ export async function updateOrderAction(input: {
 
   const isAdmin = getMasterDashboardPermissions(roles).isAdmin;
   validateOrderCommissionAdjustmentItems(input.items, isAdmin);
+  await verifyMuerdemeOrderItems(supabase, input.items);
 
   if (source === 'advisor' && !input.attributedAdvisorUserId) {
     throw new Error('Debes seleccionar un asesor.');

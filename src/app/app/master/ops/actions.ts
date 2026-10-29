@@ -1,5 +1,7 @@
 "use server";
 import { countsTowardCrmMinimum } from "@/lib/crm/benefit-eligibility";
+import { verifyMuerdemeOrderItems } from "@/lib/brands/order-menu-save";
+import { readMenuOrderQuote } from "@/lib/brands/order-menu";
 import type {RewardOrderFunding} from '@/components/rewards/RewardOrderBadge';
 
 import { revalidatePath } from "next/cache";
@@ -1783,6 +1785,7 @@ async function prepareMasterOpsOrderSave(
 ) {
   const ctx = await requireMasterOrAdminContext();
   const isAdmin = ctx.roles.includes("admin");
+  const muerdemeQuotes = await verifyMuerdemeOrderItems(ctx.supabase, input.items);
 
   if (!["advisor", "master", "walk_in"].includes(String(input.source || ""))) {
     throw new Error("El origen de la orden no es válido.");
@@ -2003,7 +2006,8 @@ async function prepareMasterOpsOrderSave(
         String(existingItem?.admin_price_override_reason || "").trim() !==
           String(item.adminPriceOverrideReason || "").trim());
     const isNewLine = !existingItem;
-    const linePricingChanged = isNewLine || productChanged || quantityChanged || overrideChanged;
+    const linePricingChanged = isNewLine || productChanged || quantityChanged || overrideChanged ||
+      (muerdemeQuotes.has(productId) && !closeNumber(existingItem?.pricing_origin_amount, item.sourcePriceAmount));
     if (existingItem?.crm_play_member_id && (productChanged || quantityChanged || overrideChanged)) {
       throw new Error("El beneficio reservado conserva su producto, cantidad y condiciones económicas.");
     }
@@ -2014,7 +2018,8 @@ async function prepareMasterOpsOrderSave(
       throw new Error(`${String(item.productNameSnapshot || "El producto")} ya no existe en el catálogo.`);
     }
     const retainsInactiveQuantity = Boolean(existingItem) && !productChanged && !overrideChanged && Number(item.qty) <= Number(existingItem?.qty);
-    if (linePricingChanged && liveProduct.is_active === false && !retainsInactiveQuantity) {
+    const muerdemeQuote = muerdemeQuotes.has(productId) ? readMenuOrderQuote(item.editableDetailLines) : null;
+    if (linePricingChanged && liveProduct.is_active === false && !retainsInactiveQuantity && !muerdemeQuote) {
       throw new Error(`${String(liveProduct.name || item.productNameSnapshot)} ya no está activo en el catálogo.`);
     }
 
@@ -2034,7 +2039,13 @@ async function prepareMasterOpsOrderSave(
     let adminPriceOverrideUsd: number | null;
     let adminPriceOverrideReason: string | null;
 
-    if (newCrmChoice) {
+    if (muerdemeQuote) {
+      sourcePriceCurrency = "USD";
+      sourcePriceAmount = muerdemeQuote.unitUsd;
+      unitPriceUsdSnapshot = muerdemeQuote.unitUsd;
+      adminPriceOverrideUsd = null;
+      adminPriceOverrideReason = null;
+    } else if (newCrmChoice) {
       sourcePriceCurrency = newCrmChoice.sourcePriceCurrency;
       sourcePriceAmount = newCrmChoice.sourcePriceAmount;
       unitPriceUsdSnapshot = newCrmChoice.unitPriceUsdSnapshot;
@@ -2079,7 +2090,7 @@ async function prepareMasterOpsOrderSave(
       skuSnapshot: existingItem && !productChanged
         ? existingItem.sku_snapshot
         : liveProduct.sku,
-      productNameSnapshot: existingItem && !productChanged
+      productNameSnapshot: muerdemeQuote ? muerdemeQuote.title : existingItem && !productChanged
         ? cleanText(existingItem.product_name_snapshot, cleanText(liveProduct.name, "Producto"))
         : cleanText(liveProduct.name, "Producto"),
       qty: Number(item.qty),
@@ -2209,7 +2220,7 @@ async function prepareMasterOpsOrderSave(
   const catalogItems = ((productsResult.data ?? []) as MasterOpsSaveCatalogRow[]).map((product) => ({
     id: Number(product.id),
     name: cleanText(product.name, `Producto #${product.id}`),
-    isActive: product.is_active !== false,
+    isActive: muerdemeQuotes.has(Number(product.id)) || product.is_active !== false,
     isDetailEditable: Boolean(product.is_detail_editable),
     detailUnitsLimit: toNumber(product.detail_units_limit, 0),
     internalRiderPayUsd: product.internal_rider_pay_usd == null

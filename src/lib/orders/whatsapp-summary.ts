@@ -335,7 +335,7 @@ export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) 
       parts.push(line.text);
       for (const detail of line.detailLines ?? []) {
         const normalized = clean(detail);
-        if (normalized) parts.push(`    - ${normalized}`);
+      if (normalized && !normalized.startsWith('@muerdeme|')) parts.push(`    - ${normalized}`);
       }
       if (index < lines.length - 1) parts.push('');
     });

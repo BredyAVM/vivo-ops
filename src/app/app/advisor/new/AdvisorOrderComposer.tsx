@@ -2,6 +2,9 @@
 import { countsTowardCrmMinimum, dailyBenefitConflict } from '@/lib/crm/benefit-eligibility';
 
 import { type FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { hasMenuOrderDetails, menuQuoteDetailLines, readMenuOrderQuote, type MenuOrderQuote } from '@/lib/brands/order-menu';
+const MuerdemeOrderPicker = dynamic(() => import('@/components/orders/MuerdemeOrderPicker'));
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
@@ -43,6 +46,7 @@ import {
   saveAdvisorOrderDraftAction,
   submitAdvisorOrderCorrectionForReviewAction,
   validateAdvisorOrderDetailsAction,
+  validateAdvisorMuerdemeItemsAction,
 } from './actions';
 
 type ClientType = 'assigned' | 'own' | 'legacy';
@@ -1510,6 +1514,7 @@ export default function AdvisorOrderComposer({
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [productComponents, setProductComponents] = useState<ProductComponentRow[]>([]);
   const [productSearch, setProductSearch] = useState('');
+  const [muerdemeEdit, setMuerdemeEdit] = useState<{ key: string; quote: MenuOrderQuote } | null>(null);
   const deferredProductSearch = useDeferredValue(productSearch);
   const productSearchIsPending = productSearch.trim() !== deferredProductSearch.trim();
   const [productActiveIndex, setProductActiveIndex] = useState<number>(-1);
@@ -1739,7 +1744,7 @@ export default function AdvisorOrderComposer({
     if (existingOrderStatus === 'delivered' || existingOrderStatus === 'cancelled') return [];
 
     return draftItems.filter((item) => {
-      if (item.crm_benefit) return false;
+      if (item.crm_benefit || hasMenuOrderDetails(item.editable_detail_lines)) return false;
       const product = productById.get(item.product_id);
       if (!product) return false;
       return draftItemHasCatalogPriceDrift(item, product, fxRateNumber);
@@ -3278,7 +3283,7 @@ export default function AdvisorOrderComposer({
 
     let changedCount = 0;
     const nextItems = draftItems.map((item) => {
-      if (item.crm_benefit) return item;
+      if (item.crm_benefit || hasMenuOrderDetails(item.editable_detail_lines)) return item;
       const product = productById.get(item.product_id);
       if (!product) return item;
 
@@ -3338,6 +3343,8 @@ export default function AdvisorOrderComposer({
   }
 
   function openEditConfig(item: DraftItem, pendingCrmItem: DraftItem | null = null) {
+    const muerdemeQuote = readMenuOrderQuote(item.editable_detail_lines);
+    if (muerdemeQuote) { setMuerdemeEdit({ key: item.localId, quote: muerdemeQuote }); return; }
     const parsed = parseEditableDetailLines(item.editable_detail_lines);
     const product = productById.get(item.product_id);
     if (!product) {
@@ -4186,6 +4193,11 @@ export default function AdvisorOrderComposer({
     setSaving(true);
 
     try {
+      if (draftItems.some(item => hasMenuOrderDetails(item.editable_detail_lines))) await validateAdvisorMuerdemeItemsAction(draftItems.map(item => ({
+        productId: item.product_id, qty: item.qty, sourcePriceCurrency: item.source_price_currency,
+        sourcePriceAmount: item.source_price_amount, editableDetailLines: persistableOrderDetailLines(item.editable_detail_lines),
+        crmPlayMemberId: item.crm_benefit?.playMemberId ?? null, rewardGrantId: item.reward?.grantId ?? null,
+      })));
       const validatedDetails = isEditingOrder
         ? await validateAdvisorOrderDetailsAction(draftItems.map(item => ({
             productId: item.product_id,
@@ -4874,6 +4886,16 @@ export default function AdvisorOrderComposer({
             </div>
           ) : null}
 
+          <MuerdemeOrderPicker edit={muerdemeEdit} onEditDone={() => setMuerdemeEdit(null)} disabled={saving} onAdd={quote => {
+            const item: DraftItem = {
+              localId: muerdemeEdit?.key ?? crypto.randomUUID(), product_id: quote.productId, product_type: 'product',
+              sku_snapshot: null, product_name_snapshot: quote.title, units_per_service: 0, qty: 1,
+              source_price_currency: 'USD', source_price_amount: quote.unitUsd, unit_price_usd_snapshot: quote.unitUsd,
+              line_total_usd: quote.unitUsd, editable_detail_lines: menuQuoteDetailLines(quote),
+            };
+            setDraftItems(current => muerdemeEdit ? current.map(row => row.localId === muerdemeEdit.key ? { ...item, persistedOrderItemId: row.persistedOrderItemId } : row) : [...current, item]);
+            setMuerdemeEdit(null);
+          }} />
           {draftItems.length === 0 ? (
             <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
               Agrega al menos un producto para activar el pedido.
@@ -4900,7 +4922,7 @@ export default function AdvisorOrderComposer({
               {displayDraftItems.map(({ item, index }) => {
                 const snapshot = draftItemSnapshots[index];
                 const catalogProduct = productById.get(item.product_id);
-                const itemIsConfigurable = Boolean(catalogProduct?.is_detail_editable)
+                const itemIsConfigurable = hasMenuOrderDetails(item.editable_detail_lines) || Boolean(catalogProduct?.is_detail_editable)
                   || productComponents.some((row) =>
                     row.parent_product_id === item.product_id
                     && (row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required))
@@ -4940,7 +4962,7 @@ export default function AdvisorOrderComposer({
                     </div>
                   </div>
 
-                  {!item.crm_benefit && item.product_type!=='gambit' ? <RewardLineSelector
+                  {!item.crm_benefit && item.product_type!=='gambit' && !hasMenuOrderDetails(item.editable_detail_lines) ? <RewardLineSelector
                     grants={rewardGrants} productId={item.product_id} quantity={item.qty}
                     grossUsd={calculateOrderLineSnapshot({sourceCurrency:item.source_price_currency,sourceAmount:item.source_price_amount,quantity:item.qty,fxRate:fxRateNumber}).lineUsd}
                     funding={item.reward} available={grant=>rewardDraftAvailable(grant,draftItems,rewardOrderReserved[grant.id]??0)}

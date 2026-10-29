@@ -8,6 +8,7 @@ import {revalidateRewardWallet} from '@/lib/rewards/revalidate-wallet';
 import { rewardFundingChanged } from '@/lib/rewards/order-funding';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
+import { verifyMuerdemeOrderItems } from '@/lib/brands/order-menu-save';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
 import { loadAdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context';
 import { decideCatalogGift, type CatalogGiftCandidate } from '@/lib/crm/catalog-gift';
@@ -1045,9 +1046,15 @@ export async function validateAdvisorOrderDetailsAction(items: AdvisorDetailInpu
   return normalizeAdvisorItemDetails(ctx.supabase, items);
 }
 
+export async function validateAdvisorMuerdemeItemsAction(items: Parameters<typeof verifyMuerdemeOrderItems>[1]) {
+  const ctx = await requireAuthContext();
+  await verifyMuerdemeOrderItems(ctx.supabase, items);
+}
+
 export async function createAdvisorOrderAction(input: CreateAdvisorOrderInput) {
   try {
     const ctx = await requireAuthContext();
+    await verifyMuerdemeOrderItems(ctx.supabase, input.items);
     const requestId = String(input.requestId || '').trim();
     const payload = input.payload;
     const draftId = input.draftId == null ? null : Math.trunc(Number(input.draftId));
@@ -1228,6 +1235,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
     throw new Error('No puedes modificar esta orden.');
   }
 
+  await verifyMuerdemeOrderItems(ctx.supabase, input.items);
   const details = await normalizeAdvisorItemDetails(ctx.supabase, input.items);
   const itemsPayload = input.items.map((item, index) => ({
     reward_grant_id: item.rewardGrantId ?? null,

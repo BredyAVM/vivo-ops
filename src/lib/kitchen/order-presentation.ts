@@ -77,7 +77,7 @@ function parseBaseDetailLines(notes: string | null) {
   return String(notes || '')
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line && !/^@(sel|prep|event|crm)\|/i.test(line))
+    .filter((line) => line && !/^@(sel|prep|event|crm|muerdeme)\|/i.test(line))
     .map((line) => {
       const match = line.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
       if (!match) return { label: line, qty: null };

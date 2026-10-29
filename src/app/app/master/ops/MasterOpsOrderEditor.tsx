@@ -45,6 +45,9 @@ import MasterOpsBeverageAppend from "./MasterOpsBeverageAppend";
 import { prepareEditorCommissionFields } from "./order-editor-commission";
 import { formatOrderCommissionTerms, type OrderCommissionMode } from "@/lib/commissions/order-commission-terms";
 import { clientDeliveryAddresses, suggestSavedClientDeliveryAddress } from "@/lib/orders/client-delivery-address";
+import dynamic from 'next/dynamic';
+import { hasMenuOrderDetails, menuQuoteDetailLines, readMenuOrderQuote, type MenuOrderQuote } from '@/lib/brands/order-menu';
+const MuerdemeOrderPicker = dynamic(() => import('@/components/orders/MuerdemeOrderPicker'));
 
 type Props = {
   intent?: "general" | "commercial";
@@ -350,6 +353,8 @@ export default function MasterOpsOrderEditor({
   const [productQty, setProductQty] = useState("1");
   const [quantitySplitNotice, setQuantitySplitNotice] = useState<string | null>(null);
   const [configState, setConfigState] = useState<ConfigState | null>(null);
+  const [muerdemeEdit, setMuerdemeEdit] = useState<{ key: string; quote: MenuOrderQuote } | null>(null);
+  const [muerdemeSalesEnabled, setMuerdemeSalesEnabled] = useState<boolean | null>(null);
   const [crmContext, setCrmContext] = useState<MasterCrmOrderContext | null>(null);
   const [crmLoading, setCrmLoading] = useState(false);
   const [crmError, setCrmError] = useState<string | null>(null);
@@ -360,6 +365,8 @@ export default function MasterOpsOrderEditor({
 
   useEffect(() => {
     setItemPriceDrafts({});
+    setMuerdemeEdit(null);
+    setMuerdemeSalesEnabled(null);
     if (!isOpen) {
       setData(null);
       setForm(null);
@@ -494,8 +501,17 @@ export default function MasterOpsOrderEditor({
   }, [data?.productComponents]);
 
   const catalogById = useMemo(
-    () => new Map((data?.catalogItems ?? []).map((item) => [item.id, item] as const)),
-    [data?.catalogItems]
+    () => {
+      const map = new Map((data?.catalogItems ?? []).map(item => [item.id, item] as const));
+      for (const item of form?.items ?? []) if (hasMenuOrderDetails(item.editableDetailLines)) map.set(item.productId, {
+        id: item.productId, name: item.productNameSnapshot, sku: item.skuSnapshot, type: 'product', isActive: true,
+        sourcePriceAmount: item.sourcePriceAmount, sourcePriceCurrency: 'USD', basePriceUsd: item.unitPriceUsdSnapshot,
+        basePriceBs: item.unitPriceBsSnapshot ?? 0, unitsPerService: 0, isDetailEditable: true, detailUnitsLimit: 0,
+        internalRiderPayUsd: null, commissionInheritedMode: 'fixed_item', commissionInheritedValue: 0,
+      });
+      return map;
+    },
+    [data?.catalogItems, form?.items]
   );
 
   const filteredProducts = useMemo(() => {
@@ -612,7 +628,7 @@ export default function MasterOpsOrderEditor({
                 original!.adminPriceOverrideUsd === item.adminPriceOverrideUsd)),
           };
         }),
-        catalogItems: data?.catalogItems ?? [],
+        catalogItems: [...catalogById.values()],
         productComponents: data?.productComponents ?? [],
         fxRate,
         discountEnabled: form.discountEnabled,
@@ -633,6 +649,9 @@ export default function MasterOpsOrderEditor({
         adminEditReason,
       })
     : [];
+  if (muerdemeSalesEnabled === false && form?.items.some(item => hasMenuOrderDetails(item.editableDetailLines))) {
+    validationIssues.push({ code: 'configuration', message: 'Muérdeme está en preparación. Puedes revisar la mezcla; retira sus productos para guardar solo VIVO.' });
+  }
   if (!isAdmin && form && hasUnauthorizedPriceChange(form.items, data?.order.items ?? [], true)) {
     validationIssues.push({ code: "price_override", message: APPROVED_PRICE_CHANGE_MESSAGE });
   }
@@ -1080,6 +1099,22 @@ export default function MasterOpsOrderEditor({
     });
     setConfigState(null);
     setError(null);
+  }
+
+  function addMuerdemeProduct(quote: MenuOrderQuote, salesEnabled: boolean) {
+    const snapshot = calculateOrderLineSnapshot({ sourceCurrency: 'USD', sourceAmount: quote.unitUsd, quantity: 1, fxRate });
+    const existing = form?.items.find(item => item.localId === muerdemeEdit?.key);
+    const item: MasterOpsEditOrderItem = {
+      orderItemId: existing?.orderItemId ?? null, localId: existing?.localId ?? crypto.randomUUID(), productId: quote.productId,
+      skuSnapshot: null, productNameSnapshot: quote.title, qty: 1, sourcePriceCurrency: 'USD', sourcePriceAmount: quote.unitUsd,
+      unitPriceUsdSnapshot: snapshot.unitUsd, lineTotalUsd: snapshot.lineUsd, unitPriceBsSnapshot: snapshot.unitBs,
+      lineTotalBsSnapshot: snapshot.lineBs, editableDetailLines: menuQuoteDetailLines(quote),
+      adminPriceOverrideUsd: null, adminPriceOverrideCurrency: null, adminPriceOverrideReason: null,
+      adminPriceOverrideByUserId: null, adminPriceOverrideAt: null,
+      commissionInheritedMode: 'fixed_item', commissionInheritedValue: 0,
+    };
+    setForm(current => current ? { ...current, items: existing ? current.items.map(row => row.localId === existing.localId ? item : row) : [...current.items, item] } : current);
+    setMuerdemeSalesEnabled(salesEnabled); setMuerdemeEdit(null); setError(null);
   }
 
   function updateItemOverride(item: MasterOpsEditOrderItem, currency: MasterOpsEditCurrency, rawValue: string) {
@@ -1794,6 +1829,7 @@ export default function MasterOpsOrderEditor({
                       </div>
                     }
                   >
+                    <MuerdemeOrderPicker onAdd={addMuerdemeProduct} edit={muerdemeEdit} onEditDone={() => setMuerdemeEdit(null)} disabled={saving} />
                     <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_84px_92px]">
                       <div className="relative">
                         <input
@@ -1910,7 +1946,11 @@ export default function MasterOpsOrderEditor({
                                   <button
                                     className="rounded-lg border border-[#242433] px-2 py-1 text-xs text-[#F5F5F7] hover:border-[#FEEF00]/50"
                                     type="button"
-                                    onClick={() => openConfig(product, item)}
+                                    onClick={() => {
+                                      const quote = readMenuOrderQuote(item.editableDetailLines);
+                                      if (quote) setMuerdemeEdit({ key: item.localId, quote });
+                                      else openConfig(product, item);
+                                    }}
                                   >
                                     Config.
                                   </button>
@@ -1938,7 +1978,7 @@ export default function MasterOpsOrderEditor({
                               </div>
                             </div>
 
-                            {isAdmin ? (
+                            {isAdmin && !hasMenuOrderDetails(item.editableDetailLines) ? (
                               <details open={intent === "commercial" ? true : undefined} className="mt-3 rounded-lg border border-[#242433] bg-[#121218] p-2">
                                 <summary className="cursor-pointer text-xs font-semibold text-[#B7B7C2]">
                                   Precio / comisión

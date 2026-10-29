@@ -375,7 +375,7 @@ function getVisibleEditableDetailLines(value: string | null | undefined) {
   return String(value || '')
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('@sel|'));
+    .filter((line) => line && !/^@(sel|muerdeme)\|/.test(line));
 }
 
 function getLineTotalBs(item: OrderItemRow, fxRate: number) {
