@@ -59,7 +59,8 @@ test('details and heavy editor are loaded only when needed, not for every listed
   assert.match(ui, /\{createOrderOpen \? <MasterOpsOrderEditor/);
   assert.match(ui, /\{editingOrderId !== null \? <MasterOpsOrderEditor/);
   assert.match(ui, /if \(isAdminSurface\) return;\s*const refreshIfStale/);
-  assert.match(ui, /if \(isAdminSurface\) return;\s*loadMasterOpsInventoryAlertSummaryAction/);
+  assert.doesNotMatch(ui, /loadMasterOpsInventoryAlertSummaryAction/);
+  assert.match(ui, /inventoryNavigation \?\? <OrdersWorkspaceInventoryLinks/);
   assert.match(ui, /!isAdminSurface \? <div[\s\S]*<MasterOpsSignOutButton/);
 });
 

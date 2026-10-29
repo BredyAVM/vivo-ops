@@ -35,7 +35,8 @@
     "test:commissions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/commissions/settlement-engine.test.mts tests/commissions/legacy-projection.test.mts tests/commissions/closure-snapshot.test.mts tests/commissions/carry-state.test.mts tests/commissions/commercial-criteria.test.mts tests/commissions/workflow-snapshot.test.mts tests/commissions/payment-ledger.test.mts tests/commissions/advisor-eligibility.test.mts tests/commissions/admin-audit.test.mts tests/commissions/notification-inbox.test.mts tests/commissions/goal-engine.test.mts tests/commissions/goal-snapshot.test.mts tests/commissions/goal-collection.test.mts tests/commissions/goal-simulation.test.mts tests/commissions/goal-publication.test.mts tests/commissions/order-commission-terms.test.mts tests/commissions/product-commission-policy.test.mts tests/commissions/goal-application.test.mts",
     "test:commission-collections": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/commissions/*.test.mts tests/admin/admin-finance-commissions.test.mts",
     "test:kitchen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/kitchen/operations.test.mts",
-    "test:refresh": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/refresh/*.test.mts"
+    "test:refresh": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/refresh/*.test.mts",
+    "test:master-read-efficiency": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/master-ops/workspace-read-efficiency.test.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

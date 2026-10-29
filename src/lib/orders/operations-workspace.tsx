@@ -23,6 +23,8 @@ import MasterOpsClient, {
   type PaymentVerify,
 } from "@/components/orders/OrdersWorkspaceClient";
 import { canAssignMasterOpsDelivery } from "@/app/app/master/ops/operational-rules";
+import { readWorkspaceOrderPeriods } from "@/lib/orders/workspace-order-periods";
+import { createWorkspaceInventoryNavigation } from "@/lib/orders/workspace-inventory-navigation";
 
 const CLIENT_IMPORT_CUTOFF_ISO = "2026-06-02T00:00:00-04:00";
 const CLIENT_IMPORT_CUTOFF_MS = Date.parse(CLIENT_IMPORT_CUTOFF_ISO);
@@ -723,6 +725,8 @@ export async function OrdersWorkspace({ searchParams, surface }: {
   if (!ctx) redirect("/login");
   if (!canOpenOrdersWorkspace(surface, ctx.roles)) redirect(resolveHomePath(ctx.roles));
 
+  const inventoryNavigation = surface === "master" ? createWorkspaceInventoryNavigation(ctx) : null;
+
   const params = (await searchParams) ?? {};
   const focusDate = normalizeFocusDate(params.focusDate);
   const requestedOpenOrderId = Number(params.openOrder);
@@ -775,10 +779,7 @@ export async function OrdersWorkspace({ searchParams, surface }: {
   const [
     profileResult,
     activeRateResult,
-    scheduledDayResult,
-    createdDayResult,
-    scheduledWeekResult,
-    createdWeekResult,
+    periodResults,
     deliveryPartnersResult,
     driversResult,
     moneyAccountsResult,
@@ -793,33 +794,10 @@ export async function OrdersWorkspace({ searchParams, surface }: {
       .order("effective_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    ctx.supabase
-      .from("orders")
-      .select(orderSelect)
-      .eq("extra_fields->schedule->>date", focusDate)
-      .order("created_at", { ascending: false })
-      .limit(500),
-    ctx.supabase
-      .from("orders")
-      .select(orderSelect)
-      .gte("created_at", dayRange.startISO)
-      .lt("created_at", dayRange.endISO)
-      .order("created_at", { ascending: false })
-      .limit(500),
-    ctx.supabase
-      .from("orders")
-      .select(orderSelect)
-      .gte("extra_fields->schedule->>date", weekRange.startKey)
-      .lt("extra_fields->schedule->>date", weekRange.endExclusiveKey)
-      .order("created_at", { ascending: false })
-      .limit(900),
-    ctx.supabase
-      .from("orders")
-      .select(orderSelect)
-      .gte("created_at", weekRange.startISO)
-      .lt("created_at", weekRange.endISO)
-      .order("created_at", { ascending: false })
-      .limit(900),
+    readWorkspaceOrderPeriods<RawOrderRow>({
+      supabase: ctx.supabase, orderSelect, focusDate, dayRange, weekRange,
+      reuseWeekRows: surface === "master",
+    }),
     ctx.supabase
       .from("delivery_partners")
       .select("id, name, partner_type, whatsapp_phone, is_active")
@@ -846,6 +824,7 @@ export async function OrdersWorkspace({ searchParams, surface }: {
       : Promise.resolve({ data: null, error: null }),
   ]);
 
+  const { scheduledDayResult, createdDayResult, scheduledWeekResult, createdWeekResult } = periodResults;
   const firstError =
     profileResult.error ??
     activeRateResult.error ??
@@ -968,6 +947,7 @@ export async function OrdersWorkspace({ searchParams, surface }: {
       drivers={drivers}
       deliveryPartners={deliveryPartners}
       paymentAccounts={paymentAccounts}
+      inventoryNavigation={inventoryNavigation}
     />
   );
 }

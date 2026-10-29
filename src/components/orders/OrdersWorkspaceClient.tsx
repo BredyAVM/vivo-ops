@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { assignOwnTransportAction } from "@/app/app/master/ops/own-transport-actions";
 import OrderPaymentQuoteButton from "@/components/orders/OrderPaymentQuoteButton";
+import OrdersWorkspaceInventoryLinks from "@/components/orders/OrdersWorkspaceInventoryLinks";
 import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
 import { useCoalescedRefresh } from "@/lib/refresh/use-coalesced-refresh";
 import { canResolveOperationalOrderExcess } from "@/lib/orders/order-excess-policy";
@@ -29,7 +30,7 @@ import { matchesPhoneSearch } from "@/lib/search/phone-search";
 import { searchMasterDirectoryAction } from "@/app/app/master/dashboard/actions";
 import { useOrderCancellationPreview } from "@/lib/orders/use-order-cancellation-preview";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import {
   canCompleteOrder,
   canKitchenTakeOrder,
@@ -115,10 +116,6 @@ import {
 } from "@/app/app/master/ops/actions";
 import type { CounterPickupChangeRequest } from "@/app/app/counter/pickup-contract";
 import type { MasterOpsInboxItem, MasterOpsInboxKind } from "@/app/app/master/ops/inbox-actions";
-import {
-  loadMasterOpsInventoryAlertSummaryAction,
-  type MasterOpsInventoryAlertSummary,
-} from "@/app/app/master/ops/inventory-alert-actions";
 import MasterOpsAlerts from "@/app/app/master/ops/MasterOpsAlerts";
 import MasterOpsSignOutButton from "@/app/app/master/ops/MasterOpsSignOutButton";
 import PaymentVerificationCopyButton from "@/app/app/master/ops/PaymentVerificationCopyButton";
@@ -223,6 +220,7 @@ type Props = {
   drivers: DriverOption[];
   deliveryPartners: DeliveryPartnerOption[];
   paymentAccounts: MasterOpsPaymentAccountOption[];
+  inventoryNavigation?: ReactNode;
 };
 
 type MasterTray = "all" | "pending_created" | "reapproval" | "queued" | "kitchen" | "delivery" | "finalized";
@@ -4119,6 +4117,7 @@ export default function OrdersWorkspaceClient({
   drivers,
   deliveryPartners,
   paymentAccounts,
+  inventoryNavigation,
 }: Props) {
   const router = useRouter();
   const navigation = ordersWorkspaceNavigation(surface);
@@ -4157,7 +4156,6 @@ export default function OrdersWorkspaceClient({
   const [actionError, setActionError] = useState<string | null>(null);
   const [inboxMode, setInboxMode] = useState<MasterOpsInboxKind | null>(null);
   const [inboxCounts, setInboxCounts] = useState({ actions: stats.actions, updates: stats.updates });
-  const [inventoryAlertSummary, setInventoryAlertSummary] = useState<MasterOpsInventoryAlertSummary | null>(null);
   const lastRefreshRequestAtRef = useRef(Date.now());
   const [isRefreshing, startTransition] = useTransition();
 
@@ -4171,23 +4169,6 @@ export default function OrdersWorkspaceClient({
   useEffect(() => {
     setInboxCounts({ actions: stats.actions, updates: stats.updates });
   }, [stats.actions, stats.updates]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (isAdminSurface) return;
-    loadMasterOpsInventoryAlertSummaryAction()
-      .then((result) => {
-        if (!cancelled && result.ok) setInventoryAlertSummary(result.summary);
-      })
-      .catch(() => {
-        // The operational screen remains usable if the independent counter fails.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [snapshotAt, isAdminSurface]);
 
   const runOpsRefresh = useCallback(() => {
     lastRefreshRequestAtRef.current = Date.now();
@@ -5097,42 +5078,7 @@ export default function OrdersWorkspaceClient({
 
                 <div className={isAdminSurface ? "flex min-w-0 flex-wrap items-center gap-2 lg:col-span-2 lg:row-start-2" : "contents xl:flex xl:min-w-0 xl:items-center xl:gap-2.5 xl:overflow-x-auto"}>
                   <ContextLink href="/app/events/ongoing" prefetch={false} className="shrink-0 rounded-2xl border border-[#30303C] px-3 py-2 text-xs font-semibold">Eventos</ContextLink>
-                  <ContextLink
-                    href={navigation.inventory}
-                    prefetch={false}
-                    className="flex shrink-0 items-center gap-1.5 rounded-2xl border border-[#FEEF00]/45 bg-[#17170F] px-3 py-2 text-xs font-semibold text-[#FEEF00] transition hover:border-[#FEEF00]"
-                    title={inventoryAlertSummary
-                      ? `Abrir inventario · ${inventoryAlertSummary.active} alertas activas · ${inventoryAlertSummary.critical} críticas`
-                      : "Abrir el control operativo de inventario de Máster"}
-                  >
-                    <span>Inventario</span>
-                    {inventoryAlertSummary && inventoryAlertSummary.active > 0 ? (
-                      <span
-                        className={inventoryAlertSummary.critical > 0
-                          ? "rounded-full bg-red-400/20 px-1.5 py-0.5 text-[10px] tabular-nums text-red-200"
-                          : "rounded-full bg-amber-300/20 px-1.5 py-0.5 text-[10px] tabular-nums text-amber-100"}
-                        aria-label={`${inventoryAlertSummary.active} alertas activas de inventario`}
-                      >
-                        {inventoryAlertSummary.active}
-                      </span>
-                    ) : null}
-                  </ContextLink>
-
-                  {inventoryAlertSummary && inventoryAlertSummary.pendingReviews > 0 ? (
-                    <ContextLink
-                      href={inventoryAlertSummary.pendingReviews === 1 && inventoryAlertSummary.nextPendingReviewId
-                        ? `/app/inventory/counts/${inventoryAlertSummary.nextPendingReviewId}`
-                        : isAdminSurface ? "/app/admin/inventario/counts" : "/app/master/ops/inventory?view=counts#inventory-reviews"}
-                      prefetch={false}
-                      className="flex shrink-0 items-center gap-2 rounded-2xl border border-rose-300/55 bg-rose-400/10 px-3 py-2 text-xs font-black text-rose-100 transition hover:border-rose-200 hover:bg-rose-400/15"
-                      title={`${inventoryAlertSummary.pendingReviews} inventario${inventoryAlertSummary.pendingReviews === 1 ? '' : 's'} de Cocina por revisar`}
-                    >
-                      <span>Inventarios por aprobar</span>
-                      <span className="rounded-full bg-rose-200 px-2 py-0.5 text-[10px] tabular-nums text-rose-950">
-                        {inventoryAlertSummary.pendingReviews}
-                      </span>
-                    </ContextLink>
-                  ) : null}
+                  {inventoryNavigation ?? <OrdersWorkspaceInventoryLinks surface={surface} summary={null} />}
 
                   <ContextLink
                     href={navigation.payments}
