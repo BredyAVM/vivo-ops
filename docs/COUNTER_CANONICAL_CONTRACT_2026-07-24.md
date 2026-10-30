@@ -720,6 +720,13 @@ USD 10.
 
 ### 13.4 Retorno y liquidación
 
+Regla de saldo pendiente (2026-10-30): la cobertura del pago en bolívares
+también descuenta el cambio físico confirmado del delivery. El retorno bruto
+no puede activar el cierre por snapshot ignorando ese egreso. Liquidar al
+motorizado no condona deuda del cliente: pedido USD 30,50, cambio USD 10 y
+retorno USD 40 dejan USD 0,50 pendientes en la cobranza del asesor. La lectura
+canónica conserva ese saldo independientemente del estado de la liquidación.
+
 Cuando el motorizado regresa:
 
 - Counter registra el monto realmente recibido;
