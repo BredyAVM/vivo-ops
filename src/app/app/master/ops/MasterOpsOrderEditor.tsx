@@ -1366,8 +1366,8 @@ export default function MasterOpsOrderEditor({
                             value={newClientType}
                             onChange={(event) => setNewClientType(event.target.value as "assigned" | "own" | "direct" | "legacy")}
                           >
-                            <option value="assigned">Asignado por el negocio</option>
-                            <option value="own">Propio del asesor</option><option value="direct">Directo del negocio</option>
+                            <option value="assigned">Asignado</option>
+                            <option value="own">Propio</option><option value="direct">Directo</option>
                             <option value="legacy">Antiguo</option>
                           </select>
                         </div>

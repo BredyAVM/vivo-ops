@@ -994,7 +994,7 @@ export function CounterQuickSalePanel({
                   </span>
                 </label>
               </div>
-              <p className="text-xs text-[#BDBDC7]">Tipo: Directo del negocio. Master o Administración pueden derivarlo a un asesor cuando corresponda.</p>
+              <p className="text-xs text-[#BDBDC7]">Tipo: Directo</p>
             </div>
           ) : null}
         </div>

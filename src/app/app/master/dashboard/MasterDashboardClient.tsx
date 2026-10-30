@@ -1858,8 +1858,8 @@ function fmtClientTypeLabel(value: string | null | undefined) {
   const normalized = normalizeLooseText(String(value ?? ''));
   if (!normalized) return '—';
   if (normalized === 'legacy' || normalized === 'antiguo') return 'Antiguo';
-  if (normalized === 'direct') return 'Directo del negocio';
-  if (normalized === 'own' || normalized === 'propio') return 'Propio del asesor';
+  if (normalized === 'direct') return 'Directo';
+  if (normalized === 'own' || normalized === 'propio') return 'Propio';
   if (normalized === 'assigned' || normalized === 'asignado') return 'Asignado';
   return repairDisplayText(String(value));
 }

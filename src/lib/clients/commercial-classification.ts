@@ -2,9 +2,9 @@ export type ClientCommercialType = 'own' | 'assigned' | 'direct' | 'legacy';
 export type SalesChannel = 'in_person' | 'whatsapp' | 'advisor';
 
 export const CLIENT_TYPE_LABELS: Record<ClientCommercialType, string> = {
-  own: 'Propio del asesor',
-  assigned: 'Asignado por el negocio',
-  direct: 'Directo del negocio',
+  own: 'Propio',
+  assigned: 'Asignado',
+  direct: 'Directo',
   legacy: 'Antiguo',
 };
 export const SALES_CHANNEL_LABELS: Record<SalesChannel, string> = {

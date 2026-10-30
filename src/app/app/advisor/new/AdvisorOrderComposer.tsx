@@ -746,8 +746,8 @@ function buildRepeatedDraftItemFromCatalog(input: {
 
 function clientTypeLabel(value: string | null | undefined) {
   if (value === 'assigned') return 'Asignado';
-  if (value === 'own') return 'Propio del asesor';
-  if (value === 'direct') return 'Directo del negocio';
+  if (value === 'own') return 'Propio';
+  if (value === 'direct') return 'Directo';
   if (value === 'legacy') return 'Antiguo';
   return 'Sin clasificar';
 }
@@ -4588,8 +4588,8 @@ export default function AdvisorOrderComposer({
               </Field>
               <Field label="Canal">
                 <select value={newClientType} onChange={(e) => setNewClientType(e.target.value as ClientType)} className={inputClass()}>
-                  <option value="assigned">Asignado por el negocio</option>
-                  <option value="own">Propio del asesor</option><option value="direct">Directo del negocio</option>
+                  <option value="assigned">Asignado</option>
+                  <option value="own">Propio</option><option value="direct">Directo</option>
                   <option value="legacy">Antiguo</option>
                 </select>
               </Field>

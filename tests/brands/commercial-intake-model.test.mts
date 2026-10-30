@@ -4,7 +4,7 @@ import { clientCommercialTypeLabel, isClientCommercialType, isSalesChannel, sale
 import { countedAdvisorNewClientType } from '../../src/lib/commissions/commercial-criteria.ts';
 
 test('client relationship and observed channel remain independent of brand, operator and delivery', () => {
-  assert.equal(clientCommercialTypeLabel('direct'), 'Directo del negocio');
+  assert.equal(clientCommercialTypeLabel('direct'), 'Directo');
   assert.equal(clientCommercialTypeLabel('legacy'), 'Antiguo');
   assert.equal(clientCommercialTypeLabel(null), 'Sin clasificar');
   for (const v of ['own', 'assigned', 'direct', 'legacy']) assert.equal(isClientCommercialType(v), true);
