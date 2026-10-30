@@ -31,7 +31,7 @@ function filterRows(rows,params) {
   if(params.has('limit')) rows=rows.slice(0,Number(params.get('limit')));
   return {rows,total};
 }
-async function fakeFetch(input,init={}) {
+async function buildFixtureResponse(input,init={}) {
   const u=new URL(typeof input==='string'?input:input.url||String(input));
   const method=String(init.method||'GET').toUpperCase();
   let rows, total, kind;
@@ -67,8 +67,21 @@ async function fakeFetch(input,init={}) {
   if(captureRequests) requests.push({kind,method,path:u.pathname,filters:Object.fromEntries([...u.searchParams].filter(([k])=>k!=='select')),rowCount:Array.isArray(rows)?rows.length:1,responseBytes:Buffer.byteLength(body)});
   return new Response(method==='HEAD'?null:body,{status:200,headers:{'Content-Type':'application/json','Content-Range':`0-${Math.max(0,(rows?.length||0)-1)}/${total??rows?.length??1}`}});
 }
-function makeSupabase() {
-  const c=createClient('https://diagnostic.invalid','fixture-key',{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{fetch:fakeFetch}});
+// Prepare synthetic PostgREST responses once during warmup. Filtering, sorting
+// and JSON encoding belong to the database, not to the measured application CPU.
+const responseCache = new Map();
+async function fakeFetch(input, init={}) {
+  const key=String(init.method||'GET')+' '+String(input)+' '+String(init.body||'');
+  let entry=responseCache.get(key);
+  if(!entry){const r=await buildFixtureResponse(input,init);entry={body:await r.text(),status:r.status,headers:Object.fromEntries(r.headers)};responseCache.set(key,entry);}
+  return new Response(String(init.method||'GET').toUpperCase()==='HEAD'?null:entry.body,{status:entry.status,headers:entry.headers});
+}
+function makeSupabase(sampleId='') {
+  const measuredFetch=async(input,init)=>{
+    if(sampleId.startsWith('parity/')){const audits=globalThis.__cpuReadAudit??=new Map();const rows=audits.get(sampleId)||[];rows.push({method:init?.method||'GET',url:String(input)});audits.set(sampleId,rows);}
+    return fakeFetch(input,init);
+  };
+  const c=createClient('https://diagnostic.invalid','fixture-key',{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{fetch:measuredFetch}});
   const original=c.auth.getUser.bind(c.auth);
   c.auth.getUser=()=>original('fixture-token');
   return c;
