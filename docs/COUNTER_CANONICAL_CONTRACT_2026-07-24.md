@@ -720,6 +720,17 @@ USD 10.
 
 ### 13.4 Retorno y liquidación
 
+Captura única del retorno (2026-10-30): el operador indica únicamente cuánto
+dinero entrega el motorizado y la caja receptora. Revisa el importe y confirma
+«Registrar retorno». No se pide otra declaración del cliente ni una casilla de
+cierre. El mismo monto alimenta la declaración y el ingreso atómico existente;
+las declaraciones previas se descuentan para no duplicarlas. Si los retornos
+acumulados completan lo esperado en cada moneda, se finaliza automáticamente
+la cobranza del motorizado; si falta dinero, continúa pendiente. El cambio
+digital pendiente conserva su control separado. Nunca se condona deuda del
+cliente ni se registra dinero por abrir la pantalla. No hay reparación automática
+de retornos históricos ni una segunda entrada por una liquidación ya registrada.
+
 Acceso operativo (2026-10-30): una orden delivery en camino o entregada conserva
 el acceso «Recibir dinero del motorizado», que abre su liquidación exacta bajo
 demanda. El acceso genérico distingue retorno de motorizado de pago nuevo del

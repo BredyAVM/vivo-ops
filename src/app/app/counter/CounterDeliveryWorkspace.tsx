@@ -10,6 +10,7 @@ import {
 } from './read-actions';
 import { requiresCounterDeliveryMoneyHandling } from './delivery-contract';
 import { parseCounterAmount } from './amount-review';
+import { buildSingleCaptureReturn } from './delivery-return';
 import type {
   CounterDeliveryCashLine,
   CounterDeliveryCurrency,
@@ -699,7 +700,7 @@ function DeliveryCashDrafts({
           <div key={line.id} className="grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr_auto]">
             <select
               value={line.accountId}
-              aria-label="Caja de salida del efectivo"
+              aria-label="Caja del efectivo"
               onChange={(event) => onChange(lines.map((item) =>
                 item.id === line.id ? { ...item, accountId: Number(event.target.value) } : item
               ))}
@@ -873,43 +874,6 @@ function DeliveryMetric({
   );
 }
 
-function buildReturnDrafts(
-  detail: CounterDeliverySettlementDetail,
-  cashAccounts: CounterPaymentAccountOption[]
-) {
-  const collectionLines: ValueDraft[] = [];
-  const cashReturnLines: CashDraft[] = [];
-
-  for (const currency of detail.currencyBreakdown) {
-    const remainingExpected = roundMoney(Math.max(
-      currency.expectedCollection - currency.customerCollection,
-      0
-    ));
-    if (!detail.collectionFinalizedAt && remainingExpected > 0.005) {
-      collectionLines.push(
-        createValueDraft('collected', currency.currencyCode, String(remainingExpected))
-      );
-    }
-
-    const amountToReturn = roundMoney(
-      currency.custodyOutstanding + remainingExpected
-    );
-    const account = cashAccounts.find(
-      (item) => item.currencyCode === currency.currencyCode
-    );
-    if (account && amountToReturn > 0.005) {
-      cashReturnLines.push({
-        id: `return-${crypto.randomUUID()}`,
-        accountId: account.accountId,
-        amount: String(amountToReturn),
-        referenceCode: '',
-      });
-    }
-  }
-
-  return { collectionLines, cashReturnLines };
-}
-
 export function CounterDeliverySettlementBox({
   orderId,
   settlementId,
@@ -932,9 +896,8 @@ export function CounterDeliverySettlementBox({
   const [detail, setDetail] = useState<CounterDeliverySettlementDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
-  const [collectionLines, setCollectionLines] = useState<ValueDraft[]>([]);
   const [cashReturnLines, setCashReturnLines] = useState<CashDraft[]>([]);
-  const [collectionFinal, setCollectionFinal] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [notes, setNotes] = useState('');
   const [message, setMessage] = useState<{
     tone: 'success' | 'error';
@@ -952,10 +915,8 @@ export function CounterDeliverySettlementBox({
         settlementId: settlementId ?? null,
       });
       setDetail(next);
-      const drafts = buildReturnDrafts(next, cashAccounts);
-      setCollectionLines(drafts.collectionLines);
-      setCashReturnLines(drafts.cashReturnLines);
-      setCollectionFinal(false);
+      setCashReturnLines([{ id: `return-${crypto.randomUUID()}`, accountId: 0, amount: '', referenceCode: '' }]);
+      setReviewing(false);
       setNotes('');
       requestKey.current = null;
       succeeded = true;
@@ -970,43 +931,50 @@ export function CounterDeliverySettlementBox({
       onReadMetric?.(performance.now() - startedAt, succeeded);
       setLoading(false);
     }
-  }, [cashAccounts, onReadMetric, orderId, settlementId]);
+  }, [onReadMetric, orderId, settlementId]);
 
   useEffect(() => {
     void loadDetail();
   }, [loadDetail]);
 
   function invalidate() {
+    if (working) return;
     requestKey.current = null;
+    setReviewing(false);
     setMessage(null);
   }
 
   async function submitReturn() {
-    if (!detail) return;
+    if (!detail || working) return;
     setWorking(true);
     setMessage(null);
     try {
+      if (cashReturnLines.length === 0 || cashReturnLines.some((line) => parseCounterAmount(line.amount) === null)) {
+        throw new Error('Indica el dinero recibido. Usa máximo dos decimales y quita las líneas que no utilizarás.');
+      }
+      if (cashReturnLines.some((line) => !cashAccounts.some((account) => account.accountId === line.accountId))) {
+        throw new Error('Selecciona la caja donde recibes el dinero.');
+      }
+      const returnDetails = buildSingleCaptureReturn(detail, cashReturnLines.map((line) => cashDraftToIntent(line, cashAccounts, activeBsRate)));
+      if (!reviewing) {
+        setReviewing(true);
+        return;
+      }
       if (!requestKey.current) requestKey.current = crypto.randomUUID();
       const intent: CounterDeliveryReturnIntent = {
         idempotencyKey: requestKey.current,
         orderId: detail.orderId,
-        customerCollectionLines: collectionLines
-          .filter((line) => decimal(line.amount) > 0)
-          .map((line) => valueDraftToIntent(line, activeBsRate)),
-        cashReturnLines: cashReturnLines
-          .filter((line) => decimal(line.amount) > 0)
-          .map((line) => cashDraftToIntent(line, cashAccounts, activeBsRate)),
-        collectionFinal,
+        ...returnDetails,
         notes: notes.trim() || null,
       };
       const result = await recordCounterDeliveryReturnAction(intent);
       setMessage({
         tone: 'success',
         text: result.settlementStatus === 'settled'
-          ? 'La custodia del delivery quedo liquidada.'
+          ? 'Retorno registrado. El motorizado ya entregó el dinero. Cualquier deuda del cliente sigue pendiente.'
           : result.settlementStatus === 'discrepancy'
             ? 'La cobranza fue cerrada con una diferencia pendiente de revision.'
-            : 'El retorno parcial quedo registrado y seguira visible.',
+            : 'Retorno registrado. La liquidación sigue pendiente; revisa el dinero o cambio digital restante.',
       });
       await loadDetail();
       await onChanged?.();
@@ -1157,48 +1125,20 @@ export function CounterDeliverySettlementBox({
 
       {canReceiveReturn ? (
         <>
-          <DeliveryValueDrafts
-            title="Efectivo que el cliente entrego al motorizado"
-            helper="Se registra una sola vez. Puede ser menor al saldo de la orden; la deuda restante sigue con el asesor."
-            lines={collectionLines}
-            onChange={(lines) => {
-              invalidate();
-              setCollectionLines(lines);
-            }}
-            addLabel="Agregar cobro del cliente"
-            disabled={Boolean(detail.collectionFinalizedAt)}
-          />
+          <fieldset disabled={working || loading}>
+          {!reviewing ? <>
           <DeliveryCashDrafts
-            title="Efectivo que el motorizado entrega ahora a caja"
-            helper="Cada linea genera un ingreso confirmado. Puede ser parcial y continuar otro dia."
+            title="¿Cuánto dinero entrega el motorizado?"
+            helper="Indica solo lo que recibes ahora y selecciona la caja. Si falta dinero, el resto queda pendiente."
+            requireAccountSelection
             lines={cashReturnLines}
             cashAccounts={cashAccounts}
             onChange={(lines) => {
               invalidate();
               setCashReturnLines(lines);
             }}
-            addLabel="Agregar ingreso a caja"
+            addLabel="Agregar otra caja o moneda"
           />
-
-          <label className="mt-3 flex items-start gap-2 rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-xs text-[#C7C8D1]">
-            <input
-              type="checkbox"
-              checked={collectionFinal}
-              disabled={Boolean(detail.collectionFinalizedAt)}
-              onChange={(event) => {
-                invalidate();
-                setCollectionFinal(event.target.checked);
-              }}
-              className="mt-0.5 h-4 w-4 accent-[#FEEF00]"
-            />
-            <span>
-              <span className="block font-semibold text-[#F5F5F7]">
-                Cerrar la cobranza declarada por el motorizado
-              </span>
-              Si queda efectivo bajo custodia, la liquidacion pasara a diferencia. Esto no liquida por fuerza el saldo del cliente.
-            </span>
-          </label>
-
           <textarea
             value={notes}
             onChange={(event) => {
@@ -1209,14 +1149,27 @@ export function CounterDeliverySettlementBox({
             placeholder="Nota del retorno (opcional)"
             className="mt-3 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm"
           />
+          </> : <div className="mt-3 space-y-3 rounded-[8px] border border-sky-300/40 p-4">
+            <h4 className="font-semibold">Confirma el dinero que recibes</h4>
+            {cashReturnLines.map((line) => {
+              const account = cashAccounts.find((item) => item.accountId === line.accountId);
+              return <div key={line.id}>
+                <div className="text-2xl font-bold">{amountLabel(decimal(line.amount), account?.currencyCode ?? 'USD')}</div>
+                <div className="text-sm">{account?.accountName}</div>
+              </div>;
+            })}
+            <p className="text-sm text-[#C7C8D1]">Se registra una sola entrada por caja. Esto no perdona ninguna deuda del cliente.</p>
+            <button type="button" onClick={() => setReviewing(false)} className="rounded-lg border border-[#303044] px-4 py-2">Corregir datos</button>
+          </div>}
           <button
             type="button"
             onClick={() => void submitReturn()}
-            disabled={working}
+            disabled={working || loading}
             className="mt-3 w-full rounded-[8px] border border-sky-300/50 bg-sky-300/10 px-4 py-2.5 text-sm font-bold text-sky-100 disabled:cursor-wait disabled:opacity-50"
           >
-            {working ? 'Registrando...' : 'Registrar retorno'}
+            {working ? 'Registrando...' : reviewing ? 'Registrar retorno' : 'Continuar'}
           </button>
+          </fieldset>
         </>
       ) : (
         <div className="mt-3 rounded-[8px] border border-emerald-400/30 bg-emerald-950/20 p-3 text-xs text-emerald-100">
