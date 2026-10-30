@@ -695,6 +695,12 @@ USD 10.
 
 #### Despacho con cambio parcial o abono (2026-10-12)
 
+- Confirmación de efectivo real (2026-10-30): el despacho no prellena el monto
+  del cambio ni selecciona automáticamente su caja. El operador introduce lo
+  que entrega físicamente y elige cada caja de salida. Si la orden prescribe
+  cambio, debe registrar esas líneas o elegir expresamente que no envía
+  efectivo. La sección permanece visible y la confirmación muestra monto,
+  moneda y caja; la diferencia teórica nunca se convierte sola en un egreso.
 - La diferencia calculada contra el saldo es una sugerencia, no una condición
   para despachar. Counter confirma el efectivo bruto que recibirá el motorizado
   y el cambio físico que realmente lleva, incluso si el cobro es un abono.
@@ -713,6 +719,19 @@ USD 10.
   recibido, independientemente del saldo comercial y la entrega física.
 
 ### 13.4 Retorno y liquidación
+
+Acceso operativo (2026-10-30): una orden delivery en camino o entregada conserva
+el acceso «Recibir dinero del motorizado», que abre su liquidación exacta bajo
+demanda. El acceso genérico distingue retorno de motorizado de pago nuevo del
+cliente antes de abrir el cobro ordinario, incluso desde búsqueda. Consultar o
+abrir esos paneles nunca registra dinero ni cierra la custodia por sí solo.
+
+Regla de saldo pendiente (2026-10-30): la cobertura del pago en bolívares
+también descuenta el cambio físico confirmado del delivery. El retorno bruto
+no puede activar el cierre por snapshot ignorando ese egreso. Liquidar al
+motorizado no condona deuda del cliente: pedido USD 30,50, cambio USD 10 y
+retorno USD 40 dejan USD 0,50 pendientes en la cobranza del asesor. La lectura
+canónica conserva ese saldo independientemente del estado de la liquidación.
 
 Cuando el motorizado regresa:
 

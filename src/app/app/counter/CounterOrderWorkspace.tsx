@@ -600,7 +600,8 @@ export function OrderDetail({
   const isDelivered = order.status === 'delivered';
   const isCancelled = order.status === 'cancelled';
   const isClosedOrder = isDelivered || isCancelled;
-  const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
+  const isDeliverySettlement = order.fulfillment === 'delivery'
+    && (order.status === 'out_for_delivery' || order.status === 'delivered');
   const requiresDeliveryMoneyHandling = requiresCounterDeliveryMoneyHandling(order);
   const deliveryReadyWithoutAssignee =
     order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName;
@@ -634,7 +635,9 @@ export function OrderDetail({
   const primaryActionBlockedMessage = isCancelled
     ? 'La orden esta cancelada. Counter solo puede consultar el expediente.'
     : isDelivered
-      ? 'La orden ya fue entregada. Counter solo puede consultar y registrar pagos pendientes.'
+      ? isDeliverySettlement
+        ? 'La entrega al cliente ya terminó. El retorno del motorizado se registra por separado; no es un pago nuevo.'
+        : 'La orden ya fue entregada. Counter solo puede consultar y registrar pagos pendientes.'
     : pendingPickupChange
     ? 'Master debe aprobar o rechazar el cambio solicitado antes de entregar este pickup.'
     : order.fulfillment === 'pickup' && order.pendingDigitalChangeUsd > 0.005
@@ -665,6 +668,7 @@ export function OrderDetail({
             : 'El metodo esperado es efectivo o punto. Primero registra el cobro recibido del motorizado.'
           : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(initialPaymentOpen);
+  const [paymentRoute, setPaymentRoute] = useState<'choose' | 'return' | 'customer'>('choose');
   const [addItemsOpen, setAddItemsOpen] = useState(false);
   const [deliveryDispatchOpen, setDeliveryDispatchOpen] = useState(false);
   const [pickupConfirmationOpen, setPickupConfirmationOpen] = useState(false);
@@ -714,6 +718,7 @@ export function OrderDetail({
 
   function openPaymentSession() {
     onPaymentSessionOpened();
+    setPaymentRoute('choose');
     setPaymentOpen(true);
   }
 
@@ -723,6 +728,12 @@ export function OrderDetail({
   }
 
   function handlePrimaryActionClick() {
+    if (isDeliverySettlement) {
+      onPaymentSessionOpened();
+      setPaymentRoute('return');
+      setPaymentOpen(true);
+      return;
+    }
     if (pickupCheckoutRequired) {
       openPaymentSession();
       return;
@@ -923,11 +934,37 @@ export function OrderDetail({
 
           {paymentOpen && !isCancelled ? (
             <CounterOperationDialog
-              title={order.changeAvailableUsd > 0.005 ? 'Cobro y cambio' : 'Cobrar pedido'}
+              title={isDeliverySettlement
+                ? paymentRoute === 'return' ? 'Recibir dinero del motorizado'
+                  : paymentRoute === 'customer' ? 'Pago nuevo del cliente' : '¿Quién entrega el dinero?'
+                : order.changeAvailableUsd > 0.005 ? 'Cobro y cambio' : 'Cobrar pedido'}
               subtitle={`Orden #${order.displayNumber} · ${order.clientName}`}
               onClose={closePaymentSession}
             >
-              <CounterPaymentEngine
+              {isDeliverySettlement && paymentRoute === 'choose' ? (
+                <div className="space-y-3">
+                  <button type="button" onClick={() => setPaymentRoute('return')} className="w-full rounded-[10px] border border-[#FEEF00] bg-[#FEEF00] p-4 text-left text-black">
+                    <span className="block text-lg font-bold">Recibir dinero del motorizado</span>
+                    <span className="mt-1 block text-sm">Revisar el cambio enviado y registrar su retorno en la liquidación.</span>
+                  </button>
+                  <button type="button" onClick={() => setPaymentRoute('customer')} className="w-full rounded-[10px] border border-[#303044] p-4 text-left">
+                    <span className="block font-semibold">Registrar un pago nuevo del cliente</span>
+                    <span className="mt-1 block text-sm text-[#9FA0AA]">Solo dinero adicional que paga el cliente. No uses esta opción para el retorno del motorizado.</span>
+                  </button>
+                </div>
+              ) : null}
+              {isDeliverySettlement && paymentRoute !== 'choose' ? (
+                <button type="button" onClick={() => setPaymentRoute('choose')} className="mb-4 min-h-11 rounded-[8px] border border-[#303044] px-4 text-sm">Volver a elegir operación</button>
+              ) : null}
+              {isDeliverySettlement && paymentRoute === 'return' ? (
+                <CounterDeliverySettlementBox
+                  orderId={order.id}
+                  paymentAccounts={paymentAccounts}
+                  activeBsRate={activeBsRate}
+                  onChanged={onDeliverySettlementChanged}
+                />
+              ) : null}
+              {!isDeliverySettlement || paymentRoute === 'customer' ? <CounterPaymentEngine
                 key={order.id}
                 order={order}
                 paymentAccounts={paymentAccounts}
@@ -937,7 +974,7 @@ export function OrderDetail({
                 onWaiveChange={(input) => onWaiveOrderChange(order, input)}
                 onLoadPaymentQuote={onLoadPaymentQuote}
                 onFinish={closePaymentSession}
-              />
+              /> : null}
             </CounterOperationDialog>
           ) : null}
 
@@ -983,15 +1020,6 @@ export function OrderDetail({
             </CounterOperationDialog>
           ) : null}
 
-          {isDeliverySettlement ? (
-            <CounterDeliverySettlementBox
-              orderId={order.id}
-              paymentAccounts={paymentAccounts}
-              activeBsRate={activeBsRate}
-              onChanged={onDeliverySettlementChanged}
-            />
-          ) : null}
-
           {pendingPickupChange ? (
             <CounterPendingPickupChange request={pendingPickupChange} />
           ) : null}
@@ -1018,11 +1046,13 @@ export function OrderDetail({
           <button
             type="button"
             onClick={handlePrimaryActionClick}
-            disabled={isWorking || (primaryActionBlocked && !pickupCheckoutRequired)}
+            disabled={isWorking || (primaryActionBlocked && !pickupCheckoutRequired && !isDeliverySettlement)}
             className="min-h-12 w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isWorking
               ? 'Guardando...'
+              : isDeliverySettlement
+                ? 'Recibir dinero del motorizado'
               : pickupConfirmationOpen
                 ? 'Confirmar retiro ahora'
                 : primaryCounterActionLabel(order)}
@@ -1057,7 +1087,7 @@ export function OrderDetail({
               disabled={isCancelled || isWorking}
               className="min-h-11 rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {order.changeAvailableUsd > 0.005 ? 'Cobro / cambio' : 'Cobrar'}
+              {isDeliverySettlement ? 'Retorno / pago nuevo' : order.changeAvailableUsd > 0.005 ? 'Cobro / cambio' : 'Cobrar'}
             </button>
             <button
               type="button"
