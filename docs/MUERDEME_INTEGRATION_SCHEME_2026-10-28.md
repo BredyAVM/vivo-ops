@@ -83,6 +83,8 @@ Cocina debe recibir «Original doble, sin salsa, extra de tocineta» y la cantid
 
 La comisión porcentual de VIVO seguirá aplicándose a las partidas elegibles de VIVO. El estímulo fijo de Muérdeme será un concepto separado. Una orden mixta podrá tener ambos conceptos, calculados dentro de su alcance, sin aplicar el porcentaje VIVO automáticamente a las hamburguesas.
 
+Decisión del 30 de octubre: cada combo admite un monto fijo USD propio, que sustituye su estímulo habitual y cubre sus componentes incluidos. Vacío conserva la tarifa primera compra/recurrencia; cero significa sin estímulo por ese combo. Se elige el mayor importe aplicable una sola vez por pedido, incluyendo como candidato la tarifa habitual de las hamburguesas sueltas. Las bebidas y demás productos VIVO vendidos aparte conservan su comisión; las bebidas incluidas no se comisionan separadamente. La condición se lee de la versión certificada del combo utilizada en el pedido, no de su configuración futura.
+
 La configuración guardará los importes de primera compra y recurrencia, su vigencia y las condiciones de elegibilidad. La orden conservará la versión aplicable. Editar, guardar de nuevo o reintentar una operación no debe duplicar el estímulo. Un pedido con un combo de dos hamburguesas seguirá generando un solo estímulo por pedido elegible. El detalle y la liquidación deberán integrarse en el apartado existente de comisiones, diferenciando ambos conceptos.
 
 Antes de activar los pagos deben concretarse estos criterios:

@@ -22,6 +22,7 @@ test('fixed burger incentives integrate into closures without changing existing 
   const baseline=await db.query('select * from public.advisor_commission_closures order by id');
   await db.exec(readFileSync('tests/brands/fixtures/commission-payment-existing.sql','utf8'));
   await db.exec(readFileSync('supabase/migrations/20261029172623_muerdeme_order_incentives_v1.sql','utf8'));assert.deepEqual(await db.query('select * from public.advisor_commission_closures order by id'),baseline);
+  await db.exec(readFileSync('supabase/migrations/20261030140956_muerdeme_combo_fixed_incentive_v1.sql','utf8'));assert.deepEqual(await db.query('select * from public.advisor_commission_closures order by id'),baseline);
   const one=async<T=unknown>(sql:string,args:unknown[]=[])=>((await db.query<{v:T}>(sql,args)).rows[0]?.v);
   const admin='00000000-0000-4000-8000-000000000001',advisor='00000000-0000-4000-8000-000000000002';
   const auth=async(id=admin,role='authenticated')=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec('set role '+role);};
@@ -31,8 +32,8 @@ test('fixed burger incentives integrate into closures without changing existing 
   const fries=(await one<{entryId:string}>('select public.admin_muerdeme_menu_save_v1(null,0,$1,$2)as v',[menuDocument('fries','Prueba Papas',2),randomUUID()])).entryId;
   await one('select public.admin_muerdeme_inventory_recipe_save_v1($1,$2,1,0,$3,$4)as v',[fries,'standard',{schemaVersion:1,mode:'untracked',note:'Prueba sin movimientos físicos',lines:[]},randomUUID()]);
   await db.exec("reset role;update app_private.commercial_brands set sales_enabled=true where code='muerdeme'");await auth(advisor);
-  const addOrder=async(id:number,which=entry,source='advisor',creator=advisor,paid=true)=>{
-   await db.query("insert into public.orders(id,client_id,total_usd,order_number,status,source,created_by_user_id,attributed_advisor_id,created_at,extra_fields)values($1,1,5,$1::bigint::text,'delivered',$2,$3,$4,$5,$6)",[id,source,creator,advisor,'2026-10-29T12:00:00Z',{'pricing':{fx_rate:884.75},'delivery':{completed_at:'2026-10-29T12:00:00Z'}}]);
+  const addOrder=async(id:number,which=entry,source='advisor',creator=advisor,paid=true,client=1)=>{
+   await db.query("insert into public.orders(id,client_id,total_usd,order_number,status,source,created_by_user_id,attributed_advisor_id,created_at,extra_fields)values($1,$7,5,$1::bigint::text,'delivered',$2,$3,$4,$5,$6)",[id,source,creator,advisor,'2026-10-29T12:00:00Z',{'pricing':{fx_rate:884.75},'delivery':{completed_at:'2026-10-29T12:00:00Z'}},client]);
    const graph=decodeOrderMenuGraph(await one('select public.muerdeme_order_menu_graph_v1($1)as v',[which]));const q=quoteMenuOrder(graph,defaultMenuOrderSelection(graph.entries.find(e=>e.entryId===which)!));
    await db.query('insert into public.order_items(id,order_id,product_id,qty,notes,pricing_origin_amount)values($1,$2,$3,1,$4,$5)',[id*10,id,q.productId,menuQuoteDetailLines(q).join('\n'),q.unitUsd]);
    if(paid)await db.query("insert into public.order_payments values($1,$1,5,'USD','confirmed')",[id]);return q;
@@ -88,6 +89,42 @@ test('fixed burger incentives integrate into closures without changing existing 
      'movements',(select jsonb_agg(jsonb_build_array(amount,currency_code,status,direction,movement_type)order by id)from public.money_movements where description like 'Liquidación de comisión · Cierre 50 ·%'))as v`);
    }finally{await db.exec('rollback');}};
    await db.exec(readFileSync('tests/brands/fixtures/commission-payment-existing.sql','utf8'));const old=await sample();await db.exec(patched);assert.deepEqual(await sample(),old);await auth();
+  });
+  await t.test('combo conditions replace their included burger/drink terms and the highest amount wins once per order',async()=>{
+   await db.exec("reset role;update app_private.commercial_brands set sales_enabled=false where code='muerdeme'");await auth();
+   const comboDoc=(amount:number|null)=>({...menuDocument('combo','Combo de prueba '+String(amount),15),comboIncentiveUsd:amount,comboGroups:[
+    {key:'burgers',label:'Hamburguesas',kind:'burger' as const,quantity:2,choices:[{entryId:entry,variantKey:'standard',supplementUsd:0}]}]});
+   const saveCombo=async(amount:number|null)=>{const doc=comboDoc(amount);const value=await one<{entryId:string}>('select public.admin_muerdeme_menu_save_v1(null,0,$1,$2)as v',[doc,randomUUID()]);return{...value,doc};};
+   const low=await saveCombo(0.2),high=await saveCombo(0.8),zero=await saveCombo(0),inherited=await saveCombo(null);
+   for(const amount of[-1,0.123,'0.5',true])await assert.rejects(()=>one('select public.admin_muerdeme_menu_save_v1(null,0,$1,$2)as v',[{...comboDoc(null),comboIncentiveUsd:amount},randomUUID()]),/estímulo fijo/);
+   await assert.rejects(()=>one('select public.admin_muerdeme_menu_save_v1(null,0,$1,$2)as v',[{...menu,comboIncentiveUsd:0.5},randomUUID()]),/Solo los combos/);
+   await db.exec(`reset role;insert into public.clients values(2,'Otro cliente',$$${advisor}$$,'own','[]');update app_private.commercial_brands set sales_enabled=true where code='muerdeme'`);await auth(advisor);
+   await addOrder(80,low.entryId,'advisor',advisor,true,2);
+   const state=(id:number)=>one<{amountUsd:number;purchaseKind:string;fixedCombo?:{entryId:string;revision:number;name:string;amountUsd:number}}>('select app_private.muerdeme_incentive_state_v1($1)as v',[id]);
+   assert.equal((await state(80)).purchaseKind,'first');assert.equal((await state(80)).amountUsd,0.2);
+   await assert.rejects(()=>db.exec('update public.order_items set qty=100 where order_id=80'),/configuración individual/);assert.equal((await state(80)).amountUsd,0.2);
+   const highQuote=await addOrder(81,high.entryId),zeroQuote=await addOrder(82,zero.entryId);await addOrder(83,inherited.entryId);
+   assert.equal((await state(82)).amountUsd,0);assert.equal((await state(83)).amountUsd,0.45);
+   const addLine=async(order:number,id:number,q:ReturnType<typeof quoteMenuOrder>)=>db.query('insert into public.order_items(id,order_id,product_id,qty,notes,pricing_origin_amount)values($1,$2,$3,1,$4,$5)',[id,order,q.productId,menuQuoteDetailLines(q).join('\n'),q.unitUsd]);
+   await addLine(80,805,highQuote);await addLine(80,806,highQuote);await addLine(80,807,zeroQuote);
+   const selected=await state(80);assert.equal(selected.amountUsd,0.8);assert.equal(selected.fixedCombo!.entryId,high.entryId);assert.equal(selected.fixedCombo!.revision,1);
+   await addLine(82,825,firstQuote);assert.equal((await state(82)).amountUsd,0.45); // zero combo does not cancel a separately sold burger
+   await db.exec("reset role;update app_private.commercial_brands set sales_enabled=false where code='muerdeme'");await auth();await one('select public.admin_muerdeme_menu_save_v1($1,1,$2,$3)as v',[high.entryId,{...high.doc,comboIncentiveUsd:1.25},randomUUID()]);
+   await db.exec("reset role;update app_private.commercial_brands set sales_enabled=true where code='muerdeme'");await auth();
+   assert.deepEqual(await state(80),selected);assert.equal((await state(81)).amountUsd,0.8);
+   await auth(advisor);await addOrder(84,high.entryId);assert.equal((await state(84)).amountUsd,1.25);assert.equal((await state(84)).fixedCombo!.revision,2);
+   await db.exec('delete from public.order_items where id in(805,806)');assert.equal((await state(80)).amountUsd,0.2);
+   await addLine(80,808,firstQuote);assert.equal((await state(80)).amountUsd,0.75);assert.equal((await state(80)).fixedCombo,undefined);
+   await db.exec("reset role;insert into public.advisor_commission_periods values(3,'2026-11-09','2026-11-15','open')");await auth();
+   const receipt=await state(81);await saveClosure([receipt],0.8,70,3);
+   await assert.rejects(()=>saveClosure([{...receipt,amountUsd:1.6}],1.6,70,3),/corresponde/);
+   await db.exec(`update public.advisor_commission_closures set status='closed',payable_usd=0.8,snapshot=snapshot||'{"version":2,"totals":{"payableUsd":0.8},"settlement":{"formulaVersion":"advisor-settlement-v1"},"commissionWorkflow":{"conformity":{"status":"confirmed"}}}'::jsonb where id=70`);
+   const payCombo=(amount:number,key=randomUUID())=>one<{replayed:boolean}>('select app_private.record_commission_payment_v1($1,70,1,$2,0,null,current_date,null)as v',[key,amount]);
+   const paymentKey=randomUUID();await payCombo(0.1,paymentKey);assert.equal((await payCombo(0.1,paymentKey)).replayed,true);
+   await db.exec("reset role;update public.order_payments set status='rejected'where order_id=81");await auth();
+   await assert.rejects(()=>payCombo(0.7),/cambió su entrega o cobranza/);
+   await db.exec("update public.order_payments set status='confirmed'where order_id=81");
+   await payCombo(0.7);assert.equal(await one<string>('select status as v from public.advisor_commission_closures where id=70'),'paid');
   });
   await t.test('anonymous, inactive users and other advisors cannot obtain or forge settlement data',async()=>{
    for(const[id,role]of[['','anon'],['','service_role'],['00000000-0000-4000-8000-000000000003','authenticated'],[advisor,'authenticated']]){await auth(id,role);await assert.rejects(()=>candidates(),/permission denied|activos/);}

@@ -48,6 +48,7 @@ export default function MuerdemeMenuEditor({ data, kind, returnTo }: { data: Men
       for (const v of next.variants) v.priceUsd = parseMenuMoney(amountText(v.key, v.priceUsd), true);
       for (const g of next.comboGroups) for (const c of g.choices) c.supplementUsd = parseMenuMoney(amountText(priceKey(g.key, c), c.supplementUsd))!;
       for (const u of next.friesUpgrades) u.supplementUsd = parseMenuMoney(amountText(`upgrade:${u.fromKey}:${u.toKey}`, u.supplementUsd))!;
+      if (next.kind === 'combo') next.comboIncentiveUsd = parseMenuMoney(amountText('combo-incentive', next.comboIncentiveUsd ?? null), true);
       parseMenuDocument(next); assertMenuReferences(next, data.lookups);
       payload = JSON.stringify(next);
     } catch (error) { return { error: error instanceof Error ? error.message : 'Revisa la configuración.' }; }
@@ -127,6 +128,10 @@ export default function MuerdemeMenuEditor({ data, kind, returnTo }: { data: Men
         <p className="text-[11px] text-[#BDBDC7]">Cada presentación conserva su propio precio e ingredientes. Un precio vacío queda pendiente; cero significa sin cargo.</p>
       </section>
       {document.kind === 'combo' ? <section className="space-y-2" aria-label="Composición del combo">
+        <div className="grid min-w-0 gap-2 rounded-lg border border-[#30303D] bg-[#111117] p-3 sm:grid-cols-[14rem_1fr]">
+          <label className={label}>Estímulo fijo por pedido · USD<input className={field} inputMode="decimal" maxLength={12} placeholder="Usar tarifa habitual" value={amountText('combo-incentive', document.comboIncentiveUsd ?? null)} onFocus={e => e.currentTarget.select()} onChange={e => changePrice('combo-incentive', e.target.value)} /></label>
+          <p className="self-center text-[11px] text-[#BDBDC7]">Vacío: usa la tarifa de primera compra o recurrencia. Cero: sin estímulo por este combo. Se aplica el mayor importe del pedido una sola vez; la bebida incluida no suma otra comisión. Los productos VIVO vendidos aparte conservan sus reglas.</p>
+        </div>
         <h2 className="text-sm font-medium text-[#DEDEE6]">Contenido del combo</h2>
         <p className="text-[11px] text-[#BDBDC7]">Una opción hace el grupo fijo; varias permiten elegir. Cada hamburguesa se configurará por separado.</p>
         <div className="flex flex-wrap gap-2">{(['burger', 'fries', 'drink'] as const).map(groupKind => <button key={groupKind} type="button" className={button} disabled={document.comboGroups.length >= 12} onClick={() => update(d => { d.comboGroups.push({

@@ -1,6 +1,7 @@
 import {hasMenuOrderDetails} from './order-menu.ts';
 export type MuerdemeIncentive = {orderId:number;orderNumber:string;advisorId:string;policyRevision:number;
- purchaseKind:'first'|'recurrent';amountUsd:number;status:'ready';deliveryDate:string};
+ purchaseKind:'first'|'recurrent';amountUsd:number;status:'ready';deliveryDate:string;
+ fixedCombo?:{entryId:string;revision:number;name:string;amountUsd:number}};
 export type MuerdemeIncentiveSnapshot = {version:1;totalUsd:number;rows:MuerdemeIncentive[]};
 const cents=(v:number)=>Math.round((v+Number.EPSILON)*100);
 export function isMuerdemeCommissionLine(item:{notes?:string|null;product?:unknown}){
@@ -19,6 +20,11 @@ export function readMuerdemeIncentiveSnapshot(snapshot:unknown):MuerdemeIncentiv
    ||!['first','recurrent'].includes(row.purchaseKind)||row.status!=='ready'||!/^\d{4}-\d{2}-\d{2}$/.test(row.deliveryDate)
    ||!Number.isFinite(row.amountUsd)||row.amountUsd<0||row.amountUsd>=1e9||Math.abs(row.amountUsd*100-cents(row.amountUsd))>1e-5)throw new Error('El detalle de un estímulo es inválido.');
   seen.add(row.orderId);
+  if(row.fixedCombo!==undefined){const combo=row.fixedCombo;
+   if(!combo||typeof combo!=='object'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(combo.entryId)
+    ||!Number.isSafeInteger(combo.revision)||combo.revision<1||typeof combo.name!=='string'||!combo.name||combo.name.length>120
+    ||combo.amountUsd!==row.amountUsd)throw new Error('La condición fija del combo está incompleta.');
+  }
  }
  if(cents(value.totalUsd)!==value.rows.reduce((sum,r)=>sum+cents(r.amountUsd),0))throw new Error('El total de estímulos no coincide con los pedidos.');
  return value;

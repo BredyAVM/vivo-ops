@@ -2,7 +2,7 @@ import test from'node:test';import assert from'node:assert/strict';import{readFi
 import{getOrderMoneySnapshot,getOrderLineTotalUsd,getOrderCommercialNetUsd,getOrderRoundingClosureSnapshot}from'../../src/lib/orders/order-money.ts';
 import{isAdvisorCommercialOrder,countedAdvisorNewClientType}from'../../src/lib/commissions/commercial-criteria.ts';
 import{resolveProductCommissionTerms}from'../../src/lib/commissions/product-commission-policy.ts';
-import{isMuerdemeCommissionLine}from'../../src/lib/brands/order-incentives.ts';
+import{isMuerdemeCommissionLine,applyMuerdemeIncentives}from'../../src/lib/brands/order-incentives.ts';
 const source=readFileSync('src/app/app/master/dashboard/actions.ts','utf8'),ast=ts.createSourceFile('actions.ts',source,ts.ScriptTarget.Latest,true);
 const names=['toSafeNumber','roundMoney','getEffectiveOrderPendingUsd','normalizeDateOnly','getCaracasDateString','dateOnlyFromIso','getOrderDeliveryReferenceDate','getAdvisorCommissionClient','getAdvisorCommissionProduct','getAdvisorCommissionItemTerms','getAdvisorGiftCostUsd','getAdvisorCommissionDeliveryDate','getAdvisorCommissionDiscountFactor'];
 const functions=new Map(ast.statements.filter(ts.isFunctionDeclaration).map(n=>[n.name?.text,n.getText(ast)]));
@@ -24,4 +24,11 @@ test('mixed orders preserve VIVO percentages and fries/burgers never inherit a w
  }
  assert.equal(current(input([item(1,2,'default',null,true)]))[0].gross_commission_usd,0);
  assert.equal(current(input([item(1,100),item(2,2,'default',null,true)]))[0].gross_commission_usd,8);
+});
+
+test('separately sold VIVO drinks retain 5 percent while the combo contributes one fixed USD amount',()=>{
+ const data=input([item(1,100),item(2,2,'fixed_item',5),item(3,1500,'fixed_item',100,true)]);
+ const closures=current(data);assert.equal(closures[0].gross_commission_usd,8.1);
+ const settled=applyMuerdemeIncentives(closures,[{orderId:1,orderNumber:'3600',advisorId:'advisor',policyRevision:1,purchaseKind:'recurrent',amountUsd:0.8,status:'ready',deliveryDate:'2026-10-29',fixedCombo:{entryId:'00000000-0000-4000-8000-000000000099',revision:1,name:'Combo',amountUsd:0.8}}]);
+ assert.equal(settled[0].gross_commission_usd,8.9);assert.equal(settled[0].snapshot.muerdeme_incentives.totalUsd,0.8);
 });

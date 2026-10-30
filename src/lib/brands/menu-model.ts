@@ -18,6 +18,8 @@ export type MenuComboGroup = {
 };
 export type MenuDocument = {
   schemaVersion: 1; kind: MenuKind; name: string; archived: boolean;
+  /** Absent/null inherits the order policy; zero explicitly disables this combo's incentive. */
+  comboIncentiveUsd?: number | null;
   variants: MenuVariant[];
   comboGroups: MenuComboGroup[];
   friesUpgrades: { fromKey: string; toKey: string; supplementUsd: number }[];
@@ -57,8 +59,11 @@ function reference(value: unknown, extraKeys: string[]) {
 }
 
 export function parseMenuDocument(value: unknown): MenuDocument {
-  const doc = object(value, ['schemaVersion', 'kind', 'name', 'archived', 'variants', 'comboGroups', 'friesUpgrades']);
+  const keys = ['schemaVersion', 'kind', 'name', 'archived', 'variants', 'comboGroups', 'friesUpgrades'];
+  const doc = object(value, value && typeof value === 'object' && 'comboIncentiveUsd' in value ? [...keys, 'comboIncentiveUsd'] : keys);
   check(doc.schemaVersion === 1 && isMenuKind(doc.kind), 'Selecciona un tipo de producto válido.');
+  if ('comboIncentiveUsd' in doc) check(doc.kind === 'combo' && (doc.comboIncentiveUsd === null || priceValid(doc.comboIncentiveUsd)),
+    'Solo los combos admiten un estímulo fijo en USD, con hasta dos decimales; cero significa sin estímulo.');
   check(textValid(doc.name, 120) && typeof doc.archived === 'boolean', 'Escribe un nombre de producto de hasta 120 caracteres.');
   const variants = array(doc.variants, 20);
   check(variants.length > 0, 'Añade al menos una presentación.');

@@ -7,3 +7,9 @@ test('compact breakdown shows short numbers, USD and original policy; order deta
  for(const text of['Estímulos por hamburguesas','#3650','Primera compra','Tarifa v1','USD','0,30'])assert.ok(html.includes(text),text);
  assert.doesNotMatch(html,/88889999|private-user-uuid|<details open|text-[345]xl/);
 });
+
+test('a selected combo condition shows its saved name and revision instead of implying the usual tariff',()=>{
+ const html=renderToStaticMarkup(createElement(Breakdown,{snapshot:{muerdeme_incentives:{version:1,totalUsd:0.65,rows:[{orderId:99999,orderNumber:'3600',advisorId:'advisor',policyRevision:1,purchaseKind:'recurrent',amountUsd:0.65,status:'ready',deliveryDate:'2026-10-30',fixedCombo:{entryId:'00000000-0000-4000-8000-000000000099',revision:2,name:'Combo doble',amountUsd:0.65}}]}}}));
+ for(const text of['#3600','Combo doble','Condición v2','0,65','mayor importe aplicable'])assert.ok(html.includes(text));
+ assert.doesNotMatch(html,/99999|Tarifa v1/);
+});

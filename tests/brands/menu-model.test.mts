@@ -8,6 +8,14 @@ const extraId='00000000-0000-4000-8000-000000000013';
 const lookup = (entryId:string, kind:MenuLookup['kind'],hasFries=false):MenuLookup => ({
   entryId,kind,name:kind,archived:false,variants:[{key:'standard',label:'Normal',priceUsd:5,hasFries}],
 });
+
+test('only combos accept an optional fixed USD incentive; inherited and explicit zero differ',()=>{
+  const combo=menuDocument('combo','Combo',15);
+  assert.equal(parseMenuDocument(combo).comboIncentiveUsd,undefined);
+  for(const amount of[null,0,0.2,0.65])assert.equal(parseMenuDocument({...combo,comboIncentiveUsd:amount}).comboIncentiveUsd,amount);
+  for(const amount of[-1,0.123,'0.50',true,undefined])assert.throws(()=>parseMenuDocument({...combo,comboIncentiveUsd:amount}),/estímulo fijo/);
+  assert.throws(()=>parseMenuDocument({...menuDocument('burger','Hamburguesa'),comboIncentiveUsd:0.5}),/Solo los combos/);
+});
 test('each burger presentation retains its ingredients, removable flags and individual extras',()=>{
   const doc=menuDocument('burger','Ensayo hamburguesa');
   doc.variants.push({...structuredClone(doc.variants[0]),key:'double',label:'Doble',priceUsd:7});

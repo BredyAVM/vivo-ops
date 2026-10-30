@@ -49,3 +49,12 @@ test('pending prices remain blank and explicit zero is rendered as zero USD',()=
   assert.match(free,/placeholder="Pendiente" value="0,00"/);
   assert.ok(!free.includes('Completar precios en USD'));
 });
+
+test('the combo incentive input identifies USD, inheritance, explicit zero and maximum once per order',()=>{
+  for(const amount of[null,0,0.65]){
+    const html=render({...menuDocument('combo','Combo',15),comboIncentiveUsd:amount});
+    for(const text of['Estímulo fijo por pedido · USD','Usar tarifa habitual','Cero: sin estímulo','mayor importe del pedido una sola vez','VIVO vendidos aparte'])assert.ok(html.includes(text));
+    assert.ok(html.includes(`placeholder="Usar tarifa habitual" value="${amount===null?'':amount.toFixed(2).replace('.',',')}"`));
+  }
+  assert.doesNotMatch(render(menuDocument('burger','Hamburguesa')),/Estímulo fijo por pedido/);
+});

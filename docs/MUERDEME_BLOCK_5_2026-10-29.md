@@ -6,6 +6,14 @@ Un pedido con hamburguesa genera un importe fijo de USD 0,30 para la primera com
 
 Las papas no generan comisión. Tequeños, bebidas y demás productos VIVO mantienen sus reglas habituales en pedidos mixtos. Los porcentajes excepcionales sobre toda una orden tampoco se aplican a las hamburguesas ni a las papas. Este bloque no modifica metas, campañas ni criterios generales de venta.
 
+### Condiciones de combos confirmadas el 30 de octubre
+
+Cada combo puede sustituir el estímulo habitual por un importe fijo en USD. El campo vacío (o ausente en versiones anteriores) conserva la tarifa de primera compra/recurrencia; cero es una condición explícita sin estímulo por ese combo. Entre los combos y hamburguesas vendidos en el mismo pedido se usa el **mayor importe aplicable una sola vez**, sin sumar candidatos ni multiplicar por hamburguesas, extras, componentes o repeticiones del combo. Una hamburguesa suelta aporta como candidato la tarifa habitual; los componentes incluidos de un combo no aportan candidatos separados.
+
+La bebida incluida está cubierta por la condición del combo y no añade automáticamente un 5%. Una bebida VIVO vendida aparte conserva su porcentaje habitual, igual que las demás partidas VIVO independientes. Por ejemplo: tequeños con comisión de USD 8, una bebida independiente de USD 2 al 5% (USD 0,10), y combos con condiciones de USD 0,20 y USD 0,80 generan USD 8,90 en total, no USD 9,10 ni una multiplicación por el precio de los combos.
+
+La migración `20261030140956_muerdeme_combo_fixed_incentive_v1.sql` amplía la validación del catálogo y resuelve el importe usando las versiones de menú incluidas en los certificados del pedido. No acepta un monto enviado libremente por el asesor, no consulta la tarifa actual del combo para alterar una orden anterior y no cambia precios, inventario, porcentajes VIVO ni liquidaciones pagadas. El desglose identifica el nombre y la versión del combo cuando su condición resulta elegida. El catálogo sigue dentro de su circuito de preparación y no se habilitan ventas.
+
 La primera compra se evalúa dentro de las compras válidas de hamburguesa Muérdeme, sin usar el historial VIVO como primera compra Muérdeme. Requiere entrega, total comercial positivo y cobranza confirmada sin pendiente de un centavo o más. Un pedido anterior por el canal directo cuenta como compra del cliente, pero no otorga el estímulo a un asesor por pertenecer a su cartera.
 
 ## Gestor y condiciones guardadas
