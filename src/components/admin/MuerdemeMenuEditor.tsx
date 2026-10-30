@@ -4,7 +4,7 @@ import { useActionState, useRef, useState } from 'react';
 import { saveMuerdemeMenuDraft } from '@/lib/brands/menu-actions';
 import {
   assertMenuReferences, menuKindLabels, menuMoneyText, menuPendingIssues, newMenuDocument,
-  parseMenuDocument, parseMenuMoney, type MenuDocument, type MenuEditorData, type MenuKind, type MenuReference,
+  parseMenuDocument, parseMenuMoney, isVivoDrinkRef, type MenuDocument, type MenuEditorData, type MenuKind, type MenuReference,
 } from '@/lib/brands/menu-model';
 
 const field = 'min-h-11 min-w-0 w-full rounded-lg border border-[#343442] bg-[#14141C] px-2 text-xs text-[#E4E4EA] md:min-h-8';
@@ -16,15 +16,15 @@ function RefSelect({ lookups, kind, value, onChange, title }: {
   lookups: MenuEditorData['lookups']; kind: MenuKind; value: string; title: string;
   onChange: (ref: MenuReference) => void;
 }) {
-  const options = lookups.filter(item => item.kind === kind && !item.archived).flatMap(item => item.variants.map(variant => ({
+  const options = lookups.filter(item => item.kind === kind && !item.archived && (kind !== 'drink' || isVivoDrinkRef(item.entryId))).flatMap(item => item.variants.map(variant => ({
     value: refValue({ entryId: item.entryId, variantKey: variant.key }),
-    text: `${item.name} · ${variant.label}${variant.hasFries ? ' · incluye papas' : ''} · ${variant.priceUsd === null ? 'precio pendiente' : 'USD ' + menuMoneyText(variant.priceUsd)}`,
+    text: isVivoDrinkRef(item.entryId) ? `${item.name} · VIVO · inventario compartido` : `${item.name} · ${variant.label}${variant.hasFries ? ' · incluye papas' : ''} · ${variant.priceUsd === null ? 'precio pendiente' : 'USD ' + menuMoneyText(variant.priceUsd)}`,
   })));
   return <label className={label}>{title}<select aria-label={title} className={field} value={value} disabled={options.length === 0} onChange={event => {
     const [entryId, variantKey] = event.target.value.split('|'); if (entryId && variantKey) onChange({ entryId, variantKey });
   }}><option value="">Seleccionar…</option>{options.map(option => <option key={option.value} value={option.value}>{option.text}</option>)}
     {value && !options.some(o => o.value === value) ? <option value={value}>Opción no disponible; vuelve a seleccionarla</option> : null}
-  </select>{options.length === 0 ? <span className="text-[11px] text-[#BDBDC7]">Primero crea {kind === 'extra' ? 'los extras' : kind === 'fries' ? 'las papas' : kind === 'drink' ? 'las bebidas' : 'las hamburguesas'} en el catálogo para poder vincularlos.</span> : null}</label>;
+  </select>{options.length === 0 ? <span className="text-[11px] text-[#BDBDC7]">{kind === 'drink' ? 'No hay bebidas VIVO disponibles con estos filtros. Revisa su catálogo e inventario; no necesitas crear otra bebida.' : `Primero crea ${kind === 'extra' ? 'los extras' : kind === 'fries' ? 'las papas' : 'las hamburguesas'} en el catálogo para poder vincularlos.`}</span> : null}</label>;
 }
 
 export default function MuerdemeMenuEditor({ data, kind, returnTo }: { data: MenuEditorData; kind: MenuKind; returnTo: string }) {
@@ -134,6 +134,7 @@ export default function MuerdemeMenuEditor({ data, kind, returnTo }: { data: Men
         </div>
         <h2 className="text-sm font-medium text-[#DEDEE6]">Contenido del combo</h2>
         <p className="text-[11px] text-[#BDBDC7]">Una opción hace el grupo fijo; varias permiten elegir. Cada hamburguesa se configurará por separado.</p>
+        <p className="text-[11px] text-[#BDBDC7]">Las bebidas se eligen del catálogo VIVO y usan el mismo inventario, sin crear productos nuevos.</p>
         <div className="flex flex-wrap gap-2">{(['burger', 'fries', 'drink'] as const).map(groupKind => <button key={groupKind} type="button" className={button} disabled={document.comboGroups.length >= 12} onClick={() => update(d => { d.comboGroups.push({
           key: 'g_' + crypto.randomUUID(), label: groupKind === 'burger' ? 'Hamburguesas' : groupKind === 'drink' ? 'Bebidas' : 'Papas', kind: groupKind, quantity: 1, choices: [],
         }); })}>+ {menuKindLabels[groupKind]}</button>)}</div>

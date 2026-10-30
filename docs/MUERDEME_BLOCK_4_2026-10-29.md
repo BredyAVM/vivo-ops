@@ -39,4 +39,16 @@ Migración aplicada: `20261029163705_muerdeme_kitchen_inventory_v1.sql`. La inte
 
 ## Condiciones de apertura
 
+### Bebidas VIVO compartidas, 30 de octubre
+
+Los grupos de bebidas de los combos seleccionan productos existentes del catálogo VIVO. La referencia interna `vivo:<productId>` identifica el mismo producto; no crea una identidad de menú, un adaptador comercial ni otro saldo de inventario para la bebida. La opción de crear una bebida independiente de Muérdeme se reemplaza por una explicación y el servidor rechaza esa creación.
+
+Se permiten bebidas activas, de catálogo normal, con configuración física completa y vínculos vigentes de versión 1. Se ignoran los vínculos antiguos de versión 0, evitando sumar ambos. Bebidas inactivas, internas, obsequios o con insumos inactivos/incompletos no se pueden incorporar a un combo nuevo. Los filtros conservan las opciones ya elegidas y la consulta sigue limitada a 200 referencias; no carga órdenes ni historia financiera.
+
+El precio del combo cubre la bebida incluida. Solo se suma un suplemento expresamente configurado; un cambio del precio de la bebida vendida aparte no modifica el combo. La bebida independiente conserva su precio y comisión VIVO. El estímulo del combo sigue la regla del mayor importe una sola vez por pedido.
+
+La preparación toma exactamente los vínculos vigentes del producto VIVO y los suma al mismo diagnóstico y libro de inventario existentes. Si una orden contiene una bebida incluida y otra igual vendida aparte, se descuentan dos unidades del mismo inventario. Consultar y reservar no descuentan; la salida física conserva su protección contra reintentos. El certificado ya guardado conserva su consumo anterior aunque luego cambien los vínculos; otro renglón nuevo obtiene los vigentes. No se modifican las funciones centrales de reserva ni de salida para añadir este bloque.
+
+La migración `20261030145549_muerdeme_shared_vivo_drinks_v1.sql` añade lectores invocadores y amplía la validación del menú, sus referencias y el consumo Muérdeme. No escribe productos, saldos, pagos, comisiones ni órdenes reales. Las pruebas PostgreSQL aisladas ejercitan creación sin duplicados, cotización y preparación iguales en cliente/servidor, certificados históricos, permisos y despacho real con las funciones existentes.
+
 Muérdeme permanece con ventas deshabilitadas. No hay menú, cantidades comerciales ni existencias Muérdeme inventadas. Antes de abrir ventas se deben cargar el menú aprobado, los insumos, las recetas físicas y los conteos de apertura necesarios, y terminar las condiciones del canal de pedidos y del estímulo configurable por orden. Este bloque no altera precios, pagos históricos ni cierres de comisión pagados de VIVO.

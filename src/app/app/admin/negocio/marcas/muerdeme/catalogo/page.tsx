@@ -19,7 +19,8 @@ export default async function MuerdemeCataloguePage({ searchParams }: { searchPa
     <header className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-lg font-semibold text-[#DEDEE6]">Catálogo de Muérdeme</h1>
       {!safeAppReturnHref(query.returnTo) ? <Link href="/app/admin/negocio/marcas" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FFFF00]">Volver a Marcas</Link> : null}</header>
     <details className="rounded-lg border border-[#30303D] bg-[#111117] px-3"><summary className="min-h-11 cursor-pointer content-center text-xs text-[#FFFF00]">Nuevo producto</summary>
-      <nav aria-label="Crear producto de Muérdeme" className="flex flex-wrap gap-2 pb-3">{menuKinds.map(kind => <Link key={kind} href={`${menuRoot}/nuevo?tipo=${kind}`} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs text-[#DEDEE6] md:min-h-8">{menuKindLabels[kind]}</Link>)}</nav>
+      <nav aria-label="Crear producto de Muérdeme" className="flex flex-wrap gap-2 pb-3">{menuKinds.filter(kind => kind !== 'drink').map(kind => <Link key={kind} href={`${menuRoot}/nuevo?tipo=${kind}`} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs text-[#DEDEE6] md:min-h-8">{menuKindLabels[kind]}</Link>)}</nav>
+      <p className="pb-3 text-[11px] text-[#BDBDC7]">Las bebidas se seleccionan desde el catálogo VIVO al configurar un combo.</p>
     </details>
     <WorkspaceForm action={menuRoot} method="get" className="flex flex-wrap items-end gap-2 text-xs">
       <input type="hidden" name="consultar" value="1" />

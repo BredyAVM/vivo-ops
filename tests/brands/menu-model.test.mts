@@ -77,3 +77,14 @@ test('foreign kinds, duplicate choices, negative fees and unknown document field
   extra.variants.push(structuredClone(extra.variants[0]));
   assert.throws(()=>parseMenuDocument(extra),/presentaciones duplicadas/);
 });
+
+test('a combo may reference an existing VIVO beverage only in its drink group',()=>{
+  const doc=menuDocument('combo','Combo',15);
+  doc.comboGroups=[{key:'drink',label:'Bebida',kind:'drink',quantity:1,choices:[{entryId:'vivo:40',variantKey:'standard',supplementUsd:0}]}];
+  assertMenuReferences(parseMenuDocument(doc),[lookup('vivo:40','drink')]);
+  for(const id of['vivo:0','vivo:040','vivo:-1','vivo:1.5','vivo:9007199254740992']){
+    const bad=structuredClone(doc);bad.comboGroups[0].choices[0].entryId=id;
+    assert.throws(()=>parseMenuDocument(bad),/presentación válida/);
+  }
+  doc.comboGroups[0].kind='burger';assert.throws(()=>parseMenuDocument(doc),/presentación válida/);
+});

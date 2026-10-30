@@ -23,6 +23,8 @@ test('fixed burger incentives integrate into closures without changing existing 
   await db.exec(readFileSync('tests/brands/fixtures/commission-payment-existing.sql','utf8'));
   await db.exec(readFileSync('supabase/migrations/20261029172623_muerdeme_order_incentives_v1.sql','utf8'));assert.deepEqual(await db.query('select * from public.advisor_commission_closures order by id'),baseline);
   await db.exec(readFileSync('supabase/migrations/20261030140956_muerdeme_combo_fixed_incentive_v1.sql','utf8'));assert.deepEqual(await db.query('select * from public.advisor_commission_closures order by id'),baseline);
+  await db.exec("alter table public.products add column inventory_group text default 'other'");
+  await db.exec(readFileSync('supabase/migrations/20261030145549_muerdeme_shared_vivo_drinks_v1.sql','utf8'));
   const one=async<T=unknown>(sql:string,args:unknown[]=[])=>((await db.query<{v:T}>(sql,args)).rows[0]?.v);
   const admin='00000000-0000-4000-8000-000000000001',advisor='00000000-0000-4000-8000-000000000002';
   const auth=async(id=admin,role='authenticated')=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec('set role '+role);};

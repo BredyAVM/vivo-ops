@@ -3,7 +3,7 @@
 import { requireAdminContext, requireAuthContext } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { isMenuId, menuRoot, parseMenuDocument, type MenuDocument } from './menu-model';
+import { isMenuId, isMenuReferenceId, menuRoot, parseMenuDocument, type MenuDocument } from './menu-model';
 import { parseMenuOrderSelection } from './order-menu';
 import { parseMenuStockRecipe, readMenuStockSnapshot, MUERDEME_STOCK_PREFIX, type MenuStockRecipe, type MenuStockItem } from './inventory-menu';
 
@@ -60,7 +60,7 @@ export async function previewMuerdemePreparation(selection:unknown,revisions:Rec
  if(!roles.some(r=>['admin','master','advisor'].includes(r)))throw new Error('Requiere permisos de ventas.');
  const parsed=parseMenuOrderSelection(selection);
  if(!revisions||typeof revisions!=='object'||Array.isArray(revisions)||Object.keys(revisions).length>201
-  ||Object.entries(revisions).some(([id,r])=>!isMenuId(id)||!Number.isSafeInteger(r)||r<1))throw new Error('Vuelve a consultar el producto.');
+  ||Object.entries(revisions).some(([id,r])=>!isMenuReferenceId(id)||!Number.isSafeInteger(r)||r<1))throw new Error('Vuelve a consultar el producto.');
  const {data,error}=await supabase.rpc('muerdeme_inventory_preview_v1',{p_selection:parsed,p_revisions:revisions,p_order_id:null,p_certificate_id:null});
  if(error)throw new Error(error.code==='40001'||error.code==='22023'?error.message:'No se pudo consultar la preparación e inventario.');
  const snapshot=readMenuStockSnapshot(MUERDEME_STOCK_PREFIX+JSON.stringify(data?.snapshot));

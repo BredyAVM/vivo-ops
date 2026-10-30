@@ -21,9 +21,9 @@ registerHooks({resolve(s,c,next){
   return next(url,c);
 }});
 const {default:Editor}=await import('../../src/components/admin/MuerdemeMenuEditor.tsx');
-const render=(document:MenuDocument)=>renderToStaticMarkup(createElement(Editor,{
+const render=(document:MenuDocument,lookups:MenuEditorData['lookups']=[])=>renderToStaticMarkup(createElement(Editor,{
   kind:document.kind,returnTo:'/app/admin/negocio/marcas/muerdeme/catalogo?consultar=1',
-  data:{entry:{entryId:'00000000-0000-4000-8000-000000000010',revision:1,document,updatedAt:'2026-10-28T19:00:00Z'},lookups:[],lookupHasMore:false} satisfies MenuEditorData,
+  data:{entry:{entryId:'00000000-0000-4000-8000-000000000010',revision:1,document,updatedAt:'2026-10-28T19:00:00Z'},lookups,lookupHasMore:false} satisfies MenuEditorData,
 }));
 test('burger editor shows per-presentation ingredients, removal permissions, extras and included fries',()=>{
   const doc=menuDocument('burger','Ensayo Hamburguesa');
@@ -57,4 +57,13 @@ test('the combo incentive input identifies USD, inheritance, explicit zero and m
     assert.ok(html.includes(`placeholder="Usar tarifa habitual" value="${amount===null?'':amount.toFixed(2).replace('.',',')}"`));
   }
   assert.doesNotMatch(render(menuDocument('burger','Hamburguesa')),/Estímulo fijo por pedido/);
+});
+
+test('drink choices reuse the VIVO catalogue without presenting included beverages as free sale products',()=>{
+  const doc=menuDocument('combo','Combo',15);doc.comboGroups=[{key:'drink',label:'Bebida',kind:'drink',quantity:1,choices:[]}];
+  const html=render(doc,[{entryId:'vivo:40',kind:'drink',name:'Coca Cola 1,5 Lts',archived:false,variants:[{key:'standard',label:'Incluida',priceUsd:0,hasFries:false}]},
+   {entryId:'00000000-0000-4000-8000-000000000099',kind:'drink',name:'No duplicar bebida',archived:false,variants:[{key:'standard',label:'Normal',priceUsd:2.5,hasFries:false}]}]);
+  assert.match(html,/Coca Cola 1,5 Lts · VIVO · inventario compartido/);
+  assert.doesNotMatch(html,/No duplicar bebida|Coca Cola 1,5 Lts.*USD 0,00/);
+  assert.match(html,/sin crear productos nuevos/);
 });

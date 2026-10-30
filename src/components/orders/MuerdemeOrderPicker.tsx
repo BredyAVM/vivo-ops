@@ -165,7 +165,7 @@ export default function MuerdemeOrderPicker({ onAdd, edit, onEditDone, disabled 
           if (e.key === 'Enter') { e.preventDefault(); if (!busy) void consult(); }
         }} /></label>
         <label className="grid gap-1 text-[#BDBDC7]">Tipo<select className={field} value={kind} onChange={e => setKind(e.target.value)}>
-          <option value="">Todos</option>{(['burger','fries','drink','combo'] as const).map(k => <option key={k} value={k}>{menuKindLabels[k]}</option>)}</select></label>
+          <option value="">Todos</option>{(['burger','fries','combo'] as const).map(k => <option key={k} value={k}>{menuKindLabels[k]}</option>)}</select></label>
         <button type="button" className={`${button} self-end`} disabled={busy} onClick={() => { setGraph(null); setInitial(null); void consult(); }}>Consultar menú</button>
       </div>
       {result && !result.salesEnabled ? <p className="text-amber-200">En preparación · puedes configurar y revisar el pedido. Las ventas de Muérdeme todavía no están habilitadas.</p> : null}

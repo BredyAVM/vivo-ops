@@ -36,6 +36,10 @@ export type MenuListItem = {
 export type MenuEditorData = { entry: MenuEntry | null; lookups: MenuLookup[]; lookupHasMore: boolean };
 export const isMenuId = (value: unknown): value is string => typeof value === 'string'
   && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+/** A reference to an existing VIVO product, never a new Muérdeme catalogue identity. */
+export const isVivoDrinkRef = (value: unknown): value is string => typeof value === 'string'
+  && /^vivo:[1-9]\d{0,15}$/.test(value) && Number.isSafeInteger(Number(value.slice(5)));
+export const isMenuReferenceId = (value: unknown): value is string => isMenuId(value) || isVivoDrinkRef(value);
 export const isMenuKind = (value: unknown): value is MenuKind => menuKinds.includes(value as MenuKind);
 const keyValid = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(value);
 const textValid = (value: unknown, max = 100): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
@@ -53,9 +57,9 @@ function array(value: unknown, max: number): unknown[] {
   check(Array.isArray(value) && value.length <= max, 'La configuración supera el límite de opciones.'); return value;
 }
 function unique(values: unknown[], message: string) { check(new Set(values).size === values.length, message); }
-function reference(value: unknown, extraKeys: string[]) {
+function reference(value: unknown, extraKeys: string[], sharedDrink = false) {
   const ref = object(value, ['entryId', 'variantKey', ...extraKeys]);
-  check(isMenuId(ref.entryId) && keyValid(ref.variantKey), 'Selecciona una presentación válida para vincular.'); return ref;
+  check((isMenuId(ref.entryId) || (sharedDrink && isVivoDrinkRef(ref.entryId) && ref.variantKey === 'standard')) && keyValid(ref.variantKey), 'Selecciona una presentación válida para vincular.'); return ref;
 }
 
 export function parseMenuDocument(value: unknown): MenuDocument {
@@ -103,7 +107,7 @@ export function parseMenuDocument(value: unknown): MenuDocument {
     check(integer(group.quantity, 50), 'La cantidad de un grupo debe estar entre 1 y 50.');
     slots += group.quantity;
     const choices = array(group.choices, 50).map(rawChoice => {
-      const choice = reference(rawChoice, ['supplementUsd']);
+      const choice = reference(rawChoice, ['supplementUsd'], group.kind === 'drink');
       check(priceValid(choice.supplementUsd), 'Revisa el suplemento en USD de cada opción del combo.');
       return `${choice.entryId}:${choice.variantKey}`;
     });
@@ -189,7 +193,7 @@ export function decodeMenuEditor(value: unknown): MenuEditorData {
   }
   const lookups = data.lookups.map(raw => {
     const row = object(raw, ['entryId', 'kind', 'name', 'archived', 'variants']);
-    check(isMenuId(row.entryId) && isMenuKind(row.kind) && textValid(row.name, 120) && typeof row.archived === 'boolean', 'Hay una opción vinculada incompleta.');
+    check((isMenuId(row.entryId) || (row.kind === 'drink' && isVivoDrinkRef(row.entryId))) && isMenuKind(row.kind) && textValid(row.name, 120) && typeof row.archived === 'boolean', 'Hay una opción vinculada incompleta.');
     const variants = array(row.variants, 20).map(rawVariant => {
       const v = object(rawVariant, ['key', 'label', 'priceUsd', 'hasFries']);
       check(keyValid(v.key) && textValid(v.label) && (v.priceUsd === null || priceValid(v.priceUsd)) && typeof v.hasFries === 'boolean', 'Hay una presentación vinculada incompleta.');

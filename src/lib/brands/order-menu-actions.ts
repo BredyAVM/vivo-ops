@@ -1,7 +1,7 @@
 'use server';
 
 import { requireAuthContext } from '@/lib/auth';
-import { isMenuId } from './menu-model';
+import { isMenuId, isMenuReferenceId } from './menu-model';
 import { decodeOrderMenuGraph, parseMenuOrderSelection, readMenuOrderQuote, MUERDEME_DETAIL_PREFIX } from './order-menu';
 
 async function seller() {
@@ -26,14 +26,14 @@ export async function loadMuerdemeOrderMenu(entryId: string) {
   const { supabase } = await seller();
   if (!isMenuId(entryId)) throw new Error('Selecciona un producto válido.');
   const { data, error } = await supabase.rpc('muerdeme_order_menu_graph_v1', { p_entry_id: entryId });
-  if (error) throw new Error(error.code === '42501' ? 'Muérdeme está en preparación; administración puede probar su configuración.' : 'No se pudo abrir el producto.');
+  if (error) throw new Error(error.code === '42501' ? 'Muérdeme está en preparación; administración puede probar su configuración.' : error.code === '22023' ? error.message : 'No se pudo abrir el producto.');
   return decodeOrderMenuGraph(data);
 }
 export async function quoteMuerdemeOrderProduct(raw: unknown, revisions: Record<string, number>) {
   const { supabase } = await seller();
   const selection = parseMenuOrderSelection(raw);
   if (!revisions || typeof revisions !== 'object' || Array.isArray(revisions) || Object.keys(revisions).length > 201
-    || Object.entries(revisions).some(([id, rev]) => !isMenuId(id) || !Number.isSafeInteger(rev) || rev < 1)) throw new Error('Vuelve a consultar el producto.');
+    || Object.entries(revisions).some(([id, rev]) => !isMenuReferenceId(id) || !Number.isSafeInteger(rev) || rev < 1)) throw new Error('Vuelve a consultar el producto.');
   const { data, error } = await supabase.rpc('muerdeme_order_quote_v1', { p_selection: selection, p_expected_revisions: revisions });
   if (error) throw new Error(error.code === '40001' || error.code === '22023' ? error.message : 'No se pudo comprobar la configuración de Muérdeme.');
   const quote = readMenuOrderQuote([MUERDEME_DETAIL_PREFIX + JSON.stringify(data)]);

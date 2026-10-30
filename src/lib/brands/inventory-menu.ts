@@ -1,4 +1,4 @@
-import { isMenuId, type MenuDocument, type MenuVariant } from './menu-model.ts';
+import { isMenuId, isVivoDrinkRef, type MenuDocument, type MenuVariant } from './menu-model.ts';
 import { type MenuOrderQuote, type MenuUnitChoice, type OrderMenuGraph } from './order-menu.ts';
 
 export const MUERDEME_STOCK_PREFIX = '@muerdeme-stock|';
@@ -59,6 +59,18 @@ export function buildMenuStockSnapshot(graph: OrderMenuGraph, quote: MenuOrderQu
   const consume = (unit: MenuUnitChoice, quantity: number) => {
     const entry = byId.get(unit.entryId), variant = entry?.document.variants.find(v => v.key === unit.variantKey);
     if (!entry || !variant) { issues.add('Falta una presentación de la configuración.'); return; }
+    if(isVivoDrinkRef(entry.entryId)){
+      if(!entry.sharedStock?.lines.length){issues.add(`Revisar inventario VIVO: ${entry.document.name}.`);return;}
+      recipeRevisions[`${entry.entryId}:${variant.key}`]=entry.sharedStock.revision;
+      for(const line of entry.sharedStock.lines){
+        const stock=stocks.get(line.inventoryItemId);
+        if(!stock?.eligible){issues.add(`La bebida ${entry.document.name} no está habilitada para consumo por venta.`);continue;}
+        const value=(totals.get(stock.id)??0)+line.quantity*quantity;
+        if(!Number.isFinite(value)||value>=1e9){issues.add('El consumo supera el límite permitido.');continue;}
+        totals.set(stock.id,value);
+      }
+      return;
+    }
     const recipe = recipes.find(r => r.entryId === unit.entryId && r.variantKey === unit.variantKey);
     if (!recipe && entry.document.kind === 'combo') { recipeRevisions[`${unit.entryId}:${unit.variantKey}`] = 0; return; }
     if (!recipe || !sameSignature(recipe.signature, menuStockSignature(entry.document.kind,variant))) {

@@ -1,7 +1,8 @@
-import { isMenuId, parseMenuDocument, type MenuDocument, type MenuEntry, type MenuReference, type MenuVariant } from './menu-model.ts';
+import { isMenuId, isMenuReferenceId, isVivoDrinkRef, parseMenuDocument, type MenuDocument, type MenuEntry, type MenuReference, type MenuVariant } from './menu-model.ts';
 
 export const MUERDEME_DETAIL_PREFIX = '@muerdeme|';
-export type OrderMenuEntry = MenuEntry & { productId: number | null };
+export type OrderMenuEntry = MenuEntry & { productId: number | null;
+  sharedStock?: { revision:number;lines: {inventoryItemId:number;name:string;unitName:string;quantity:number}[] } };
 export type OrderMenuGraph = { salesEnabled: boolean; entries: OrderMenuEntry[] };
 export type MenuUnitChoice = MenuReference & {
   removed: string[]; extras: (MenuReference & { quantity: number })[]; friesUpgrade: string | null;
@@ -23,7 +24,8 @@ function record(value: unknown, keys: string[]) {
 const unitKeys = ['entryId', 'variantKey', 'removed', 'extras', 'friesUpgrade'];
 function parseUnit(value: unknown, additional: string[] = []): MenuUnitChoice & Record<string, unknown> {
   const row = record(value, [...unitKeys, ...additional]);
-  check(isMenuId(row.entryId) && typeof row.variantKey === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(row.variantKey), 'Selecciona una presentación válida.');
+  check(isMenuReferenceId(row.entryId) && typeof row.variantKey === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(row.variantKey)
+    && (!isVivoDrinkRef(row.entryId) || row.variantKey === 'standard'), 'Selecciona una presentación válida.');
   check(Array.isArray(row.removed) && row.removed.length <= 40 && row.removed.every(v => typeof v === 'string' && v.length <= 64)
     && new Set(row.removed).size === row.removed.length, 'Revisa los ingredientes retirados.');
   check(Array.isArray(row.extras) && row.extras.length <= 40, 'Revisa los extras.');
@@ -38,6 +40,7 @@ function parseUnit(value: unknown, additional: string[] = []): MenuUnitChoice & 
 }
 export function parseMenuOrderSelection(value: unknown): MenuOrderSelection {
   const row = parseUnit(value, ['slots']);
+  check(isMenuId(row.entryId), 'Las bebidas VIVO vendidas aparte se añaden desde el catálogo habitual.');
   check(Array.isArray(row.slots) && row.slots.length <= 100, 'Revisa los componentes del combo.');
   for (const slot of row.slots) {
     const unit = parseUnit(slot, ['groupKey', 'position']);
@@ -52,12 +55,21 @@ export function decodeOrderMenuGraph(value: unknown): OrderMenuGraph {
   check(row.version === 'muerdeme-order-menu-v1' && typeof row.salesEnabled === 'boolean'
     && Array.isArray(row.entries) && row.entries.length <= 201, 'No se pudo verificar el menú.');
   return { salesEnabled: row.salesEnabled, entries: row.entries.map(raw => {
-    const entry = record(raw, ['entryId', 'revision', 'document', 'updatedAt', 'productId']);
-    check(isMenuId(entry.entryId) && Number.isSafeInteger(entry.revision) && Number(entry.revision) > 0
+    const shared = isVivoDrinkRef((raw as {entryId?:unknown}|null)?.entryId);
+    const entry = record(raw, ['entryId', 'revision', 'document', 'updatedAt', 'productId', ...(shared ? ['sharedStock'] : [])]);
+    check(isMenuReferenceId(entry.entryId) && Number.isSafeInteger(entry.revision) && Number(entry.revision) > 0
       && typeof entry.updatedAt === 'string' && Number.isFinite(Date.parse(entry.updatedAt))
       && (entry.productId === null || (Number.isSafeInteger(entry.productId) && Number(entry.productId) > 0)), 'El menú está incompleto.');
+    const document=parseMenuDocument(entry.document);
+    if(shared){
+      const stock=entry.sharedStock as OrderMenuEntry['sharedStock'];
+      check(document.kind==='drink' && entry.productId===Number(String(entry.entryId).slice(5))
+        && stock && Number.isSafeInteger(stock.revision) && stock.revision>0 && Array.isArray(stock.lines) && stock.lines.length>0 && stock.lines.length<=80
+        && stock.lines.every(l=>Number.isSafeInteger(l.inventoryItemId)&&l.inventoryItemId>0&&typeof l.name==='string'&&typeof l.unitName==='string'
+          && Number.isFinite(l.quantity)&&l.quantity>0&&l.quantity<1e9),'El inventario de la bebida VIVO está incompleto.');
+    }
     return { entryId: entry.entryId, revision: Number(entry.revision), updatedAt: entry.updatedAt,
-      productId: entry.productId as number | null, document: parseMenuDocument(entry.document) };
+      productId: entry.productId as number | null, document, ...(shared ? {sharedStock:entry.sharedStock as OrderMenuEntry['sharedStock']} : {}) };
   }) };
 }
 export function menuUnit(entryId: string, variantKey: string): MenuUnitChoice {

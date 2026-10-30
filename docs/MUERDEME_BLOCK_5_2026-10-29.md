@@ -51,4 +51,4 @@ El escritor de pagos existente conserva sus validaciones y operaciones. Su bloqu
 
 ## Apertura pendiente
 
-Muérdeme continúa en preparación. No se han cargado productos, tarifas comerciales, recetas ni ventas reales de prueba. Las bebidas se reutilizarán desde el catálogo VIVO; todavía debe completarse y verificarse la referencia compartida dentro de los combos antes de abrir ventas. También queda pendiente habilitar el canal directo con sus permisos y completar las comprobaciones generales de apertura.
+Muérdeme continúa en preparación. No se han cargado productos, tarifas comerciales, recetas ni ventas reales de prueba. El bloque de bebidas compartidas del 30 de octubre conecta los componentes de los combos con el catálogo e inventario VIVO existentes, sin otra comisión por la bebida incluida. Queda pendiente cargar el menú aprobado, habilitar el canal directo con sus permisos y completar las comprobaciones generales de apertura.
