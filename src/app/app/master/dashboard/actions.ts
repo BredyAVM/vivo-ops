@@ -6030,7 +6030,7 @@ export async function getClientFundSnapshotAction(input: { clientId: number }) {
 export async function createOrderClientQuickAction(input: {
   fullName: string;
   phone: string;
-  clientType: 'assigned' | 'own' | 'legacy';
+  clientType: 'assigned' | 'own' | 'direct' | 'legacy';
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
 
@@ -7233,6 +7233,7 @@ async function generateUniqueOrderNumber(supabase: Awaited<ReturnType<typeof cre
 }
 
 export async function createOrderAction(input: {
+  salesChannel?: 'in_person' | 'whatsapp' | 'advisor';
   source: 'advisor' | 'master' | 'walk_in';
   attributedAdvisorUserId: string | null;
   fulfillment: 'pickup' | 'delivery';
@@ -7240,7 +7241,7 @@ export async function createOrderAction(input: {
   selectedClientId: number | null;
   newClientName: string;
   newClientPhone: string;
-  newClientType: 'assigned' | 'own' | 'legacy';
+  newClientType: 'assigned' | 'own' | 'direct' | 'legacy';
 
   deliveryDate: string;
   deliveryHour12: string;
@@ -7618,6 +7619,7 @@ export async function createOrderAction(input: {
       created_by_user_id: user.id,
       attributed_advisor_id: attributedAdvisorId,
       source,
+      sales_channel: input.salesChannel ?? (source === 'walk_in' ? 'in_person' : 'advisor'),
       fulfillment,
       status: 'created',
       total_usd: totalUsd,
@@ -8078,7 +8080,7 @@ export async function updateOrderAction(input: {
   selectedClientId: number | null;
   newClientName: string;
   newClientPhone: string;
-  newClientType: 'assigned' | 'own' | 'legacy';
+  newClientType: 'assigned' | 'own' | 'direct' | 'legacy';
 
   deliveryDate: string;
   deliveryHour12: string;

@@ -83,6 +83,7 @@ export type MasterOrderAdminAdjustment = {
 };
 
 export type MasterOrderDetailOrder = {
+  salesChannel?: string | null;
   id: number;
   orderNumber: string;
   status: OrderStatus;

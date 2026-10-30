@@ -2,10 +2,10 @@ import {getOrderCommercialNetUsd,getOrderMoneySnapshot,type OrderMoneySource} fr
 import {validCollectionDate} from './collections-model.ts';
 import {getCaracasDateKey} from './period.ts';
 import type {OrderCommissionTerms} from '../commissions/order-commission-terms.ts';
-export type AnalysisFilters={from:string;to:string;source:'all'|'advisor'|'master'|'walk_in';fulfillment:'all'|'pickup'|'delivery';person:string;personBasis:'either'|'creator'|'advisor';basis:'scheduled'|'created';basePct:number;details:'none'|'payments'|'clients'|'commissions';page:number};
-export type AnalysisOrder=OrderMoneySource&{id:number;status:string;client_id:number|null;created_by_user_id:string|null;attributed_advisor_id:string|null;created_at:string;source:string;fulfillment:string;extra_fields?:OrderMoneySource['extra_fields']&{schedule?:{date?:string|null}|null}};
+export type AnalysisFilters={from:string;to:string;source:'all'|'advisor'|'master'|'walk_in';channel?:'all'|'in_person'|'whatsapp'|'advisor';fulfillment:'all'|'pickup'|'delivery';person:string;personBasis:'either'|'creator'|'advisor';basis:'scheduled'|'created';basePct:number;details:'none'|'payments'|'clients'|'commissions';page:number};
+export type AnalysisOrder=OrderMoneySource&{id:number;status:string;client_id:number|null;created_by_user_id:string|null;attributed_advisor_id:string|null;created_at:string;source:string;sales_channel?:string|null;fulfillment:string;extra_fields?:OrderMoneySource['extra_fields']&{schedule?:{date?:string|null}|null}};
 export type AnalysisState={order_id:number;confirmed_paid_usd:number|string;pending_usd:number|string;total_usd:number|string};
-export type AnalysisRow={id:number;client:string;personId:string;personName:string;source:string;fulfillment:string;date:string;netUsd:number;totalUsd:number;paidUsd:number;pendingUsd:number};
+export type AnalysisRow={id:number;client:string;personId:string;personName:string;source:string;salesChannel?:string|null;fulfillment:string;date:string;netUsd:number;totalUsd:number;paidUsd:number;pendingUsd:number};
 export function analysisFilters(params:Record<string,string|string[]|undefined>):AnalysisFilters {
  const first=(key:string)=>String(Array.isArray(params[key])?params[key][0]:params[key]??'');
  const pick=<T extends string>(key:string,allowed:readonly T[],fallback:T)=>allowed.includes(first(key) as T)?first(key) as T:fallback;
@@ -14,7 +14,7 @@ export function analysisFilters(params:Record<string,string|string[]|undefined>)
  if(person&&!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(person))throw new Error('Vendedor inválido.');
  const pct=Number(first('basePct')||0),page=Number(first('page')||1);
  if(!Number.isFinite(pct)||pct<0||pct>100)throw new Error('El porcentaje debe estar entre 0 y 100.');
- return {from,to,person,source:pick('source',['all','advisor','master','walk_in'],'all'),fulfillment:pick('fulfillment',['all','pickup','delivery'],'all'),personBasis:pick('personBasis',['either','creator','advisor'],'either'),basis:pick('basis',['scheduled','created'],'scheduled'),basePct:pct,details:pick('details',['none','payments','clients','commissions'],'none'),page:Number.isSafeInteger(page)?Math.max(1,Math.min(10000,page)):1};
+ return {from,to,person,source:pick('source',['all','advisor','master','walk_in'],'all'),channel:pick<NonNullable<AnalysisFilters['channel']>>('channel',['all','in_person','whatsapp','advisor'],'all'),fulfillment:pick('fulfillment',['all','pickup','delivery'],'all'),personBasis:pick('personBasis',['either','creator','advisor'],'either'),basis:pick('basis',['scheduled','created'],'scheduled'),basePct:pct,details:pick('details',['none','payments','clients','commissions'],'none'),page:Number.isSafeInteger(page)?Math.max(1,Math.min(10000,page)):1};
 }
 export function validateAnalysisPeriod(filters:AnalysisFilters) {
  if(!validCollectionDate(filters.from)||!validCollectionDate(filters.to)||filters.from>filters.to)throw new Error('Selecciona un período antes de consultar.');
@@ -32,7 +32,7 @@ export function buildAnalysisRows(orders:AnalysisOrder[],states:AnalysisState[],
  return orders.filter(o=>o.status==='delivered'&&Number(o.total_usd)>0.005).map((o):AnalysisRow=>{
   const s=byId.get(o.id);if(!s)throw new Error('Falta verificar el saldo de una orden; no se muestran totales parciales.');
   const personId=o.attributed_advisor_id||o.created_by_user_id||'unknown';
-  return {id:o.id,client:clients.get(Number(o.client_id))||'Cliente',personId,personName:names.get(personId)||'Sin responsable',source:o.source,fulfillment:o.fulfillment,date:analysisOrderDate(o,filters.basis),netUsd:getOrderCommercialNetUsd(o),totalUsd:finite(s.total_usd),paidUsd:finite(s.confirmed_paid_usd),pendingUsd:finite(s.pending_usd)};
+  return {id:o.id,client:clients.get(Number(o.client_id))||'Cliente',personId,personName:names.get(personId)||'Sin responsable',source:o.source,salesChannel:o.sales_channel??null,fulfillment:o.fulfillment,date:analysisOrderDate(o,filters.basis),netUsd:getOrderCommercialNetUsd(o),totalUsd:finite(s.total_usd),paidUsd:finite(s.confirmed_paid_usd),pendingUsd:finite(s.pending_usd)};
  });
 }
 export function summarizeAnalysis(rows:AnalysisRow[]){

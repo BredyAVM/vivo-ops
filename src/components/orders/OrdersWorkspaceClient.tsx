@@ -1,4 +1,5 @@
 "use client";
+import { salesChannelLabel } from "@/lib/clients/commercial-classification";
 
 import dynamic from "next/dynamic";
 import { assignOwnTransportAction } from "@/app/app/master/ops/own-transport-actions";
@@ -383,6 +384,7 @@ function normalizeSearchText(value: unknown) {
 
 function masterOpsClientPortfolioLabel(value: string | null | undefined) {
   const normalized = normalizeSearchText(value);
+  if (normalized === "direct") return "DIRECTO";
   if (normalized === "own" || normalized === "propio") return "PROPIO";
   if (normalized === "assigned" || normalized === "asignado") return "ASIGNADO";
   if (normalized === "legacy" || normalized === "antiguo") return "ANTIGUO";
@@ -2156,6 +2158,7 @@ function OrderDetailPanel({
                       CLIENTE NUEVO
                     </span>
                   ) : null}
+                  {order.salesChannel ? <span className="rounded-full border border-[#30303D] px-2 py-1 text-[10px] text-[#BDBDC7]">{salesChannelLabel(order.salesChannel)}</span> : null}
                   {clientPortfolioLabel ? (
                     <span className="rounded-full border border-[#242433] bg-[#0B0B0D] px-2 py-1 text-[10px] font-semibold text-[#B7B7C2]">
                       {clientPortfolioLabel}

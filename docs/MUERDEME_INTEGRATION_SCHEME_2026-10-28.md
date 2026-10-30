@@ -61,11 +61,11 @@ Las pruebas de recetas incluyen Original y Oklahoma simple y doble; otras receta
 
 ## Clientes y canales
 
-Se propone conservar una sola identidad del cliente, con sus direcciones guardadas y las autorizaciones de acceso correspondientes. Su relación con VIVO y su procedencia en Muérdeme se registrarán por separado. Comprar Muérdeme por el teléfono directo no deberá borrar su asesor de VIVO ni duplicar su ficha.
+Acuerdo del 30 de octubre, implementado en el [bloque 8](MUERDEME_BLOCK_8_CHANNELS_CLIENTS_2026-10-30.md): un solo negocio y ficha de cliente, con varios operadores de Counter que pueden atender presencialmente y por WhatsApp. No hay un cajero exclusivo por marca. El canal de cada pedido es Presencial, WhatsApp del negocio o Asesor; Master y Administración pueden actuar como vendedores. No se exige averiguar la procedencia publicitaria ni crear un punto de contacto adicional.
 
-Conviene distinguir tres datos: **de dónde llegó el cliente**, **por qué canal hizo el pedido** y **quién gestionó esa orden**. Pertenecer a la cartera VIVO de un asesor no generará por sí solo un pago por una orden directa de Muérdeme. La atribución de un referido y la gestión efectiva podrán registrarse separadamente; sus consecuencias económicas necesitan una regla expresa.
+El tipo de cliente es Propio del asesor, Asignado por el negocio o Directo del negocio. Las categorías y relaciones existentes, incluyendo Antiguo y sin clasificar, se mantienen. Las altas de Counter son Directas; al derivarlas formalmente a un asesor pasan a Asignadas con historial. Cambiar el canal de compra no cambia su clasificación, ni una compra con asesor adjudica automáticamente un Directo. La primera captación observable y cada compra no se confunden con una campaña de origen desconocido.
 
-La persona del teléfono tendrá acceso a las operaciones necesarias para tomar pedidos y reportar pagos, con permisos definidos. No necesitará recibir todos los permisos administrativos para atender ese canal.
+En compras presenciales VIVO se mantiene el seguimiento comercial actual; hamburguesas y mixtos no se derivan por defecto. La excepción por volumen relevante de VIVO permanece manual hasta definir sus criterios. Los canales conservan el circuito de aprobación y de pagos vigente; el operador del teléfono utiliza los mismos permisos Counter, sin recibir permisos administrativos o bancarios adicionales.
 
 ## Órdenes pagos y cocina compartidos
 

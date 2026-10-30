@@ -36,6 +36,7 @@ export type OrdersWorkspaceSearchParams = Promise<{
 }>;
 
 type RawOrderRow = {
+  sales_channel?: string | null;
   id: number;
   client_id: number | string | null;
   attributed_advisor_id: string | null;
@@ -561,6 +562,7 @@ function mapOrder(
     clientId,
     clientFundBalanceUsd: roundMoney(client?.fund_balance_usd, 0),
     clientType: client?.client_type ?? null,
+    salesChannel: row.sales_channel ?? null,
     advisorName,
     clientName: cleanText(client?.full_name ?? row.extra_fields?.receiver?.name, "Cliente sin nombre"),
     clientPhone: client?.phone ?? null,
@@ -741,6 +743,7 @@ export async function OrdersWorkspace({ searchParams, surface }: {
     client_id,
     attributed_advisor_id,
     source,
+    sales_channel,
     status,
     fulfillment,
     delivery_address,

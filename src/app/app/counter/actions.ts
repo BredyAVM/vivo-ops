@@ -909,10 +909,9 @@ async function executeCounterQuickSaleAction(
     clientId: input.clientId ?? null,
     clientName: String(input.clientName || '').trim(),
     clientPhone: String(input.clientPhone || '').trim(),
-    clientType:
-      input.clientType === 'assigned' || input.clientType === 'legacy'
-        ? input.clientType
-        : 'own',
+    // Existing clients are reused unchanged by the atomic command.
+    clientType: 'direct',
+    salesChannel: input.salesChannel === 'whatsapp' ? 'whatsapp' : 'in_person',
     fulfillment: input.fulfillment === 'delivery' ? 'delivery' : 'pickup',
     deliveryAddress: String(input.deliveryAddress || '').trim(),
     deliveryGpsUrl: String(input.deliveryGpsUrl || '').trim(),

@@ -1,3 +1,5 @@
+import type { ClientCommercialType } from '@/lib/clients/commercial-classification';
+
 export type CounterDiscountRuleOption = {
   id: number;
   code: string;
@@ -17,7 +19,8 @@ export type CounterDirectSaleIntent = {
   clientId?: number | null;
   clientName: string;
   clientPhone: string;
-  clientType?: 'own' | 'assigned' | 'legacy';
+  clientType?: ClientCommercialType;
+  salesChannel?: 'in_person' | 'whatsapp';
   fulfillment: 'pickup' | 'delivery';
   deliveryAddress: string;
   deliveryGpsUrl?: string | null;

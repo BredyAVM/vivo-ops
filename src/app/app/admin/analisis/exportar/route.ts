@@ -1,3 +1,4 @@
+import { salesChannelLabel } from '@/lib/clients/commercial-classification';
 import {getAuthContext,isAdminRole} from '@/lib/auth';
 import {analysisFilters} from '@/lib/admin-finance/commercial-analysis-model';
 import {loadCommercialAnalysis} from '@/lib/admin-finance/commercial-analysis-data';
@@ -15,7 +16,7 @@ export async function GET(request:Request) {
   if(!data)throw new Error('Selecciona un período.');
   const csv=adminCsv([
    ['Corte UTC','Desde','Hasta','Fecha utilizada','Responsabilidad filtrada','Orden corta','Cliente','Vendedor','Canal','Entrega','Fecha Caracas','Facturación neta USD','Total orden USD','Abonado actual USD','Pendiente actual USD'],
-   ...data.rows.map(r=>[data.asOf,filters.from,filters.to,filters.basis,filters.personBasis,r.id,r.client,r.personName,r.source,r.fulfillment,r.date,r.netUsd,r.totalUsd,r.paidUsd,r.pendingUsd]),
+   ...data.rows.map(r=>[data.asOf,filters.from,filters.to,filters.basis,filters.personBasis,r.id,r.client,r.personName,salesChannelLabel(r.salesChannel),r.fulfillment,r.date,r.netUsd,r.totalUsd,r.paidUsd,r.pendingUsd]),
   ]);
   return new Response(csv,{headers:{...headers,'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="vivo-ventas-${filters.from}-${filters.to}.csv"`,'X-Report-Rows':String(data.rows.length),'X-Report-As-Of':data.asOf}});
  }catch(error){return Response.json({error:error instanceof Error?error.message:'No se pudo consultar.'},{status:503,headers})}

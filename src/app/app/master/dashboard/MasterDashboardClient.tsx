@@ -1858,7 +1858,8 @@ function fmtClientTypeLabel(value: string | null | undefined) {
   const normalized = normalizeLooseText(String(value ?? ''));
   if (!normalized) return '—';
   if (normalized === 'legacy' || normalized === 'antiguo') return 'Antiguo';
-  if (normalized === 'own' || normalized === 'propio') return 'Propio';
+  if (normalized === 'direct') return 'Directo del negocio';
+  if (normalized === 'own' || normalized === 'propio') return 'Propio del asesor';
   if (normalized === 'assigned' || normalized === 'asignado') return 'Asignado';
   return repairDisplayText(String(value));
 }
@@ -5195,7 +5196,7 @@ const [createOrderClientSearchLoading, setCreateOrderClientSearchLoading] = useS
 const [createOrderNewClientMode, setCreateOrderNewClientMode] = useState(false);
 const [createOrderNewClientName, setCreateOrderNewClientName] = useState('');
 const [createOrderNewClientPhone, setCreateOrderNewClientPhone] = useState('');
-const [createOrderNewClientType, setCreateOrderNewClientType] = useState<'assigned' | 'own' | 'legacy'>('assigned');
+const [createOrderNewClientType, setCreateOrderNewClientType] = useState<'assigned' | 'own' | 'direct' | 'legacy'>('assigned');
 const [createOrderProductSearch, setCreateOrderProductSearch] = useState('');
 const [createOrderProductActiveIndex, setCreateOrderProductActiveIndex] = useState<number>(-1);
 const [createOrderSelectedProductId, setCreateOrderSelectedProductId] = useState<number | ''>('');
@@ -16316,7 +16317,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                   newClientRows.map((client, clientIdx) => {
                                                     const clientType = String(client.clientType || '').toLowerCase();
                                                     const clientTypeLabel =
-                                                      clientType === 'own'
+                                                      clientType === 'direct' ? 'Directo · no suma' : clientType === 'own'
                                                         ? 'Propio'
                                                         : clientType === 'assigned'
                                                           ? 'Asignado'
@@ -27589,7 +27590,7 @@ deliveryAssignMode === 'external' ? (
       value={createOrderNewClientType}
       onChange={(value) =>
         setCreateOrderNewClientType(
-          value as 'assigned' | 'own' | 'legacy'
+          value as 'assigned' | 'own' | 'direct' | 'legacy'
         )
       }
       options={[

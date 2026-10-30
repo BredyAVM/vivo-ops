@@ -1,4 +1,5 @@
 'use client';
+import { clientCommercialTypeLabel } from '@/lib/clients/commercial-classification';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -193,7 +194,7 @@ export function CounterQuickSalePanel({
   const [newClientMode, setNewClientMode] = useState(false);
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
-  const [clientType, setClientType] = useState<'own' | 'assigned' | 'legacy'>('own');
+  const [salesChannel, setSalesChannel] = useState<'in_person' | 'whatsapp'>('in_person');
   const [fulfillment, setFulfillment] = useState<'pickup' | 'delivery'>('pickup');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryGpsUrl, setDeliveryGpsUrl] = useState('');
@@ -449,11 +450,7 @@ export function CounterQuickSalePanel({
     setPhoneLookup(null);
     setClientName(client.fullName);
     setClientPhone(client.phone || '');
-    setClientType(
-      client.clientType === 'assigned' || client.clientType === 'legacy' || client.clientType === 'own'
-        ? client.clientType
-        : 'own'
-    );
+
     setLocalError(null);
   }
 
@@ -737,7 +734,8 @@ export function CounterQuickSalePanel({
       clientId: selectedClient?.id ?? null,
       clientName: clientName.trim(),
       clientPhone: clientPhone.trim(),
-      clientType,
+      clientType: 'direct',
+      salesChannel,
       fulfillment,
       deliveryAddress: deliveryAddress.trim(),
       deliveryGpsUrl: deliveryGpsUrl.trim(),
@@ -907,7 +905,7 @@ export function CounterQuickSalePanel({
                   ) : (
                     <>
                       <div className="mt-0.5 text-xs text-[#9FA0AA]">
-                        {client.phone || 'Sin telefono'} - {client.clientType || 'sin tipo'} - Fondo {moneyUsd(client.fundBalanceUsd)}
+                        {client.phone || 'Sin telefono'} - {clientCommercialTypeLabel(client.clientType)} - Fondo {moneyUsd(client.fundBalanceUsd)}
                       </div>
                       <div className={[
                         'mt-1 text-xs font-semibold',
@@ -936,7 +934,7 @@ export function CounterQuickSalePanel({
                     Este número está registrado a nombre de <strong>{selectedClient.fullName}</strong>.
                   </div>
                   <div className="text-xs text-emerald-100/75">
-                    {selectedClient.phone || 'Sin telefono'} - {selectedClient.clientType || 'sin tipo'} - Fondo {moneyUsd(selectedClient.fundBalanceUsd)}
+                    {selectedClient.phone || 'Sin telefono'} - {clientCommercialTypeLabel(selectedClient.clientType)} - Fondo {moneyUsd(selectedClient.fundBalanceUsd)}
                   </div>
                   <div className={[
                     'rounded-[8px] border px-2.5 py-2 text-xs font-semibold',
@@ -969,7 +967,7 @@ export function CounterQuickSalePanel({
             <div className="space-y-2 rounded-[8px] border border-[#303044] bg-[#111118] p-3">
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9FA0AA]">Cliente nuevo</div>
               <div className="rounded-[8px] border border-amber-300/25 bg-amber-300/10 px-2.5 py-2 text-xs text-amber-100">
-                Este cliente aun no tiene asesor. Master podra asignarlo cuando revise una orden agendada.
+                Cliente directo. Su seguimiento comercial se decide por separado de esta venta.
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="text-xs text-[#9FA0AA]">
@@ -996,27 +994,18 @@ export function CounterQuickSalePanel({
                   </span>
                 </label>
               </div>
-              <label className="text-xs text-[#9FA0AA]">
-                Tipo
-                <select
-                  value={clientType}
-                  onChange={(event) =>
-                    setClientType(
-                      event.target.value === 'assigned' || event.target.value === 'legacy' ? event.target.value : 'own'
-                    )
-                  }
-                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                >
-                  <option value="own">Propio</option>
-                  <option value="assigned">Asignado</option>
-                  <option value="legacy">Antiguo</option>
-                </select>
-              </label>
+              <p className="text-xs text-[#BDBDC7]">Tipo: Directo del negocio. Master o Administración pueden derivarlo a un asesor cuando corresponda.</p>
             </div>
           ) : null}
         </div>
 
         <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+          <label className="grid gap-1 text-xs text-[#BDBDC7]">Canal del pedido
+            <select value={salesChannel} onChange={(event) => setSalesChannel(event.target.value === 'whatsapp' ? 'whatsapp' : 'in_person')}
+              className="min-h-11 rounded-lg border border-[#303044] bg-[#111118] px-2 text-xs text-[#F5F5F7] focus:border-[#FFFF00]">
+              <option value="in_person">Presencial</option><option value="whatsapp">WhatsApp</option>
+            </select>
+          </label>
           <h3 className="text-sm font-semibold">Cuándo se necesita</h3>
           <p className="text-xs text-[#9FA0AA]">
             La fecha se define antes de escoger productos para consultar el inventario correcto.

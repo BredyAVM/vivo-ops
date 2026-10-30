@@ -204,9 +204,9 @@ function normalizeSearchValue(value: unknown) {
     .toLowerCase();
 }
 
-function normalizeClientType(value: unknown): "assigned" | "own" | "legacy" {
+function normalizeClientType(value: unknown): "assigned" | "own" | "direct" | "legacy" {
   const text = String(value || "");
-  if (text === "own" || text === "legacy") return text;
+  if (text === "own" || text === "direct" || text === "legacy") return text;
   return "assigned";
 }
 
@@ -347,7 +347,7 @@ export default function MasterOpsOrderEditor({
   const [clientSearching, setClientSearching] = useState(false);
   const [newClientName, setNewClientName] = useState("");
   const [newClientPhone, setNewClientPhone] = useState("");
-  const [newClientType, setNewClientType] = useState<"assigned" | "own" | "legacy">("assigned");
+  const [newClientType, setNewClientType] = useState<"assigned" | "own" | "direct" | "legacy">("assigned");
   const [productSearch, setProductSearch] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | "">("");
   const [productQty, setProductQty] = useState("1");
@@ -1171,6 +1171,7 @@ export default function MasterOpsOrderEditor({
       const itemsPayload = orderedItems;
       const orderPayload = {
         source: form.source,
+        salesChannel: isCreateMode ? form.salesChannel ?? undefined : undefined,
         attributedAdvisorUserId:
           form.source === "advisor" || form.source === "walk_in" || form.items.some((item) => item.crmPlayMemberId)
             ? form.attributedAdvisorUserId
@@ -1363,10 +1364,10 @@ export default function MasterOpsOrderEditor({
                           <select
                             className={`${fieldClass()} mt-2`}
                             value={newClientType}
-                            onChange={(event) => setNewClientType(event.target.value as "assigned" | "own" | "legacy")}
+                            onChange={(event) => setNewClientType(event.target.value as "assigned" | "own" | "direct" | "legacy")}
                           >
-                            <option value="assigned">Asignado</option>
-                            <option value="own">Propio</option>
+                            <option value="assigned">Asignado por el negocio</option>
+                            <option value="own">Propio del asesor</option><option value="direct">Directo del negocio</option>
                             <option value="legacy">Antiguo</option>
                           </select>
                         </div>
@@ -1403,6 +1404,15 @@ export default function MasterOpsOrderEditor({
                       ) : null}
 
                       <div className="grid gap-3 sm:grid-cols-2">
+                        {isCreateMode ? <Field label="Canal del pedido">
+                          <select className={fieldClass()} value={form.salesChannel ?? 'advisor'} onChange={(event) => {
+                            const channel = event.target.value === 'whatsapp' ? 'whatsapp' : event.target.value === 'in_person' ? 'in_person' : 'advisor';
+                            patchForm({ salesChannel: channel });
+                            if (!form.selectedClientId) setNewClientType(channel === 'advisor' ? 'assigned' : 'direct');
+                          }}>
+                            <option value="advisor">Asesor</option><option value="in_person">Presencial</option><option value="whatsapp">WhatsApp</option>
+                          </select>
+                        </Field> : null}
                         <Field label="Origen">
                           <select
                             className={fieldClass()}

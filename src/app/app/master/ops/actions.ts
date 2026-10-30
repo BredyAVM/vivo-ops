@@ -1,4 +1,5 @@
 "use server";
+import { isSalesChannel, type SalesChannel } from "@/lib/clients/commercial-classification";
 import { countsTowardCrmMinimum } from "@/lib/crm/benefit-eligibility";
 import { verifyMuerdemeOrderItems } from "@/lib/brands/order-menu-save";
 import { readMenuOrderQuote } from "@/lib/brands/order-menu";
@@ -1200,6 +1201,7 @@ type RawRelatedProduct =
   | null;
 
 type RawOrderEditRow = {
+  sales_channel?: string | null;
   id: number | string;
   client_id: number | string | null;
   attributed_advisor_id: string | null;
@@ -1371,7 +1373,7 @@ export type MasterOpsEditClient = {
   id: number;
   fullName: string;
   phone: string;
-  clientType: "assigned" | "own" | "legacy";
+  clientType: "assigned" | "own" | "direct" | "legacy";
   fundBalanceUsd: number;
   recentAddresses: any[];
   billingCompanyName: string;
@@ -1424,6 +1426,7 @@ export type MasterOpsEditOrderItem = EditorCommissionFields & {
 };
 
 export type MasterOpsEditOrder = {
+  salesChannel?: SalesChannel | null;
   id: number;
   orderNumber: string;
   status: string;
@@ -1574,9 +1577,9 @@ function splitScheduleFields(extraFields: any, fallbackISO: string) {
   };
 }
 
-function normalizeClientType(value: unknown): "assigned" | "own" | "legacy" {
+function normalizeClientType(value: unknown): "assigned" | "own" | "direct" | "legacy" {
   const clientType = String(value || "").trim();
-  if (clientType === "own" || clientType === "legacy") return clientType;
+  if (clientType === "own" || clientType === "direct" || clientType === "legacy") return clientType;
   return "assigned";
 }
 
@@ -1787,6 +1790,9 @@ async function prepareMasterOpsOrderSave(
   const isAdmin = ctx.roles.includes("admin");
   const muerdemeQuotes = await verifyMuerdemeOrderItems(ctx.supabase, input.items, mode === 'edit' ? Number((input as MasterOpsOrderUpdateInput).orderId) : null);
 
+  if (mode === "create" && "salesChannel" in input && input.salesChannel != null && !isSalesChannel(input.salesChannel)) {
+    throw new Error("Selecciona un canal de pedido válido.");
+  }
   if (!["advisor", "master", "walk_in"].includes(String(input.source || ""))) {
     throw new Error("El origen de la orden no es válido.");
   }
@@ -1807,7 +1813,7 @@ async function prepareMasterOpsOrderSave(
   if (requiredPaymentCurrency && input.paymentCurrency !== requiredPaymentCurrency) {
     throw new Error("La moneda no coincide con el método de pago.");
   }
-  if (!["assigned", "own", "legacy"].includes(String(input.newClientType || ""))) {
+  if (!["assigned", "own", "direct", "legacy"].includes(String(input.newClientType || ""))) {
     throw new Error("El tipo de cliente no es válido.");
   }
   if (!Array.isArray(input.items) || input.items.length === 0) {
@@ -2652,6 +2658,7 @@ export async function loadMasterOpsOrderCreateDataAction(
       status: "created",
       isPriceProtected: false,
       source: "master",
+      salesChannel: "advisor",
       attributedAdvisorUserId: null,
       advisorSuggestion: null,
       fulfillment: "pickup",
@@ -2754,6 +2761,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         client_id,
         attributed_advisor_id,
         source,
+        sales_channel,
         status,
         fulfillment,
         delivery_address,
@@ -3094,6 +3102,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       status: orderRow.status,
       isPriceProtected,
       source: orderRow.source,
+      salesChannel: isSalesChannel(orderRow.sales_channel) ? orderRow.sales_channel : null,
       attributedAdvisorUserId: orderRow.attributed_advisor_id ?? null,
       advisorSuggestion,
       fulfillment: orderRow.fulfillment,

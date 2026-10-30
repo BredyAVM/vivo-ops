@@ -12,10 +12,11 @@ export async function loadCommercialAnalysis(filters:AnalysisFilters,requested:b
  if(!requested)return null;
  validateAnalysisPeriod(filters);
  const end=addDateKeyDays(filters.to,1);
- const fields='id,status,client_id,created_by_user_id,attributed_advisor_id,created_at,source,fulfillment,total_usd,total_bs_snapshot,extra_fields';
+ const fields='id,status,client_id,created_by_user_id,attributed_advisor_id,created_at,source,sales_channel,fulfillment,total_usd,total_bs_snapshot,extra_fields';
  const base=()=>{
   let q=supabase.from('orders').select(fields).eq('status','delivered');
   if(filters.source!=='all')q=q.eq('source',filters.source);
+  if(filters.channel&&filters.channel!=='all')q=q.eq('sales_channel',filters.channel);
   if(filters.fulfillment!=='all')q=q.eq('fulfillment',filters.fulfillment);
   if(filters.person)q=filters.personBasis==='creator'?q.eq('created_by_user_id',filters.person):filters.personBasis==='advisor'?q.eq('attributed_advisor_id',filters.person):q.or('created_by_user_id.eq.'+filters.person+',attributed_advisor_id.eq.'+filters.person);
   return q.order('id').range(0,999);
@@ -32,7 +33,7 @@ export async function loadCommercialAnalysis(filters:AnalysisFilters,requested:b
  for(let i=0;i<clientIds.length;i+=100){const rows=check(await supabase.from('clients').select('id,full_name,client_type,created_at').in('id',clientIds.slice(i,i+100))) as Row[];clientRows.push(...rows);rows.forEach(r=>clients.set(Number(r.id),String(r.full_name||'Cliente')))}
  for(let i=0;i<ids.length;i+=100){const rows=check(await supabase.rpc('get_orders_financial_state',{p_order_ids:ids.slice(i,i+100),p_operation_date:null,p_active_bs_rate:null})) as AnalysisState[];if(!Array.isArray(rows))throw new Error('Saldos no disponibles.');states.push(...rows)}
  const rows=buildAnalysisRows(orders,states,filters,names,clients);
- let collection=null,newClients:null|{own:number;assigned:number;other:number}=null,commissionUsd:number|null=null;
+ let collection=null,newClients:null|{own:number;assigned:number;direct:number;other:number}=null,commissionUsd:number|null=null;
  if(filters.details==='payments'){
   if(orders.length>500)throw new Error('Para explorar pagos, selecciona hasta 500 órdenes por período o vendedor.');
   collection=await loadCommercialCollectionForOrders({supabase,orders:rows.map(r=>({orderId:r.id,orderNumber:String(r.id),clientName:r.client,deliveryDate:r.date,totalUsd:r.totalUsd,confirmedPaidUsd:r.paidUsd,pendingUsd:r.pendingUsd})),cutoffDate:getCaracasDateKey(new Date())});
@@ -49,9 +50,9 @@ export async function loadCommercialAnalysis(filters:AnalysisFilters,requested:b
    }
    history.forEach(r=>{const id=Number(r.client_id);if(!firstByClient.has(id))firstByClient.set(id,Number(r.id))});
   }
-  newClients={own:0,assigned:0,other:0};
+  newClients={own:0,assigned:0,direct:0,other:0};
   const newIds=new Set(orders.filter(o=>firstByClient.get(Number(o.client_id))===o.id).map(o=>Number(o.client_id)));
-  clientRows.filter(c=>newIds.has(Number(c.id))&&Date.parse(String(c.created_at))>=Date.parse('2026-06-02T00:00:00-04:00')).forEach(c=>{const kind=String(c.client_type);if(kind==='own')newClients!.own++;else if(kind==='assigned')newClients!.assigned++;else newClients!.other++});
+  clientRows.filter(c=>newIds.has(Number(c.id))&&Date.parse(String(c.created_at))>=Date.parse('2026-06-02T00:00:00-04:00')).forEach(c=>{const kind=String(c.client_type);if(kind==='own')newClients!.own++;else if(kind==='assigned')newClients!.assigned++;else if(kind==='direct')newClients!.direct++;else newClients!.other++});
  }
  if(filters.details==='commissions'){
   commissionUsd=0;
