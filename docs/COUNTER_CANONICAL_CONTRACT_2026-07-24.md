@@ -695,6 +695,12 @@ USD 10.
 
 #### Despacho con cambio parcial o abono (2026-10-12)
 
+- Confirmación de efectivo real (2026-10-30): el despacho no prellena el monto
+  del cambio ni selecciona automáticamente su caja. El operador introduce lo
+  que entrega físicamente y elige cada caja de salida. Si la orden prescribe
+  cambio, debe registrar esas líneas o elegir expresamente que no envía
+  efectivo. La sección permanece visible y la confirmación muestra monto,
+  moneda y caja; la diferencia teórica nunca se convierte sola en un egreso.
 - La diferencia calculada contra el saldo es una sugerencia, no una condición
   para despachar. Counter confirma el efectivo bruto que recibirá el motorizado
   y el cambio físico que realmente lleva, incluso si el cobro es un abono.

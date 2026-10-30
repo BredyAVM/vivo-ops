@@ -241,7 +241,7 @@ export function CounterDeliveryDispatchPanel({
   );
   const [cashChangeLines, setCashChangeLines] = useState<CashDraft[]>([]);
   const [digitalChangeLines, setDigitalChangeLines] = useState<DigitalDraft[]>([]);
-  const [changeOptionsOpen, setChangeOptionsOpen] = useState(order.paymentRequiresChange);
+  const [cashDecisionMade, setCashDecisionMade] = useState(!order.paymentRequiresChange);
   const [step, setStep] = useState<'eta' | 'money' | 'review'>('eta');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -270,15 +270,9 @@ export function CounterDeliveryDispatchPanel({
     (sum, line) => sum + amountUsd(line.currencyCode, decimal(line.amount), settlementVesRate),
     0
   ));
-  const requiredChangeUsd = roundMoney(Math.max(expectedUsd - order.paymentQuote.pendingUsd, 0));
   const assignedChangeUsd = roundMoney(cashChangeUsd + digitalChangeUsd);
   const eta = Math.round(decimal(etaMinutes));
   const etaIsValid = Number.isFinite(eta) && eta >= 1 && eta <= 1440;
-  const expectedCurrency = expectedLines[0]?.currencyCode ?? (
-    order.paymentChangeCurrency === 'VES' || order.paymentMethod === 'cash_ves'
-      ? 'VES'
-      : 'USD'
-  );
   const expectedCollectionLabel = expectedLines.length > 0
     ? expectedLines
         .filter((line) => decimal(line.amount) > 0)
@@ -287,18 +281,14 @@ export function CounterDeliveryDispatchPanel({
     : 'No indicado';
   const cashChangeLabel = cashChangeLines.map((line) => {
     const account = cashAccounts.find((item) => item.accountId === line.accountId);
-    return amountLabel(decimal(line.amount), account?.currencyCode ?? 'USD');
+    return `${amountLabel(decimal(line.amount), account?.currencyCode ?? 'USD')} · ${account?.accountName ?? 'Selecciona una caja'}`;
   }).join(' + ') || 'Sin cambio en efectivo';
-  const suggestedCashAccount = cashAccounts.find(
-    (account) => account.currencyCode === expectedCurrency
-  ) ?? cashAccounts[0] ?? null;
-  const suggestedCashAmount = suggestedCashAccount?.currencyCode === 'VES'
-    ? roundMoney(requiredChangeUsd * settlementVesRate)
-    : requiredChangeUsd;
   const needsChangeStep = requiresMoneyHandling;
-  const moneyStepInitialized = useRef(false);
 
   function validateMoney() {
+    if (requiresMoneyHandling && !cashDecisionMade) {
+      return 'Indica el efectivo que entregas al motorizado o selecciona «No envío efectivo para cambio».';
+    }
     if (requiresMoneyHandling && expectedLines.length === 0) {
       return 'Indica cuánto efectivo recibirá el motorizado del cliente.';
     }
@@ -315,18 +305,6 @@ export function CounterDeliveryDispatchPanel({
     return null;
   }
 
-  function prepareAllChangeInCash() {
-    if (!suggestedCashAccount || suggestedCashAmount <= 0) return;
-    invalidate();
-    setCashChangeLines([{
-      id: `cash-${crypto.randomUUID()}`,
-      accountId: suggestedCashAccount.accountId,
-      amount: String(suggestedCashAmount),
-      referenceCode: '',
-    }]);
-    setDigitalChangeLines([]);
-  }
-
   function continueFromEta() {
     if (!etaIsValid) {
       setError('Selecciona un tiempo estimado para la entrega.');
@@ -334,10 +312,6 @@ export function CounterDeliveryDispatchPanel({
     }
     setError(null);
     if (needsChangeStep) {
-      if (!moneyStepInitialized.current && order.paymentRequiresChange) {
-        prepareAllChangeInCash();
-      }
-      moneyStepInitialized.current = true;
       setStep('money');
       return;
     }
@@ -503,7 +477,8 @@ export function CounterDeliveryDispatchPanel({
             <div className="text-sm font-semibold text-[#C7C8D1]">El motorizado cobrará</div>
             <div className="mt-1 text-3xl font-bold text-[#F5F5F7]">{expectedCollectionLabel}</div>
             <div className="mt-1 text-sm text-emerald-200">
-              {cashChangeLines.length === 0 && digitalChangeLines.length === 0
+              {!cashDecisionMade ? 'Falta indicar el cambio real'
+                : cashChangeLines.length === 0 && digitalChangeLines.length === 0
                 ? 'Sin cambio'
                 : `Cambio en efectivo: ${cashChangeLabel}`}
             </div>
@@ -519,25 +494,26 @@ export function CounterDeliveryDispatchPanel({
             addLabel="Agregar otra moneda"
           />
           </details>
-          <details
-            open={changeOptionsOpen}
-            onToggle={(event) => setChangeOptionsOpen(event.currentTarget.open)}
-            className="mt-3 rounded-[8px] border border-[#303044] p-3"
-          >
-            <summary className="cursor-pointer text-sm font-semibold text-[#C7C8D1]">
-              {cashChangeLines.length > 0 || digitalChangeLines.length > 0 ? 'Revisar cambio' : '¿Necesitas enviar cambio?'}
-            </summary>
+          <div className="mt-3 rounded-[8px] border border-[#303044] p-3">
           <DeliveryCashDrafts
             title="¿Cuánto cambio lleva y de cuál caja sale?"
             helper="Solo el efectivo que entregas ahora. No necesitas completar todo el cambio ni saldar la orden."
             lines={cashChangeLines}
             cashAccounts={cashAccounts}
+            requireAccountSelection
             onChange={(lines) => {
               invalidate();
               setCashChangeLines(lines);
+              setCashDecisionMade(lines.length > 0);
             }}
             addLabel="Agregar efectivo para cambio"
           />
+          <button
+            type="button"
+            aria-pressed={cashDecisionMade && cashChangeLines.length === 0}
+            onClick={() => { invalidate(); setCashChangeLines([]); setCashDecisionMade(true); }}
+            className="mt-3 min-h-11 rounded-[8px] border border-[#303044] px-3 py-2 text-sm font-semibold text-[#C7C8D1] aria-pressed:border-[#FEEF00] aria-pressed:text-[#FEEF00]"
+          >No envío efectivo para cambio</button>
 
           <details className="mt-3 rounded-[8px] border border-[#303044] bg-[#111118] p-3">
             <summary className="cursor-pointer text-xs font-semibold text-[#C7C8D1]">Anotar cambio digital acordado (opcional)</summary>
@@ -549,7 +525,7 @@ export function CounterDeliveryDispatchPanel({
               }}
             />
           </details>
-          </details>
+          </div>
 
           <div className="mt-3 text-center text-xs text-[#9FA0AA]">
             Puedes dar salida sin haber recibido el pago. El ingreso se registra cuando regrese el dinero.
@@ -703,6 +679,7 @@ function DeliveryCashDrafts({
   cashAccounts,
   onChange,
   addLabel,
+  requireAccountSelection = false,
 }: {
   title: string;
   helper: string;
@@ -710,6 +687,7 @@ function DeliveryCashDrafts({
   cashAccounts: CounterPaymentAccountOption[];
   onChange: (lines: CashDraft[]) => void;
   addLabel: string;
+  requireAccountSelection?: boolean;
 }) {
   const firstAccount = cashAccounts[0] ?? null;
   return (
@@ -721,11 +699,13 @@ function DeliveryCashDrafts({
           <div key={line.id} className="grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr_auto]">
             <select
               value={line.accountId}
+              aria-label="Caja de salida del efectivo"
               onChange={(event) => onChange(lines.map((item) =>
                 item.id === line.id ? { ...item, accountId: Number(event.target.value) } : item
               ))}
               className="rounded-[8px] border border-[#303044] bg-[#111118] px-2 py-2 text-xs"
             >
+              {requireAccountSelection ? <option value={0}>Selecciona una caja</option> : null}
               {cashAccounts.map((account) => (
                 <option key={account.accountId} value={account.accountId}>
                   {account.accountName} · {account.currencyCode}
@@ -768,7 +748,7 @@ function DeliveryCashDrafts({
             ...lines,
             {
               id: `cash-${crypto.randomUUID()}`,
-              accountId: firstAccount!.accountId,
+              accountId: requireAccountSelection ? 0 : firstAccount!.accountId,
               amount: '',
               referenceCode: '',
             },
