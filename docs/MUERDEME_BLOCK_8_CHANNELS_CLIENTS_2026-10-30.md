@@ -26,23 +26,25 @@ No se pregunta por Instagram, recomendación, campañas, punto de contacto o una
 
 ## Implementación
 
-- Migración `20261030175530_commercial_channels_clients_v1.sql`.
+- Migraciones `20261030175530_commercial_channels_clients_v1.sql` y `20261030175829_commercial_client_history_private_access_v1.sql`.
 - `orders.sales_channel` es independiente del enum técnico `orders.source`. Admite `in_person`, `whatsapp`, `advisor`; el historial permanece NULL. Las nuevas órdenes de asesor/Master usan Asesor por defecto y Counter usa Presencial cuando un cliente antiguo del software no envía selección.
 - El canal se guarda al crear y es inmutable en las ediciones ordinarias. No modifica la aprobación, los estados, el pago, la tasa, las comisiones ni el inventario. La venta inmediata de Counter conserva envío a cocina; la venta futura conserva la agenda actual.
 - El comando atómico existente de Counter conserva reintentos, cliente único por teléfono, guardia de suspensión comercial y precios. El parche modifica únicamente el tipo para altas nuevas, la validación de canal y su columna de inserción.
 - Se evita la adjudicación automática de Directos en el rescate de carteras huérfanas. Los clientes anteriores conservan el mecanismo VIVO existente. Master y Administración pueden derivar un Directo mediante la edición existente de cliente.
-- Historial privado `app_private.client_commercial_type_history_v1`: escritura exclusiva mediante disparador; lectura limitada a Master/Administración activos. No se amplían permisos de venta, banca ni de clientes.
+- Historial privado `app_private.client_commercial_type_history_v1`: escritura exclusiva mediante disparador; lectura mediante una consulta limitada a 50 cambios del cliente solicitado y autorizada para Master/Administración activos. La tabla no se expone a GraphQL y no admite SELECT directo de la aplicación. La ficha permite solicitar ese historial sin cargarlo al entrar. No se amplían permisos de venta, banca ni de clientes.
 - Counter, el editor compartido de Admin/Master, el editor del asesor y el administrador antiguo reconocen Directo. La configuración administrativa utiliza etiquetas explícitas y conserva Antiguo y sin clasificar.
 - Análisis comercial permite filtrar por canal, por período y bajo consulta explícita. El historial sin canal permanece incluido en Todos; no se lo presenta como WhatsApp ni Presencial. El CSV incorpora el canal observado.
 - Directos no se suman como clientes nuevos propios/asignados en las métricas de asesores. No se modifican las funciones financieras ni los cierres pagados.
 
 ## Verificación
 
-- 143 pruebas de marcas, incluidos los nuevos casos de clasificación y PostgreSQL.
+- 144 pruebas de marcas, incluidos los nuevos casos de clasificación y PostgreSQL.
 - 97 pruebas de comisiones, 32 de órdenes y 19 de configuración.
 - TypeScript, revisión de los componentes afectados y compilación de producción.
 - PostgreSQL aislado ejecuta el comando Counter real con los tipos de columna inspeccionados. Compara importes mixtos USD/VES e IVA antes/después; verifica clientes existentes, ambos cajeros y canales, duplicados, reintentos, rollback tardío, agenda, derivación manual, preservación del rescate VIVO y rechazos por permisos.
 - El esquema de prueba no contiene registros reales. La simulación usa un auxiliar neutro de notas; las configuraciones y existencias se comprueban en las suites de marcas/inventario independientes. PGlite no prueba contención entre conexiones simultáneas.
+
+La instalación en producción comparó antes/después las clasificaciones y asesores, los productos, reportes de pago, movimientos contables, cierres pagados y definiciones financieras: todos conservaron sus huellas. No se crearon ventas de prueba ni se activaron productos Muérdeme. La revisión final de seguridad no añadió hallazgos respecto a la línea base.
 
 ## Secuencia siguiente
 

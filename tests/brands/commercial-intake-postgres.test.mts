@@ -54,6 +54,7 @@ test('commercial intake preserves VIVO and records channels and direct clients a
     const paid = await db.query('select * from public.advisor_commission_closures');
     const payments = await db.query('select * from public.order_payments');
     await db.exec(read(migration));
+    await db.exec(read('supabase/migrations/20261030175829_commercial_client_history_private_access_v1.sql'));
 
     await t.test('installation leaves all existing classifications, advisors, orders and paid history untouched', async () => {
       assert.deepEqual(await db.query('select * from public.clients order by id'), historicalClients);
@@ -130,11 +131,16 @@ test('commercial intake preserves VIVO and records channels and direct clients a
       await auth(4);
       await db.query('update public.clients set primary_advisor_id=$1 where id=$2', [id(2), created.clientId]);
       assert.equal(await one('select client_type as v from public.clients where id=$1', [created.clientId]), 'assigned');
+      const visibleHistory = await one<Array<{new_type:string;actor_name:string}>>('select public.read_client_commercial_type_history_v1($1)as v', [created.clientId]);
+      assert.equal(visibleHistory[0].new_type, 'assigned');
+      assert.equal(visibleHistory[0].actor_name, 'Master');
+      await db.exec('reset role');
       const history = await db.query('select previous_type,new_type,actor_id,previous_advisor_id,new_advisor_id from app_private.client_commercial_type_history_v1 where client_id=$1 order by id', [created.clientId]);
       assert.deepEqual(history.rows[1], { previous_type: 'direct', new_type: 'assigned', actor_id: id(4), previous_advisor_id: null, new_advisor_id: id(2) });
       // A second save is not another classification change.
+      await auth(4);
       await db.query('update public.clients set primary_advisor_id=$1 where id=$2', [id(2), created.clientId]);
-      assert.equal(await one('select count(*)::int as v from app_private.client_commercial_type_history_v1 where client_id=$1', [created.clientId]), 2);
+      assert.equal((await one<unknown[]>('select public.read_client_commercial_type_history_v1($1)as v', [created.clientId])).length, 2);
     });
     await t.test('later advisor orders cannot automatically take a Direct customer; old VIVO orphan rescue still works', async () => {
       await auth(5);
@@ -158,14 +164,26 @@ test('commercial intake preserves VIVO and records channels and direct clients a
       await db.exec("insert into public.orders(source,status,sales_channel)values('master','created','whatsapp')");
       assert.equal(await one("select status::text as v from public.orders where source='master'order by id desc limit 1"), 'created');
     });
+    await t.test('history consultation is bounded to one client and cannot disclose another client', async () => {
+      await db.exec('reset role');
+      await db.exec("insert into app_private.client_commercial_type_history_v1(client_id,new_type)select 1,'direct'from generate_series(1,55)");
+      await auth(1);
+      const selected=await one<Array<{new_type:string}>>('select public.read_client_commercial_type_history_v1(1)as v');
+      assert.equal(selected.length,50);
+      assert.ok(selected.every(row=>row.new_type==='direct'));
+      assert.deepEqual(await one('select public.read_client_commercial_type_history_v1(2)as v'),[]);
+      await assert.rejects(()=>one('select public.read_client_commercial_type_history_v1(0)as v'),/Cliente inválido/);
+    });
     await t.test('anonymous, inactive staff and forged history writes are rejected', async () => {
       await auth(0, 'anon');
       await assert.rejects(() => sale(payload('584120009010')), /permission denied/);
       await auth(2);
       await assert.rejects(() => sale(payload('584120009010')), /counter_access_denied/);
-      assert.equal(await one('select count(*)::int as v from app_private.client_commercial_type_history_v1'), 0);
+      await assert.rejects(() => one('select count(*)::int as v from app_private.client_commercial_type_history_v1'), /permission denied/);
+      await assert.rejects(() => one('select public.read_client_commercial_type_history_v1(1)as v'), /requiere Master/);
       await assert.rejects(() => db.exec("insert into app_private.client_commercial_type_history_v1(client_id,new_type)values(1,'own')"), /permission denied/);
       await auth(3);
+      await assert.rejects(() => one('select public.read_client_commercial_type_history_v1(1)as v'), /requiere Master/);
       await assert.rejects(() => sale(payload('584120009010')), /Usuario inactivo/);
       await auth(5);
       await assert.rejects(() => sale(payload('584120009010', { salesChannel: 'advisor' })), /Selecciona Presencial o WhatsApp/);
