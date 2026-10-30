@@ -1,0 +1,1 @@
+import {OrdersWorkspace} from '@/lib/orders/operations-workspace';export const dynamic='force-dynamic';export default function Page({searchParams}:{searchParams:Promise<{focusDate?:string}>}){return OrdersWorkspace({surface:'master',searchParams});}

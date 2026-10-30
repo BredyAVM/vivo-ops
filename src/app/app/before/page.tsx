@@ -1,0 +1,1 @@
+import {OrdersWorkspace} from '@/bench/before-workspace';export const dynamic='force-dynamic';export default function Page({searchParams}:{searchParams:Promise<{focusDate?:string}>}){return OrdersWorkspace({surface:'master',searchParams});}

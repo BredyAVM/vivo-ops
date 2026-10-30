@@ -1,0 +1,203 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import AdvisorPendingLink from './AdvisorPendingLink';
+import {
+  ADVISOR_TIMELINE_RECIPIENT_SELECT,
+  countCommissionNotificationsByKind,
+  countCoalescedNotificationsByKind,
+  type InboxRecipientCountRow,
+  type RawCommissionNotification,
+} from './inbox/inbox-shared';
+
+function ActionIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M12 8.25v4.25m0 3.25h.01M10.3 4.35 2.55 17.75A1.5 1.5 0 0 0 3.85 20h16.3a1.5 1.5 0 0 0 1.3-2.25L13.7 4.35a1.5 1.5 0 0 0-2.6 0Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function UpdatesIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M18 9a6 6 0 0 0-12 0c0 6-2.25 7.5-2.25 7.5h16.5S18 15 18 9Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M9.75 19.5a2.5 2.5 0 0 0 4.5 0"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function formatBadgeCount(value: number) {
+  if (value > 99) return '99+';
+  return String(value);
+}
+
+export default function AdvisorInboxBell({
+  advisorName,
+  userId,
+  actionCount,
+  updateCount,
+}: {
+  advisorName: string;
+  userId: string;
+  actionCount: number;
+  updateCount: number;
+}) {
+  const supabaseRef = useRef(createSupabaseBrowser());
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [counts, setCounts] = useState({ actions: actionCount, updates: updateCount });
+
+  useEffect(() => {
+    const supabase = supabaseRef.current;
+
+    async function refreshUnreadCount() {
+      const [recipientsResult, commissionNotificationsResult] = await Promise.all([
+        supabase
+          .from('order_timeline_event_recipients')
+          .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
+          .eq('target_user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('notifications')
+          .select('id, status, title, body, meta, created_at, read_at')
+          .eq('recipient_user_id', userId)
+          .contains('meta', { domain: 'advisor_commissions' })
+          .order('created_at', { ascending: false })
+          .limit(100),
+      ]);
+      const orderCounts = countCoalescedNotificationsByKind(
+        (recipientsResult.data ?? []) as unknown as InboxRecipientCountRow[],
+      );
+      const commissionCounts = countCommissionNotificationsByKind(
+        (commissionNotificationsResult.data ?? []) as RawCommissionNotification[],
+      );
+      setCounts({
+        actions: orderCounts.unreadActions + commissionCounts.unreadActions,
+        updates: orderCounts.unreadUpdates + commissionCounts.unreadUpdates,
+      });
+    }
+
+    function scheduleCountRefresh() {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+
+      refreshTimerRef.current = setTimeout(() => {
+        refreshTimerRef.current = null;
+        void refreshUnreadCount();
+      }, 1800);
+    }
+
+    const channel = supabase
+      .channel(`advisor-inbox-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'order_timeline_event_recipients',
+          filter: `target_user_id=eq.${userId}`,
+        },
+        () => {
+          window.dispatchEvent(new Event('advisor:notification'));
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'order_timeline_event_recipients',
+          filter: `target_user_id=eq.${userId}`,
+        },
+        scheduleCountRefresh
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `recipient_user_id=eq.${userId}`,
+        },
+        () => {
+          window.dispatchEvent(new Event('advisor:notification'));
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `recipient_user_id=eq.${userId}`,
+        },
+        () => {
+          window.dispatchEvent(new Event('advisor:notification'));
+        },
+      )
+      .subscribe();
+
+    window.addEventListener('advisor:notification', scheduleCountRefresh);
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      window.removeEventListener('advisor:notification', scheduleCountRefresh);
+      void supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <AdvisorPendingLink
+        href="/app/advisor/inbox/actions"
+        className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#3B3220] bg-[#151208] text-[#F7DA66]"
+        ariaLabel={`Acciones pendientes de ${advisorName}`}
+        title="Acciones"
+      >
+        <ActionIcon />
+        {counts.actions > 0 ? (
+          <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-[24px] justify-center rounded-full bg-[#F0D000] px-1.5 py-0.5 text-[11px] font-semibold leading-none text-[#17191E] shadow-[0_0_0_2px_#090B10]">
+            {formatBadgeCount(counts.actions)}
+          </span>
+        ) : null}
+      </AdvisorPendingLink>
+      <AdvisorPendingLink
+        href="/app/advisor/inbox/updates"
+        className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#D8E0F4]"
+        ariaLabel={`Seguimiento de pedidos de ${advisorName}`}
+        title="Seguimiento"
+      >
+        <UpdatesIcon />
+        {counts.updates > 0 ? (
+          <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-[24px] justify-center rounded-full bg-[#33405A] px-1.5 py-0.5 text-[11px] font-semibold leading-none text-[#F5F7FB] shadow-[0_0_0_2px_#090B10]">
+            {formatBadgeCount(counts.updates)}
+          </span>
+        ) : null}
+      </AdvisorPendingLink>
+    </div>
+  );
+}

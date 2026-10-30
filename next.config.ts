@@ -1,0 +1,1 @@
+import type {NextConfig} from 'next';const config:NextConfig={...(process.env.CPU_BENCH_LOCAL_ROOT?{turbopack:{root:process.env.CPU_BENCH_LOCAL_ROOT}}:{}),typescript:{tsconfigPath:'tsconfig.build.json',ignoreBuildErrors:true},env:{NEXT_PUBLIC_SUPABASE_URL:'https://diagnostic.invalid',NEXT_PUBLIC_SUPABASE_ANON_KEY:'fixture-key'}};export default config;

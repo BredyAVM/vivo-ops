@@ -1,0 +1,2327 @@
+"use client";
+import { countsTowardCrmMinimum, dailyBenefitConflict, isDeliveryProduct } from "@/lib/crm/benefit-eligibility";
+
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { parseDecimalInput } from "@/lib/number-input";
+import CrmOrderMinimumPanel from "./CrmOrderMinimumPanel";
+import { useDialogFocus } from "@/components/ui/useDialogFocus";
+import { currencyLabel } from "@/lib/ui/currency-label";
+import { selectInputValue } from "@/lib/ui/select-input-value";
+import { parseOrderPriceDraft } from "@/lib/ui/order-price-draft";
+import CrmOrderValidityPanel from "./CrmOrderValidityPanel";
+import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
+import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot } from "@/lib/orders/approved-price-preservation";
+import { historicalQuantityAddition, preservedAgreedPriceSnapshot, preservedOperationalSnapshot } from "@/lib/orders/operational-edit-pricing";
+import {
+  buildComponentDetailLines,
+  getVisibleEditableDetailLines,
+  parseEditableDetailLines,
+} from "@/lib/orders/order-composer";
+import { sortOrderItemsByPriority } from "@/lib/orders/order-item-priority";
+import { formatOrderDisplayNumber, getPaymentMethodLabel } from "@/lib/orders/order-labels";
+import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
+import { searchClientsAction } from "../dashboard/actions";
+import {
+  createMasterOpsOrderAction,
+  loadMasterOpsClientCrmContextAction,
+  loadMasterOpsOrderCreateDataAction,
+  loadMasterOpsOrderEditDataAction,
+  updateMasterOpsOrderAction,
+  type MasterOpsEditAdvisor,
+  type MasterOpsEditCatalogItem,
+  type MasterOpsEditClient,
+  type MasterOpsEditCurrency,
+  type MasterOpsEditData,
+  type MasterOpsEditOrder,
+  type MasterOpsEditOrderItem,
+  type MasterOpsEditProductComponent,
+} from "./actions";
+import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
+import { MASTER_OPS_ORDER_PAYMENT_METHODS } from "./order-editor-payment";
+import type { MasterCrmOrderContext } from "@/lib/crm/advisor-order-context-types";
+import { resolveCrmOrderBenefit } from "@/lib/crm/master-order-benefit";
+import MasterOpsGiftAppend from "./MasterOpsGiftAppend";
+import MasterOpsBeverageAppend from "./MasterOpsBeverageAppend";
+import { prepareEditorCommissionFields } from "./order-editor-commission";
+import { formatOrderCommissionTerms, type OrderCommissionMode } from "@/lib/commissions/order-commission-terms";
+import { clientDeliveryAddresses, suggestSavedClientDeliveryAddress } from "@/lib/orders/client-delivery-address";
+import dynamic from 'next/dynamic';
+import { hasMenuOrderDetails, menuQuoteDetailLines, readMenuOrderQuote, type MenuOrderQuote } from '@/lib/brands/order-menu';
+const MuerdemeOrderPicker = dynamic(() => import('@/components/orders/MuerdemeOrderPicker'));
+
+type Props = {
+  intent?: "general" | "commercial";
+  mode?: "create" | "edit";
+  orderId?: number | null;
+  templateOrderId?: number | null;
+  open?: boolean;
+  focusDate?: string;
+  roles: string[];
+  fallbackActiveRate: number | null;
+  onClose: () => void;
+  onSaved: () => void;
+};
+
+function OrderQuantityInput({ qty, readOnly, title, onCommit }: {
+  qty: number; readOnly: boolean; title?: string; onCommit: (raw: string) => void;
+}) {
+  const [text, setText] = useState(String(qty));
+  return <input
+    className={fieldClass()}
+    aria-label="Cantidad"
+    value={text}
+    onFocus={selectInputValue}
+    onChange={event => setText(event.target.value)}
+    onBlur={() => {
+      const value = toNumber(text, Number.NaN);
+      if (Number.isFinite(value) && value > 0) onCommit(text);
+      else setText(String(qty));
+    }}
+    onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
+    inputMode="decimal"
+    readOnly={readOnly}
+    title={title}
+  />;
+}
+
+type ClientSearchResult = {
+  id: number | string;
+  full_name?: string | null;
+  phone?: string | null;
+  client_type?: string | null;
+  fund_balance_usd?: number | string | null;
+  recent_addresses?: any;
+  billing_company_name?: string | null;
+  billing_tax_id?: string | null;
+  billing_address?: string | null;
+  billing_phone?: string | null;
+  delivery_note_name?: string | null;
+  delivery_note_document_id?: string | null;
+  delivery_note_address?: string | null;
+  delivery_note_phone?: string | null;
+};
+
+type ConfigSelection = {
+  localId: string;
+  componentProductId: number;
+  componentName: string;
+  qty: number;
+};
+
+type ConfigState = {
+  editingLocalId: string | null;
+  productId: number;
+  productName: string;
+  sku: string | null;
+  qty: number;
+  sourcePriceCurrency: MasterOpsEditCurrency;
+  sourcePriceAmount: number;
+  fallbackUnitUsd: number;
+  detailUnitsLimit: number;
+  alias: string;
+  selections: ConfigSelection[];
+  pendingCrmItem?: MasterOpsEditOrderItem;
+};
+
+function toNumber(value: unknown, fallback = 0) {
+  return parseDecimalInput(value, fallback);
+}
+
+function money(value: number) {
+  return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function bs(value: number) {
+  return `Bs ${Number(value || 0).toLocaleString("es-VE", { maximumFractionDigits: 2 })}`;
+}
+
+function compact(value: number, decimals = 2) {
+  if (!Number.isFinite(value)) return "";
+  return String(Number(value.toFixed(decimals)));
+}
+
+function closeNumber(left: unknown, right: unknown, tolerance = 0.000001) {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  return Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
+    ? Math.abs(leftNumber - rightNumber) <= tolerance
+    : false;
+}
+
+function sameDetailLines(left: string[] | undefined, right: string[] | undefined) {
+  const normalize = (lines: string[] | undefined) =>
+    (lines ?? []).map((line) => String(line || "").trim()).filter(Boolean);
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+}
+
+function isExistingLinePricingChanged(
+  original: MasterOpsEditOrderItem | null | undefined,
+  current: MasterOpsEditOrderItem
+) {
+  if (!original) return true;
+  return (
+    original.productId !== current.productId ||
+    !closeNumber(original.qty, current.qty) ||
+    original.sourcePriceCurrency !== current.sourcePriceCurrency ||
+    !closeNumber(original.sourcePriceAmount, current.sourcePriceAmount) ||
+    original.adminPriceOverrideUsd !== current.adminPriceOverrideUsd ||
+    String(original.adminPriceOverrideReason || "").trim() !==
+      String(current.adminPriceOverrideReason || "").trim()
+  );
+}
+
+function isMasterOpsOrderPricingChanged(
+  original: MasterOpsEditOrder | null | undefined,
+  current: MasterOpsEditOrder | null | undefined
+) {
+  if (!original || !current) return true;
+  if (
+    Boolean(original.discountEnabled) !== Boolean(current.discountEnabled) ||
+    !closeNumber(original.discountEnabled ? original.discountPct : 0, current.discountEnabled ? current.discountPct : 0) ||
+    Boolean(original.hasInvoice) !== Boolean(current.hasInvoice) ||
+    !closeNumber(original.hasInvoice ? original.invoiceTaxPct : 0, current.hasInvoice ? current.invoiceTaxPct : 0) ||
+    !closeNumber(original.fxRate, current.fxRate) ||
+    original.items.length !== current.items.length
+  ) {
+    return true;
+  }
+
+  const originalById = new Map(
+    original.items
+      .filter((item) => item.orderItemId != null)
+      .map((item) => [Number(item.orderItemId), item] as const)
+  );
+  return current.items.some(
+    (item) => item.orderItemId == null || isExistingLinePricingChanged(originalById.get(Number(item.orderItemId)), item)
+  );
+}
+
+function normalizeSearchValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function normalizeClientType(value: unknown): "assigned" | "own" | "legacy" {
+  const text = String(value || "");
+  if (text === "own" || text === "legacy") return text;
+  return "assigned";
+}
+
+function mapClientSearchResult(row: ClientSearchResult): MasterOpsEditClient {
+  return {
+    id: Number(row.id),
+    fullName: String(row.full_name || "Cliente").trim(),
+    phone: String(row.phone || "").trim(),
+    clientType: normalizeClientType(row.client_type),
+    fundBalanceUsd: toNumber(row.fund_balance_usd, 0),
+    recentAddresses: Array.isArray(row.recent_addresses) ? row.recent_addresses : [],
+    billingCompanyName: String(row.billing_company_name || "").trim(),
+    billingTaxId: String(row.billing_tax_id || "").trim(),
+    billingAddress: String(row.billing_address || "").trim(),
+    billingPhone: String(row.billing_phone || "").trim(),
+    deliveryNoteName: String(row.delivery_note_name || "").trim(),
+    deliveryNoteDocumentId: String(row.delivery_note_document_id || "").trim(),
+    deliveryNoteAddress: String(row.delivery_note_address || "").trim(),
+    deliveryNotePhone: String(row.delivery_note_phone || "").trim(),
+  };
+}
+
+function fieldClass(className = "") {
+  return [
+    "w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#6F6F7C]",
+    "focus:border-[#FEEF00]/60 focus:outline-none",
+    className,
+  ].join(" ");
+}
+
+function Field({
+  label,
+  children,
+  className = "",
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <label className={`block text-[11px] text-[#B7B7C2] ${className}`}>
+      <span className="mb-1 block">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function Section({
+  title,
+  children,
+  aside,
+}: {
+  title: string;
+  children: React.ReactNode;
+  aside?: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-[#F5F5F7]">{title}</h3>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function itemKey(localId: string) {
+  return localId || `${Date.now()}-${Math.random()}`;
+}
+
+function recalculateItem(item: MasterOpsEditOrderItem, fxRate: number): MasterOpsEditOrderItem {
+  const snapshot = calculateOrderLineSnapshot({
+    sourceCurrency: item.sourcePriceCurrency,
+    sourceAmount: item.sourcePriceAmount,
+    quantity: item.qty,
+    fxRate,
+    overrideUnitUsd: item.adminPriceOverrideCurrency ? null : item.adminPriceOverrideUsd,
+    fallbackUnitUsd: item.unitPriceUsdSnapshot,
+  });
+
+  return {
+    ...item,
+    unitPriceUsdSnapshot:
+      item.adminPriceOverrideUsd != null && !item.adminPriceOverrideCurrency
+        ? item.unitPriceUsdSnapshot
+        : snapshot.unitUsd,
+    lineTotalUsd: snapshot.lineUsd,
+    unitPriceBsSnapshot: snapshot.unitBs,
+    lineTotalBsSnapshot: snapshot.lineBs,
+  };
+}
+
+function createPriorityInput(catalogItems: MasterOpsEditCatalogItem[], item: MasterOpsEditOrderItem) {
+  const catalogItem = catalogItems.find((catalog) => catalog.id === item.productId);
+  return {
+    productType: catalogItem?.type,
+    productName: item.productNameSnapshot,
+    internalRiderPayUsd: catalogItem?.internalRiderPayUsd ?? null,
+  };
+}
+
+function initialNewClientFromOrder(order: MasterOpsEditOrder | null) {
+  return {
+    name: order?.client?.fullName ?? "",
+    phone: order?.client?.phone ?? "",
+    type: order?.client?.clientType ?? ("assigned" as const),
+  };
+}
+
+export default function MasterOpsOrderEditor({
+  intent = "general",
+  mode = "edit",
+  orderId = null,
+  templateOrderId = null,
+  open = false,
+  focusDate,
+  roles,
+  fallbackActiveRate,
+  onClose,
+  onSaved,
+}: Props) {
+  const isCreateMode = mode === "create";
+  const isOpen = isCreateMode ? open : Boolean(orderId);
+  const dialogRef = useDialogFocus<HTMLDivElement>(onClose, isOpen);
+  const isAdmin = roles.includes("admin");
+  const commercialSectionRef = useRef<HTMLDivElement>(null);
+  const [data, setData] = useState<MasterOpsEditData | null>(null);
+  const [form, setForm] = useState<MasterOpsEditOrder | null>(null);
+  const [itemPriceDrafts, setItemPriceDrafts] = useState<Record<string, { currency: MasterOpsEditCurrency; text: string }>>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [adminEditReason, setAdminEditReason] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientResults, setClientResults] = useState<MasterOpsEditClient[]>([]);
+  const [clientSearching, setClientSearching] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientPhone, setNewClientPhone] = useState("");
+  const [newClientType, setNewClientType] = useState<"assigned" | "own" | "legacy">("assigned");
+  const [productSearch, setProductSearch] = useState("");
+  const [selectedProductId, setSelectedProductId] = useState<number | "">("");
+  const [productQty, setProductQty] = useState("1");
+  const [quantitySplitNotice, setQuantitySplitNotice] = useState<string | null>(null);
+  const [configState, setConfigState] = useState<ConfigState | null>(null);
+  const [muerdemeEdit, setMuerdemeEdit] = useState<{ key: string; quote: MenuOrderQuote } | null>(null);
+  const [muerdemeSalesEnabled, setMuerdemeSalesEnabled] = useState<boolean | null>(null);
+  const [crmContext, setCrmContext] = useState<MasterCrmOrderContext | null>(null);
+  const [crmLoading, setCrmLoading] = useState(false);
+  const [crmError, setCrmError] = useState<string | null>(null);
+  const [crmReload, setCrmReload] = useState(0);
+  const productQtyRef = useRef<HTMLInputElement | null>(null);
+  const deliveryAddressTouched = useRef(false);
+  const savedClientAddresses = clientDeliveryAddresses(form?.client?.recentAddresses);
+
+  useEffect(() => {
+    setItemPriceDrafts({});
+    setMuerdemeEdit(null);
+    setMuerdemeSalesEnabled(null);
+    if (!isOpen) {
+      setData(null);
+      setForm(null);
+      return;
+    }
+    if (!isCreateMode && !orderId) {
+      setData(null);
+      setForm(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    setQuantitySplitNotice(null);
+
+    const loadData = isCreateMode
+      ? loadMasterOpsOrderCreateDataAction(focusDate, templateOrderId)
+      : loadMasterOpsOrderEditDataAction(Number(orderId));
+
+    loadData
+      .then((result) => {
+        if (cancelled) return;
+        const paymentCurrency =
+          getPaymentReportCurrency(result.order.paymentMethod) ?? result.order.paymentCurrency;
+        setData(result);
+        deliveryAddressTouched.current = false;
+        const loadedForm = {
+          ...result.order,
+          paymentCurrency,
+          items: result.order.items.map((item) => ({ ...item })),
+        };
+        // Merely opening an existing order must not edit its recorded delivery.
+        setForm(isCreateMode ? suggestSavedClientDeliveryAddress(loadedForm, false) : loadedForm);
+        const initialClient = initialNewClientFromOrder(result.order);
+        setNewClientName(initialClient.name);
+        setNewClientPhone(initialClient.phone);
+        setNewClientType(initialClient.type);
+        setAdminEditReason("");
+        setProductSearch("");
+        setSelectedProductId("");
+        setProductQty("1");
+        setConfigState(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "No se pudo cargar la orden.");
+        setData(null);
+        setForm(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [focusDate, isCreateMode, isOpen, orderId, templateOrderId]);
+
+  useEffect(() => {
+    const query = clientSearch.trim();
+    if (query.length < 2) {
+      setClientResults([]);
+      setClientSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setClientSearching(true);
+    const timer = window.setTimeout(() => {
+      searchClientsAction({ query, limit: 8 })
+        .then((rows) => {
+          if (cancelled) return;
+          setClientResults(((rows ?? []) as ClientSearchResult[]).map(mapClientSearchResult));
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setError(err instanceof Error ? err.message : "No se pudo buscar clientes.");
+          setClientResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setClientSearching(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [clientSearch]);
+
+  const crmClientId = form?.selectedClientId ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    setCrmContext(null);
+    setCrmError(null);
+    if (!isOpen || !crmClientId) {
+      setCrmLoading(false);
+      return;
+    }
+    setCrmLoading(true);
+    loadMasterOpsClientCrmContextAction({ clientId: crmClientId, orderId: isCreateMode ? null : orderId })
+      .then((context) => { if (!cancelled) setCrmContext(context); })
+      .catch((err) => { if (!cancelled) setCrmError(err instanceof Error ? err.message : "No se pudo consultar la jugada."); })
+      .finally(() => { if (!cancelled) setCrmLoading(false); });
+    return () => { cancelled = true; };
+  }, [crmClientId, isOpen, isCreateMode, orderId, crmReload]);
+
+  const activeRate = data?.activeRate ?? fallbackActiveRate ?? null;
+  const pricingChanged = isCreateMode || isMasterOpsOrderPricingChanged(data?.order, form);
+  const commercialTermsChanged = Boolean(form && data?.order && (
+    form.discountEnabled !== data.order.discountEnabled ||
+    !closeNumber(form.discountEnabled ? form.discountPct : 0, data.order.discountEnabled ? data.order.discountPct : 0) ||
+    form.hasInvoice !== data.order.hasInvoice ||
+    !closeNumber(form.hasInvoice ? form.invoiceTaxPct : 0, data.order.hasInvoice ? data.order.invoiceTaxPct : 0) ||
+    !closeNumber(form.fxRate, data.order.fxRate)
+  ));
+  const requestedFxRate = Math.max(0, toNumber(form?.fxRate, 0));
+  const fxRate = isCreateMode
+    ? Math.max(0, toNumber(activeRate, 0))
+    : requestedFxRate;
+
+  const componentsByParentId = useMemo(() => {
+    const map = new Map<number, MasterOpsEditProductComponent[]>();
+    for (const component of data?.productComponents ?? []) {
+      const bucket = map.get(component.parentProductId) ?? [];
+      bucket.push(component);
+      map.set(component.parentProductId, bucket);
+    }
+    return map;
+  }, [data?.productComponents]);
+
+  const catalogById = useMemo(
+    () => {
+      const map = new Map((data?.catalogItems ?? []).map(item => [item.id, item] as const));
+      for (const item of form?.items ?? []) if (hasMenuOrderDetails(item.editableDetailLines)) map.set(item.productId, {
+        id: item.productId, name: item.productNameSnapshot, sku: item.skuSnapshot, type: 'product', isActive: true,
+        sourcePriceAmount: item.sourcePriceAmount, sourcePriceCurrency: 'USD', basePriceUsd: item.unitPriceUsdSnapshot,
+        basePriceBs: item.unitPriceBsSnapshot ?? 0, unitsPerService: 0, isDetailEditable: true, detailUnitsLimit: 0,
+        internalRiderPayUsd: null, commissionInheritedMode: 'fixed_item', commissionInheritedValue: 0,
+      });
+      return map;
+    },
+    [data?.catalogItems, form?.items]
+  );
+
+  const filteredProducts = useMemo(() => {
+    const q = normalizeSearchValue(productSearch);
+    return (data?.catalogItems ?? [])
+      .filter((item) => item.isActive && item.discretionaryAllowed !== false)
+      .filter((item) => {
+        if (!q) return true;
+        const haystack = normalizeSearchValue(`${item.name} ${item.sku ?? ""}`);
+        return haystack.includes(q);
+      })
+      .slice(0, 18);
+  }, [data?.catalogItems, productSearch]);
+
+  const selectedProduct = selectedProductId ? catalogById.get(Number(selectedProductId)) ?? null : null;
+
+  const calculatedItems = useMemo(
+    () => (form?.items ?? []).map((item) => {
+      const original = data?.order.items.find((row) => row.orderItemId === item.orderItemId);
+      const preserved = preservedAgreedPriceSnapshot(item, original, Number(data?.order.fxRate || 0)) ??
+        (!isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null);
+      return preserved ? { ...item, unitPriceUsdSnapshot: preserved.unitUsd, lineTotalUsd: preserved.lineUsd,
+        unitPriceBsSnapshot: preserved.unitBs, lineTotalBsSnapshot: preserved.lineBs } : recalculateItem(item, fxRate);
+    }),
+    [form?.items, fxRate, data?.order.items, data?.order.fxRate, isAdmin]
+  );
+
+  const currentCrmContext = crmContext?.client.id === crmClientId ? crmContext : null;
+  const crmAdvisorMatches = Boolean(currentCrmContext?.advisorUserId &&
+    form?.attributedAdvisorUserId === currentCrmContext.advisorUserId);
+  const crmAdvisor = data?.advisors.find((advisor) => advisor.id === currentCrmContext?.advisorUserId);
+  const crmCommercialSubtotal = calculatedItems.filter((item) => countsTowardCrmMinimum({ productName: item.productNameSnapshot, sku: item.skuSnapshot, isCrmBenefit: Boolean(item.crmPlayMemberId), lineUsd: item.lineTotalUsd }))
+    .reduce((sum, item) => sum + item.lineTotalUsd, 0) * (1 - (form?.discountEnabled ? toNumber(form.discountPct, 0) : 0) / 100);
+  const crmMinimum = currentCrmContext?.purchaseRequirementMode === "minimum_order"
+    ? Number(currentCrmContext.minimumOrderAmountUsd || 0) : 0;
+  const crmPurchaseEligible = crmCommercialSubtotal + 0.005 >= crmMinimum;
+  const hasPersistedCrmBenefit = Boolean(form?.items.some((item) => item.orderItemId && item.crmPlayMemberId));
+
+  const orderedItems = useMemo(
+    () => sortOrderItemsByPriority(calculatedItems, (item) => createPriorityInput(data?.catalogItems ?? [], item)),
+    [calculatedItems, data?.catalogItems]
+  );
+
+  const totals = useMemo(() => {
+    const lineSnapshots = calculatedItems.map((item) => ({
+      lineUsd: item.lineTotalUsd, lineBs: item.lineTotalBsSnapshot ?? 0,
+    }));
+    const subtotalUsd = lineSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0);
+    const subtotalBs = lineSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0);
+    return calculateOrderTotalsSnapshot({
+      subtotalUsd,
+      subtotalBs,
+      discountPct: form?.discountEnabled ? toNumber(form.discountPct, 0) : 0,
+      invoiceTaxPct: form?.hasInvoice ? toNumber(form.invoiceTaxPct || "16", 16) : 0,
+    });
+  }, [calculatedItems, form?.discountEnabled, form?.discountPct, form?.hasInvoice, form?.invoiceTaxPct, fxRate]);
+
+  const isAdvancedOrderEdit = form && !isCreateMode ? !["created", "queued"].includes(form.status) : false;
+  const canAssignResponsibleAdvisor = Boolean(
+    form?.source === "advisor" || (!isCreateMode && form?.source === "walk_in") || currentCrmContext || hasPersistedCrmBenefit
+  );
+  const requiresEditReason = Boolean(
+    isAdvancedOrderEdit ||
+    (!isCreateMode && form?.isPriceProtected && pricingChanged)
+  );
+  const originalItemsById = new Map(
+    (data?.order.items ?? [])
+      .filter((item) => item.orderItemId != null)
+      .map((item) => [Number(item.orderItemId), item] as const)
+  );
+  const restorableClientFundUsd =
+    !isCreateMode &&
+    data?.order.selectedClientId != null &&
+    data.order.selectedClientId === form?.selectedClientId
+      ? Math.max(0, toNumber(data.order.clientFundAmountUsd, 0))
+      : 0;
+  const effectiveFundAmount = form?.useClientFund && data?.order &&
+    form.selectedClientId === data.order.selectedClientId &&
+    closeNumber(form.clientFundAmountUsd, data.order.clientFundAmountUsd)
+      ? Math.min(toNumber(form.clientFundAmountUsd, 0), totals.totalUsd)
+      : toNumber(form?.clientFundAmountUsd, 0);
+  const validationIssues = form
+    ? getMasterOpsOrderEditorValidationIssues({
+        source: form.source,
+        attributedAdvisorUserId: form.attributedAdvisorUserId,
+        selectedClientId: form.selectedClientId,
+        newClientName,
+        newClientPhone,
+        fulfillment: form.fulfillment,
+        paymentMethod: form.paymentMethod,
+        deliveryDate: form.deliveryDate,
+        deliveryHour12: form.deliveryHour12,
+        deliveryMinute: form.deliveryMinute,
+        deliveryAmPm: form.deliveryAmPm,
+        deliveryAddress: form.deliveryAddress,
+        items: calculatedItems.map((item) => {
+          const original = item.orderItemId == null
+            ? null
+            : originalItemsById.get(Number(item.orderItemId)) ?? null;
+          const linePricingChanged = isExistingLinePricingChanged(original, item);
+          const detailsChanged = Boolean(original) &&
+            !sameDetailLines(original?.editableDetailLines, item.editableDetailLines);
+          const validateOverride = !original ||
+            original.adminPriceOverrideUsd !== item.adminPriceOverrideUsd ||
+            String(original.adminPriceOverrideReason || "").trim() !==
+              String(item.adminPriceOverrideReason || "").trim();
+          return {
+            ...item,
+            adminPriceOverrideUsd: validateOverride ? item.adminPriceOverrideUsd : null,
+            validateConfiguration:
+              !original || original.productId !== item.productId || detailsChanged,
+            allowInactiveCatalog: Boolean(original) && (!linePricingChanged ||
+              (original!.productId === item.productId && item.qty <= original!.qty &&
+                original!.adminPriceOverrideUsd === item.adminPriceOverrideUsd)),
+          };
+        }),
+        catalogItems: [...catalogById.values()],
+        productComponents: data?.productComponents ?? [],
+        fxRate,
+        discountEnabled: form.discountEnabled,
+        discountPct: form.discountPct,
+        hasInvoice: form.hasInvoice,
+        invoiceTaxPct: form.invoiceTaxPct,
+        paymentRequiresChange: form.paymentRequiresChange,
+        paymentChangeFor: form.paymentChangeFor,
+        useClientFund: form.useClientFund,
+        clientFundAmountUsd: String(effectiveFundAmount),
+        clientFundAvailableUsd: (form.client?.fundBalanceUsd ?? 0) + restorableClientFundUsd,
+        orderTotalUsd: totals.totalUsd,
+        isAdmin,
+        isPriceProtected: form.isPriceProtected,
+        pricingChanged,
+        commercialTermsChanged,
+        isAdvancedEdit: requiresEditReason,
+        adminEditReason,
+      })
+    : [];
+  if (muerdemeSalesEnabled === false && form?.items.some(item => hasMenuOrderDetails(item.editableDetailLines))) {
+    validationIssues.push({ code: 'configuration', message: 'Muérdeme está en preparación. Puedes revisar la mezcla; retira sus productos para guardar solo VIVO.' });
+  }
+  if (!isAdmin && form && hasUnauthorizedPriceChange(form.items, data?.order.items ?? [], true)) {
+    validationIssues.push({ code: "price_override", message: APPROVED_PRICE_CHANGE_MESSAGE });
+  }
+  if (isAdmin && form) {
+    for (const item of form.items) {
+      const priceDraft = itemPriceDrafts[item.localId];
+      if (priceDraft && parseOrderPriceDraft(priceDraft.text) === null) {
+        validationIssues.push({ code: "price_override", message: `Completa el precio en ${currencyLabel(priceDraft.currency)} de ${item.productNameSnapshot}. Usa coma o punto para los decimales.` });
+      }
+      try {
+        prepareEditorCommissionFields(item, originalItemsById.get(Number(item.orderItemId)) ?? {}, true);
+      } catch (error) {
+        validationIssues.push({ code: "commission_override", message: `${item.productNameSnapshot}: ${error instanceof Error ? error.message : "Revisa la comisión."}` });
+      }
+    }
+  }
+  const hasLoadedForm = Boolean(form);
+  useEffect(() => {
+    if (intent === "commercial" && isAdmin && hasLoadedForm && !loading) {
+      commercialSectionRef.current?.scrollIntoView({ block: "start" });
+    }
+  }, [intent, isAdmin, hasLoadedForm, loading]);
+  const canSave = Boolean(form) && validationIssues.length === 0;
+  const requiredPaymentCurrency = getPaymentReportCurrency(form?.paymentMethod);
+
+  function patchForm(patch: Partial<MasterOpsEditOrder>) {
+    setForm((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  function patchItem(localId: string, patch: Partial<MasterOpsEditOrderItem>) {
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            items: current.items.map((item) => (item.localId === localId ? { ...item, ...patch } : item)),
+          }
+        : current
+    );
+  }
+
+  function updateItemQuantity(item: MasterOpsEditOrderItem, rawValue: string) {
+    setQuantitySplitNotice(null);
+    if (item.crmPlayMemberId) {
+      setError("El beneficio reservado o entregado conserva su producto y cantidad para mantener la trazabilidad de la jugada.");
+      return;
+    }
+    const qty = toNumber(rawValue, Number.NaN);
+    const catalogItem = catalogById.get(item.productId) ?? null;
+    const original = data?.order.items.find(row => row.orderItemId === item.orderItemId);
+    const addedQty = original ? historicalQuantityAddition(original, qty, catalogItem) : 0;
+    if (original && catalogItem && addedQty > 0 && form) {
+      const snapshot = calculateOrderLineSnapshot({ sourceCurrency: catalogItem.sourcePriceCurrency,
+        sourceAmount: catalogItem.sourcePriceAmount, quantity: addedQty, fxRate,
+        fallbackUnitUsd: catalogItem.basePriceUsd });
+      const added: MasterOpsEditOrderItem = {
+        orderItemId: null, localId: `${Date.now()}-${Math.random()}`, productId: catalogItem.id,
+        skuSnapshot: catalogItem.sku, productNameSnapshot: catalogItem.name, qty: addedQty,
+        sourcePriceCurrency: catalogItem.sourcePriceCurrency, sourcePriceAmount: catalogItem.sourcePriceAmount,
+        unitPriceUsdSnapshot: snapshot.unitUsd, lineTotalUsd: snapshot.lineUsd,
+        unitPriceBsSnapshot: snapshot.unitBs, lineTotalBsSnapshot: snapshot.lineBs,
+        editableDetailLines: buildComponentDetailLines(componentsByParentId.get(catalogItem.id) ?? [], { totalMultiplier: addedQty }),
+        adminPriceOverrideUsd: null, adminPriceOverrideCurrency: null, adminPriceOverrideReason: null,
+        adminPriceOverrideByUserId: null, adminPriceOverrideAt: null,
+      };
+      setForm(current => current ? { ...current, items: [
+        ...current.items.map(row => row.localId === item.localId ? { ...row, ...original, localId: row.localId } : row), added,
+      ] } : current);
+      setQuantitySplitNotice(`${original.qty} conserva el precio acordado; ${addedQty} se agregó al precio actual.`);
+      setError(null);
+      return;
+    }
+    const shouldRefreshCatalogPrice =
+      item.adminPriceOverrideUsd == null &&
+      catalogItem != null &&
+      Number.isFinite(qty) &&
+      qty > 0 && (!original || qty > original.qty);
+    patchItem(item.localId, {
+      qty,
+      ...(shouldRefreshCatalogPrice
+        ? {
+            sourcePriceCurrency: catalogItem.sourcePriceCurrency,
+            sourcePriceAmount: catalogItem.sourcePriceAmount,
+            unitPriceUsdSnapshot: catalogItem.basePriceUsd,
+          }
+        : {}),
+    });
+  }
+
+  function removeItem(localId: string) {
+    const item = form?.items.find((candidate) => candidate.localId === localId);
+    if (item?.crmPlayMemberId && item.crmRedemptionStatus === 'redeemed') {
+      setError("El beneficio ya entregado no se elimina desde una modificación ordinaria. Cancela la orden si necesitas anular todo el pedido.");
+      return;
+    }
+    setForm((current) =>
+      current ? { ...current, items: current.items.filter((item) => item.localId !== localId) } : current
+    );
+  }
+
+  function selectClient(client: MasterOpsEditClient) {
+    if (form?.selectedClientId !== client.id && form?.items.some((item) => item.crmPlayMemberId)) {
+      setError("Retira el beneficio antes de cambiar el cliente de la orden.");
+      return;
+    }
+    setConfigState(null);
+    setForm((current) => current ? suggestSavedClientDeliveryAddress({
+      ...current,
+      selectedClientId: client.id,
+      client,
+      invoiceCompanyName: client.billingCompanyName,
+      invoiceTaxId: client.billingTaxId,
+      invoiceAddress: client.billingAddress,
+      invoicePhone: client.billingPhone,
+      deliveryNoteName: client.deliveryNoteName,
+      deliveryNoteDocumentId: client.deliveryNoteDocumentId,
+      deliveryNoteAddress: client.deliveryNoteAddress,
+      deliveryNotePhone: client.deliveryNotePhone,
+    }, deliveryAddressTouched.current) : current);
+    setNewClientName(client.fullName);
+    setNewClientPhone(client.phone);
+    setNewClientType(client.clientType);
+    setClientSearch("");
+    setClientResults([]);
+  }
+
+  function useNewClient() {
+    if (form?.items.some((item) => item.crmPlayMemberId)) {
+      setError("Retira el beneficio antes de cambiar el cliente de la orden.");
+      return;
+    }
+    setConfigState(null);
+    patchForm({ selectedClientId: null, client: null });
+    setClientSearch("");
+    setClientResults([]);
+  }
+
+  function selectProduct(product: MasterOpsEditCatalogItem) {
+    setSelectedProductId(product.id);
+    setProductSearch(product.name);
+    setError(null);
+    window.setTimeout(() => {
+      productQtyRef.current?.focus();
+      productQtyRef.current?.select();
+    }, 0);
+  }
+
+  function updateProductSearch(value: string) {
+    setProductSearch(value);
+    const query = normalizeSearchValue(value);
+    if (!query) {
+      setSelectedProductId("");
+      return;
+    }
+    const firstMatch =
+      (data?.catalogItems ?? [])
+        .filter((item) => item.isActive && item.discretionaryAllowed !== false)
+        .find((item) => normalizeSearchValue(`${item.name} ${item.sku ?? ""}`).includes(query)) ?? null;
+    setSelectedProductId(firstMatch?.id ?? "");
+  }
+
+  function openConfig(product: MasterOpsEditCatalogItem, editingItem?: MasterOpsEditOrderItem | null, pendingCrmItem?: MasterOpsEditOrderItem) {
+    const components = componentsByParentId.get(product.id) ?? [];
+    const parsed = editingItem ? parseEditableDetailLines(editingItem.editableDetailLines) : { alias: "", selections: [] };
+    const editableComponents = components.filter(
+      (component) =>
+        component.componentMode === "selectable" ||
+        (component.componentMode === "fixed" && !component.isRequired)
+    );
+    const selections: ConfigSelection[] = [];
+
+    if (editingItem) {
+      for (const parsedRow of parsed.selections) {
+        const match =
+          (parsedRow.componentProductId != null
+            ? editableComponents.find((component) => component.componentProductId === parsedRow.componentProductId)
+            : null) ??
+          editableComponents.find(
+            (component) =>
+              component.componentName.trim().toLowerCase() === parsedRow.componentName.trim().toLowerCase()
+          );
+        if (!match) continue;
+        selections.push({
+          localId: String(match.componentProductId),
+          componentProductId: match.componentProductId,
+          componentName: match.componentName,
+          qty: parsedRow.qty,
+        });
+      }
+    } else {
+      for (const component of components) {
+        if (component.componentMode === "fixed" && !component.isRequired && component.quantity > 0) {
+          selections.push({
+            localId: String(component.componentProductId),
+            componentProductId: component.componentProductId,
+            componentName: component.componentName,
+            qty: component.quantity,
+          });
+        }
+      }
+    }
+
+    setConfigState({
+      pendingCrmItem,
+      editingLocalId: editingItem?.localId ?? null,
+      productId: product.id,
+      productName: editingItem?.productNameSnapshot ?? product.name,
+      sku: editingItem?.skuSnapshot ?? product.sku,
+      qty: editingItem?.qty ?? pendingCrmItem?.qty ?? 1,
+      sourcePriceCurrency: editingItem?.sourcePriceCurrency ?? pendingCrmItem?.sourcePriceCurrency ?? product.sourcePriceCurrency,
+      sourcePriceAmount: editingItem?.sourcePriceAmount ?? pendingCrmItem?.sourcePriceAmount ?? product.sourcePriceAmount,
+      fallbackUnitUsd: editingItem?.unitPriceUsdSnapshot ?? pendingCrmItem?.unitPriceUsdSnapshot ?? product.basePriceUsd,
+      detailUnitsLimit: product.detailUnitsLimit,
+      alias: parsed.alias,
+      selections,
+    });
+  }
+
+  function appendCrmItem(item: MasterOpsEditOrderItem) {
+    setForm((current) => current ? {
+      ...current,
+      items: [...current.items.filter((existing) =>
+        (currentCrmContext?.benefitFulfillment !== 'delivery_zone_1' || !isDeliveryProduct(existing.productNameSnapshot, existing.skuSnapshot)) &&
+        (!existing.crmPlayMemberId ||
+        (currentCrmContext?.benefitSelectionMode === "multiple" && existing.crmPlayBenefitId !== item.crmPlayBenefitId))), item],
+    } : current);
+  }
+
+  function addCrmBenefit(benefitId: number, upgradeId: number | null = null) {
+    if (!form || !currentCrmContext || !crmAdvisorMatches || hasPersistedCrmBenefit) return;
+    const conflict = currentCrmContext.recurrenceMode === 'daily'
+      ? dailyBenefitConflict(currentCrmContext.dailyUses ?? [], form.deliveryDate, data?.order.id) : null;
+    if (conflict) { setError(`El beneficio de ese día ya está reservado o entregado en la orden #${conflict.orderId}.`); return; }
+    if (currentCrmContext.benefitFulfillment === 'pickup' && form.fulfillment !== 'pickup') {
+      setError('Esta jugada requiere retirar el pedido en el local.'); return;
+    }
+    if (currentCrmContext.benefitFulfillment === 'delivery_zone_1' && form.fulfillment !== 'delivery') {
+      setError('Esta jugada requiere delivery zona 1.'); return;
+    }
+    if (!crmPurchaseEligible) { setError(`Completa la compra mínima de ${money(crmMinimum)} para aplicar el beneficio.`); return; }
+    try {
+      const choice = resolveCrmOrderBenefit(currentCrmContext, benefitId, upgradeId);
+      const product = catalogById.get(choice.productId);
+      if (!product?.isActive) throw new Error("El producto del beneficio no está disponible.");
+      const item: MasterOpsEditOrderItem = {
+        ...choice,
+        localId: `crm-${choice.crmPlayMemberId}-${benefitId}`,
+        orderItemId: null,
+        skuSnapshot: product.sku,
+        productNameSnapshot: product.name,
+        editableDetailLines: buildComponentDetailLines(componentsByParentId.get(product.id) ?? [], { totalMultiplier: choice.qty }),
+        adminPriceOverrideUsd: null,
+        adminPriceOverrideCurrency: null,
+        adminPriceOverrideReason: null,
+        adminPriceOverrideByUserId: null,
+        adminPriceOverrideAt: null,
+      };
+      setError(null);
+      if (product.isDetailEditable) openConfig(product, null, item);
+      else appendCrmItem(item);
+    } catch (err) { setError(err instanceof Error ? err.message : "No se pudo agregar el beneficio."); }
+  }
+
+  function addProduct() {
+    if (!form) return;
+    const productId = Number(selectedProductId || 0);
+    const product = catalogById.get(productId);
+    const qty = toNumber(productQty, 0);
+
+    if (!product) {
+      setError("Selecciona un producto.");
+      return;
+    }
+    if (product.discretionaryAllowed === false) {
+      setError("Este producto no permite uso discrecional. Selecciona una jugada válida del cliente.");
+      return;
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setError("La cantidad debe ser mayor a 0.");
+      return;
+    }
+    if (product.isDetailEditable) {
+      if (qty !== 1) {
+        setError("Los productos configurables se cargan uno por uno.");
+        return;
+      }
+      openConfig(product, null);
+      setProductSearch("");
+      setSelectedProductId("");
+      setProductQty("1");
+      return;
+    }
+
+    const snapshot = calculateOrderLineSnapshot({
+      sourceCurrency: product.sourcePriceCurrency,
+      sourceAmount: product.sourcePriceAmount,
+      quantity: qty,
+      fxRate,
+      fallbackUnitUsd: product.basePriceUsd,
+    });
+    const detailLines = buildComponentDetailLines(componentsByParentId.get(product.id) ?? [], {
+      totalMultiplier: qty,
+    });
+
+    patchForm({
+      items: [
+        ...form.items,
+        {
+          orderItemId: null,
+          localId: `${Date.now()}-${Math.random()}`,
+          productId: product.id,
+          skuSnapshot: product.sku,
+          productNameSnapshot: product.name,
+          qty,
+          sourcePriceCurrency: product.sourcePriceCurrency,
+          sourcePriceAmount: product.sourcePriceAmount,
+          unitPriceUsdSnapshot: snapshot.unitUsd,
+          lineTotalUsd: snapshot.lineUsd,
+          editableDetailLines: detailLines,
+          adminPriceOverrideUsd: null,
+          adminPriceOverrideCurrency: null,
+          adminPriceOverrideReason: null,
+          adminPriceOverrideByUserId: null,
+          adminPriceOverrideAt: null,
+        },
+      ],
+    });
+    setProductSearch("");
+    setSelectedProductId("");
+    setProductQty("1");
+    setError(null);
+  }
+
+  const configSelectedUnits = useMemo(() => {
+    if (!configState) return 0;
+    const componentById = new Map(
+      (componentsByParentId.get(configState.productId) ?? []).map((component) => [
+        component.componentProductId,
+        component,
+      ] as const)
+    );
+    return configState.selections.reduce((sum, selection) => {
+      const component = componentById.get(selection.componentProductId);
+      if (component && !component.countsTowardDetailLimit) return sum;
+      return sum + Number(selection.qty || 0);
+    }, 0);
+  }, [componentsByParentId, configState]);
+
+  function updateConfigSelection(component: MasterOpsEditProductComponent, qtyInput: number) {
+    if (!configState) return;
+    const qty = Math.max(0, Math.floor(Number(qtyInput || 0)));
+    setConfigState((current) => {
+      if (!current) return current;
+      const others = current.selections.filter(
+        (selection) => selection.componentProductId !== component.componentProductId
+      );
+      if (qty <= 0) return { ...current, selections: others };
+      return {
+        ...current,
+        selections: [
+          ...others,
+          {
+            localId: String(component.componentProductId),
+            componentProductId: component.componentProductId,
+            componentName: component.componentName,
+            qty,
+          },
+        ],
+      };
+    });
+  }
+
+  function saveConfig() {
+    if (!form || !configState) return;
+    if (configState.detailUnitsLimit > 0 && configSelectedUnits !== configState.detailUnitsLimit) {
+      setError(`Debes seleccionar exactamente ${configState.detailUnitsLimit} piezas.`);
+      return;
+    }
+
+    const selectedByProductId = new Map(
+      configState.selections
+        .filter((selection) => selection.qty > 0)
+        .map((selection) => [selection.componentProductId, selection.qty] as const)
+    );
+    const detailLines = [
+      ...(configState.alias.trim() ? [`Para: ${configState.alias.trim()}`] : []),
+      ...buildComponentDetailLines(componentsByParentId.get(configState.productId) ?? [], {
+        selectedByProductId,
+        includeMetadata: true,
+      }),
+    ];
+    const snapshot = calculateOrderLineSnapshot({
+      sourceCurrency: configState.sourcePriceCurrency,
+      sourceAmount: configState.sourcePriceAmount,
+      quantity: configState.qty,
+      fxRate,
+      fallbackUnitUsd: configState.fallbackUnitUsd,
+    });
+    const existingItem = configState.editingLocalId
+      ? form.items.find((item) => item.localId === configState.editingLocalId) ?? null
+      : null;
+    const nextItem: MasterOpsEditOrderItem = {
+      ...(configState.pendingCrmItem ?? {}),
+      ...(existingItem ?? {}),
+      orderItemId: existingItem?.orderItemId ?? null,
+      localId: configState.editingLocalId ?? configState.pendingCrmItem?.localId ?? `${Date.now()}-${Math.random()}`,
+      productId: configState.productId,
+      skuSnapshot: configState.sku,
+      productNameSnapshot: configState.productName,
+      qty: configState.qty,
+      sourcePriceCurrency: existingItem?.adminPriceOverrideCurrency
+        ? existingItem.sourcePriceCurrency
+        : configState.sourcePriceCurrency,
+      sourcePriceAmount: existingItem?.adminPriceOverrideCurrency
+        ? existingItem.sourcePriceAmount
+        : configState.sourcePriceAmount,
+      unitPriceUsdSnapshot: existingItem?.adminPriceOverrideCurrency
+        ? recalculateItem(existingItem, fxRate).unitPriceUsdSnapshot
+        : snapshot.unitUsd,
+      lineTotalUsd: existingItem?.adminPriceOverrideCurrency
+        ? recalculateItem(existingItem, fxRate).lineTotalUsd
+        : snapshot.lineUsd,
+      editableDetailLines: detailLines,
+      adminPriceOverrideUsd: existingItem?.adminPriceOverrideUsd ?? null,
+      adminPriceOverrideCurrency: existingItem?.adminPriceOverrideCurrency ?? null,
+      adminPriceOverrideReason: existingItem?.adminPriceOverrideReason ?? null,
+      adminPriceOverrideByUserId: existingItem?.adminPriceOverrideByUserId ?? null,
+      adminPriceOverrideAt: existingItem?.adminPriceOverrideAt ?? null,
+      crmPlayMemberId: existingItem?.crmPlayMemberId ?? configState.pendingCrmItem?.crmPlayMemberId ?? null,
+      crmPlayBenefitId: existingItem?.crmPlayBenefitId ?? configState.pendingCrmItem?.crmPlayBenefitId ?? null,
+      crmPlayBenefitUpgradeId: existingItem?.crmPlayBenefitUpgradeId ?? configState.pendingCrmItem?.crmPlayBenefitUpgradeId ?? null,
+      crmRedemptionStatus: existingItem?.crmRedemptionStatus ?? null,
+      crmPlayName: existingItem?.crmPlayName ?? configState.pendingCrmItem?.crmPlayName ?? null,
+    };
+
+    if (configState.pendingCrmItem) {
+      if (!currentCrmContext || currentCrmContext.playMemberId !== nextItem.crmPlayMemberId || !crmAdvisorMatches || !crmPurchaseEligible) {
+        setError("Las condiciones de la jugada cambiaron. Revisa el cliente y la compra mínima.");
+        return;
+      }
+      appendCrmItem(nextItem);
+    } else patchForm({
+      items: configState.editingLocalId
+        ? form.items.map((item) => (item.localId === configState.editingLocalId ? nextItem : item))
+        : [...form.items, nextItem],
+    });
+    setConfigState(null);
+    setError(null);
+  }
+
+  function addMuerdemeProduct(quote: MenuOrderQuote, salesEnabled: boolean) {
+    const snapshot = calculateOrderLineSnapshot({ sourceCurrency: 'USD', sourceAmount: quote.unitUsd, quantity: 1, fxRate });
+    const existing = form?.items.find(item => item.localId === muerdemeEdit?.key);
+    const item: MasterOpsEditOrderItem = {
+      orderItemId: existing?.orderItemId ?? null, localId: existing?.localId ?? crypto.randomUUID(), productId: quote.productId,
+      skuSnapshot: null, productNameSnapshot: quote.title, qty: 1, sourcePriceCurrency: 'USD', sourcePriceAmount: quote.unitUsd,
+      unitPriceUsdSnapshot: snapshot.unitUsd, lineTotalUsd: snapshot.lineUsd, unitPriceBsSnapshot: snapshot.unitBs,
+      lineTotalBsSnapshot: snapshot.lineBs, editableDetailLines: menuQuoteDetailLines(quote),
+      adminPriceOverrideUsd: null, adminPriceOverrideCurrency: null, adminPriceOverrideReason: null,
+      adminPriceOverrideByUserId: null, adminPriceOverrideAt: null,
+      commissionInheritedMode: 'fixed_item', commissionInheritedValue: 0,
+    };
+    setForm(current => current ? { ...current, items: existing ? current.items.map(row => row.localId === existing.localId ? item : row) : [...current.items, item] } : current);
+    setMuerdemeSalesEnabled(salesEnabled); setMuerdemeEdit(null); setError(null);
+  }
+
+  function updateItemOverride(item: MasterOpsEditOrderItem, currency: MasterOpsEditCurrency, rawValue: string) {
+    // Keep separators, trailing zeros and an empty field intact while typing.
+    setItemPriceDrafts(current => ({ ...current, [item.localId]: { currency, text: rawValue } }));
+    const amount = parseOrderPriceDraft(rawValue);
+    if (amount === null) return;
+    const unitUsd = currency === "VES" && fxRate > 0 ? amount / fxRate : amount;
+    const snapshot = calculateOrderLineSnapshot({
+      sourceCurrency: currency,
+      sourceAmount: amount,
+      quantity: item.qty,
+      fxRate,
+      fallbackUnitUsd: item.unitPriceUsdSnapshot,
+    });
+    patchItem(item.localId, {
+      sourcePriceCurrency: currency,
+      sourcePriceAmount: amount,
+      unitPriceUsdSnapshot: snapshot.unitUsd,
+      lineTotalUsd: snapshot.lineUsd,
+      adminPriceOverrideUsd: unitUsd,
+      adminPriceOverrideCurrency: currency,
+      adminPriceOverrideReason: item.adminPriceOverrideReason || "Ajuste administrativo",
+    });
+  }
+
+  function clearItemPriceDraft(localId: string, onlyIfValid = false) {
+    setItemPriceDrafts(current => {
+      const draft = current[localId];
+      if (!draft || (onlyIfValid && parseOrderPriceDraft(draft.text) === null)) return current;
+      const next = { ...current };
+      delete next[localId];
+      return next;
+    });
+  }
+
+  async function saveOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!form) return;
+    if (form.items.some((item) => !item.orderItemId && item.crmPlayMemberId) && (!crmAdvisorMatches || !crmPurchaseEligible || crmLoading)) {
+      setError("Revisa el asesor y la compra mínima de la jugada antes de guardar.");
+      return;
+    }
+    if (!canSave) {
+      setError(validationIssues[0]?.message ?? "Faltan datos obligatorios para guardar.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const itemsPayload = orderedItems;
+      const orderPayload = {
+        source: form.source,
+        attributedAdvisorUserId:
+          form.source === "advisor" || form.source === "walk_in" || form.items.some((item) => item.crmPlayMemberId)
+            ? form.attributedAdvisorUserId
+            : null,
+        fulfillment: form.fulfillment,
+        selectedClientId: form.selectedClientId,
+        newClientName: form.selectedClientId ? "" : newClientName,
+        newClientPhone: form.selectedClientId ? "" : newClientPhone,
+        newClientType,
+        deliveryDate: form.deliveryDate,
+        deliveryHour12: form.deliveryHour12,
+        deliveryMinute: form.deliveryMinute,
+        deliveryAmPm: form.deliveryAmPm,
+        isAsap: form.isAsap,
+        receiverName: form.receiverName,
+        receiverPhone: form.receiverPhone,
+        deliveryAddress: form.deliveryAddress,
+        deliveryGpsUrl: form.deliveryGpsUrl,
+        note: form.note,
+        discountEnabled: form.discountEnabled,
+        discountPct: form.discountPct,
+        invoiceTaxPct: form.invoiceTaxPct,
+        fxRate: String(fxRate),
+        paymentMethod: form.paymentMethod,
+        paymentCurrency: form.paymentCurrency,
+        paymentRequiresChange: form.paymentRequiresChange,
+        paymentChangeFor: form.paymentChangeFor,
+        paymentChangeCurrency: form.paymentChangeCurrency,
+        paymentNote: form.paymentNote,
+        useClientFund: form.useClientFund && effectiveFundAmount > 0,
+        clientFundAmountUsd: form.useClientFund ? String(effectiveFundAmount) : "",
+        hasDeliveryNote: form.hasDeliveryNote,
+        hasInvoice: form.hasInvoice,
+        invoiceDataNote: [
+          form.invoiceCompanyName,
+          form.invoiceTaxId,
+          form.invoiceAddress,
+          form.invoicePhone,
+        ]
+          .filter(Boolean)
+          .join(" | "),
+        invoiceCompanyName: form.invoiceCompanyName,
+        invoiceTaxId: form.invoiceTaxId,
+        invoiceAddress: form.invoiceAddress,
+        invoicePhone: form.invoicePhone,
+        deliveryNoteName: form.deliveryNoteName,
+        deliveryNoteDocumentId: form.deliveryNoteDocumentId,
+        deliveryNoteAddress: form.deliveryNoteAddress,
+        deliveryNotePhone: form.deliveryNotePhone,
+        items: itemsPayload.map((item) => ({
+          ...prepareEditorCommissionFields(item, originalItemsById.get(Number(item.orderItemId)) ?? {}, isAdmin),
+          orderItemId: item.orderItemId,
+          productId: item.productId,
+          skuSnapshot: item.skuSnapshot,
+          productNameSnapshot: item.productNameSnapshot,
+          qty: item.qty,
+          sourcePriceCurrency: item.sourcePriceCurrency,
+          sourcePriceAmount: item.sourcePriceAmount,
+          unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
+          lineTotalUsd: item.lineTotalUsd,
+          editableDetailLines: item.editableDetailLines,
+          adminPriceOverrideUsd: item.adminPriceOverrideUsd,
+          adminPriceOverrideCurrency: item.adminPriceOverrideCurrency,
+          adminPriceOverrideReason: item.adminPriceOverrideReason,
+          crmPlayMemberId: item.crmPlayMemberId ?? null,
+          crmPlayBenefitId: item.crmPlayBenefitId ?? null,
+          crmPlayBenefitUpgradeId: item.crmPlayBenefitUpgradeId ?? null,
+        })),
+      };
+      const result = isCreateMode
+        ? await createMasterOpsOrderAction(orderPayload)
+        : await updateMasterOpsOrderAction({
+            orderId: form.id,
+            expectedLastModifiedAt: form.lastModifiedAtISO,
+            ...orderPayload,
+            adminEditReason: requiresEditReason ? adminEditReason.trim() : null,
+          });
+
+      if (result && "ok" in result && !result.ok) {
+        setError(result.message);
+        return;
+      }
+
+      setSuccess(isCreateMode ? "Orden creada." : "Orden actualizada.");
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo guardar la orden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!isOpen) return null;
+
+  return (
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="order-editor-title" tabIndex={-1} className="order-detail-dialog fixed inset-0 z-[80] bg-black/70">
+      <div className="ml-auto flex h-full w-full max-w-[1180px] flex-col border-l border-[#242433] bg-[#0B0B0D] text-[#F5F5F7] shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#242433] px-5 py-3">
+          <div>
+            <div id="order-editor-title" className="text-base font-semibold">
+              {isCreateMode
+                ? templateOrderId ? `Repetir pedido #${formatOrderDisplayNumber(templateOrderId)}` : "Nuevo pedido"
+                : form
+                  ? `${form.status === "out_for_delivery" ? "Agregar al envío · Orden" : "Modificar orden"} #${formatOrderDisplayNumber(form.id)}`
+                  : "Modificar orden"}
+            </div>
+            <div className="mt-0.5 text-xs text-[#8A8A96]">
+              {isCreateMode
+                ? templateOrderId ? "Pedido nuevo · Precios y tasa vigentes. Revisa fecha, entrega y pago." : "Crea una orden con las reglas vigentes del negocio."
+                : "Carga datos solo para esta orden."}
+            </div>
+          </div>
+          <button
+            className="rounded-xl border border-[#242433] bg-[#121218] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
+            type="button"
+            data-dialog-close
+            onClick={onClose}
+          >
+            Cerrar
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-[#B7B7C2]">Cargando editor...</div>
+        ) : null}
+
+        {!loading && form?.status === "out_for_delivery" && data ? (
+          <div className="overflow-y-auto px-5 py-4">
+            <MasterOpsBeverageAppend key={`beverage-${data.order.id}`} order={data.order}
+              catalog={data.catalogItems} onSaved={onSaved} />
+            <MasterOpsGiftAppend key={data.order.id} order={data.order}
+              catalog={data.catalogItems} disabled={false} onSaved={onSaved} />
+          </div>
+        ) : null}
+
+        {!loading && form && form.status !== "out_for_delivery" ? (
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={saveOrder}>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {data?.repeatSummary?.skippedItems.length ? (
+                <div role="status" className="mb-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                  No se copiaron productos no disponibles o exclusivos de jugada: {data.repeatSummary.skippedItems.join(", ")}. Revisa el pedido.
+                </div>
+              ) : null}
+              {!isCreateMode && data ? <MasterOpsGiftAppend key={data.order.id}
+                order={data.order} catalog={data.catalogItems} onSaved={onSaved}
+                disabled={saving || JSON.stringify(form) !== JSON.stringify({
+                  ...data.order,
+                  paymentCurrency: getPaymentReportCurrency(data.order.paymentMethod) ?? data.order.paymentCurrency,
+                })} /> : null}
+              <div className="grid gap-4 xl:grid-cols-[0.95fr_1.25fr]">
+                <div className="space-y-4">
+                  <Section title="Cliente y origen">
+                    <div className="grid gap-3">
+                      {form.selectedClientId && form.client ? (
+                        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="text-sm font-semibold text-[#F5F5F7]">{form.client.fullName}</div>
+                              <div className="mt-1 text-xs text-[#B7B7C2]">{form.client.phone || "Sin telefono"}</div>
+                              <div className="mt-1 text-xs text-emerald-200">
+                                Fondo {money(form.client.fundBalanceUsd)}
+                              </div>
+                            </div>
+                            <button
+                              className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2 py-1 text-xs text-[#F5F5F7]"
+                              type="button"
+                              onClick={useNewClient}
+                            >
+                              Cambiar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-[#FEEF00]/25 bg-[#FEEF00]/10 p-3">
+                          <div className="text-xs font-semibold text-[#FEEF00]">Cliente nuevo o sin seleccionar</div>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <input
+                              className={fieldClass()}
+                              value={newClientName}
+                              onChange={(event) => setNewClientName(event.target.value)}
+                              placeholder="Nombre"
+                            />
+                            <input
+                              className={fieldClass()}
+                              value={newClientPhone}
+                              onChange={(event) => setNewClientPhone(event.target.value)}
+                              placeholder="Telefono"
+                            />
+                          </div>
+                          <select
+                            className={`${fieldClass()} mt-2`}
+                            value={newClientType}
+                            onChange={(event) => setNewClientType(event.target.value as "assigned" | "own" | "legacy")}
+                          >
+                            <option value="assigned">Asignado</option>
+                            <option value="own">Propio</option>
+                            <option value="legacy">Antiguo</option>
+                          </select>
+                        </div>
+                      )}
+
+                      <Field label="Buscar cliente">
+                        <input
+                          className={fieldClass()}
+                          value={clientSearch}
+                          onChange={(event) => setClientSearch(event.target.value)}
+                          placeholder="Nombre o telefono"
+                        />
+                      </Field>
+                      {clientSearch.trim().length >= 2 ? (
+                        <div className="rounded-xl border border-[#242433] bg-[#0B0B0D]">
+                          {clientSearching ? (
+                            <div className="px-3 py-2 text-xs text-[#8A8A96]">Buscando...</div>
+                          ) : null}
+                          {!clientSearching && clientResults.length === 0 ? (
+                            <div className="px-3 py-2 text-xs text-[#8A8A96]">Sin resultados.</div>
+                          ) : null}
+                          {clientResults.map((client) => (
+                            <button
+                              key={client.id}
+                              className="block w-full border-t border-[#181824] px-3 py-2 text-left text-sm hover:bg-[#121218]"
+                              type="button"
+                              onClick={() => selectClient(client)}
+                            >
+                              <span className="font-semibold text-[#F5F5F7]">{client.fullName}</span>
+                              <span className="ml-2 text-xs text-[#8A8A96]">{client.phone}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Origen">
+                          <select
+                            className={fieldClass()}
+                            value={form.source}
+                            onChange={(event) =>
+                              patchForm({ source: event.target.value as "advisor" | "master" | "walk_in" })
+                            }
+                          >
+                            <option value="advisor">Asesor</option>
+                            <option value="master">Master</option>
+                            <option value="walk_in">Mostrador</option>
+                          </select>
+                        </Field>
+                        {canAssignResponsibleAdvisor ? (
+                          <Field label={form.source === "walk_in" ? "Asesor responsable" : "Asesor"}>
+                            <select
+                              className={fieldClass()}
+                              value={form.attributedAdvisorUserId ?? ""}
+                              onChange={(event) => patchForm({ attributedAdvisorUserId: event.target.value || null })}
+                            >
+                              <option value="">Selecciona asesor</option>
+                              {(data?.advisors ?? []).map((advisor: MasterOpsEditAdvisor) => (
+                                <option key={advisor.id} value={advisor.id}>
+                                  {advisor.fullName}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                        ) : null}
+                      </div>
+                      {!isCreateMode && form.source === "walk_in" ? (
+                        <div className={[
+                          "rounded-xl border px-3 py-2 text-xs",
+                          form.attributedAdvisorUserId
+                            ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                            : form.advisorSuggestion?.isActive
+                              ? "border-sky-300/25 bg-sky-300/10 text-sky-100"
+                              : "border-amber-300/25 bg-amber-300/10 text-amber-100",
+                        ].join(" ")}>
+                          {form.attributedAdvisorUserId ? (
+                            <>
+                              La orden conserva su origen en Mostrador y el asesor seleccionado quedará responsable del seguimiento.
+                            </>
+                          ) : form.advisorSuggestion ? (
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <span className="font-semibold">
+                                  {form.advisorSuggestion.source === "primary" ? "Asesor habitual" : "Último asesor"}: {form.advisorSuggestion.fullName}
+                                </span>
+                                <span className="mt-0.5 block opacity-80">
+                                  {form.advisorSuggestion.isActive
+                                    ? "Es una sugerencia; Master decide si lo asigna."
+                                    : "El asesor ya no está activo. Selecciona otro responsable."}
+                                </span>
+                              </div>
+                              {form.advisorSuggestion.isActive ? (
+                                <button
+                                  type="button"
+                                  onClick={() => patchForm({ attributedAdvisorUserId: form.advisorSuggestion?.userId ?? null })}
+                                  className="rounded-lg border border-sky-200/35 bg-sky-200/10 px-2.5 py-1.5 font-semibold text-sky-50 hover:bg-sky-200/15"
+                                >
+                                  Usar sugerencia
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <>
+                              Cliente sin asesor identificado. Master debe seleccionar quién dará seguimiento al pedido y a su cobranza.
+                            </>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </Section>
+
+                  {form.selectedClientId ? (
+                    <Section title={currentCrmContext ? `Jugada · ${currentCrmContext.playName}` : "Jugada del cliente"}>
+                      {!isCreateMode && orderId && hasPersistedCrmBenefit ? (
+                        <div className="space-y-2">
+                          <CrmOrderValidityPanel key={`validity:${orderId}`} orderId={orderId} />
+                          <CrmOrderMinimumPanel key={orderId} orderId={orderId} isAdmin={isAdmin} />
+                        </div>
+                      ) : null}
+                      {crmLoading ? <p role="status" className="text-xs text-[#B7B7C2]">Consultando beneficios disponibles…</p> : null}
+                      {crmError ? (
+                        <div className="text-xs text-amber-200">
+                          {crmError}
+                          <button type="button" className="ml-2 underline" onClick={() => setCrmReload((value) => value + 1)}>Reintentar</button>
+                        </div>
+                      ) : null}
+                      {!crmLoading && !crmError && !currentCrmContext ? (
+                        <p className="text-xs text-[#B7B7C2]">{hasPersistedCrmBenefit ? "El beneficio de este pedido ya está reservado. Puedes revisar su composición en el pedido." : "Sin jugada disponible para agregar."}</p>
+                      ) : null}
+                      {currentCrmContext ? (
+                        <div className="space-y-2 text-xs">
+                          <p className="text-[#B7B7C2]">
+                            {crmMinimum > 0 ? `Compra mínima: ${money(crmMinimum)}. Faltan ${money(Math.max(0, crmMinimum - crmCommercialSubtotal))}.` : "Sin compra requerida."}
+                            {currentCrmContext.benefitSelectionMode === "single" ? " Elige un beneficio." : " Puedes combinar beneficios distintos."}
+                          </p>
+                          {!crmAdvisorMatches ? (
+                            <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-2 text-amber-100">
+                              La jugada está a cargo de {crmAdvisor?.fullName || "otro asesor"}. La orden debe tener ese mismo asesor para aplicar el beneficio.
+                              {crmAdvisor && !hasPersistedCrmBenefit ? (
+                                <button type="button" className="mt-2 block rounded-lg border border-amber-200/40 px-2 py-1 font-semibold"
+                                  onClick={() => patchForm({ attributedAdvisorUserId: crmAdvisor.id })}>
+                                  Usar a {crmAdvisor.fullName} como responsable
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {hasPersistedCrmBenefit ? <p className="text-amber-100">Ya hay un beneficio reservado en el pedido. Retíralo y guarda si necesitas cambiarlo.</p> : null}
+                          {currentCrmContext.benefits.map((benefit) => {
+                            const selected = form.items.find((item) => item.crmPlayMemberId === currentCrmContext.playMemberId && item.crmPlayBenefitId === benefit.playBenefitId);
+                            const disabled = !crmAdvisorMatches || !crmPurchaseEligible || hasPersistedCrmBenefit || saving;
+                            return (
+                              <div key={benefit.playBenefitId} className="rounded-lg border border-[#34301B] bg-[#171506] p-2">
+                                <div className="font-semibold">{benefit.quantity} × {benefit.name}</div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button type="button" disabled={disabled} onClick={() => addCrmBenefit(benefit.playBenefitId)}
+                                    className="rounded-lg border border-emerald-300/40 px-2 py-1.5 text-emerald-200 disabled:opacity-40">
+                                    {selected && !selected.crmPlayBenefitUpgradeId ? "Seleccionado · gratis" : "Elegir obsequio · gratis"}
+                                  </button>
+                                  {benefit.upgrades.map((upgrade) => (
+                                    <button key={upgrade.id} type="button" disabled={disabled} onClick={() => addCrmBenefit(benefit.playBenefitId, upgrade.id)}
+                                      className="rounded-lg border border-[#FEEF00]/40 px-2 py-1.5 text-[#FFF7A6] disabled:opacity-40">
+                                      {selected?.crmPlayBenefitUpgradeId === upgrade.id ? "Seleccionado · " : "Ampliar · "}{upgrade.name} · +{money(upgrade.customerDifferenceUsd)}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <p className="text-[#8A8A96]">El beneficio es opcional. Al elegir un pack se abre su composición; se reserva al guardar y se registra como entregado al completar el pedido.</p>
+                        </div>
+                      ) : null}
+                    </Section>
+                  ) : null}
+
+                  <Section title="Entrega">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Tipo">
+                        <select
+                          className={fieldClass()}
+                          value={form.fulfillment}
+                          onChange={(event) => {
+                            const fulfillment = event.target.value as "pickup" | "delivery";
+                            setForm((current) => current ? suggestSavedClientDeliveryAddress(
+                              { ...current, fulfillment }, deliveryAddressTouched.current,
+                            ) : current);
+                          }}
+                        >
+                          <option value="pickup">Pickup</option>
+                          <option value="delivery">Delivery</option>
+                        </select>
+                      </Field>
+                      <Field label="Fecha">
+                        <input
+                          className={fieldClass()}
+                          type="date"
+                          value={form.deliveryDate}
+                          onChange={(event) => patchForm({ deliveryDate: event.target.value })}
+                        />
+                      </Field>
+                      <Field label="Hora">
+                        <div className="grid grid-cols-[1fr_1fr_0.8fr] gap-2">
+                          <input
+                            className={fieldClass()}
+                            value={form.deliveryHour12}
+                            onChange={(event) => patchForm({ deliveryHour12: event.target.value })}
+                            inputMode="numeric"
+                          />
+                          <input
+                            className={fieldClass()}
+                            value={form.deliveryMinute}
+                            onChange={(event) => patchForm({ deliveryMinute: event.target.value })}
+                            inputMode="numeric"
+                          />
+                          <select
+                            className={fieldClass()}
+                            value={form.deliveryAmPm}
+                            onChange={(event) => patchForm({ deliveryAmPm: event.target.value as "AM" | "PM" })}
+                          >
+                            <option value="AM">AM</option>
+                            <option value="PM">PM</option>
+                          </select>
+                        </div>
+                      </Field>
+                      <label className="flex items-end gap-2 pb-2 text-sm text-[#F5F5F7]">
+                        <input
+                          className="accent-[#FEEF00]"
+                          type="checkbox"
+                          checked={form.isAsap}
+                          onChange={(event) => patchForm({ isAsap: event.target.checked })}
+                        />
+                        Lo antes posible
+                      </label>
+                      <Field label="Recibe">
+                        <input
+                          className={fieldClass()}
+                          value={form.receiverName}
+                          onChange={(event) => patchForm({ receiverName: event.target.value })}
+                          placeholder="Solo si recibe otra persona"
+                        />
+                      </Field>
+                      <Field label="Telefono recibe">
+                        <input
+                          className={fieldClass()}
+                          value={form.receiverPhone}
+                          onChange={(event) => patchForm({ receiverPhone: event.target.value })}
+                          placeholder="Opcional"
+                        />
+                      </Field>
+                      {form.fulfillment === "delivery" ? (
+                        <>
+                          {savedClientAddresses.length > 0 ? (
+                            <div className="min-w-0 sm:col-span-2">
+                              <div className="mb-1.5 text-xs text-[#B7B7C2]">Direcciones guardadas</div>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {savedClientAddresses.map((address, index) => {
+                                  const selected = form.deliveryAddress.trim() === address.addressText && form.deliveryGpsUrl.trim() === address.gpsUrl;
+                                  return (
+                                    <button key={JSON.stringify(address)} type="button" aria-pressed={selected}
+                                      aria-label={`Usar dirección guardada ${index + 1}: ${address.addressText || "Ubicación GPS"}`}
+                                      title={address.addressText || address.gpsUrl}
+                                      className={`min-w-0 rounded-lg border px-2.5 py-2 text-left text-xs transition ${selected
+                                        ? "border-[#FFFF00]/45 bg-[#FFFF00]/10 text-[#FFFF00]"
+                                        : "border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:border-[#FFFF00]/45"}`}
+                                      onClick={() => {
+                                        deliveryAddressTouched.current = true;
+                                        patchForm({ deliveryAddress: address.addressText, deliveryGpsUrl: address.gpsUrl });
+                                      }}>
+                                      <span className="font-semibold">{selected ? "Seleccionada" : `Usar dirección ${index + 1}`}</span>
+                                      <span className="mt-0.5 block line-clamp-2 break-words text-[#B7B7C2]">{address.addressText || "Ubicación GPS guardada"}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null}
+                          <Field label="Direccion" className="sm:col-span-2">
+                            <textarea
+                              className={`${fieldClass()} min-h-[74px]`}
+                              value={form.deliveryAddress}
+                              onChange={(event) => {
+                                deliveryAddressTouched.current = true;
+                                patchForm({ deliveryAddress: event.target.value });
+                              }}
+                              placeholder="Direccion completa"
+                            />
+                          </Field>
+                          <Field label="GPS" className="sm:col-span-2">
+                            <input
+                              className={fieldClass()}
+                              value={form.deliveryGpsUrl}
+                              onChange={(event) => {
+                                deliveryAddressTouched.current = true;
+                                patchForm({ deliveryGpsUrl: event.target.value });
+                              }}
+                              placeholder="Link de ubicacion"
+                            />
+                          </Field>
+                        </>
+                      ) : null}
+                      <Field label="Nota del pedido" className="sm:col-span-2">
+                        <textarea
+                          className={`${fieldClass()} min-h-[74px]`}
+                          value={form.note}
+                          onChange={(event) => patchForm({ note: event.target.value })}
+                          placeholder="Notas de preparacion, empaque o entrega"
+                        />
+                      </Field>
+                    </div>
+                  </Section>
+
+                  <Section title="Pago y documentos">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Metodo">
+                        <select
+                          className={fieldClass()}
+                          value={form.paymentMethod}
+                          onChange={(event) => {
+                            const paymentMethod = event.target.value;
+                            const paymentCurrency = getPaymentReportCurrency(paymentMethod);
+                            patchForm({
+                              paymentMethod,
+                              ...(paymentCurrency ? { paymentCurrency } : {}),
+                            });
+                          }}
+                        >
+                          <option value="">Sin definir</option>
+                          {MASTER_OPS_ORDER_PAYMENT_METHODS.map((method) => (
+                            <option key={method} value={method}>
+                              {getPaymentMethodLabel(method) || method}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label={requiredPaymentCurrency ? "Moneda automatica" : "Moneda"}>
+                        <select
+                          className={fieldClass()}
+                          value={form.paymentCurrency}
+                          disabled={Boolean(requiredPaymentCurrency)}
+                          onChange={(event) => patchForm({ paymentCurrency: event.target.value as MasterOpsEditCurrency })}
+                        >
+                          <option value="USD">USD</option>
+                          <option value="VES">VES</option>
+                        </select>
+                      </Field>
+                      <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+                        <input
+                          className="accent-[#FEEF00]"
+                          type="checkbox"
+                          checked={form.paymentRequiresChange}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            const currency = (getPaymentReportCurrency(form.paymentMethod)
+                              ?? form.paymentCurrency) as MasterOpsEditCurrency;
+                            patchForm({
+                              paymentRequiresChange: checked,
+                              ...(checked ? {
+                                paymentChangeCurrency: currency,
+                                paymentMethod: currency === "VES" ? "cash_ves" : "cash_usd",
+                                paymentCurrency: currency,
+                              } : {}),
+                            });
+                          }}
+                        />
+                        El cliente necesita cambio
+                      </label>
+                      {form.paymentRequiresChange ? (
+                        <div className="rounded-xl border border-orange-400/30 bg-orange-950/15 p-3 sm:col-span-2">
+                          <div className="text-xs font-semibold text-orange-100">¿Con cuánto pagará el cliente?</div>
+                          <p className="mt-1 text-[11px] leading-relaxed text-orange-100/70">
+                            Escribe lo que entregará, no el cambio. Si la orden hace $15 y paga con $20, registra 20; Counter preparará $5.
+                          </p>
+                          <div className="mt-2 grid grid-cols-[1fr_0.7fr] gap-2">
+                            <Field label={`Monto que entrega · ${currencyLabel(form.paymentChangeCurrency)}`}>
+                            <input
+                              className={fieldClass()}
+                              value={form.paymentChangeFor}
+                              onChange={(event) => patchForm({ paymentChangeFor: event.target.value })}
+                              placeholder="Monto que entrega"
+                              inputMode="decimal"
+                              aria-label={`Monto con el que pagará el cliente · ${currencyLabel(form.paymentChangeCurrency)}`}
+                            />
+                            </Field>
+                            <select
+                              className={fieldClass()}
+                              value={form.paymentChangeCurrency}
+                              onChange={(event) => {
+                                const currency = event.target.value as MasterOpsEditCurrency;
+                                patchForm({
+                                  paymentChangeCurrency: currency,
+                                  paymentCurrency: currency,
+                                  paymentMethod: currency === "VES" ? "cash_ves" : "cash_usd",
+                                });
+                              }}
+                              aria-label="Moneda del efectivo que entregara el cliente"
+                            >
+                              <option value="USD">USD</option>
+                              <option value="VES">VES</option>
+                            </select>
+                          </div>
+                          <div className="mt-2 text-[11px] text-orange-100/70">
+                            Counter calculará la diferencia exacta contra el saldo vigente cuando vaya a despachar.
+                          </div>
+                        </div>
+                      ) : null}
+                      <Field label="Nota pago" className="sm:col-span-2">
+                        <input
+                          className={fieldClass()}
+                          value={form.paymentNote}
+                          onChange={(event) => patchForm({ paymentNote: event.target.value })}
+                          placeholder="Banco, referencia esperada, cambio, etc."
+                        />
+                      </Field>
+                      <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+                        <input
+                          className="accent-[#FEEF00]"
+                          type="checkbox"
+                          checked={form.hasDeliveryNote}
+                          onChange={(event) => patchForm({ hasDeliveryNote: event.target.checked })}
+                        />
+                        Nota de entrega
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+                        <input
+                          className="accent-[#FEEF00]"
+                          type="checkbox"
+                          checked={form.hasInvoice}
+                          onChange={(event) => patchForm({ hasInvoice: event.target.checked })}
+                        />
+                        Factura
+                      </label>
+                      {form.hasDeliveryNote ? (
+                        <div className="grid gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 sm:col-span-2 sm:grid-cols-2">
+                          <input className={fieldClass()} value={form.deliveryNoteName} onChange={(event) => patchForm({ deliveryNoteName: event.target.value })} placeholder="Nombre nota" />
+                          <input className={fieldClass()} value={form.deliveryNoteDocumentId} onChange={(event) => patchForm({ deliveryNoteDocumentId: event.target.value })} placeholder="Documento" />
+                          <input className={fieldClass()} value={form.deliveryNoteAddress} onChange={(event) => patchForm({ deliveryNoteAddress: event.target.value })} placeholder="Direccion" />
+                          <input className={fieldClass()} value={form.deliveryNotePhone} onChange={(event) => patchForm({ deliveryNotePhone: event.target.value })} placeholder="Telefono" />
+                        </div>
+                      ) : null}
+                      {form.hasInvoice ? (
+                        <div className="grid gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 sm:col-span-2 sm:grid-cols-2">
+                          <input className={fieldClass()} value={form.invoiceCompanyName} onChange={(event) => patchForm({ invoiceCompanyName: event.target.value })} placeholder="Razon social" />
+                          <input className={fieldClass()} value={form.invoiceTaxId} onChange={(event) => patchForm({ invoiceTaxId: event.target.value })} placeholder="RIF/CI" />
+                          <input className={fieldClass()} value={form.invoiceAddress} onChange={(event) => patchForm({ invoiceAddress: event.target.value })} placeholder="Direccion fiscal" />
+                          <input className={fieldClass()} value={form.invoicePhone} onChange={(event) => patchForm({ invoicePhone: event.target.value })} placeholder="Telefono" />
+                          <input className={fieldClass("sm:col-span-2")} value={form.invoiceTaxPct} onChange={(event) => patchForm({ invoiceTaxPct: event.target.value })} placeholder="% IVA" inputMode="decimal" />
+                        </div>
+                      ) : null}
+                    </div>
+                  </Section>
+                </div>
+
+                <div className="space-y-4">
+                  <div ref={commercialSectionRef} className="scroll-mt-4">
+                  <Section
+                    title={intent === "commercial" && isAdmin ? "Precios y comisiones" : "Pedido"}
+                    aside={
+                      <div className="text-right text-xs text-[#B7B7C2]">
+                        <div>{orderedItems.length} item(s)</div>
+                        <div className="font-semibold text-[#FEEF00]">{money(totals.totalUsd)} / {bs(totals.totalBs)}</div>
+                      </div>
+                    }
+                  >
+                    <MuerdemeOrderPicker onAdd={addMuerdemeProduct} edit={muerdemeEdit} onEditDone={() => setMuerdemeEdit(null)} disabled={saving} />
+                    <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_84px_92px]">
+                      <div className="relative">
+                        <input
+                          className={fieldClass()}
+                          value={productSearch}
+                          onChange={(event) => updateProductSearch(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return;
+                            const product = filteredProducts[0];
+                            if (!product) return;
+                            event.preventDefault();
+                            selectProduct(product);
+                          }}
+                          placeholder="Buscar producto"
+                        />
+                        {productSearch.trim() ? (
+                          <div className="absolute left-0 right-0 z-20 mt-1 max-h-64 overflow-y-auto rounded-xl border border-[#242433] bg-[#0B0B0D] shadow-2xl">
+                            {filteredProducts.length > 0 ? (
+                              filteredProducts.map((product) => {
+                                const isSelected = selectedProductId === product.id;
+                                return (
+                                  <button
+                                    key={product.id}
+                                    className={[
+                                      "block w-full border-b border-[#181824] px-3 py-2 text-left text-sm last:border-b-0 hover:bg-[#121218]",
+                                      isSelected ? "bg-[#FEEF00]/10 text-[#FEEF00]" : "text-[#F5F5F7]",
+                                    ].join(" ")}
+                                    type="button"
+                                    onClick={() => selectProduct(product)}
+                                  >
+                                    <span className="font-semibold">{product.name}</span>
+                                    <span className="ml-2 text-xs text-[#8A8A96]">{product.sku || "Sin SKU"}</span>
+                                    <span className="float-right text-xs text-[#B7B7C2]">
+                                      {product.sourcePriceCurrency === "VES"
+                                        ? bs(product.sourcePriceAmount)
+                                        : money(product.sourcePriceAmount)}
+                                    </span>
+                                  </button>
+                                );
+                              })
+                            ) : (
+                              <div className="px-3 py-2 text-xs text-[#8A8A96]">Sin productos activos para esa busqueda.</div>
+                            )}
+                          </div>
+                        ) : null}
+                        {selectedProduct ? (
+                          <div className="mt-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+                            Seleccionado: <span className="font-semibold">{selectedProduct.name}</span>
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs text-[#8A8A96]">
+                            Busca por nombre o SKU. Solo aparecen productos activos.
+                          </div>
+                        )}
+                      </div>
+                      <input
+                        ref={productQtyRef}
+                        className={fieldClass()}
+                        value={productQty}
+                        onChange={(event) => setProductQty(event.target.value)}
+                        inputMode="decimal"
+                        placeholder="Cant."
+                      />
+                      <button
+                        className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-[#0B0B0D] disabled:opacity-50"
+                        type="button"
+                        onClick={addProduct}
+                      >
+                        Agregar
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {quantitySplitNotice ? <p role="status" className="text-xs text-[#FEEF00]">{quantitySplitNotice}</p> : null}
+                      {orderedItems.map((item) => {
+                        const product = catalogById.get(item.productId);
+                        const isCrmBenefit = Boolean(item.crmPlayMemberId && item.crmPlayBenefitId);
+                        const isDeliveredCrmBenefit = isCrmBenefit && item.crmRedemptionStatus === 'redeemed';
+                        const isReservedCrmBenefit = isCrmBenefit && item.crmRedemptionStatus === 'reserved';
+                        const visibleDetailLines = getVisibleEditableDetailLines(item.editableDetailLines);
+                        const itemUnitBs = item.unitPriceBsSnapshot ?? 0;
+                        return (
+                          <div key={itemKey(item.localId)} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+                            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_82px_120px_auto] md:items-start">
+                              <div className="min-w-0">
+                                <div className="font-semibold text-[#F5F5F7]">
+                                  {item.qty} {item.productNameSnapshot}
+                                </div>
+                                <div className="mt-1 text-xs text-[#8A8A96]">
+                                  Unit. {money(item.unitPriceUsdSnapshot)} / {bs(itemUnitBs)}
+                                </div>
+                                {isCrmBenefit ? <div className="mt-1 text-xs text-emerald-200">Jugada: {item.crmPlayName || "Beneficio CRM"} · {item.lineTotalUsd > 0 ? `Diferencia del cliente ${money(item.lineTotalUsd)}` : "Precio exonerado"}</div> : null}
+                                {visibleDetailLines.length > 0 ? (
+                                  <div className="mt-2 space-y-1 border-l border-[#242433] pl-3 text-sm text-[#D8D8DE]">
+                                    {visibleDetailLines.map((line) => (
+                                      <div key={line}>- {line}</div>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <OrderQuantityInput
+                                key={`${item.localId}:${item.qty}`}
+                                qty={item.qty}
+                                onCommit={raw => updateItemQuantity(item, raw)}
+                                readOnly={Boolean(product?.isDetailEditable) || isCrmBenefit}
+                                title={product?.isDetailEditable ? "Los productos configurables se cargan una unidad a la vez." : undefined}
+                              />
+                              <div className="text-sm font-semibold text-[#F5F5F7]">
+                                {money(item.lineTotalUsd)}
+                                <div className="mt-1 text-xs font-normal text-[#8A8A96]">{bs(item.lineTotalBsSnapshot ?? 0)}</div>
+                              </div>
+                              <div className="flex flex-wrap gap-2 md:justify-end">
+                                {product?.isDetailEditable && !isDeliveredCrmBenefit ? (
+                                  <button
+                                    className="rounded-lg border border-[#242433] px-2 py-1 text-xs text-[#F5F5F7] hover:border-[#FEEF00]/50"
+                                    type="button"
+                                    onClick={() => {
+                                      const quote = readMenuOrderQuote(item.editableDetailLines);
+                                      if (quote) setMuerdemeEdit({ key: item.localId, quote });
+                                      else openConfig(product, item);
+                                    }}
+                                  >
+                                    Config.
+                                  </button>
+                                ) : null}
+                                {isDeliveredCrmBenefit ? (
+                                  <span className="inline-flex items-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200">
+                                    Beneficio entregado
+                                  </span>
+                                ) : (
+                                  <>
+                                    {isReservedCrmBenefit ? (
+                                      <span className="inline-flex items-center rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-xs text-amber-200">
+                                        Beneficio reservado
+                                      </span>
+                                    ) : null}
+                                  <button
+                                    className="rounded-lg border border-red-500/40 px-2 py-1 text-xs text-red-200"
+                                    type="button"
+                                    onClick={() => removeItem(item.localId)}
+                                  >
+                                    Quitar
+                                  </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {isAdmin && !hasMenuOrderDetails(item.editableDetailLines) ? (
+                              <details open={intent === "commercial" ? true : undefined} className="mt-3 rounded-lg border border-[#242433] bg-[#121218] p-2">
+                                <summary className="cursor-pointer text-xs font-semibold text-[#B7B7C2]">
+                                  Precio / comisión
+                                </summary>
+                                {!isCrmBenefit ? (
+                                <div className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_minmax(0,1.3fr)_auto]">
+                                  <Field label="Precio unitario · USD">
+                                  <input
+                                    className={fieldClass()}
+                                    value={itemPriceDrafts[item.localId]?.currency === "USD" ? itemPriceDrafts[item.localId].text : item.sourcePriceCurrency === "USD" ? compact(item.sourcePriceAmount, 6) : compact(item.unitPriceUsdSnapshot, 6)}
+                                    onChange={(event) => updateItemOverride(item, "USD", event.target.value)}
+                                    onBlur={() => clearItemPriceDraft(item.localId, true)}
+                                    onFocus={selectInputValue}
+                                    inputMode="decimal"
+                                    required
+                                    aria-invalid={itemPriceDrafts[item.localId]?.currency === "USD" && parseOrderPriceDraft(itemPriceDrafts[item.localId].text) === null}
+                                    placeholder="USD unit."
+                                    aria-label={`Precio unitario USD: ${item.productNameSnapshot}`}
+                                  />
+                                  </Field>
+                                  <Field label="Precio unitario · Bs">
+                                  <input
+                                    className={fieldClass()}
+                                    value={itemPriceDrafts[item.localId]?.currency === "VES" ? itemPriceDrafts[item.localId].text : item.sourcePriceCurrency === "VES" ? compact(item.sourcePriceAmount, 2) : compact(item.unitPriceUsdSnapshot * fxRate, 2)}
+                                    onChange={(event) => updateItemOverride(item, "VES", event.target.value)}
+                                    onBlur={() => clearItemPriceDraft(item.localId, true)}
+                                    onFocus={selectInputValue}
+                                    inputMode="decimal"
+                                    required
+                                    aria-invalid={itemPriceDrafts[item.localId]?.currency === "VES" && parseOrderPriceDraft(itemPriceDrafts[item.localId].text) === null}
+                                    placeholder="Bs unit."
+                                    aria-label={`Precio unitario Bs: ${item.productNameSnapshot}`}
+                                  />
+                                  </Field>
+                                  <Field label="Motivo del precio">
+                                  <input
+                                    className={fieldClass()}
+                                    value={item.adminPriceOverrideReason ?? ""}
+                                    onChange={(event) => patchItem(item.localId, { adminPriceOverrideReason: event.target.value })}
+                                    placeholder="Motivo"
+                                    aria-label={`Motivo del precio: ${item.productNameSnapshot}`}
+                                  />
+                                  </Field>
+                                  <button
+                                    className="self-end rounded-xl border border-[#242433] px-3 py-2 text-xs text-[#B7B7C2]"
+                                    type="button"
+                                    onClick={() => {
+                                      const productBase = catalogById.get(item.productId);
+                                      if (!productBase) return;
+                                      clearItemPriceDraft(item.localId);
+                                      const snapshot = calculateOrderLineSnapshot({
+                                        sourceCurrency: productBase.sourcePriceCurrency,
+                                        sourceAmount: productBase.sourcePriceAmount,
+                                        quantity: item.qty,
+                                        fxRate,
+                                        fallbackUnitUsd: productBase.basePriceUsd,
+                                      });
+                                      patchItem(item.localId, {
+                                        sourcePriceCurrency: productBase.sourcePriceCurrency,
+                                        sourcePriceAmount: productBase.sourcePriceAmount,
+                                        unitPriceUsdSnapshot: snapshot.unitUsd,
+                                        lineTotalUsd: snapshot.lineUsd,
+                                        adminPriceOverrideUsd: null,
+                                        adminPriceOverrideCurrency: null,
+                                        adminPriceOverrideReason: null,
+                                      });
+                                    }}
+                                  >
+                                    Limpiar
+                                  </button>
+                                </div>
+                                ) : null}
+                                <div className="mt-3 grid gap-2 border-t border-[#242433] pt-2 sm:grid-cols-2">
+                                  <Field label="Comisión">
+                                    <select className={fieldClass()} aria-label={`Comisión: ${item.productNameSnapshot}`}
+                                      value={item.adminCommissionOverrideMode ?? "inherit"}
+                                      onChange={(event) => patchItem(item.localId, {
+                                        adminCommissionOverrideMode: event.target.value === "inherit" ? null : event.target.value as OrderCommissionMode,
+                                        adminCommissionOverrideValue: null, adminCommissionOverrideChanged: true,
+                                        adminCommissionOverrideReason: "",
+                                      })}>
+                                      <option value="inherit">Heredada del catálogo / evento</option>
+                                      <option value="default">General del asesor</option>
+                                      <option value="fixed_item">% de este producto</option>
+                                      <option value="fixed_order">% de toda la orden</option>
+                                      <option value="none">Sin comisión</option>
+                                    </select>
+                                    <span className="mt-1 block text-[10px] text-[#8A8A96]">Heredada: {formatOrderCommissionTerms({
+                                      mode: item.commissionInheritedMode ?? product?.commissionInheritedMode ?? "default",
+                                      value: item.commissionInheritedValue ?? product?.commissionInheritedValue ?? null,
+                                    })}</span>
+                                  </Field>
+                                  {item.adminCommissionOverrideMode === "fixed_item" || item.adminCommissionOverrideMode === "fixed_order" ? (
+                                    <Field label="Porcentaje">
+                                      <input className={fieldClass()} inputMode="decimal" aria-label={`Porcentaje de comisión: ${item.productNameSnapshot}`}
+                                        value={item.adminCommissionOverrideValue ?? ""}
+                                        onFocus={selectInputValue}
+                                        onChange={(event) => patchItem(item.localId, {
+                                          adminCommissionOverrideValue: event.target.value.trim() ? toNumber(event.target.value, NaN) : null,
+                                          adminCommissionOverrideChanged: true,
+                                        })} />
+                                    </Field>
+                                  ) : null}
+                                  {item.adminCommissionOverrideMode != null || item.adminCommissionOverrideChanged ? (
+                                    <Field label="Motivo de la comisión">
+                                      <input className={fieldClass()} maxLength={500} aria-label={`Motivo de comisión: ${item.productNameSnapshot}`}
+                                        value={item.adminCommissionOverrideReason ?? ""}
+                                        onChange={(event) => patchItem(item.localId, { adminCommissionOverrideReason: event.target.value })} />
+                                    </Field>
+                                  ) : null}
+                                  {item.adminCommissionOverrideMode === "fixed_order" ? (
+                                    <span className="text-[11px] text-amber-200 sm:col-span-2">Este porcentaje se aplica a toda la orden, no se suma a la comisión de cada producto.</span>
+                                  ) : null}
+                                </div>
+                              </details>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Section>
+                  </div>
+                  <Section title="Totales">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <Field label={pricingChanged ? "Tasa vigente · Bs/USD" : "Tasa registrada · Bs/USD"}>
+                        <input
+                          className={fieldClass()}
+                          value={pricingChanged ? compact(fxRate, 6) : form.fxRate}
+                          onChange={(event) => patchForm({ fxRate: event.target.value })}
+                          inputMode="decimal"
+                          readOnly={pricingChanged}
+                        />
+                        {pricingChanged ? (
+                          <span className="mt-1 block text-[10px] text-emerald-300">
+                            Los cambios comerciales usan automáticamente la tasa activa.
+                          </span>
+                        ) : null}
+                      </Field>
+                      <label className="flex items-end gap-2 pb-2 text-sm text-[#F5F5F7]">
+                        <input
+                          className="accent-[#FEEF00]"
+                          type="checkbox"
+                          checked={form.discountEnabled}
+                          onChange={(event) => patchForm({ discountEnabled: event.target.checked })}
+                        />
+                        Descuento
+                      </label>
+                      {form.discountEnabled ? (
+                        <Field label="% descuento">
+                          <input
+                            className={fieldClass()}
+                            value={form.discountPct}
+                            onChange={(event) => patchForm({ discountPct: event.target.value })}
+                            inputMode="decimal"
+                          />
+                        </Field>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 grid gap-2 text-sm">
+                      <div className="flex justify-between border-b border-[#242433] pb-2">
+                        <span className="text-[#B7B7C2]">Subtotal</span>
+                        <span>{money(totals.subtotalAfterDiscountUsd + totals.discountAmountUsd)} / {bs(totals.subtotalAfterDiscountBs + totals.discountAmountBs)}</span>
+                      </div>
+                      {form.discountEnabled ? (
+                        <div className="flex justify-between border-b border-[#242433] pb-2 text-[#FEEF00]">
+                          <span>Descuento</span>
+                          <span>-{money(totals.discountAmountUsd)} / -{bs(totals.discountAmountBs)}</span>
+                        </div>
+                      ) : null}
+                      {form.hasInvoice ? (
+                        <div className="flex justify-between border-b border-[#242433] pb-2">
+                          <span className="text-[#B7B7C2]">IVA</span>
+                          <span>{money(totals.invoiceTaxAmountUsd)} / {bs(totals.invoiceTaxAmountBs)}</span>
+                        </div>
+                      ) : null}
+                      <div className="flex justify-between text-base font-semibold">
+                        <span>Total</span>
+                        <span>{money(totals.totalUsd)} / {bs(totals.totalBs)}</span>
+                      </div>
+                    </div>
+                  </Section>
+
+                  <Section
+                    title="Validación"
+                    aside={
+                      <span className={validationIssues.length === 0 ? "text-xs text-emerald-300" : "text-xs text-orange-200"}>
+                        {validationIssues.length === 0 ? "Lista para guardar" : `${validationIssues.length} pendiente(s)`}
+                      </span>
+                    }
+                  >
+                    {validationIssues.length === 0 ? (
+                      <div className="text-xs text-emerald-200">
+                        Cliente, entrega, pedido, tasa y condiciones de pago están completos.
+                      </div>
+                    ) : (
+                      <div className="space-y-1 text-xs text-orange-100">
+                        {validationIssues.slice(0, 5).map((issue) => (
+                          <div key={`${issue.code}:${issue.message}`}>- {issue.message}</div>
+                        ))}
+                        {validationIssues.length > 5 ? (
+                          <div className="text-[#8A8A96]">Y {validationIssues.length - 5} pendiente(s) más.</div>
+                        ) : null}
+                      </div>
+                    )}
+                  </Section>
+
+                  {requiresEditReason ? (
+                    <Section title="Motivo de modificacion">
+                      <div className="mb-2 text-xs text-orange-200">
+                        {form.isPriceProtected && pricingChanged
+                          ? "La orden tiene el precio protegido; el cambio comercial debe quedar justificado."
+                          : "La orden ya avanzó en operación; el cambio debe quedar auditado."}
+                      </div>
+                      <textarea
+                        className={`${fieldClass()} min-h-[74px] border-orange-500/30`}
+                        value={adminEditReason}
+                        onChange={(event) => setAdminEditReason(event.target.value)}
+                        placeholder="Obligatorio porque la orden ya avanzo en el flujo."
+                      />
+                    </Section>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="shrink-0 border-t border-[#242433] bg-[#0B0B0D] px-5 py-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-h-5 text-sm">
+                  {error ? <span className="text-red-300">{error}</span> : null}
+                  {success ? <span className="text-emerald-300">{success}</span> : null}
+                  {!error && !success ? <span className="text-[#8A8A96]">Se guarda con la logica canonica de ordenes.</span> : null}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    className="rounded-xl border border-[#242433] bg-[#121218] px-4 py-2 text-sm font-semibold text-[#F5F5F7]"
+                    type="button"
+                    onClick={onClose}
+                    disabled={saving}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-5 py-2 text-sm font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                    type="submit"
+                    disabled={!canSave || saving}
+                  >
+                    {saving ? "Guardando..." : isCreateMode ? "Crear pedido" : "Guardar modificacion"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+        ) : null}
+
+        {!loading && !form && error ? (
+          <div className="m-5 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+            {error}
+          </div>
+        ) : null}
+      </div>
+
+      {configState ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 px-4">
+          <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#242433] bg-[#121218] p-4 text-[#F5F5F7] shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-base font-semibold">Configurar {configState.productName}</div>
+                <div className="mt-1 text-xs text-[#8A8A96]">
+                  Piezas {configSelectedUnits} / {configState.detailUnitsLimit || "--"}
+                </div>
+              </div>
+              <button
+                className="rounded-xl border border-[#242433] px-3 py-2 text-sm text-[#F5F5F7]"
+                type="button"
+                onClick={() => setConfigState(null)}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <Field label="Para">
+                <input
+                  className={fieldClass()}
+                  value={configState.alias}
+                  onChange={(event) => setConfigState((current) => current ? { ...current, alias: event.target.value } : current)}
+                  placeholder="Nombre o referencia interna"
+                />
+              </Field>
+
+              <div className="space-y-2">
+                {(componentsByParentId.get(configState.productId) ?? [])
+                  .filter(
+                    (component) =>
+                      component.componentMode === "selectable" ||
+                      (component.componentMode === "fixed" && !component.isRequired)
+                  )
+                  .map((component) => {
+                    const selection = configState.selections.find(
+                      (row) => row.componentProductId === component.componentProductId
+                    );
+                    return (
+                      <div
+                        key={component.id}
+                        className="grid grid-cols-[minmax(0,1fr)_96px] items-center gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3"
+                      >
+                        <div>
+                          <div className="text-sm font-semibold">{component.componentName}</div>
+                          <div className="mt-0.5 text-xs text-[#8A8A96]">
+                            {component.countsTowardDetailLimit ? "Cuenta para limite" : "Extra"}
+                          </div>
+                        </div>
+                        <input
+                          className={fieldClass()}
+                          value={selection?.qty ?? 0}
+                          onChange={(event) => updateConfigSelection(component, Number(event.target.value))}
+                          inputMode="numeric"
+                        />
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="rounded-xl border border-[#242433] px-4 py-2 text-sm font-semibold text-[#F5F5F7]"
+                type="button"
+                onClick={() => setConfigState(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-5 py-2 text-sm font-semibold text-[#0B0B0D]"
+                type="button"
+                onClick={saveConfig}
+              >
+                Guardar configuracion
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

@@ -1,0 +1,134 @@
+export type PaymentReportMethodCode =
+  | 'payment_mobile'
+  | 'transfer'
+  | 'zelle'
+  | 'wallet_usd'
+  | 'cash_usd'
+  | 'cash_ves'
+  | 'pos'
+  | 'retention'
+  | 'mixed'
+  | 'pending';
+
+export type PaymentReportRequirements = {
+  requiresOperationDate: boolean;
+  requiresReference: boolean;
+  requiresBank: boolean;
+  requiresHolderName: boolean;
+  requiresInvoiceNumber: boolean;
+};
+
+export type PaymentReportCurrency = 'USD' | 'VES';
+
+export const ADVISOR_PAYMENT_REPORT_METHOD_CODES = [
+  'payment_mobile',
+  'transfer',
+  'zelle',
+  'wallet_usd',
+] as const;
+
+export type AdvisorPaymentReportMethod = (typeof ADVISOR_PAYMENT_REPORT_METHOD_CODES)[number];
+
+export function isAdvisorPaymentReportMethod(
+  method: string | null | undefined,
+): method is AdvisorPaymentReportMethod {
+  return ADVISOR_PAYMENT_REPORT_METHOD_CODES.some((code) => code === method);
+}
+
+export type PaymentReportDetailsInput = {
+  method?: string | null;
+  operationDate?: string | null;
+  referenceCode?: string | null;
+  bankName?: string | null;
+  holderName?: string | null;
+};
+
+export const EMPTY_PAYMENT_REPORT_REQUIREMENTS: PaymentReportRequirements = {
+  requiresOperationDate: false,
+  requiresReference: false,
+  requiresBank: false,
+  requiresHolderName: false,
+  requiresInvoiceNumber: false,
+};
+
+export function getPaymentReportCurrency(
+  method: string | null | undefined
+): PaymentReportCurrency | null {
+  if (
+    method === 'payment_mobile' ||
+    method === 'transfer' ||
+    method === 'cash_ves' ||
+    method === 'pos' ||
+    method === 'retention'
+  ) {
+    return 'VES';
+  }
+
+  if (method === 'zelle' || method === 'wallet_usd' || method === 'cash_usd') {
+    return 'USD';
+  }
+
+  return null;
+}
+
+export function getPaymentReportRequirements(method: string | null | undefined): PaymentReportRequirements {
+  if (method === 'retention') {
+    return {
+      requiresOperationDate: true,
+      requiresReference: true,
+      requiresBank: false,
+      requiresHolderName: false,
+      requiresInvoiceNumber: true,
+    };
+  }
+
+  if (method === 'payment_mobile' || method === 'transfer') {
+    return {
+      requiresOperationDate: true,
+      requiresReference: true,
+      requiresBank: true,
+      requiresHolderName: false,
+      requiresInvoiceNumber: false,
+    };
+  }
+
+  if (method === 'zelle' || method === 'wallet_usd') {
+    return {
+      requiresOperationDate: true,
+      requiresReference: true,
+      requiresBank: false,
+      requiresHolderName: true,
+      requiresInvoiceNumber: false,
+    };
+  }
+
+  return EMPTY_PAYMENT_REPORT_REQUIREMENTS;
+}
+
+export function validatePaymentReportDetails(input: PaymentReportDetailsInput) {
+  const requirements = getPaymentReportRequirements(input.method);
+
+  if (requirements.requiresOperationDate && !String(input.operationDate || '').trim()) {
+    return 'Debes indicar la fecha de la operación.';
+  }
+
+  if (requirements.requiresReference && !String(input.referenceCode || '').trim()) {
+    return 'Debes indicar la referencia de la operación.';
+  }
+
+  if (requirements.requiresBank && !String(input.bankName || '').trim()) {
+    return 'Debes indicar el banco de la operación.';
+  }
+
+  if (requirements.requiresHolderName && !String(input.holderName || '').trim()) {
+    return input.method === 'wallet_usd'
+      ? 'Debes indicar el nombre del titular de la wallet.'
+      : 'Debes indicar el nombre del titular de Zelle.';
+  }
+
+  if (requirements.requiresInvoiceNumber && !String(input.holderName || '').trim()) {
+    return 'Debes indicar el numero de factura.';
+  }
+
+  return null;
+}

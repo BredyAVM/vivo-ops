@@ -1,0 +1,517 @@
+import { redirect } from 'next/navigation';
+import { playDateInput } from '@/lib/crm/play-dates';
+import { isPlayFollowUpDue } from '@/lib/crm/play-member-presentation';
+import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
+import { requireMasterOrAdminContext } from '@/lib/auth';
+import type { NoApplyReviewRow } from './NoApplyRequestsPanel';
+import type { NoApplyRequest } from '@/lib/crm/no-apply';
+import MasterPlaysClient, {
+  type ManualPlayClientSuggestion,
+  type MasterPlay,
+  type MasterPlayMember,
+  type MasterPlayMonitorSummary,
+  type PlayAdvisorOption,
+  type PlayAmendment,
+  type PlayBenefit,
+} from './MasterPlaysClient';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+type SearchParams = Promise<{
+  play?: string;
+  page?: string;
+  q?: string;
+  addq?: string;
+  create?: string;
+}>;
+
+type RawUserRoleRow = { user_id: string; role: string };
+type RawManualClientSuggestion = {
+  client_id: number | string;
+  full_name: string | null;
+  phone: string | null;
+  primary_advisor_id: string | null;
+  primary_advisor_name: string | null;
+  current_workflow_status: string | null;
+};
+
+const MEMBER_PAGE_SIZE = 50;
+
+function numberValue(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function one<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+export default async function MasterPlaysPage({ searchParams }: { searchParams?: SearchParams }) {
+  const ctx = await requireMasterOrAdminContext().catch(() => null);
+  if (!ctx) redirect('/app');
+
+  const params = (await searchParams) ?? {};
+  const requestedPlayId = Math.max(0, Math.trunc(numberValue(params.play, 0)));
+  const requestedPage = Math.max(1, Math.trunc(numberValue(params.page, 1)));
+  const search = String(params.q ?? '').trim().slice(0, 80);
+  const manualClientSearch = String(params.addq ?? '').trim().slice(0, 80);
+
+  const [playsResult, productsResult, profilesResult, rolesResult] = await Promise.all([
+    ctx.supabase
+      .from('crm_plays')
+      .select(`
+        id, series_key, version, name, description, status, rules_snapshot,
+        selection_summary, metric_window, gift_product_id, gift_quantity,
+        planned_budget_usd, benefit_selection_mode, purchase_requirement_mode,
+        minimum_order_amount_usd, benefit_recurrence_mode, benefit_fulfillment, advisor_guidance, message_template,
+        overlap_policy, benefit_stack_policy, evaluation_window_days,
+        copied_from_play_id, pricing_exchange_rate_ves_per_usd, pricing_snapshot_at,
+        starts_at, ends_at, snapshot_at, activated_at, closed_at, created_at
+      `)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(100),
+    ctx.supabase
+      .from('products')
+      .select('id, name, sku, type, is_active, base_price_usd, extra_fields, advisor_gift_cost_usd:extra_fields->>advisor_gift_cost_usd')
+      .order('name', { ascending: true })
+      .limit(1000),
+    ctx.supabase
+      .from('profiles')
+      .select('id, full_name, is_active')
+      .eq('is_active', true)
+      .order('full_name', { ascending: true })
+      .limit(200),
+    ctx.supabase.rpc('admin_list_user_roles'),
+  ]);
+
+  if (playsResult.error) throw new Error(playsResult.error.message);
+  if (productsResult.error) throw new Error(productsResult.error.message);
+  if (profilesResult.error) throw new Error(profilesResult.error.message);
+  if (rolesResult.error) throw new Error(rolesResult.error.message);
+
+  const playIds = (playsResult.data ?? []).map((row) => Number(row.id));
+  const [benefitOptionsResult, benefitUpgradesResult, compatibilityResult] = await Promise.all([
+    ctx.supabase
+      .from('crm_play_benefits')
+      .select(`
+        id, play_id, product_id, quantity, unit_budget_cost_usd,
+        unit_benefit_value_usd, unit_advisor_cost_usd, unit_company_cost_usd, sort_order,
+        product:products!crm_play_benefits_product_id_fkey(id, name, sku)
+      `)
+      .in('play_id', playIds.length > 0 ? playIds : [-1])
+      .order('sort_order', { ascending: true })
+      .order('id', { ascending: true }),
+    ctx.supabase
+      .from('crm_play_benefit_upgrades')
+      .select(`
+        id, play_id, play_benefit_id, target_product_id, target_quantity, sort_order,
+        customer_difference_usd_snapshot:current_customer_difference_usd,
+        product:products!crm_play_benefit_upgrades_target_product_id_fkey(id, name, sku)
+      `)
+      .in('play_id', playIds.length > 0 ? playIds : [-1])
+      .order('sort_order', { ascending: true })
+      .order('id', { ascending: true }),
+    ctx.supabase
+      .from('crm_play_compatibilities')
+      .select('play_id_low, play_id_high')
+      .limit(1000),
+  ]);
+  if (benefitOptionsResult.error) throw new Error(benefitOptionsResult.error.message);
+  if (benefitUpgradesResult.error) throw new Error(benefitUpgradesResult.error.message);
+  if (compatibilityResult.error) throw new Error(compatibilityResult.error.message);
+
+  const upgradesByBenefit = new Map<number, MasterPlay['benefits'][number]['upgrades']>();
+  for (const row of benefitUpgradesResult.data ?? []) {
+    const product = one(row.product);
+    if (!product) continue;
+    const benefitId = Number(row.play_benefit_id);
+    const upgrades = upgradesByBenefit.get(benefitId) ?? [];
+    upgrades.push({
+      id: Number(row.id),
+      productId: Number(row.target_product_id),
+      quantity: Number(row.target_quantity),
+      sortOrder: Number(row.sort_order),
+      customerDifferenceUsd: row.customer_difference_usd_snapshot == null
+        ? null
+        : Number(row.customer_difference_usd_snapshot),
+      name: String(product.name),
+      sku: product.sku == null ? null : String(product.sku),
+    });
+    upgradesByBenefit.set(benefitId, upgrades);
+  }
+
+  const compatiblePlayIdsByPlay = new Map<number, number[]>();
+  for (const row of compatibilityResult.data ?? []) {
+    const low = Number(row.play_id_low);
+    const high = Number(row.play_id_high);
+    compatiblePlayIdsByPlay.set(low, [...(compatiblePlayIdsByPlay.get(low) ?? []), high]);
+    compatiblePlayIdsByPlay.set(high, [...(compatiblePlayIdsByPlay.get(high) ?? []), low]);
+  }
+
+  const benefitOptionsByPlay = new Map<number, MasterPlay['benefits']>();
+  for (const row of benefitOptionsResult.data ?? []) {
+    const product = one(row.product);
+    if (!product) continue;
+    const playId = Number(row.play_id);
+    const options = benefitOptionsByPlay.get(playId) ?? [];
+    options.push({
+      id: Number(row.id),
+      productId: Number(row.product_id),
+      quantity: Number(row.quantity),
+      unitBenefitValueUsd: Number(row.unit_benefit_value_usd),
+      unitAdvisorCostUsd: Number(row.unit_advisor_cost_usd),
+      unitCompanyCostUsd: Number(row.unit_company_cost_usd),
+      sortOrder: Number(row.sort_order),
+      name: String(product.name),
+      sku: product.sku == null ? null : String(product.sku),
+      upgrades: upgradesByBenefit.get(Number(row.id)) ?? [],
+    });
+    benefitOptionsByPlay.set(playId, options);
+  }
+
+  const plays: MasterPlay[] = (playsResult.data ?? []).map((row) => ({
+    id: Number(row.id),
+    seriesKey: String(row.series_key),
+    version: Number(row.version),
+    name: String(row.name),
+    description: row.description == null ? null : String(row.description),
+    advisorGuidance: row.advisor_guidance == null ? null : String(row.advisor_guidance),
+    messageTemplate: row.message_template == null ? null : String(row.message_template),
+    status: String(row.status) as MasterPlay['status'],
+    rules: row.rules_snapshot && typeof row.rules_snapshot === 'object' && !Array.isArray(row.rules_snapshot)
+      ? row.rules_snapshot as Record<string, unknown>
+      : {},
+    summary: row.selection_summary && typeof row.selection_summary === 'object' && !Array.isArray(row.selection_summary)
+      ? row.selection_summary as Record<string, unknown>
+      : {},
+    metricWindow: Number(row.metric_window),
+    giftProductId: Number(row.gift_product_id),
+    giftQuantity: Number(row.gift_quantity),
+    plannedBudgetUsd: row.planned_budget_usd == null ? null : Number(row.planned_budget_usd),
+    benefitSelectionMode: String(row.benefit_selection_mode) as MasterPlay['benefitSelectionMode'],
+    purchaseRequirementMode: String(row.purchase_requirement_mode) as MasterPlay['purchaseRequirementMode'],
+    recurrenceMode: row.benefit_recurrence_mode === 'daily' ? 'daily' : 'once',
+    benefitFulfillment: String(row.benefit_fulfillment) as MasterPlay['benefitFulfillment'],
+    minimumOrderAmountUsd: row.minimum_order_amount_usd == null ? null : Number(row.minimum_order_amount_usd),
+    overlapPolicy: String(row.overlap_policy) as MasterPlay['overlapPolicy'],
+    compatiblePlayIds: compatiblePlayIdsByPlay.get(Number(row.id)) ?? [],
+    benefitStackPolicy: String(row.benefit_stack_policy) as MasterPlay['benefitStackPolicy'],
+    evaluationWindowDays: Number(row.evaluation_window_days),
+    copiedFromPlayId: row.copied_from_play_id == null ? null : Number(row.copied_from_play_id),
+    pricingExchangeRateVesPerUsd: row.pricing_exchange_rate_ves_per_usd == null ? null : Number(row.pricing_exchange_rate_ves_per_usd),
+    pricingSnapshotAt: row.pricing_snapshot_at == null ? null : String(row.pricing_snapshot_at),
+    startsAt: row.starts_at == null ? null : String(row.starts_at),
+    endsAt: row.ends_at == null ? null : String(row.ends_at),
+    snapshotAt: row.snapshot_at == null ? null : String(row.snapshot_at),
+    activatedAt: row.activated_at == null ? null : String(row.activated_at),
+    closedAt: row.closed_at == null ? null : String(row.closed_at),
+    createdAt: String(row.created_at),
+    benefits: benefitOptionsByPlay.get(Number(row.id)) ?? [],
+  }));
+
+  const selectedPlay = plays.find((play) => play.id === requestedPlayId) ?? plays[0] ?? null;
+  const createMode = params.create === '1' || !selectedPlay;
+  let monitorSummary: MasterPlayMonitorSummary | null = null;
+  let members: MasterPlayMember[] = [];
+  let memberCount = 0;
+  let page = requestedPage;
+  const advisorIds = new Set(
+    ((rolesResult.data ?? []) as RawUserRoleRow[])
+      .filter((row) => String(row.role) === 'advisor')
+      .map((row) => String(row.user_id)),
+  );
+  const activeAdvisors: PlayAdvisorOption[] = (profilesResult.data ?? [])
+    .filter((profile) => advisorIds.has(String(profile.id)))
+    .map((profile) => ({
+      id: String(profile.id),
+      name: profile.full_name?.trim() || 'Asesor sin nombre',
+    }));
+  let manualClientSuggestions: ManualPlayClientSuggestion[] = [];
+  let amendments: PlayAmendment[] = [];
+
+  if (selectedPlay && !createMode) {
+    if (['frozen', 'active', 'paused'].includes(selectedPlay.status)) {
+      const [amendmentsResult, suggestionsResult] = await Promise.all([
+        ctx.supabase
+          .from('crm_play_amendments')
+          .select(`
+            id, amendment_type, client_id, advisor_id_snapshot, reason, created_at,
+            client:clients!crm_play_amendments_client_id_fkey(full_name),
+            advisor:profiles!crm_play_amendments_advisor_id_snapshot_fkey(full_name),
+            actor:profiles!crm_play_amendments_created_by_user_id_fkey(full_name)
+          `)
+          .eq('play_id', selectedPlay.id)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(20),
+        manualClientSearch.length >= 2
+          ? ctx.supabase.rpc('crm_search_manual_play_clients_v1', {
+              p_play_id: selectedPlay.id,
+              p_query: manualClientSearch,
+              p_limit: 12,
+            })
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (amendmentsResult.error) throw new Error(amendmentsResult.error.message);
+      if (suggestionsResult.error) throw new Error(suggestionsResult.error.message);
+
+      manualClientSuggestions = ((suggestionsResult.data ?? []) as RawManualClientSuggestion[]).map((row) => ({
+        clientId: Number(row.client_id),
+        fullName: String(row.full_name || 'Cliente sin nombre'),
+        phone: row.phone == null ? null : String(row.phone),
+        primaryAdvisorId: row.primary_advisor_id == null ? null : String(row.primary_advisor_id),
+        primaryAdvisorName: row.primary_advisor_name == null ? null : String(row.primary_advisor_name),
+        currentWorkflowStatus: row.current_workflow_status == null ? null : String(row.current_workflow_status),
+      }));
+
+      amendments = (amendmentsResult.data ?? []).map((row) => {
+        const client = one(row.client);
+        const advisor = one(row.advisor);
+        const actor = one(row.actor);
+        return {
+          id: Number(row.id),
+          type: String(row.amendment_type) as PlayAmendment['type'],
+          clientId: row.client_id == null ? null : Number(row.client_id),
+          clientName: client?.full_name?.trim() || null,
+          advisorId: row.advisor_id_snapshot == null ? null : String(row.advisor_id_snapshot),
+          advisorName: advisor?.full_name?.trim() || null,
+          reason: String(row.reason),
+          actorName: actor?.full_name?.trim() || 'Administrador',
+          createdAt: String(row.created_at),
+        };
+      });
+    }
+
+    if (['active', 'paused', 'closed'].includes(selectedPlay.status)) {
+      const [monitorResult, advisorMonitorResult] = await Promise.all([
+        ctx.supabase.rpc('crm_get_play_monitor_summary_v3', {
+          p_play_id: selectedPlay.id,
+        }),
+        ctx.supabase.rpc('crm_get_play_advisor_monitor_v1', {
+          p_play_id: selectedPlay.id,
+        }),
+      ]);
+      const { data: monitorData, error: monitorError } = monitorResult;
+      if (monitorError) throw new Error(monitorError.message);
+      if (advisorMonitorResult.error) throw new Error(advisorMonitorResult.error.message);
+      const monitor = monitorData && typeof monitorData === 'object' && !Array.isArray(monitorData)
+        ? monitorData as Record<string, unknown>
+        : {};
+      const advisorRows = Array.isArray(advisorMonitorResult.data)
+        ? advisorMonitorResult.data.flatMap((value) => {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+            const row = value as Record<string, unknown>;
+            return [{
+              advisorId: row.advisor_id == null ? null : String(row.advisor_id),
+              advisorName: String(row.advisor_name || 'Sin asesor'),
+              totalMembers: numberValue(row.total_members),
+              pendingMembers: numberValue(row.pending_members),
+              contactedMembers: numberValue(row.contacted_members),
+              launchedMembers: numberValue(row.launched_members),
+              respondedMembers: numberValue(row.responded_members),
+              noResponseMembers: numberValue(row.no_response_members),
+              redeemedMembers: numberValue(row.redeemed_members),
+              expiredMembers: numberValue(row.expired_members),
+              overdueFollowUps: numberValue(row.overdue_follow_ups),
+              contactRatePct: numberValue(row.contact_rate_pct),
+              launchRatePct: numberValue(row.launch_rate_pct),
+              responseRatePct: numberValue(row.response_rate_pct),
+              lastActivityAt: row.last_activity_at == null ? null : String(row.last_activity_at),
+            }];
+          })
+        : [];
+      const operationalTotals = advisorRows.reduce((totals, advisor) => ({
+        totalMembers: totals.totalMembers + advisor.totalMembers,
+        pendingMembers: totals.pendingMembers + advisor.pendingMembers,
+        contactedMembers: totals.contactedMembers + advisor.contactedMembers,
+        launchedMembers: totals.launchedMembers + advisor.launchedMembers,
+        respondedMembers: totals.respondedMembers + advisor.respondedMembers,
+        noResponseMembers: totals.noResponseMembers + advisor.noResponseMembers,
+        redeemedMembers: totals.redeemedMembers + advisor.redeemedMembers,
+        expiredMembers: totals.expiredMembers + advisor.expiredMembers,
+        overdueFollowUps: totals.overdueFollowUps + advisor.overdueFollowUps,
+      }), {
+        totalMembers: 0,
+        pendingMembers: 0,
+        contactedMembers: 0,
+        launchedMembers: 0,
+        respondedMembers: 0,
+        noResponseMembers: 0,
+        redeemedMembers: 0,
+        expiredMembers: 0,
+        overdueFollowUps: 0,
+      });
+      const contactRatePct = operationalTotals.totalMembers === 0
+        ? 0
+        : 100 * operationalTotals.contactedMembers / operationalTotals.totalMembers;
+      const launchRatePct = operationalTotals.totalMembers === 0
+        ? 0
+        : 100 * operationalTotals.launchedMembers / operationalTotals.totalMembers;
+      const responseRatePct = operationalTotals.contactedMembers === 0
+        ? 0
+        : 100 * operationalTotals.respondedMembers / operationalTotals.contactedMembers;
+      const redemptionRatePct = operationalTotals.totalMembers === 0
+        ? 0
+        : 100 * operationalTotals.redeemedMembers / operationalTotals.totalMembers;
+      monitorSummary = {
+        totalMembers: operationalTotals.totalMembers,
+        pendingMembers: operationalTotals.pendingMembers,
+        contactedMembers: operationalTotals.contactedMembers,
+        launchedMembers: operationalTotals.launchedMembers,
+        respondedMembers: operationalTotals.respondedMembers,
+        noResponseMembers: operationalTotals.noResponseMembers,
+        redeemedMembers: operationalTotals.redeemedMembers,
+        expiredMembers: operationalTotals.expiredMembers,
+        redemptionOrders: numberValue(monitor.redemption_orders),
+        contactRatePct,
+        launchRatePct,
+        responseRatePct,
+        redemptionRatePct,
+        benefitCreditUsd: numberValue(monitor.benefit_credit_usd),
+        advisorChargeUsd: numberValue(monitor.advisor_charge_usd),
+        companyCostUsd: numberValue(monitor.company_cost_usd),
+        customerPaidDifferenceUsd: numberValue(monitor.customer_paid_difference_usd),
+        directOrderRevenueUsd: numberValue(monitor.direct_order_revenue_usd),
+        respondedWithoutRedemptionMembers: numberValue(monitor.responded_without_redemption_members),
+        postContactPurchaseMembers: numberValue(monitor.post_contact_purchase_members),
+        cadenceImprovedMembers: numberValue(monitor.cadence_improved_members),
+        comparableCadenceMembers: numberValue(monitor.comparable_cadence_members),
+        cadenceImprovementRatePct: numberValue(monitor.cadence_improvement_rate_pct),
+        evaluationPendingMembers: numberValue(monitor.evaluation_pending_members),
+        postContactRevenueUsd: numberValue(monitor.post_contact_revenue_usd),
+        comparableBaselineCadenceDays: numberValue(monitor.comparable_baseline_cadence_days),
+        comparablePostCadenceDays: numberValue(monitor.comparable_post_cadence_days),
+        overdueFollowUps: operationalTotals.overdueFollowUps,
+        advisors: advisorRows,
+      };
+    }
+
+    const buildQuery = () => {
+      let query = ctx.supabase
+        .from('crm_play_members')
+        .select(`
+          id, play_id, client_id, advisor_id_snapshot, first_purchase_on,
+          last_purchase_on, purchase_count, net_revenue_usd, average_ticket_usd,
+          last_gift_on, days_since_last_purchase, workflow_status, benefit_status,
+          contacted_at, responded_at, play_launched_at, next_follow_up_at,
+          client:clients!inner(id, full_name, phone),
+          advisor:profiles!crm_play_members_advisor_id_snapshot_fkey(id, full_name),
+          no_apply:crm_play_no_apply_requests(id,status)
+        `, { count: 'exact' })
+        .eq('play_id', selectedPlay.id)
+        .neq('workflow_status', 'removed');
+
+      if (search) query = query.ilike('clients.full_name', `%${search.replaceAll('%', '').replaceAll('_', '')}%`);
+      return query;
+    };
+
+    const countResult = await buildQuery().range(0, 0);
+    if (countResult.error) throw new Error(countResult.error.message);
+    memberCount = countResult.count ?? 0;
+    const totalPages = Math.max(1, Math.ceil(memberCount / MEMBER_PAGE_SIZE));
+    page = Math.min(requestedPage, totalPages);
+    const from = (page - 1) * MEMBER_PAGE_SIZE;
+    const to = from + MEMBER_PAGE_SIZE - 1;
+
+    const membersResult = await buildQuery()
+      .order('net_revenue_usd', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, to);
+    if (membersResult.error) throw new Error(membersResult.error.message);
+
+    // Request-time deadline on a force-dynamic server page; never evaluated in the client render.
+    // eslint-disable-next-line react-hooks/purity
+    const memberStatusAt = Date.now();
+    members = (membersResult.data ?? []).map((row) => {
+      const client = one(row.client);
+      const advisor = one(row.advisor);
+      return {
+        id: Number(row.id),
+        playId: Number(row.play_id),
+        clientId: Number(row.client_id),
+        advisorId: row.advisor_id_snapshot == null ? null : String(row.advisor_id_snapshot),
+        clientName: client?.full_name?.trim() || 'Cliente sin nombre',
+        clientPhone: client?.phone?.trim() || null,
+        advisorName: advisor?.full_name?.trim() || 'Sin asesor',
+        firstPurchaseOn: row.first_purchase_on == null ? null : String(row.first_purchase_on),
+        lastPurchaseOn: row.last_purchase_on == null ? null : String(row.last_purchase_on),
+        purchaseCount: Number(row.purchase_count),
+        netRevenueUsd: Number(row.net_revenue_usd),
+        averageTicketUsd: row.average_ticket_usd == null ? null : Number(row.average_ticket_usd),
+        lastGiftOn: row.last_gift_on == null ? null : String(row.last_gift_on),
+        daysSinceLastPurchase: row.days_since_last_purchase == null ? null : Number(row.days_since_last_purchase),
+        workflowStatus: String(row.workflow_status),
+        benefitStatus: String(row.benefit_status),
+        contactedAt: row.contacted_at == null ? null : String(row.contacted_at),
+        respondedAt: row.responded_at == null ? null : String(row.responded_at),
+        playLaunchedAt: row.play_launched_at == null ? null : String(row.play_launched_at),
+        followUpDue: isPlayFollowUpDue(row.next_follow_up_at == null ? null : String(row.next_follow_up_at), memberStatusAt),
+        noApplyStatus: ((row.no_apply ?? []) as unknown as Array<{ id: number; status: 'pending' | 'approved' | 'rejected' }>).reduce<{ id: number; status: 'pending' | 'approved' | 'rejected' } | null>(
+          (latest, request) => !latest || Number(request.id) > Number(latest.id) ? request : latest, null)?.status ?? null,
+      };
+    });
+  }
+
+  const benefits: PlayBenefit[] = (productsResult.data ?? []).filter(row => row.is_active && ['product', 'combo', 'promo', 'gambit', 'service'].includes(row.type)).filter(allowsCrmCatalogProduct).map((row) => {
+    const configuredGiftCost = numberValue(row.advisor_gift_cost_usd, Number.NaN);
+    const basePrice = Math.max(0, numberValue(row.base_price_usd, 0));
+    const advisorCost = Number.isFinite(configuredGiftCost) && configuredGiftCost >= 0
+      ? configuredGiftCost
+      : 0;
+    const benefitValue = Math.max(basePrice, advisorCost);
+    return {
+      id: Number(row.id),
+      name: String(row.name),
+      sku: row.sku == null ? null : String(row.sku),
+      type: String(row.type),
+      referenceValueUsd: benefitValue,
+      referenceAdvisorCostUsd: Math.min(advisorCost, benefitValue),
+      referenceCompanyCostUsd: Math.max(0, benefitValue - advisorCost),
+    };
+  });
+
+  let noApplyRequests: NoApplyReviewRow[] = [];
+  if (!createMode && selectedPlay && ['active', 'paused', 'closed'].includes(selectedPlay.status)) {
+    const requestQuery = () => ctx.supabase.from('crm_play_no_apply_requests').select(`
+      id,play_member_id,status,reason_code,justification,requested_at,review_note,reviewed_at,
+      client:clients!crm_play_no_apply_requests_client_id_fkey(full_name),
+      advisor:profiles!crm_play_no_apply_requests_advisor_id_snapshot_fkey(full_name)
+    `).eq('play_id', selectedPlay.id);
+    const [pendingRequests, recentRequests] = await Promise.all([
+      requestQuery().eq('status', 'pending').order('id', { ascending: true }).limit(500),
+      requestQuery().neq('status', 'pending').order('id', { ascending: false }).limit(20),
+    ]);
+    if (pendingRequests.error || recentRequests.error) throw new Error('No se pudieron cargar las solicitudes No aplica.');
+    noApplyRequests = [...(pendingRequests.data ?? []), ...(recentRequests.data ?? [])].map(raw => {
+      const row = raw as unknown as NoApplyRequest & {
+        client: { full_name: string }[] | { full_name: string } | null;
+        advisor: { full_name: string }[] | { full_name: string } | null;
+      };
+      return { ...row, clientName: one(row.client)?.full_name || 'Cliente', advisorName: one(row.advisor)?.full_name || 'Sin asesor' };
+    });
+  }
+
+  return (
+    <MasterPlaysClient
+      today={playDateInput(new Date().toISOString())}
+      roles={ctx.roles}
+      plays={plays}
+      selectedPlay={createMode ? null : selectedPlay}
+      benefits={benefits}
+      historyProducts={(productsResult.data ?? []).map(row => ({ id: Number(row.id), name: String(row.name), sku: row.sku == null ? null : String(row.sku), active: Boolean(row.is_active) }))}
+      members={members}
+      memberCount={memberCount}
+      memberPage={page}
+      memberPageSize={MEMBER_PAGE_SIZE}
+      memberSearch={search}
+      monitorSummary={monitorSummary}
+      activeAdvisors={activeAdvisors}
+      manualClientSearch={manualClientSearch}
+      manualClientSuggestions={manualClientSuggestions}
+      amendments={amendments}
+      noApplyRequests={noApplyRequests}
+    />
+  );
+}

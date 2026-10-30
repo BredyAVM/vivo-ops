@@ -1,0 +1,1 @@
+export default function Page(){return <p>Prueba aislada de CPU. Datos anonimizados. No realiza operaciones reales.</p>;}

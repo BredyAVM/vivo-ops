@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.advisor-app {
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+
+.advisor-app a,
+.advisor-app button {
+  transition:
+    transform 140ms ease,
+    opacity 140ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.advisor-app a:active,
+.advisor-app button:active {
+  transform: scale(0.965);
+  opacity: 0.9;
+  box-shadow: 0 0 0 2px rgba(240, 208, 0, 0.2);
+}
+
+.advisor-app button:disabled,
+.advisor-app a[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+.advisor-app [data-busy='true'] {
+  pointer-events: none;
+  position: relative;
+  opacity: 0.78;
+  transform: scale(0.985);
+}
+
+.advisor-app [data-busy='true']::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: advisor-spin 650ms linear infinite;
+}
+
+.advisor-fade-in {
+  animation: advisor-fade-in 180ms ease-out;
+}
+
+.advisor-slide-up {
+  animation: advisor-slide-up 220ms ease-out;
+}
+
+@keyframes advisor-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes advisor-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes advisor-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.advisor-safe-shell {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.advisor-safe-header {
+  padding-top: calc(env(safe-area-inset-top) + 10px);
+}
+
+.advisor-safe-content {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 16px);
+}
+
+.advisor-app input,
+.advisor-app select,
+.advisor-app textarea,
+.advisor-app button {
+  font-size: 16px;
+}
+
+.advisor-app input:is([type='date'], [type='datetime-local']) {
+  color-scheme: dark;
+}
+
+.advisor-app input:is([type='date'], [type='datetime-local'])::-webkit-calendar-picker-indicator {
+  filter: brightness(0) invert(1);
+  opacity: 1;
+  cursor: pointer;
+}
+
+.advisor-app .advisor-date-input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: block;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.advisor-app .advisor-date-input::-webkit-date-and-time-value {
+  min-width: 0;
+  text-align: left;
+}
+
+.advisor-app .advisor-date-input::-webkit-datetime-edit {
+  min-width: 0;
+  padding: 0;
+}
+
+.advisor-app .advisor-date-input::-webkit-calendar-picker-indicator {
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+/* Semantic hierarchy: compact headings, readable secondary text, unchanged data. */
+.admin-workspace { --admin-muted: #b7b7c2; --admin-accent: #ffff00; }
+.admin-workspace h1 { font-size: 1rem; line-height: 1.5; }
+.admin-workspace :is(h2, h3) { font-size: 0.875rem; line-height: 1.5; }
+.admin-workspace :is(input, select, textarea) { min-width: 0; }
+.order-detail-dialog { min-width: 0; outline: none; }
+@media (max-width: 639px) {
+  .order-detail-dialog :is(button, select, input:not([type=checkbox]):not([type=radio]), summary) { min-height: 44px; }
+}
+/* Shared domain screens retain their behavior inside the compact Admin shell. */
+.admin-shared-workspace { font-size: 0.8125rem; color: #d5d5df; }
+.admin-shared-workspace main,
+.admin-shared-workspace div.min-h-screen { min-height: 0; padding: 0; background: transparent; }
+.admin-shared-workspace h1 { font-size: 1rem; line-height: 1.5; }
+.admin-shared-workspace :is(h2, h3) { font-size: 0.875rem; line-height: 1.5; }
+.admin-shared-workspace :is(.text-2xl, .text-3xl, .text-4xl) { font-size: 1rem; line-height: 1.5; }
+.admin-shared-workspace .text-sm { font-size: 0.8125rem; }
+.admin-shared-workspace :is(.p-6, .p-8) { padding: 0.75rem; }
+.admin-shared-workspace :is(.py-6, .py-8) { padding-block: 0.75rem; }
+.admin-shared-workspace :is(.mt-6, .mt-8) { margin-top: 0.75rem; }
+.admin-shared-workspace .space-y-6 > :not(:last-child) { margin-bottom: 0.75rem; }
+.admin-shared-workspace :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+@media (max-width: 767px) {
+  .admin-shared-workspace :is(button, a, summary) { min-height: 44px; }
+}

@@ -1,0 +1,21 @@
+import Link from 'next/link';
+import BackLink from '@/components/navigation/BackLink';
+import { requireAdminContext } from '@/lib/auth';
+import { loadAdminFinanceAccountsOverview, type AdminFinanceAccountsRpcClient } from '@/lib/admin-finance/accounts-data';
+import { resolveAdminMovementContext } from '@/lib/admin-finance/movement-navigation';
+import { getCaracasDateKey } from '@/lib/admin-finance/period';
+import TransferForm from './TransferForm';
+import AttemptRecovery from '../_components/AttemptRecovery';
+
+export default async function AdminTransferPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const ctx = await requireAdminContext();
+  const params = await searchParams;
+  const overview = await loadAdminFinanceAccountsOverview({ supabase: ctx.supabase as unknown as AdminFinanceAccountsRpcClient });
+  if (overview.status === 'error') return <section role="alert" className="space-y-3"><h1 className="text-xl font-semibold">Traspasos no disponibles</h1><p>No se pudieron verificar las cuentas. No se registró ninguna operación.</p><Link href="/app/admin/finanzas/cuentas">Volver a cuentas</Link></section>;
+  const context = resolveAdminMovementContext(params, overview.data.accounts);
+  if (context.invalidAccount) return <section role="alert" className="space-y-3"><h1 className="text-xl font-semibold">Cuenta de origen no disponible</h1><Link href="/app/admin/finanzas/cuentas">Seleccionar una cuenta activa</Link></section>;
+  return <div className="space-y-4">
+    <header><BackLink fallbackHref={`/app/admin/finanzas/cuentas${context.accountId ? `/${context.accountId}` : ''}`} /><h1 className="text-xl font-semibold">Traspaso entre cuentas</h1></header>
+    <AttemptRecovery userId={ctx.user.id} scope="transfer"><TransferForm userId={ctx.user.id} key={context.accountId ?? 'all'} accounts={overview.data.accounts.filter(account => account.isActive).map(account => ({ id: account.id, name: account.name, currencyCode: account.currencyCode }))} initialAccountId={context.accountId} activeRate={overview.data.activeRateBsPerUsd} today={getCaracasDateKey(new Date())} /></AttemptRecovery>
+  </div>;
+}

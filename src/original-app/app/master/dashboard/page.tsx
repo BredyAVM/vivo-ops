@@ -1,0 +1,3690 @@
+import type { ComponentProps } from 'react';
+import { redirect } from 'next/navigation';
+import { unstable_cache } from 'next/cache';
+import { createClient } from '@supabase/supabase-js';
+import {
+  getOrderCommercialNetUsd,
+  getOrderMoneySnapshot,
+  getOrderRoundingClosureSnapshot,
+} from '@/lib/orders/order-money';
+import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
+import { createSupabaseServer } from '@/lib/supabase/server';
+import { getPublicVapidKey } from '@/lib/push';
+import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
+import {
+  ORDER_COMMISSION_TERMS_KIND,
+  EVENT_COMMISSION_TERMS_KIND,
+  parseOrderCommissionAdjustmentPayload,
+} from '@/lib/commissions/order-commission-terms';
+import { resolveProductCommissionTerms } from '@/lib/commissions/product-commission-policy';
+import MasterDashboardClient from './MasterDashboardClient';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const CLIENT_IMPORT_CUTOFF_ISO = '2026-06-02T00:00:00-04:00';
+const CLIENT_IMPORT_CUTOFF_MS = Date.parse(CLIENT_IMPORT_CUTOFF_ISO);
+
+type RawOrderRow = {
+  id: number;
+  order_number: string;
+  client_id: number | null;
+  attributed_advisor_id: string | null;
+  source: 'advisor' | 'master' | 'walk_in';
+  fulfillment: 'pickup' | 'delivery';
+  delivery_address: string | null;
+  receiver_name: string | null;
+  receiver_phone: string | null;
+  is_price_locked: boolean | null;
+  status:
+    | 'created'
+    | 'queued'
+    | 'confirmed'
+    | 'in_kitchen'
+    | 'ready'
+    | 'out_for_delivery'
+    | 'delivered'
+    | 'cancelled';
+  total_usd: number | string;
+  total_bs_snapshot: number | string | null;
+  notes: string | null;
+  created_at: string;
+  last_modified_at: string | null;
+  last_modified_by: string | null;
+  sent_to_kitchen_at: string | null;
+  kitchen_started_at: string | null;
+  ready_at: string | null;
+  extra_fields: any;
+  queued_needs_reapproval: boolean;
+  external_driver_name: string | null;
+  external_reference: string | null;
+  external_partner_id: number | null;
+  internal_driver_user_id: string | null;
+  eta_minutes: number | string | null;
+client:
+  | {
+      id: number | string | null;
+      full_name: string | null;
+      phone: string | null;
+      created_at: string | null;
+      client_type: string | null;
+      fund_balance_usd: number | string | null;
+    }[]
+  | {
+      id: number | string | null;
+      full_name: string | null;
+      phone: string | null;
+      created_at: string | null;
+      client_type: string | null;
+      fund_balance_usd: number | string | null;
+    }
+  | null;
+advisor: { full_name: string | null }[] | { full_name: string | null } | null;
+  creator: { full_name: string | null }[] | { full_name: string | null } | null;
+};
+
+type MasterDashboardSearchParams = Promise<{
+  focusDate?: string;
+  calcFrom?: string;
+  calcTo?: string;
+  calcSource?: string;
+  calcAdvisor?: string;
+  calcBasePct?: string;
+  calcRun?: string;
+}>;
+
+type RawOrderSummaryRow = {
+  id: number;
+  status:
+    | 'created'
+    | 'queued'
+    | 'confirmed'
+    | 'in_kitchen'
+    | 'ready'
+    | 'out_for_delivery'
+    | 'delivered'
+    | 'cancelled';
+  total_usd: number | string;
+  total_bs_snapshot: number | string | null;
+  created_at: string;
+  extra_fields: any;
+};
+
+type OperationStatsSummary = {
+  cierres: number;
+  fact: number;
+  abonadoConfirmado: number;
+  pendiente: number;
+};
+
+type RawOrderItemRow = {
+  id: number;
+  order_id: number;
+  product_id: number;
+  qty: number | string;
+  unit_price_usd_snapshot: number | string;
+  line_total_usd: number | string;
+  pricing_origin_currency: string | null;
+  unit_price_bs_snapshot: number | string | null;
+  line_total_bs_snapshot: number | string | null;
+  product_name_snapshot: string;
+  sku_snapshot: string | null;
+  notes: string | null;
+  admin_price_override_usd: number | string | null;
+  admin_price_override_reason: string | null;
+  admin_price_override_by_user_id: string | null;
+  admin_price_override_at: string | null;
+};
+
+type RawCrmPlayRedemptionRow = {
+  order_item_id: number | string | null;
+  status: 'reserved' | 'redeemed';
+  play_name_snapshot: string | null;
+  benefit_credit_usd: number | string | null;
+  customer_paid_difference_usd: number | string | null;
+};
+
+type RawOrderAdjustmentRow = {
+  id: number;
+  order_id: number;
+  order_item_id: number | null;
+  adjustment_type: string;
+  reason: string;
+  notes: string | null;
+  payload: any;
+  created_at: string;
+  created_by_user_id: string;
+};
+
+type RawPaymentReportRow = {
+  id: number;
+  order_id: number;
+  status: 'pending' | 'confirmed' | 'rejected';
+  created_at: string | null;
+  operation_date: string | null;
+  created_by_user_id: string | null;
+  reported_currency_code: string;
+  reported_amount: number | string;
+  reported_exchange_rate_ves_per_usd: number | string | null;
+  reported_amount_usd_equivalent: number | string;
+  reported_money_account_id: number;
+  reference_code: string | null;
+  payer_name: string | null;
+  notes: string | null;
+};
+
+type RawPaymentReportMovementStatusRow = {
+  payment_report_id: number | null;
+  status: 'pending' | 'confirmed' | 'rejected' | 'voided' | null;
+  voided_at: string | null;
+  void_reason: string | null;
+};
+
+type PaymentReportDetail = {
+  id: number;
+  status: 'pending' | 'confirmed' | 'rejected';
+  createdAt: string | null;
+  operationDate: string | null;
+  reporterUserId: string | null;
+  reporterName: string;
+  currencyCode: string;
+  amount: number;
+  exchangeRate: number | null;
+  usdEquivalent: number;
+  moneyAccountId: number;
+  moneyAccountName: string;
+  referenceCode: string | null;
+  payerName: string | null;
+  notes: string | null;
+  isRetention: boolean;
+};
+
+type MoneyAccountRow = {
+  id: number;
+  name: string;
+  currency_code: string;
+  account_kind: string;
+  institution_name: string | null;
+  owner_name: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  created_by_user_id: string | null;
+};
+
+type MoneyAccountPaymentRuleRow = {
+  id: number;
+  money_account_id: number;
+  role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
+  payment_method_code: string;
+  can_view_account: boolean;
+  can_share_with_client: boolean;
+  can_report_payment: boolean;
+  can_confirm_payment: boolean;
+  auto_confirms_report: boolean;
+  review_required: boolean;
+  review_roles: Array<'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver'> | null;
+  is_active: boolean;
+};
+
+type MoneyAccountClosureProfileRow = {
+  money_account_id: number;
+  closure_kind: 'bank' | 'cash' | 'pos' | 'wallet_usd' | 'retention' | 'fund' | 'other';
+  requires_zero_difference: boolean;
+  allows_classified_difference: boolean;
+  generates_transfer_on_close: boolean;
+  default_target_money_account_id: number | null;
+  baseline_required: boolean;
+  notes: string | null;
+};
+
+type RawMoneyAccountClosureRow = {
+  id: number;
+  money_account_id: number;
+  closure_date: string;
+  closure_at: string | null;
+  expected_amount: number | string;
+  counted_amount: number | string;
+  difference_amount: number | string;
+  expected_amount_usd: number | string;
+  counted_amount_usd: number | string;
+  difference_amount_usd: number | string;
+  currency_code: 'USD' | 'VES';
+  exchange_rate_ves_per_usd: number | string | null;
+  reason: string | null;
+  notes: string | null;
+  status: 'recorded' | 'approved' | 'rejected';
+  created_by_user_id: string;
+  created_at: string;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+};
+
+type RawMoneyAccountBaselineRow = {
+  id: number;
+  money_account_id: number;
+  baseline_date: string;
+  baseline_at: string;
+  expected_amount: number | string;
+  counted_amount: number | string;
+  difference_amount: number | string;
+  expected_amount_usd: number | string;
+  counted_amount_usd: number | string;
+  difference_amount_usd: number | string;
+  currency_code: 'USD' | 'VES';
+  exchange_rate_ves_per_usd: number | string | null;
+  reason: string | null;
+  notes: string | null;
+  status: 'active' | 'superseded' | 'voided';
+  created_by_user_id: string;
+  created_at: string;
+  voided_by_user_id: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+};
+
+type RawMoneyAccountReconciliationItemRow = {
+  id: number;
+  money_account_id: number;
+  source_kind: 'baseline' | 'closure' | 'manual';
+  source_id: number | null;
+  item_type:
+    | 'unidentified_payment'
+    | 'unregistered_fee'
+    | 'unregistered_transfer'
+    | 'conversion_difference'
+    | 'amount_error'
+    | 'timing_difference'
+    | 'manual_adjustment'
+    | 'other_pending';
+  direction: 'surplus' | 'shortage';
+  currency_code: 'USD' | 'VES';
+  amount: number | string;
+  amount_usd_equivalent: number | string;
+  operation_date: string | null;
+  reference_code: string | null;
+  counterparty_name: string | null;
+  description: string;
+  status: 'open' | 'resolved' | 'voided';
+  created_by_user_id: string;
+  created_at: string;
+  resolved_by_user_id: string | null;
+  resolved_at: string | null;
+  resolution_notes: string | null;
+  voided_by_user_id: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+};
+
+type RawMoneyMovementRow = {
+  id: number;
+  movement_date: string;
+  created_at: string;
+  created_by_user_id: string;
+  confirmed_at: string | null;
+  confirmed_by_user_id: string | null;
+  status: 'pending' | 'confirmed' | 'rejected' | 'voided' | null;
+  approval_required: boolean | null;
+  approval_required_reason: string | null;
+  reviewed_at: string | null;
+  reviewed_by_user_id: string | null;
+  rejected_at: string | null;
+  rejected_by_user_id: string | null;
+  rejection_reason: string | null;
+  voided_at: string | null;
+  voided_by_user_id: string | null;
+  void_reason: string | null;
+  direction: 'inflow' | 'outflow';
+  movement_type:
+    | 'adjustment'
+    | 'cash_count_adjustment'
+    | 'change_given'
+    | 'expense_payment'
+    | 'fee_charge'
+    | 'order_payment'
+    | 'other_income'
+    | 'withdrawal';
+  money_account_id: number;
+  currency_code: 'USD' | 'VES';
+  amount: number | string;
+  exchange_rate_ves_per_usd: number | string | null;
+  amount_usd_equivalent: number | string;
+  reference_code: string | null;
+  counterparty_name: string | null;
+  description: string | null;
+  notes: string | null;
+  order_id: number | null;
+  payment_report_id: number | null;
+  movement_group_id: string | null;
+};
+
+type RawOrderFinancialStateRow = {
+  order_id: number | string;
+  total_usd: number | string | null;
+  total_bs: number | string | null;
+  confirmed_paid_usd: number | string | null;
+  confirmed_paid_bs_snapshot: number | string | null;
+  pending_reports_usd: number | string | null;
+  pending_reports_bs_snapshot: number | string | null;
+  rejected_reports_usd: number | string | null;
+  voided_movements_count: number | string | null;
+  rejected_reports_count: number | string | null;
+  pending_reports_count: number | string | null;
+  confirmed_reports_count: number | string | null;
+  client_fund_used_usd: number | string | null;
+  pending_usd: number | string | null;
+  pending_bs: number | string | null;
+  overpaid_usd: number | string | null;
+  collection_mode: 'closed' | 'snapshot_quote' | 'post_delivery_usd' | string | null;
+  payment_status:
+    | 'cancelled'
+    | 'unpaid'
+    | 'partial'
+    | 'pending_review'
+    | 'paid'
+    | 'overpaid'
+    | string
+    | null;
+  delivery_reference_date: string | null;
+  effective_operation_date: string | null;
+};
+
+type AdvisorCommissionPeriodRow = {
+  id: number;
+  name: string;
+  date_from: string;
+  date_to: string;
+  status: 'open' | 'archived' | string;
+  notes: string | null;
+  created_at: string;
+};
+
+type AdvisorCommissionClosureRow = {
+  id: number;
+  period_id: number;
+  advisor_user_id: string;
+  status: 'preliminary' | 'closed' | 'paid' | string;
+  base_commission_pct: number | string;
+  delivered_orders_count: number | string;
+  billed_usd: number | string;
+  gross_commission_usd: number | string;
+  pending_collection_usd: number | string;
+  punctual_paid_count: number | string;
+  late_paid_count: number | string;
+  pending_payment_count: number | string;
+  new_own_clients_count: number | string;
+  new_assigned_clients_count: number | string;
+  gift_deductions_usd: number | string;
+  manual_deductions_usd: number | string;
+  payable_usd: number | string;
+  snapshot: any;
+  generated_at: string | null;
+  closed_at: string | null;
+  paid_at: string | null;
+  deductions: Array<{
+    id: number | string;
+    deduction_type: string | null;
+    description: string | null;
+    amount_usd: number | string | null;
+    notes: string | null;
+    created_at: string | null;
+  }>;
+};
+
+type RawProfileRow = {
+  id: string;
+  full_name: string | null;
+  is_active: boolean | null;
+  receives_commissions: boolean | null;
+  created_at: string | null;
+};
+
+type RawUserRoleRow = {
+  user_id: string;
+  role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
+};
+
+type RawMasterInboxItemStateRow = {
+  item_id: string;
+  item_type: 'task' | 'event' | string;
+  order_id: number | string | null;
+  status: 'reviewed' | 'resolved' | string;
+};
+
+async function loadAuthUserEmailById() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const emailById = new Map<string, string>();
+
+  if (!url || !key) {
+    return emailById;
+  }
+
+  try {
+    const adminSupabase = createClient(url, key, {
+      auth: { persistSession: false },
+    });
+    const perPage = 1000;
+
+    for (let page = 1; page <= 10; page += 1) {
+      const { data, error } = await adminSupabase.auth.admin.listUsers({
+        page,
+        perPage,
+      });
+
+      if (error) {
+        console.warn('loadAuthUserEmailById skipped', error.message);
+        break;
+      }
+
+      for (const authUser of data.users ?? []) {
+        if (authUser.id && authUser.email) {
+          emailById.set(authUser.id, authUser.email);
+        }
+      }
+
+      if (!data.users || data.users.length < perPage) {
+        break;
+      }
+    }
+  } catch (error) {
+    console.warn(
+      'loadAuthUserEmailById failed',
+      error instanceof Error ? error.message : 'unknown auth users error'
+    );
+  }
+
+  return emailById;
+}
+
+type RawProductRow = {
+  id: number;
+  sku: string | null;
+  name: string;
+  type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+  is_active: boolean;
+  source_price_amount: number | string;
+  source_price_currency: 'VES' | 'USD';
+  base_price_usd: number | string;
+  base_price_bs: number | string;
+  units_per_service: number | string;
+  is_detail_editable: boolean;
+  detail_units_limit: number | string;
+  is_inventory_item: boolean;
+  is_temporary: boolean;
+  is_combo_component_selectable: boolean;
+  commission_mode: 'default' | 'fixed_item' | 'fixed_order' | null;
+  commission_value: number | string | null;
+  commission_notes: string | null;
+  extra_fields: Record<string, unknown> | null;
+  internal_rider_pay_usd: number | string | null;
+  inventory_enabled: boolean;
+  inventory_kind: 'raw_material' | 'prepared_base' | 'finished_good' | null;
+  inventory_deduction_mode: 'self' | 'composition' | null;
+  inventory_unit_name: string | null;
+  packaging_name: string | null;
+  packaging_size: number | string | null;
+  current_stock_units: number | string | null;
+  low_stock_threshold: number | string | null;
+  inventory_group: 'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other' | null;
+};
+
+type RawInventoryItemRow = {
+  id: number;
+  name: string;
+  inventory_kind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
+  inventory_group: 'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other' | null;
+  unit_name: string;
+  packaging_name: string | null;
+  packaging_size: number | string | null;
+  current_stock_units: number | string;
+  low_stock_threshold: number | string | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+};
+
+type RawInventoryRecipeRow = {
+  id: number;
+  output_inventory_item_id: number;
+  recipe_kind: 'production' | 'packaging';
+  output_quantity_units: number | string;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+type RawInventoryRecipeComponentRow = {
+  id: number;
+  recipe_id: number;
+  input_inventory_item_id: number;
+  quantity_units: number | string;
+  sort_order: number | string;
+};
+
+type RawProductInventoryLinkRow = {
+  id: number;
+  product_id: number;
+  inventory_item_id: number;
+  deduction_mode: 'self_link' | 'recipe';
+  quantity_units: number | string;
+  sort_order: number | string;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+type RawExchangeRateRow = {
+  id: number;
+  rate_bs_per_usd: number | string;
+  effective_at: string;
+  is_active: boolean;
+};
+
+type RawAdvisorRow = {
+  id: string;
+  full_name: string | null;
+  is_active: boolean | null;
+};
+
+
+type RawProductComponentRow = {
+  id: number;
+  parent_product_id: number;
+  component_product_id: number;
+  component_mode: 'fixed' | 'selectable';
+  quantity: number | string;
+  counts_toward_detail_limit: boolean;
+  is_required: boolean;
+  sort_order: number | string;
+  notes: string | null;
+parent_product:
+  | {
+      id: number;
+      sku: string | null;
+      name: string;
+      type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+    }
+  | {
+      id: number;
+      sku: string | null;
+      name: string;
+      type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+    }[]
+  | null;
+
+component_product:
+  | {
+      id: number;
+      sku: string | null;
+      name: string;
+      type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+    }
+  | {
+      id: number;
+      sku: string | null;
+      name: string;
+      type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+    }[]
+  | null;
+};
+
+type RawOrderEventRow = {
+  id: string;
+  order_id: number;
+  event_type: string | null;
+  event_group: string | null;
+  title: string | null;
+  message: string | null;
+  severity: 'info' | 'warning' | 'critical' | string;
+  actor_user_id: string | null;
+  payload: any;
+  created_at: string;
+  event?: string | null;
+  performed_by?: string | null;
+  meta?: any;
+  order_number?: string | null;
+};
+
+type RawTimelineEventRecipientRow = {
+  event_id: string | number | null;
+  target_role: string | null;
+  target_user_id: string | null;
+  requires_action: boolean | null;
+  read_at: string | null;
+};
+
+type RawNotificationRow = {
+  id: number | string;
+  order_id: number | string | null;
+  type: string | null;
+  status: string | null;
+  title: string | null;
+  body: string | null;
+  meta: Record<string, unknown> | null;
+  created_at: string | null;
+  read_at: string | null;
+};
+
+function toNumber(value: unknown, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function roundMoney(value: unknown, fallback = 0) {
+  const n = toNumber(value, fallback);
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+const MASTER_DASHBOARD_ORDER_LIMIT = 500;
+const MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT = 900;
+const MASTER_DASHBOARD_INBOX_ORDER_LIMIT = 180;
+const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 420;
+const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
+const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
+const MASTER_DASHBOARD_OPTIONAL_TIMEOUT_MS = 2500;
+const MASTER_DASHBOARD_REFERENCE_CACHE_SECONDS = 60;
+
+function createDashboardReferenceClient() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    throw new Error('Falta configurar las variables de Supabase para cargar referencias del dashboard.');
+  }
+
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+const loadMasterDashboardFinancialReferences = unstable_cache(
+  async () => {
+    const supabase = createDashboardReferenceClient();
+    const [moneyAccountsResult, moneyAccountPaymentRulesResult, moneyAccountClosureProfilesResult] = await Promise.all([
+      supabase
+        .from('money_accounts')
+        .select('id, name, currency_code, account_kind, institution_name, owner_name, notes, is_active, created_at, created_by_user_id')
+        .order('id', { ascending: true }),
+      supabase
+        .from('money_account_payment_rules')
+        .select(`
+          id,
+          money_account_id,
+          role,
+          payment_method_code,
+          can_view_account,
+          can_share_with_client,
+          can_report_payment,
+          can_confirm_payment,
+          auto_confirms_report,
+          review_required,
+          review_roles,
+          is_active
+        `)
+        .order('money_account_id', { ascending: true })
+        .order('role', { ascending: true })
+        .order('payment_method_code', { ascending: true }),
+      supabase
+        .from('money_account_closure_profiles')
+        .select(`
+          money_account_id,
+          closure_kind,
+          requires_zero_difference,
+          allows_classified_difference,
+          generates_transfer_on_close,
+          default_target_money_account_id,
+          baseline_required,
+          notes
+        `)
+        .order('money_account_id', { ascending: true }),
+    ]);
+
+    if (moneyAccountsResult.error) throw new Error(moneyAccountsResult.error.message);
+    if (moneyAccountPaymentRulesResult.error) throw new Error(moneyAccountPaymentRulesResult.error.message);
+    const profileError = moneyAccountClosureProfilesResult.error;
+    const profileTableMissing =
+      profileError &&
+      ('code' in profileError ? String(profileError.code || '') === 'PGRST205' || String(profileError.code || '') === '42P01' : false);
+    if (profileError && !profileTableMissing) throw new Error(profileError.message);
+
+    return {
+      moneyAccountsData: (moneyAccountsResult.data ?? []) as MoneyAccountRow[],
+      moneyAccountPaymentRulesData: (moneyAccountPaymentRulesResult.data ?? []) as MoneyAccountPaymentRuleRow[],
+      moneyAccountClosureProfilesData: profileTableMissing
+        ? ([] as MoneyAccountClosureProfileRow[])
+        : ((moneyAccountClosureProfilesResult.data ?? []) as MoneyAccountClosureProfileRow[]),
+    };
+  },
+  ['master-dashboard-financial-references-v2'],
+  {
+    revalidate: MASTER_DASHBOARD_REFERENCE_CACHE_SECONDS,
+    tags: ['master-dashboard-financial-references'],
+  }
+);
+
+function getCaracasTodayKey() {
+  return new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function normalizeDashboardFocusDate(value: string | null | undefined) {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : getCaracasTodayKey();
+}
+
+function isDateKey(value: string | null | undefined) {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function getCaracasDayRange(dayKey: string) {
+  const start = new Date(`${dayKey}T00:00:00-04:00`);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 1);
+  return {
+    startISO: start.toISOString(),
+    endISO: end.toISOString(),
+  };
+}
+
+function toCaracasDateKey(value: Date) {
+  return value.toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function getCaracasWeekRange(dayKey: string) {
+  const noon = new Date(`${dayKey}T12:00:00-04:00`);
+  const weekday = noon.getDay();
+  const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
+  const monday = addDays(noon, -daysFromMonday);
+  const nextMonday = addDays(monday, 7);
+  const startKey = toCaracasDateKey(monday);
+  const endExclusiveKey = toCaracasDateKey(nextMonday);
+  const start = new Date(`${startKey}T00:00:00-04:00`);
+  const end = new Date(`${endExclusiveKey}T00:00:00-04:00`);
+
+  return {
+    startKey,
+    endExclusiveKey,
+    startISO: start.toISOString(),
+    endISO: end.toISOString(),
+  };
+}
+
+function emptyOperationStatsSummary(): OperationStatsSummary {
+  return {
+    cierres: 0,
+    fact: 0,
+    abonadoConfirmado: 0,
+    pendiente: 0,
+  };
+}
+
+async function withDashboardOptionalTimeout<T>(
+  label: string,
+  promise: PromiseLike<T>,
+  fallback: T,
+  timeoutMs = MASTER_DASHBOARD_OPTIONAL_TIMEOUT_MS
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<T>((resolve) => {
+        timeout = setTimeout(() => {
+          console.warn(`master dashboard optional load timed out: ${label}`);
+          resolve(fallback);
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    console.warn(
+      `master dashboard optional load failed: ${label}`,
+      error instanceof Error ? error.message : 'unknown error'
+    );
+    return fallback;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function optionalSupabaseResponse<T>(data: T) {
+  return {
+    data,
+    error: null,
+    count: null,
+    status: 200,
+    statusText: 'OK',
+  };
+}
+
+function repairDisplayText(value: string | null | undefined) {
+  return String(value ?? '')
+    .replace(/Â·/g, '·')
+    .replace(/â€¦/g, '…')
+    .replace(/â€”/g, '—')
+    .replace(/Ã¡/g, 'á')
+    .replace(/Ã©/g, 'é')
+    .replace(/Ã­/g, 'í')
+    .replace(/Ã³/g, 'ó')
+    .replace(/Ãº/g, 'ú')
+    .replace(/Ã±/g, 'ñ')
+    .replace(/Ã/g, 'Á')
+    .replace(/Ã‰/g, 'É')
+    .replace(/Ã/g, 'Í')
+    .replace(/Ã“/g, 'Ó')
+    .replace(/Ãš/g, 'Ú')
+    .replace(/Ã‘/g, 'Ñ')
+    .trim();
+}
+
+function normalizeLegacyOrderEvent(params: {
+  event: RawOrderEventRow;
+  fulfillment: 'pickup' | 'delivery';
+}) {
+  const legacyType = String(params.event.event || '').trim();
+  const meta =
+    params.event.meta && typeof params.event.meta === 'object' && !Array.isArray(params.event.meta)
+      ? (params.event.meta as Record<string, unknown>)
+      : {};
+
+  switch (legacyType) {
+    case 'approved':
+      return {
+        eventType: 'approved',
+        eventGroup: 'approval',
+        title: 'Orden aprobada',
+        message: 'La orden fue aprobada.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'sent_to_kitchen':
+      return {
+        eventType: 'sent_to_kitchen',
+        eventGroup: 'kitchen',
+        title: 'Enviada a cocina',
+        message: 'La orden fue enviada a cocina.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'kitchen_started':
+      return {
+        eventType: 'kitchen_started',
+        eventGroup: 'kitchen',
+        title: 'Cocina tomó la orden',
+        message:
+          typeof meta.eta_minutes === 'number'
+            ? `Tiempo estimado de preparación: ${meta.eta_minutes} min.`
+            : 'Cocina inició la preparación.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'ready':
+      return {
+        eventType: 'ready',
+        eventGroup: 'kitchen',
+        title: params.fulfillment === 'pickup' ? 'Lista para retiro' : 'Orden preparada',
+        message:
+          params.fulfillment === 'pickup'
+            ? 'La orden quedó lista para retiro.'
+            : 'La orden quedó preparada para despacho.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'out_for_delivery':
+      return {
+        eventType: 'out_for_delivery',
+        eventGroup: 'delivery',
+        title: 'En camino',
+        message: 'La orden salió en camino.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'delivered':
+      return {
+        eventType: 'delivered',
+        eventGroup: 'delivery',
+        title: params.fulfillment === 'pickup' ? 'Orden retirada' : 'Orden entregada',
+        message:
+          params.fulfillment === 'pickup'
+            ? 'La orden fue retirada.'
+            : 'La orden fue entregada.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'internal_driver_assigned':
+      return {
+        eventType: 'internal_driver_assigned',
+        eventGroup: 'delivery',
+        title: 'Motorizado interno asignado',
+        message: 'Se asignó un motorizado interno a la orden.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'external_partner_assigned':
+      return {
+        eventType: 'external_partner_assigned',
+        eventGroup: 'delivery',
+        title: 'Partner externo asignado',
+        message: 'Se asignó un partner externo a la orden.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    default:
+      return {
+        eventType: legacyType || 'legacy',
+        eventGroup: 'legacy',
+        title: 'Evento de orden',
+        message: legacyType ? repairDisplayText(legacyType.replace(/_/g, ' ')) : 'Evento registrado.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+  }
+}
+
+function buildDeliveryISO(extraFields: any, fallbackISO: string) {
+  const schedule = extraFields?.schedule;
+  const date = schedule?.date;
+  const time24 = schedule?.time_24;
+
+  if (typeof date === 'string' && typeof time24 === 'string') {
+    const candidate = new Date(`${date}T${time24}:00-04:00`);
+    if (!Number.isNaN(candidate.getTime())) {
+      return candidate.toISOString();
+    }
+  }
+
+  return fallbackISO;
+}
+
+function extractUnitsPerServiceFromName(name: string) {
+  const match = name.match(/\((\d+)\s*UND\)/i);
+  if (!match) return 0;
+
+  const units = Number(match[1]);
+  return Number.isFinite(units) ? units : 0;
+}
+
+function estimateBsFromUsd(usd: number, rateBsPerUsd: number) {
+  if (!Number.isFinite(usd) || !Number.isFinite(rateBsPerUsd) || rateBsPerUsd <= 0) return 0;
+  return usd * rateBsPerUsd;
+}
+
+export default async function MasterDashboardPage({
+  searchParams,
+}: {
+  searchParams?: MasterDashboardSearchParams;
+}) {
+  const snapshotStartedAt = new Date().toISOString();
+  const supabase = await createSupabaseServer();
+  const params = (await searchParams) ?? {};
+  const focusDateKey = normalizeDashboardFocusDate(params.focusDate);
+  const focusDayRange = getCaracasDayRange(focusDateKey);
+  const focusWeekRange = getCaracasWeekRange(focusDateKey);
+  const calculationRangeRequested = isDateKey(params.calcFrom) && isDateKey(params.calcTo);
+  const calcFromKey = calculationRangeRequested ? String(params.calcFrom) : null;
+  const calcToKey = calculationRangeRequested ? String(params.calcTo) : null;
+  const calcSourceRaw = String(params.calcSource || '');
+  const calcSource: '' | 'advisor' | 'master' | 'walk_in' =
+    calcSourceRaw === 'advisor' || calcSourceRaw === 'master' || calcSourceRaw === 'walk_in'
+      ? calcSourceRaw
+      : '';
+  const calcAdvisorId = String(params.calcAdvisor || '').trim();
+  const calcBasePct = String(params.calcBasePct || '').trim();
+  const calcRunRaw = String(params.calcRun || '').trim();
+  const calcRunMs = /^\d{10,}$/.test(calcRunRaw) ? Number(calcRunRaw) : Number.NaN;
+  const calcRunDate = Number.isFinite(calcRunMs) ? new Date(calcRunMs) : null;
+  const calcGeneratedAt =
+    calculationRangeRequested && calcRunDate && !Number.isNaN(calcRunDate.getTime())
+      ? calcRunDate.toISOString()
+      : null;
+  const calculationRange =
+    calcFromKey && calcToKey
+      ? {
+          start: getCaracasDayRange(calcFromKey).startISO,
+          end: getCaracasDayRange(calcToKey).endISO,
+        }
+      : null;
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    redirect('/login');
+  }
+
+  const { data: rolesData, error: rolesError } = await supabase.rpc('get_my_roles');
+
+  if (rolesError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando roles</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los roles del usuario.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {rolesError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const roles: string[] = Array.isArray(rolesData)
+    ? rolesData
+    : rolesData
+      ? [rolesData]
+      : [];
+
+  const isAllowed = roles.includes('master') || roles.includes('admin');
+
+  if (!isAllowed) {
+    redirect('/app');
+  }
+const { data: currentProfile, error: currentProfileError } = await supabase
+  .from('profiles')
+  .select('full_name')
+  .eq('id', user.id)
+  .maybeSingle();
+
+if (currentProfileError) {
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+      <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-lg font-semibold">Error cargando perfil actual</div>
+        <div className="mt-2 text-sm text-[#B7B7C2]">
+          No se pudo obtener el perfil del usuario actual.
+        </div>
+        <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+          {currentProfileError.message}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+const shouldLoadUserAdministration = roles.includes('admin');
+
+const [
+  userProfilesResult,
+  userRolesResult,
+  authUserEmailById,
+] = await Promise.all([
+  withDashboardOptionalTimeout(
+    'profiles',
+    supabase
+      .from('profiles')
+      .select('id, full_name, is_active, receives_commissions, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
+    optionalSupabaseResponse([] as RawProfileRow[])
+  ),
+  shouldLoadUserAdministration
+    ? withDashboardOptionalTimeout(
+        'admin_list_user_roles',
+        supabase.rpc('admin_list_user_roles'),
+        optionalSupabaseResponse([] as RawUserRoleRow[])
+      )
+    : Promise.resolve(optionalSupabaseResponse([] as RawUserRoleRow[])),
+  shouldLoadUserAdministration
+    ? withDashboardOptionalTimeout('auth users email lookup', loadAuthUserEmailById(), new Map<string, string>(), 1800)
+    : Promise.resolve(new Map<string, string>()),
+]);
+
+const { data: userProfilesData, error: userProfilesError } = userProfilesResult;
+
+if (userProfilesError) {
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+      <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-lg font-semibold">Error cargando usuarios</div>
+        <div className="mt-2 text-sm text-[#B7B7C2]">
+          No se pudieron obtener los perfiles de usuarios.
+        </div>
+        <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+          {userProfilesError.message}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+const { data: userRolesData, error: userRolesError } = userRolesResult;
+
+if (userRolesError) {
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+      <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-lg font-semibold">Error cargando roles de usuarios</div>
+        <div className="mt-2 text-sm text-[#B7B7C2]">
+          No se pudieron obtener los roles administrativos.
+        </div>
+        <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+          {userRolesError.message}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+const dashboardUsers = ((userProfilesData ?? []) as RawProfileRow[]).map((row) => ({
+  id: String(row.id),
+  fullName: row.full_name?.trim() || '',
+  email: authUserEmailById.get(String(row.id)) ?? null,
+  isActive: Boolean(row.is_active ?? true),
+  receivesCommissions: row.receives_commissions === true,
+  createdAt: row.created_at ?? null,
+}));
+
+const dashboardUserById = new Map(dashboardUsers.map((profile) => [profile.id, profile]));
+
+const dashboardUserRoles = ((userRolesData ?? []) as RawUserRoleRow[]).map((row) => ({
+  userId: String(row.user_id),
+  role: row.role,
+}));
+
+const {
+  data: masterInboxStatesData,
+  error: masterInboxStatesError,
+} = await withDashboardOptionalTimeout(
+  'master_inbox_item_states',
+  supabase
+    .from('master_inbox_item_states')
+    .select('item_id, item_type, order_id, status')
+    .in('status', ['reviewed', 'resolved'])
+    .order('updated_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_INBOX_STATE_LIMIT),
+  optionalSupabaseResponse([] as RawMasterInboxItemStateRow[])
+);
+
+if (masterInboxStatesError) {
+  const message = masterInboxStatesError.message || '';
+  const code = 'code' in masterInboxStatesError ? String(masterInboxStatesError.code || '') : '';
+  const missingTable =
+    code === '42P01' ||
+    code === 'PGRST205' ||
+    message.toLowerCase().includes('does not exist') ||
+    message.toLowerCase().includes('could not find') ||
+    message.toLowerCase().includes('schema cache');
+
+  if (!missingTable) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando estado del inbox</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los estados revisados del inbox operativo.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {masterInboxStatesError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  console.warn('master_inbox_item_states not available yet', masterInboxStatesError.message);
+}
+
+const initialMasterInboxItemStates = ((masterInboxStatesData ?? []) as RawMasterInboxItemStateRow[])
+  .filter((row) => row.status === 'reviewed' || row.status === 'resolved')
+  .map((row) => ({
+    itemId: String(row.item_id),
+    itemType: row.item_type === 'event' ? 'event' as const : 'task' as const,
+    orderId: row.order_id == null ? null : Number(row.order_id),
+    status: row.status === 'resolved' ? 'resolved' as const : 'reviewed' as const,
+  }));
+
+const { data: masterNotificationsData, error: masterNotificationsError } = await withDashboardOptionalTimeout(
+  'notifications',
+  supabase
+    .from('notifications')
+    .select('id, order_id, type, status, title, body, meta, created_at, read_at')
+    .eq('recipient_user_id', user.id)
+    .not('order_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(200),
+  optionalSupabaseResponse([] as RawNotificationRow[])
+);
+
+if (masterNotificationsError) {
+  console.warn('notifications unavailable for master inbox', masterNotificationsError.message);
+}
+
+const initialMasterNotifications = ((masterNotificationsData ?? []) as RawNotificationRow[])
+  .map((notification) => ({
+    id: Number(notification.id),
+    orderId: Number(notification.order_id),
+    type: String(notification.type || ''),
+    status: String(notification.status || 'unread'),
+    title: String(notification.title || 'Notificación'),
+    body: notification.body == null ? null : String(notification.body),
+    meta: notification.meta && typeof notification.meta === 'object' && !Array.isArray(notification.meta)
+      ? notification.meta
+      : {},
+    createdAt: String(notification.created_at || ''),
+    readAt: notification.read_at == null ? null : String(notification.read_at),
+  }))
+  .filter((notification) => Number.isFinite(notification.id) && notification.id > 0 && Number.isFinite(notification.orderId) && notification.orderId > 0);
+
+const { data: deliveryPartnersData, error: deliveryPartnersError } = await withDashboardOptionalTimeout(
+  'delivery_partners',
+  supabase
+    .from('delivery_partners')
+    .select('id, name, partner_type, whatsapp_phone, is_active')
+    .order('name', { ascending: true }),
+  optionalSupabaseResponse([] as Array<{ id: number; name: string; partner_type: string; whatsapp_phone: string | null; is_active: boolean }>)
+);
+
+if (deliveryPartnersError) {
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+      <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-lg font-semibold">Error cargando partners de delivery</div>
+        <div className="mt-2 text-sm text-[#B7B7C2]">
+          No se pudieron obtener los partners externos de delivery.
+        </div>
+        <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+          {deliveryPartnersError.message}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+const deliveryPartnerOptions = ((deliveryPartnersData ?? []) as Array<{
+  id: number;
+  name: string;
+  partner_type: string;
+  whatsapp_phone: string | null;
+  is_active: boolean;
+}>).map((row) => ({
+  id: Number(row.id),
+  name: row.name,
+  partnerType: row.partner_type,
+  whatsappPhone: row.whatsapp_phone ?? null,
+  isActive: row.is_active,
+  rates: [] as Array<{
+    id: number;
+    partnerId: number;
+    kmFrom: number;
+    kmTo: number | null;
+    priceUsd: number;
+    isActive: boolean;
+    createdAt: string;
+  }>,
+}));
+
+const deliveryPartnerNameById = new Map<number, string>(
+  deliveryPartnerOptions.map((partner) => [partner.id, partner.name])
+);
+
+const { data: advisorsRpcData, error: advisorsRpcError } = await withDashboardOptionalTimeout(
+  'get_advisor_profiles',
+  supabase.rpc('get_advisor_profiles'),
+  optionalSupabaseResponse([] as Array<{ user_id: string; full_name: string | null; is_active: boolean | null }>)
+);
+
+const { data: driversRpcData, error: driversRpcError } = await withDashboardOptionalTimeout(
+  'get_driver_profiles',
+  supabase.rpc('get_driver_profiles'),
+  optionalSupabaseResponse([] as Array<{ user_id: string; full_name: string | null; is_active: boolean | null }>)
+);
+
+if (driversRpcError) {
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+      <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-lg font-semibold">Error cargando drivers</div>
+        <div className="mt-2 text-sm text-[#B7B7C2]">
+          No se pudieron obtener los drivers internos.
+        </div>
+        <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+          {driversRpcError.message}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+const driverOptions = ((driversRpcData ?? []) as Array<{
+  user_id: string;
+  full_name: string | null;
+  is_active: boolean | null;
+}>)
+  .map((row) => ({
+    id: String(row.user_id),
+    fullName: row.full_name?.trim() || 'Sin nombre',
+  }))
+  .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+if (advisorsRpcError) {
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+      <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-lg font-semibold">Error cargando asesores</div>
+        <div className="mt-2 text-sm text-[#B7B7C2]">
+          No se pudieron obtener los advisors.
+        </div>
+        <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+          {advisorsRpcError.message}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+const advisorOptions = ((advisorsRpcData ?? []) as Array<{
+  user_id: string;
+  full_name: string | null;
+  is_active: boolean | null;
+}>)
+  .map((row) => ({
+    userId: String(row.user_id),
+    fullName: row.full_name?.trim() || 'Sin nombre',
+    isActive: Boolean(row.is_active ?? true),
+    receivesCommissions: dashboardUserById.get(String(row.user_id))?.receivesCommissions === true,
+  }))
+  .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+const advisorCommissionPeriodsResult = await withDashboardOptionalTimeout(
+  'advisor_commission_periods',
+  supabase
+    .from('advisor_commission_periods')
+    .select('id, name, date_from, date_to, status, notes, created_at')
+    .order('date_from', { ascending: false })
+    .limit(12),
+  optionalSupabaseResponse([] as AdvisorCommissionPeriodRow[])
+);
+
+const advisorCommissionPeriodsError = advisorCommissionPeriodsResult.error;
+const isAdvisorCommissionTableMissing = (error: unknown) =>
+  Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (String((error as { code?: unknown }).code || '') === 'PGRST205' ||
+        String((error as { code?: unknown }).code || '') === '42P01')
+  );
+const advisorCommissionSetupMissing = isAdvisorCommissionTableMissing(advisorCommissionPeriodsError);
+
+if (advisorCommissionPeriodsError && !advisorCommissionSetupMissing) {
+  console.warn('advisor commission periods skipped', advisorCommissionPeriodsError.message);
+}
+
+const advisorCommissionPeriods = advisorCommissionSetupMissing
+  ? []
+  : ((advisorCommissionPeriodsResult.data ?? []) as AdvisorCommissionPeriodRow[]).map((row) => ({
+      id: Number(row.id),
+      name: row.name,
+      dateFrom: row.date_from,
+      dateTo: row.date_to,
+      status: row.status,
+      notes: row.notes,
+      createdAt: row.created_at,
+    }));
+
+const advisorCommissionClosures: never[] = [];
+
+  const { data: exchangeRateData, error: exchangeRateError } = await supabase
+    .from('exchange_rates')
+    .select('id, rate_bs_per_usd, effective_at, is_active')
+    .eq('is_active', true)
+    .order('effective_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (exchangeRateError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando tasa activa</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo obtener la tasa activa.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {exchangeRateError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const activeRateRow = exchangeRateData as RawExchangeRateRow | null;
+  const activeRateBsPerUsd = activeRateRow ? toNumber(activeRateRow.rate_bs_per_usd, 0) : 0;
+
+const orderSummarySelect = 'id, status, total_usd, total_bs_snapshot, created_at, extra_fields';
+const [weekScheduledSummaryResult, weekCreatedSummaryResult] = await Promise.all([
+  supabase
+    .from('orders')
+    .select(orderSummarySelect)
+    .gte('extra_fields->schedule->>date', focusWeekRange.startKey)
+    .lt('extra_fields->schedule->>date', focusWeekRange.endExclusiveKey)
+    .limit(MASTER_DASHBOARD_ORDER_LIMIT + 1),
+  supabase
+    .from('orders')
+    .select(orderSummarySelect)
+    .gte('created_at', focusWeekRange.startISO)
+    .lt('created_at', focusWeekRange.endISO)
+    .limit(MASTER_DASHBOARD_ORDER_LIMIT + 1),
+]);
+
+const weekSummaryError = weekScheduledSummaryResult.error ?? weekCreatedSummaryResult.error;
+if (weekSummaryError) {
+  console.warn('master dashboard weekly summary skipped', weekSummaryError.message);
+}
+
+const weekSummaryRowsById = new Map<number, RawOrderSummaryRow>();
+if (!weekSummaryError) {
+  for (const row of (weekScheduledSummaryResult.data ?? []) as RawOrderSummaryRow[]) {
+    weekSummaryRowsById.set(Number(row.id), row);
+  }
+
+  // Creation date is only a fallback for legacy orders with no scheduled operation date.
+  for (const row of (weekCreatedSummaryResult.data ?? []) as RawOrderSummaryRow[]) {
+    if (!isDateKey(row.extra_fields?.schedule?.date)) {
+      weekSummaryRowsById.set(Number(row.id), row);
+    }
+  }
+}
+
+const weekSummaryRows = Array.from(weekSummaryRowsById.values())
+  .slice(0, MASTER_DASHBOARD_ORDER_LIMIT);
+const weekSummaryIds = weekSummaryRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
+
+const orderSelect = `
+      id,
+      order_number,
+      client_id,
+      attributed_advisor_id,
+      source,
+      fulfillment,
+      delivery_address,
+      receiver_name,
+      receiver_phone,
+      is_price_locked,
+      status,
+      total_usd,
+      total_bs_snapshot,
+      notes,
+      created_at,
+      last_modified_at,
+      last_modified_by,
+      sent_to_kitchen_at,
+      kitchen_started_at,
+      ready_at,
+      extra_fields,
+      queued_needs_reapproval,
+      external_driver_name,
+      external_reference,
+      external_partner_id,
+      internal_driver_user_id,
+      eta_minutes,
+      client:clients!orders_client_id_fkey (
+        id,
+        full_name,
+        phone,
+        created_at,
+        client_type,
+        fund_balance_usd
+      ),
+      advisor:profiles!orders_attributed_advisor_id_fkey (
+        full_name
+      ),
+      creator:profiles!orders_created_by_user_id_fkey (
+        full_name
+      )
+    `;
+
+const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
+  supabase
+    .from('orders')
+    .select(orderSelect)
+    .eq('extra_fields->schedule->>date', focusDateKey)
+    .order('created_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_ORDER_LIMIT + 1),
+  supabase
+    .from('orders')
+    .select(orderSelect)
+    .gte('created_at', focusDayRange.startISO)
+    .lt('created_at', focusDayRange.endISO)
+    .order('created_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_ORDER_LIMIT + 1),
+]);
+
+const ordersError = scheduledOrdersResult.error ?? createdOrdersResult.error;
+const ordersDataById = new Map<number, RawOrderRow>();
+
+for (const row of (scheduledOrdersResult.data ?? []) as RawOrderRow[]) {
+  ordersDataById.set(Number(row.id), row);
+}
+
+for (const row of (createdOrdersResult.data ?? []) as RawOrderRow[]) {
+  if (!isDateKey(row.extra_fields?.schedule?.date)) {
+    ordersDataById.set(Number(row.id), row);
+  }
+}
+
+const ordersData = Array.from(ordersDataById.values())
+  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+const ordersLimitExceeded = ordersData.length > MASTER_DASHBOARD_ORDER_LIMIT;
+
+  if (ordersError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando Ã³rdenes</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener las Ã³rdenes.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {ordersError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+const calcEndExclusiveKey =
+  calcToKey ? toCaracasDateKey(addDays(new Date(`${calcToKey}T12:00:00-04:00`), 1)) : null;
+const applyCalculationFilters = (query: any) => {
+  let next = query;
+  if (calcSource) {
+    next = next.eq('source', calcSource);
+  }
+  if (calcAdvisorId && (!calcSource || calcSource === 'advisor')) {
+    next = next.eq('attributed_advisor_id', calcAdvisorId);
+  }
+  return next;
+};
+
+const [calculationScheduledOrdersResult, calculationCreatedOrdersResult] =
+  calculationRange && calcFromKey && calcEndExclusiveKey
+    ? await Promise.all([
+        applyCalculationFilters(
+          supabase
+            .from('orders')
+            .select(orderSelect)
+            .gte('extra_fields->schedule->>date', calcFromKey)
+            .lt('extra_fields->schedule->>date', calcEndExclusiveKey)
+        )
+          .order('created_at', { ascending: false })
+          .limit(MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT + 1),
+        applyCalculationFilters(
+          supabase
+            .from('orders')
+            .select(orderSelect)
+            .gte('created_at', calculationRange.start)
+            .lt('created_at', calculationRange.end)
+        )
+          .order('created_at', { ascending: false })
+          .limit(MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT + 1),
+      ])
+    : [
+        { data: [] as RawOrderRow[], error: null },
+        { data: [] as RawOrderRow[], error: null },
+      ];
+
+const calculationOrdersError = calculationScheduledOrdersResult.error ?? calculationCreatedOrdersResult.error;
+if (calculationOrdersError) {
+  console.warn('master dashboard calculation orders skipped', calculationOrdersError.message);
+}
+
+const calculationOrdersDataById = new Map<number, RawOrderRow>();
+if (!calculationOrdersError) {
+  for (const row of (calculationScheduledOrdersResult.data ?? []) as RawOrderRow[]) {
+    calculationOrdersDataById.set(Number(row.id), row);
+  }
+
+  for (const row of (calculationCreatedOrdersResult.data ?? []) as RawOrderRow[]) {
+    if (!isDateKey(row.extra_fields?.schedule?.date)) {
+      calculationOrdersDataById.set(Number(row.id), row);
+    }
+  }
+}
+
+const calculationOrdersData = Array.from(calculationOrdersDataById.values())
+  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+const calculationOrdersLimitExceeded =
+  calculationOrdersData.length > MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT;
+
+const [inboxActionOrdersResult, inboxPendingPaymentReportsResult, inboxRecentEventsResult] = await Promise.all([
+  supabase
+    .from('orders')
+    .select(orderSelect)
+    .or('status.eq.created,queued_needs_reapproval.eq.true')
+    .order('created_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_INBOX_ORDER_LIMIT),
+  supabase
+    .from('payment_reports')
+    .select('order_id, created_at')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_INBOX_ORDER_LIMIT),
+  supabase
+    .from('order_timeline_events')
+    .select('order_id, created_at')
+    .order('created_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_INBOX_ORDER_LIMIT),
+]);
+
+const inboxSeedOrderIds = Array.from(
+  new Set(
+    [
+      ...((inboxPendingPaymentReportsResult.data ?? []) as Array<{ order_id: number | string | null }>)
+        .map((row) => Number(row.order_id)),
+      ...((inboxRecentEventsResult.data ?? []) as Array<{ order_id: number | string | null }>)
+        .map((row) => Number(row.order_id)),
+    ].filter((id) => Number.isFinite(id) && id > 0)
+  )
+).slice(0, MASTER_DASHBOARD_INBOX_ORDER_LIMIT);
+
+const inboxSeedOrdersResult = inboxSeedOrderIds.length > 0
+  ? await supabase
+      .from('orders')
+      .select(orderSelect)
+      .in('id', inboxSeedOrderIds)
+      .limit(MASTER_DASHBOARD_INBOX_ORDER_LIMIT)
+  : { data: [] as RawOrderRow[], error: null };
+
+const inboxOrdersError =
+  inboxActionOrdersResult.error ??
+  inboxPendingPaymentReportsResult.error ??
+  inboxRecentEventsResult.error ??
+  inboxSeedOrdersResult.error;
+if (inboxOrdersError) {
+  console.warn('master dashboard inbox orders skipped', inboxOrdersError.message);
+}
+
+const inboxOrdersDataById = new Map<number, RawOrderRow>();
+if (!inboxOrdersError) {
+  for (const row of [
+    ...((inboxActionOrdersResult.data ?? []) as RawOrderRow[]),
+    ...((inboxSeedOrdersResult.data ?? []) as RawOrderRow[]),
+  ]) {
+    inboxOrdersDataById.set(Number(row.id), row);
+  }
+}
+
+const inboxOrdersData = Array.from(inboxOrdersDataById.values())
+  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  .slice(0, MASTER_DASHBOARD_INBOX_ORDER_LIMIT);
+
+  const operationRawOrders = ordersData.slice(0, MASTER_DASHBOARD_ORDER_LIMIT) as RawOrderRow[];
+  const calculationRawOrders = calculationOrdersData.slice(0, MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT) as RawOrderRow[];
+  const inboxRawOrders = inboxOrdersData as RawOrderRow[];
+  const rawOrdersById = new Map<number, RawOrderRow>();
+  for (const row of [...operationRawOrders, ...calculationRawOrders, ...inboxRawOrders]) {
+    rawOrdersById.set(Number(row.id), row);
+  }
+  const rawOrders = Array.from(rawOrdersById.values());
+  const operationOrderIdSet = new Set(operationRawOrders.map((o) => Number(o.id)));
+  const calculationOrderIdSet = new Set(calculationRawOrders.map((o) => Number(o.id)));
+  const inboxOrderIdSet = new Set(inboxRawOrders.map((o) => Number(o.id)));
+  const orderIds = rawOrders.map((o) => o.id);
+  const visibleClientIds = Array.from(
+    new Set(
+      rawOrders
+        .map((row) => Number(row.client_id ?? 0))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  );
+  const { data: clientOrderHistoryData, error: clientOrderHistoryError } =
+    visibleClientIds.length > 0
+      ? await supabase
+          .from('orders')
+          .select('id, client_id, created_at, status')
+          .in('client_id', visibleClientIds)
+          .neq('status', 'cancelled')
+          .order('created_at', { ascending: true })
+          .limit(10000)
+      : { data: [], error: null };
+
+  if (clientOrderHistoryError) {
+    console.warn('client order history skipped', clientOrderHistoryError.message);
+  }
+
+  const clientOrderStatsByClientId = new Map<
+    number,
+    { firstOrderId: number | null; orderCount: number }
+  >();
+  if (!clientOrderHistoryError) {
+    for (const historyRow of (clientOrderHistoryData ?? []) as Array<{
+      id: number | string;
+      client_id: number | string | null;
+    }>) {
+      const clientId = Number(historyRow.client_id ?? 0);
+      const orderId = Number(historyRow.id ?? 0);
+      if (!Number.isFinite(clientId) || clientId <= 0 || !Number.isFinite(orderId) || orderId <= 0) {
+        continue;
+      }
+      const current = clientOrderStatsByClientId.get(clientId) ?? {
+        firstOrderId: null,
+        orderCount: 0,
+      };
+      clientOrderStatsByClientId.set(clientId, {
+        firstOrderId: current.firstOrderId ?? orderId,
+        orderCount: current.orderCount + 1,
+      });
+    }
+  }
+  const financialStateOrderIds = Array.from(new Set([...orderIds, ...weekSummaryIds]));
+  const { data: financialStateData, error: financialStateError } =
+    financialStateOrderIds.length > 0
+      ? await (supabase as any).rpc('get_orders_financial_state', {
+          p_order_ids: financialStateOrderIds,
+          p_operation_date: null,
+          p_active_bs_rate: activeRateBsPerUsd > 0 ? activeRateBsPerUsd : null,
+        })
+      : { data: [], error: null };
+
+  if (financialStateError) {
+    console.warn('get_orders_financial_state skipped', financialStateError.message);
+  }
+
+  const financialStateByOrderId = new Map<number, RawOrderFinancialStateRow>();
+  for (const state of (financialStateData ?? []) as RawOrderFinancialStateRow[]) {
+    const orderId = Number(state.order_id);
+    if (Number.isFinite(orderId) && orderId > 0) {
+      financialStateByOrderId.set(orderId, state);
+    }
+  }
+
+  const operationWeekStats = weekSummaryRows.reduce((summary, row) => {
+    const financialState = financialStateByOrderId.get(Number(row.id));
+    const snapshot = getOrderMoneySnapshot(row);
+    const totalUsd = financialState ? roundMoney(financialState.total_usd) : roundMoney(snapshot.totalUsd);
+    const confirmedPaidUsd = financialState ? roundMoney(financialState.confirmed_paid_usd) : 0;
+    const roundingClosure = getOrderRoundingClosureSnapshot(row);
+    const pendingUsd = roundingClosure.isClosed
+      ? 0
+      : financialState
+        ? roundMoney(financialState.pending_usd)
+        : row.status === 'cancelled'
+          ? 0
+          : roundMoney(totalUsd);
+
+    if (row.status !== 'cancelled' && totalUsd > 0.005) {
+      summary.cierres += 1;
+    }
+
+    if (!['created', 'cancelled'].includes(row.status) && totalUsd > 0.005) {
+      summary.fact += getOrderCommercialNetUsd(row);
+      summary.abonadoConfirmado += confirmedPaidUsd;
+      summary.pendiente += pendingUsd;
+    }
+
+    return summary;
+  }, emptyOperationStatsSummary());
+
+  const orderEventsByOrder = new Map<
+    number,
+    Array<{
+      id: string;
+      eventType: string;
+      eventGroup: string;
+      title: string;
+      message: string | null;
+      severity: 'info' | 'warning' | 'critical';
+      actorUserId: string | null;
+      actorName: string;
+      payload: Record<string, unknown>;
+      createdAt: string;
+      recipientRequiresAction: boolean;
+      recipientReadAt: string | null;
+    }>
+  >();
+
+  try {
+    const [orderEventsResult, legacyOrderEventsResult] = await Promise.all([
+      supabase
+        .from('order_timeline_events')
+        .select('id, order_id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
+        .in('order_id', orderIds.length > 0 ? orderIds : [-1])
+        .order('created_at', { ascending: false })
+        .limit(MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT),
+      MASTER_DASHBOARD_LEGACY_EVENT_LIMIT > 0
+        ? supabase
+          .from('order_events')
+          .select('id, order_id, order_number, event_type, event_group, title, message, severity, actor_user_id, payload, created_at, event, performed_by, meta')
+          .in('order_id', orderIds.length > 0 ? orderIds : [-1])
+          .order('created_at', { ascending: false })
+          .limit(MASTER_DASHBOARD_LEGACY_EVENT_LIMIT)
+        : Promise.resolve({ data: [] as RawOrderEventRow[], error: null }),
+    ]);
+
+    const { data: orderEventsData, error: orderEventsError } = orderEventsResult;
+    const { data: legacyOrderEventsData, error: legacyOrderEventsError } = legacyOrderEventsResult;
+
+    const rawOrderEvents = [
+      ...(orderEventsError ? [] : ((orderEventsData ?? []) as RawOrderEventRow[])),
+      ...(legacyOrderEventsError ? [] : ((legacyOrderEventsData ?? []) as RawOrderEventRow[])),
+    ];
+    const timelineEventIds = Array.from(
+      new Set(
+        rawOrderEvents
+          .filter((event) => event.event_type)
+          .map((event) => Number(event.id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      ),
+    );
+    const { data: timelineRecipientsData } = timelineEventIds.length > 0
+      ? await supabase
+          .from('order_timeline_event_recipients')
+          .select('event_id, target_role, target_user_id, requires_action, read_at')
+          .in('event_id', timelineEventIds)
+      : { data: [] };
+    const timelineRecipientsByEventId = new Map<string, RawTimelineEventRecipientRow[]>();
+    for (const recipient of (timelineRecipientsData ?? []) as RawTimelineEventRecipientRow[]) {
+      const eventId = String(recipient.event_id ?? '');
+      if (!eventId) continue;
+      const bucket = timelineRecipientsByEventId.get(eventId) ?? [];
+      bucket.push(recipient);
+      timelineRecipientsByEventId.set(eventId, bucket);
+    }
+    const orderEventActorIds = Array.from(
+      new Set(
+        rawOrderEvents
+          .flatMap((event) => [event.actor_user_id, event.performed_by ?? null])
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    const { data: orderEventActorsData } = orderEventActorIds.length > 0
+      ? await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', orderEventActorIds)
+      : { data: [] };
+
+    const orderEventActorNameById = new Map<string, string>();
+    for (const row of orderEventActorsData ?? []) {
+      orderEventActorNameById.set(
+        String(row.id),
+        repairDisplayText(row.full_name?.trim() || 'Usuario'),
+      );
+    }
+
+    for (const event of rawOrderEvents) {
+      const orderId = Number(event.order_id);
+      if (!Number.isFinite(orderId) || orderId <= 0) continue;
+
+      const sourceOrder = rawOrders.find((row) => row.id === orderId);
+      const isLegacyEvent = !event.event_type && !!event.event;
+      const normalizedLegacy = isLegacyEvent
+        ? normalizeLegacyOrderEvent({
+            event,
+            fulfillment: sourceOrder?.fulfillment === 'delivery' ? 'delivery' : 'pickup',
+          })
+        : null;
+      const actorUserId = event.actor_user_id ?? event.performed_by ?? null;
+      const eventRecipientRows = timelineRecipientsByEventId.get(String(event.id ?? '')) ?? [];
+      const matchingRecipient = eventRecipientRows.find((recipient) => {
+        if (recipient.target_user_id && recipient.target_user_id === user.id) return true;
+        const targetRole = String(recipient.target_role || '');
+        return targetRole === 'master' || targetRole === 'admin' || roles.includes(targetRole);
+      });
+      if (!isLegacyEvent && eventRecipientRows.length > 0 && !matchingRecipient) continue;
+
+      const bucket = orderEventsByOrder.get(orderId) ?? [];
+      bucket.push({
+        id: `${isLegacyEvent ? 'legacy' : 'timeline'}-${String(event.id ?? '')}`,
+        eventType: normalizedLegacy?.eventType ?? String(event.event_type || ''),
+        eventGroup: normalizedLegacy?.eventGroup ?? String(event.event_group || ''),
+        title: repairDisplayText(normalizedLegacy?.title ?? String(event.title || 'Evento')),
+        message: normalizedLegacy?.message
+          ? repairDisplayText(normalizedLegacy.message)
+          : event.message
+            ? repairDisplayText(String(event.message))
+            : null,
+        severity:
+          (normalizedLegacy?.severity ?? event.severity) === 'warning' || (normalizedLegacy?.severity ?? event.severity) === 'critical'
+            ? ((normalizedLegacy?.severity ?? event.severity) as 'warning' | 'critical')
+            : 'info',
+        actorUserId,
+        actorName: orderEventActorNameById.get(String(actorUserId || '')) || 'Sistema',
+        payload: normalizedLegacy?.payload ?? (
+          event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+            ? (event.payload as Record<string, unknown>)
+            : {}
+        ),
+        createdAt: String(event.created_at || ''),
+        recipientRequiresAction: Boolean(matchingRecipient?.requires_action),
+        recipientReadAt: matchingRecipient?.read_at ?? null,
+      });
+      orderEventsByOrder.set(orderId, bucket);
+    }
+
+    for (const [orderId, bucket] of orderEventsByOrder.entries()) {
+      bucket.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      orderEventsByOrder.set(orderId, bucket);
+    }
+  } catch {
+    // If notifications are partially configured or malformed, keep the dashboard usable.
+  }
+
+  const internalDriverIds = Array.from(
+    new Set(
+      rawOrders
+        .map((o) => o.internal_driver_user_id)
+        .filter((x): x is string => !!x)
+    )
+  );
+
+  const { data: internalDriversData, error: internalDriversError } = internalDriverIds.length > 0
+    ? await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', internalDriverIds)
+    : { data: [], error: null };
+
+  if (internalDriversError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando drivers internos</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los drivers internos.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {internalDriversError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const internalDriverNameById = new Map<string, string>();
+  for (const d of internalDriversData ?? []) {
+    internalDriverNameById.set(String(d.id), d.full_name ?? 'Driver');
+  }
+
+  const orderIdsForQuery = orderIds.length > 0 ? orderIds : [-1];
+  const [
+    { data: orderItemsData, error: orderItemsError },
+    { data: reportsData },
+    { data: movementsData, error: movementsError },
+    { data: orderAdjustmentsData, error: orderAdjustmentsError },
+    { data: crmRedemptionsData, error: crmRedemptionsError },
+  ] = await Promise.all([
+    supabase
+      .from('order_items')
+      .select(`
+      id,
+      order_id,
+      product_id,
+      qty,
+      pricing_origin_currency,
+      pricing_origin_amount,
+      unit_price_usd_snapshot,
+      line_total_usd,
+      admin_price_override_usd,
+      admin_price_override_reason,
+      admin_price_override_by_user_id,
+      admin_price_override_at,
+      unit_price_bs_snapshot,
+      line_total_bs_snapshot,
+      product_name_snapshot,
+      sku_snapshot,
+      notes
+    `)
+      .in('order_id', orderIdsForQuery),
+    supabase
+      .from('payment_reports')
+      .select(`
+      id,
+      order_id,
+      status,
+      created_at,
+      operation_date,
+      created_by_user_id,
+      reported_currency_code,
+      reported_amount,
+      reported_exchange_rate_ves_per_usd,
+      reported_amount_usd_equivalent,
+      reported_money_account_id,
+      reference_code,
+      payer_name,
+      notes
+    `)
+      .in('order_id', orderIdsForQuery)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('money_movements')
+      .select(`
+      id,
+      movement_date,
+      created_at,
+      created_by_user_id,
+      confirmed_at,
+      confirmed_by_user_id,
+      status,
+      approval_required,
+      approval_required_reason,
+      reviewed_at,
+      reviewed_by_user_id,
+      rejected_at,
+      rejected_by_user_id,
+      rejection_reason,
+      voided_at,
+      voided_by_user_id,
+      void_reason,
+      direction,
+      movement_type,
+      money_account_id,
+      currency_code,
+      amount,
+      exchange_rate_ves_per_usd,
+      amount_usd_equivalent,
+      reference_code,
+      counterparty_name,
+      description,
+      notes,
+      order_id,
+      payment_report_id,
+      movement_group_id
+    `)
+      .in('order_id', orderIdsForQuery)
+      .order('movement_date', { ascending: false })
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('order_admin_adjustments')
+      .select(
+        'id, order_id, order_item_id, adjustment_type, reason, notes, payload, created_at, created_by_user_id'
+      )
+      .in('order_id', orderIdsForQuery)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false }),
+    supabase
+      .from('crm_play_redemptions')
+      .select('order_item_id, status, play_name_snapshot, benefit_credit_usd, customer_paid_difference_usd')
+      .in('order_id', orderIdsForQuery)
+      .in('status', ['reserved', 'redeemed']),
+  ]);
+
+  if (orderItemsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando items de Ã³rdenes</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los items de las Ã³rdenes.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {orderItemsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const rawOrderItems = (orderItemsData ?? []) as RawOrderItemRow[];
+
+  if (crmRedemptionsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando beneficios de jugadas</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo identificar la jugada aplicada en las órdenes.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {crmRedemptionsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const crmRedemptionByOrderItemId = new Map<number, RawCrmPlayRedemptionRow>();
+  for (const redemption of (crmRedemptionsData ?? []) as RawCrmPlayRedemptionRow[]) {
+    const orderItemId = Number(redemption.order_item_id || 0);
+    if (Number.isFinite(orderItemId) && orderItemId > 0) {
+      crmRedemptionByOrderItemId.set(orderItemId, redemption);
+    }
+  }
+
+  if (orderAdjustmentsError) {
+    return (
+      <div style={{ padding: 24 }}>
+        <h1>Error cargando ajustes administrativos</h1>
+        <pre>{orderAdjustmentsError.message}</pre>
+      </div>
+    );
+  }
+
+  const rawOrderAdjustments = (orderAdjustmentsData ?? []) as RawOrderAdjustmentRow[];
+
+  const adjustmentCreatorIds = Array.from(
+    new Set(
+      rawOrderAdjustments
+        .map((row) => row.created_by_user_id)
+        .filter((x): x is string => !!x)
+    )
+  );
+
+  const { data: adjustmentCreatorsData, error: adjustmentCreatorsError } = await supabase
+    .from('profiles')
+    .select('id, full_name')
+    .in(
+      'id',
+      adjustmentCreatorIds.length > 0
+        ? adjustmentCreatorIds
+        : ['00000000-0000-0000-0000-000000000000']
+    );
+
+  if (adjustmentCreatorsError) {
+    return (
+      <div style={{ padding: 24 }}>
+        <h1>Error cargando autores de ajustes</h1>
+        <pre>{adjustmentCreatorsError.message}</pre>
+      </div>
+    );
+  }
+
+  const adjustmentCreatorNameById = new Map<string, string>();
+  for (const row of adjustmentCreatorsData ?? []) {
+    adjustmentCreatorNameById.set(String(row.id), row.full_name ?? 'Admin');
+  }
+
+  let financialReferences: Awaited<ReturnType<typeof loadMasterDashboardFinancialReferences>>;
+  try {
+    financialReferences = await loadMasterDashboardFinancialReferences();
+  } catch (error) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando referencias financieras</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener las cuentas y reglas de pago.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {error instanceof Error ? error.message : 'Error desconocido'}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const { moneyAccountsData, moneyAccountPaymentRulesData, moneyAccountClosureProfilesData } = financialReferences;
+  const financialSnapshotClient = createDashboardReferenceClient();
+  let initialClosuresData: RawMoneyAccountClosureRow[] = [];
+  let initialBaselinesData: RawMoneyAccountBaselineRow[] = [];
+  let initialReconciliationItemsData: RawMoneyAccountReconciliationItemRow[] = [];
+  let initialMoneyAccountBalanceSnapshots: ComponentProps<typeof MasterDashboardClient>['moneyAccountBalanceSnapshots'] = [];
+
+  try {
+    const [closuresResult, baselinesResult, reconciliationItemsResult, balanceSnapshots] = await Promise.all([
+      financialSnapshotClient
+        .from('money_account_closures')
+        .select(`
+          id,
+          money_account_id,
+          closure_date,
+          closure_at,
+          expected_amount,
+          counted_amount,
+          difference_amount,
+          expected_amount_usd,
+          counted_amount_usd,
+          difference_amount_usd,
+          currency_code,
+          exchange_rate_ves_per_usd,
+          reason,
+          notes,
+          status,
+          created_by_user_id,
+          created_at,
+          reviewed_by_user_id,
+          reviewed_at
+        `)
+        .in('status', ['recorded', 'approved'])
+        .order('closure_date', { ascending: false })
+        .order('closure_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(500),
+      financialSnapshotClient
+        .from('money_account_closure_baselines')
+        .select(`
+          id,
+          money_account_id,
+          baseline_date,
+          baseline_at,
+          expected_amount,
+          counted_amount,
+          difference_amount,
+          expected_amount_usd,
+          counted_amount_usd,
+          difference_amount_usd,
+          currency_code,
+          exchange_rate_ves_per_usd,
+          reason,
+          notes,
+          status,
+          created_by_user_id,
+          created_at,
+          voided_by_user_id,
+          voided_at,
+          void_reason
+        `)
+        .eq('status', 'active')
+        .order('baseline_at', { ascending: false }),
+      financialSnapshotClient
+        .from('money_account_reconciliation_items')
+        .select(`
+          id,
+          money_account_id,
+          source_kind,
+          source_id,
+          item_type,
+          direction,
+          currency_code,
+          amount,
+          amount_usd_equivalent,
+          operation_date,
+          reference_code,
+          counterparty_name,
+          description,
+          status,
+          created_by_user_id,
+          created_at,
+          resolved_by_user_id,
+          resolved_at,
+          resolution_notes,
+          voided_by_user_id,
+          voided_at,
+          void_reason
+        `)
+        .eq('status', 'open')
+        .order('created_at', { ascending: false })
+        .limit(300),
+      loadMoneyAccountBalanceSnapshots(supabase),
+    ]);
+
+    if (closuresResult.error) throw new Error(closuresResult.error.message);
+    if (baselinesResult.error) throw new Error(baselinesResult.error.message);
+    if (reconciliationItemsResult.error) throw new Error(reconciliationItemsResult.error.message);
+
+    initialClosuresData = (closuresResult.data ?? []) as RawMoneyAccountClosureRow[];
+    initialBaselinesData = (baselinesResult.data ?? []) as RawMoneyAccountBaselineRow[];
+    initialReconciliationItemsData = (reconciliationItemsResult.data ?? []) as RawMoneyAccountReconciliationItemRow[];
+    initialMoneyAccountBalanceSnapshots = balanceSnapshots;
+  } catch (error) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando saldos financieros</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo obtener la foto actual de saldos, cierres y conciliaciones.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {error instanceof Error ? error.message : 'Error desconocido'}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const rawReports = (reportsData ?? []) as RawPaymentReportRow[];
+  const reportIdsForMovementStatus = rawReports
+    .map((report) => Number(report.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  const { data: reportMovementStatusData, error: reportMovementStatusError } =
+    reportIdsForMovementStatus.length > 0
+      ? await supabase
+          .from('money_movements')
+          .select('payment_report_id, status, voided_at, void_reason')
+          .in('payment_report_id', reportIdsForMovementStatus)
+      : { data: [], error: null };
+
+  if (reportMovementStatusError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error conciliando pagos anulados</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo verificar el estado financiero de los reportes de pago.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {reportMovementStatusError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const reporterIds = Array.from(
+    new Set(
+      rawReports
+        .map((r) => r.created_by_user_id)
+        .filter((x): x is string => !!x)
+    )
+  );
+
+  const { data: reportersData, error: reportersError } = await supabase
+    .from('profiles')
+    .select('id, full_name')
+    .in(
+      'id',
+      reporterIds.length > 0
+        ? reporterIds
+        : ['00000000-0000-0000-0000-000000000000']
+    );
+
+  if (reportersError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando reportadores</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los usuarios que reportaron pagos.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {reportersError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const reporterNameById = new Map<string, string>();
+  for (const r of reportersData ?? []) {
+    reporterNameById.set(String(r.id), r.full_name ?? 'Usuario');
+  }
+
+  if (movementsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando movimientos</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los movimientos de cuentas.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {movementsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const moneyAccounts = ((moneyAccountsData ?? []) as MoneyAccountRow[]).map((a) => ({
+    id: Number(a.id),
+    name: a.name,
+    currencyCode: a.currency_code as 'USD' | 'VES',
+    accountKind: a.account_kind as 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet',
+    institutionName: a.institution_name ?? '',
+    ownerName: a.owner_name ?? '',
+    notes: a.notes ?? '',
+    isActive: a.is_active,
+    createdAt: a.created_at,
+    createdByUserId: a.created_by_user_id,
+  }));
+
+  const moneyAccountPaymentRules = ((moneyAccountPaymentRulesData ?? []) as MoneyAccountPaymentRuleRow[]).map((rule) => ({
+    id: Number(rule.id),
+    moneyAccountId: Number(rule.money_account_id),
+    role: rule.role,
+    paymentMethodCode: rule.payment_method_code,
+    canViewAccount: Boolean(rule.can_view_account),
+    canShareWithClient: Boolean(rule.can_share_with_client),
+    canReportPayment: Boolean(rule.can_report_payment),
+    canConfirmPayment: Boolean(rule.can_confirm_payment),
+    autoConfirmsReport: Boolean(rule.auto_confirms_report),
+    reviewRequired: Boolean(rule.review_required),
+    reviewRoles: rule.review_roles ?? [],
+    isActive: Boolean(rule.is_active),
+  }));
+
+  const moneyAccountClosureProfiles: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosureProfiles'] =
+    ((moneyAccountClosureProfilesData ?? []) as MoneyAccountClosureProfileRow[]).map((profile) => ({
+      moneyAccountId: Number(profile.money_account_id),
+      closureKind: profile.closure_kind,
+      requiresZeroDifference: Boolean(profile.requires_zero_difference),
+      allowsClassifiedDifference: Boolean(profile.allows_classified_difference),
+      generatesTransferOnClose: Boolean(profile.generates_transfer_on_close),
+      defaultTargetMoneyAccountId:
+        profile.default_target_money_account_id == null ? null : Number(profile.default_target_money_account_id),
+      baselineRequired: Boolean(profile.baseline_required),
+      notes: profile.notes ?? null,
+    }));
+
+  const movementOrderClientById = new Map<
+    number,
+    { clientId: number | null; clientName: string | null; clientPhone: string | null }
+  >();
+  for (const row of rawOrders) {
+    const client = Array.isArray(row.client) ? row.client[0] ?? null : row.client ?? null;
+    movementOrderClientById.set(Number(row.id), {
+      clientId: row.client_id == null ? null : Number(row.client_id),
+      clientName: client?.full_name == null ? null : repairDisplayText(client.full_name),
+      clientPhone: client?.phone == null ? null : String(client.phone),
+    });
+  }
+
+  const moneyMovements = ((movementsData ?? []) as RawMoneyMovementRow[]).map((mv) => {
+    const orderId = mv.order_id == null ? null : Number(mv.order_id);
+    const orderClient = orderId ? movementOrderClientById.get(orderId) ?? null : null;
+
+    return {
+    id: Number(mv.id),
+    movementDate: mv.movement_date,
+    createdAt: mv.created_at,
+    createdByUserId: mv.created_by_user_id,
+    confirmedAt: mv.confirmed_at,
+    confirmedByUserId: mv.confirmed_by_user_id,
+    status: mv.status ?? (mv.confirmed_at ? 'confirmed' : 'pending'),
+    approvalRequired: Boolean(mv.approval_required),
+    approvalRequiredReason: mv.approval_required_reason ?? null,
+    reviewedAt: mv.reviewed_at ?? null,
+    reviewedByUserId: mv.reviewed_by_user_id ?? null,
+    rejectedAt: mv.rejected_at ?? null,
+    rejectedByUserId: mv.rejected_by_user_id ?? null,
+    rejectionReason: mv.rejection_reason ?? null,
+    voidedAt: mv.voided_at ?? null,
+    voidedByUserId: mv.voided_by_user_id ?? null,
+    voidReason: mv.void_reason ?? null,
+    direction: mv.direction,
+    movementType: mv.movement_type,
+    moneyAccountId: Number(mv.money_account_id),
+    currencyCode: mv.currency_code,
+    amount: toNumber(mv.amount, 0),
+    exchangeRateVesPerUsd:
+      mv.exchange_rate_ves_per_usd == null ? null : toNumber(mv.exchange_rate_ves_per_usd, 0),
+    amountUsdEquivalent: toNumber(mv.amount_usd_equivalent, 0),
+    referenceCode: mv.reference_code ?? null,
+    counterpartyName: mv.counterparty_name ?? null,
+    description: mv.description ?? null,
+    notes: mv.notes ?? null,
+    orderId,
+    clientId: orderClient?.clientId ?? null,
+    clientName: orderClient?.clientName ?? null,
+    clientPhone: orderClient?.clientPhone ?? null,
+    paymentReportId: mv.payment_report_id == null ? null : Number(mv.payment_report_id),
+    movementGroupId: mv.movement_group_id ?? null,
+    };
+  });
+
+  const moneyAccountClosures: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosures'] =
+    initialClosuresData.map((closure) => ({
+      id: Number(closure.id),
+      moneyAccountId: Number(closure.money_account_id),
+      closureDate: closure.closure_date,
+      closureAt: closure.closure_at,
+      expectedAmount: toNumber(closure.expected_amount, 0),
+      countedAmount: toNumber(closure.counted_amount, 0),
+      differenceAmount: toNumber(closure.difference_amount, 0),
+      expectedAmountUsd: toNumber(closure.expected_amount_usd, 0),
+      countedAmountUsd: toNumber(closure.counted_amount_usd, 0),
+      differenceAmountUsd: toNumber(closure.difference_amount_usd, 0),
+      currencyCode: closure.currency_code,
+      exchangeRateVesPerUsd:
+        closure.exchange_rate_ves_per_usd == null ? null : toNumber(closure.exchange_rate_ves_per_usd, 0),
+      reason: closure.reason ?? null,
+      notes: closure.notes ?? null,
+      status: closure.status,
+      createdByUserId: closure.created_by_user_id,
+      createdAt: closure.created_at,
+      reviewedByUserId: closure.reviewed_by_user_id ?? null,
+      reviewedAt: closure.reviewed_at ?? null,
+    }));
+
+  const moneyAccountBaselines: ComponentProps<typeof MasterDashboardClient>['moneyAccountBaselines'] =
+    initialBaselinesData.map((baseline) => ({
+      id: Number(baseline.id),
+      moneyAccountId: Number(baseline.money_account_id),
+      baselineDate: baseline.baseline_date,
+      baselineAt: baseline.baseline_at,
+      expectedAmount: toNumber(baseline.expected_amount, 0),
+      countedAmount: toNumber(baseline.counted_amount, 0),
+      differenceAmount: toNumber(baseline.difference_amount, 0),
+      expectedAmountUsd: toNumber(baseline.expected_amount_usd, 0),
+      countedAmountUsd: toNumber(baseline.counted_amount_usd, 0),
+      differenceAmountUsd: toNumber(baseline.difference_amount_usd, 0),
+      currencyCode: baseline.currency_code,
+      exchangeRateVesPerUsd:
+        baseline.exchange_rate_ves_per_usd == null ? null : toNumber(baseline.exchange_rate_ves_per_usd, 0),
+      reason: baseline.reason ?? null,
+      notes: baseline.notes ?? null,
+      status: baseline.status,
+      createdByUserId: baseline.created_by_user_id,
+      createdAt: baseline.created_at,
+      voidedByUserId: baseline.voided_by_user_id ?? null,
+      voidedAt: baseline.voided_at ?? null,
+      voidReason: baseline.void_reason ?? null,
+    }));
+
+  const moneyAccountReconciliationItems: ComponentProps<
+    typeof MasterDashboardClient
+  >['moneyAccountReconciliationItems'] = initialReconciliationItemsData.map((item) => ({
+    id: Number(item.id),
+    moneyAccountId: Number(item.money_account_id),
+    sourceKind: item.source_kind,
+    sourceId: item.source_id == null ? null : Number(item.source_id),
+    itemType: item.item_type,
+    direction: item.direction,
+    currencyCode: item.currency_code,
+    amount: toNumber(item.amount, 0),
+    amountUsdEquivalent: toNumber(item.amount_usd_equivalent, 0),
+    operationDate: item.operation_date ?? null,
+    referenceCode: item.reference_code ?? null,
+    counterpartyName: item.counterparty_name ?? null,
+    description: item.description,
+    status: item.status,
+    createdByUserId: item.created_by_user_id,
+    createdAt: item.created_at,
+    resolvedByUserId: item.resolved_by_user_id ?? null,
+    resolvedAt: item.resolved_at ?? null,
+    resolutionNotes: item.resolution_notes ?? null,
+    voidedByUserId: item.voided_by_user_id ?? null,
+    voidedAt: item.voided_at ?? null,
+    voidReason: item.void_reason ?? null,
+  }));
+
+  const moneyAccountNameById = new Map<number, string>();
+  const moneyAccountById = new Map<number, (typeof moneyAccounts)[number]>();
+  for (const a of moneyAccounts) {
+    moneyAccountNameById.set(Number(a.id), a.name);
+    moneyAccountById.set(Number(a.id), a);
+  }
+  const moneyAccountClosureKindById = new Map<number, string>();
+  for (const profile of moneyAccountClosureProfiles) {
+    moneyAccountClosureKindById.set(Number(profile.moneyAccountId), profile.closureKind);
+  }
+  const isRetentionMoneyAccount = (moneyAccountId: number) => {
+    const account = moneyAccountById.get(moneyAccountId);
+    const closureKind = moneyAccountClosureKindById.get(moneyAccountId);
+    const accountName = String(account?.name || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    return closureKind === 'retention' || accountName.includes('retencion');
+  };
+
+  const itemsByOrder = new Map<number, RawOrderItemRow[]>();
+  for (const item of rawOrderItems) {
+    const orderId = Number(item.order_id);
+    const arr = itemsByOrder.get(orderId) ?? [];
+    arr.push(item);
+    itemsByOrder.set(orderId, arr);
+  }
+
+  const adjustmentsByOrder = new Map<number, RawOrderAdjustmentRow[]>();
+  for (const adjustment of rawOrderAdjustments) {
+    const orderId = Number(adjustment.order_id);
+    const arr = adjustmentsByOrder.get(orderId) ?? [];
+    arr.push(adjustment);
+    adjustmentsByOrder.set(orderId, arr);
+  }
+
+  const paymentReportsByOrder = new Map<number, PaymentReportDetail[]>();
+  const voidedPaymentReportIds = new Set<number>();
+  const voidedPaymentReportReasonById = new Map<number, string>();
+  for (const mv of movementsData ?? []) {
+    if ((mv.status ?? (mv.confirmed_at ? 'confirmed' : 'pending')) !== 'voided') continue;
+    const reportId = Number(mv.payment_report_id || 0);
+    if (reportId > 0) {
+      voidedPaymentReportIds.add(reportId);
+      if (mv.void_reason) voidedPaymentReportReasonById.set(reportId, String(mv.void_reason));
+    }
+  }
+
+  for (const mv of (reportMovementStatusData ?? []) as RawPaymentReportMovementStatusRow[]) {
+    if ((mv.status ?? 'pending') !== 'voided') continue;
+    const reportId = Number(mv.payment_report_id || 0);
+    if (reportId > 0) {
+      voidedPaymentReportIds.add(reportId);
+      if (mv.void_reason) voidedPaymentReportReasonById.set(reportId, String(mv.void_reason));
+    }
+  }
+
+  for (const rp of rawReports) {
+    const orderId = Number(rp.order_id);
+    const reportId = Number(rp.id);
+    const effectiveStatus =
+      voidedPaymentReportIds.has(reportId) && rp.status === 'confirmed'
+        ? 'rejected'
+        : rp.status;
+
+    const detail: PaymentReportDetail = {
+      id: reportId,
+      status: effectiveStatus,
+      createdAt: rp.created_at ?? null,
+      operationDate: rp.operation_date ?? null,
+      reporterUserId: rp.created_by_user_id ?? null,
+      reporterName: rp.created_by_user_id
+        ? reporterNameById.get(rp.created_by_user_id) ?? 'Usuario'
+        : 'Usuario',
+      currencyCode: String(rp.reported_currency_code),
+      amount: toNumber(rp.reported_amount, 0),
+      exchangeRate:
+        rp.reported_exchange_rate_ves_per_usd == null
+          ? null
+          : toNumber(rp.reported_exchange_rate_ves_per_usd, 0),
+      usdEquivalent: toNumber(rp.reported_amount_usd_equivalent, 0),
+      moneyAccountId: Number(rp.reported_money_account_id),
+      moneyAccountName:
+        moneyAccountNameById.get(Number(rp.reported_money_account_id)) ??
+        `Cuenta #${rp.reported_money_account_id}`,
+      referenceCode: rp.reference_code ?? null,
+      payerName: rp.payer_name ?? null,
+      notes:
+        voidedPaymentReportIds.has(reportId) && rp.status === 'confirmed'
+          ? [
+              rp.notes,
+              `Movimiento financiero anulado desde cuentas${
+                voidedPaymentReportReasonById.get(reportId)
+                  ? `: ${voidedPaymentReportReasonById.get(reportId)}`
+                  : '.'
+              }`,
+            ]
+              .filter(Boolean)
+              .join('\n')
+          : rp.notes ?? null,
+      isRetention:
+        isRetentionMoneyAccount(Number(rp.reported_money_account_id)) ||
+        String(rp.notes || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .includes('comprobante retencion'),
+    };
+
+    const arr = paymentReportsByOrder.get(orderId) ?? [];
+    arr.push(detail);
+    paymentReportsByOrder.set(orderId, arr);
+  }
+
+  const confirmedPaidByOrder = new Map<number, number>();
+  for (const mv of movementsData ?? []) {
+    if ((mv.status ?? (mv.confirmed_at ? 'confirmed' : 'pending')) !== 'confirmed') continue;
+
+    const orderId = Number(mv.order_id);
+    const directionSign = mv.direction === 'outflow' ? -1 : 1;
+    const amt = toNumber(mv.amount_usd_equivalent, 0) * directionSign;
+    confirmedPaidByOrder.set(orderId, (confirmedPaidByOrder.get(orderId) ?? 0) + amt);
+  }
+
+  const reportsByOrder = new Map<
+    number,
+    {
+      pendingCount: number;
+      confirmedCount: number;
+      rejectedCount: number;
+      pendingUsd: number;
+      rejectedUsd: number;
+      latestPendingReport: {
+        id: number;
+        created_at: string | null;
+        reported_currency_code: string;
+        reported_amount: number;
+        reported_exchange_rate_ves_per_usd: number | null;
+        reported_amount_usd_equivalent: number;
+        reported_money_account_id: number;
+        reference_code: string | null;
+        payer_name: string | null;
+        notes: string | null;
+      } | null;
+    }
+  >();
+
+  for (const rp of reportsData ?? []) {
+    const orderId = Number(rp.order_id);
+    const reportId = Number(rp.id);
+    const effectiveStatus =
+      voidedPaymentReportIds.has(reportId) && rp.status === 'confirmed'
+        ? 'rejected'
+        : rp.status;
+    const amountUsd = toNumber(rp.reported_amount_usd_equivalent, 0);
+
+    let state = reportsByOrder.get(orderId);
+
+    if (!state) {
+      state = {
+        pendingCount: 0,
+        confirmedCount: 0,
+        rejectedCount: 0,
+        pendingUsd: 0,
+        rejectedUsd: 0,
+        latestPendingReport: null,
+      };
+      reportsByOrder.set(orderId, state);
+    }
+
+    if (effectiveStatus === 'pending') {
+      state.pendingCount += 1;
+      state.pendingUsd += amountUsd;
+
+      if (!state.latestPendingReport) {
+        state.latestPendingReport = {
+          id: reportId,
+          created_at: rp.created_at ?? null,
+          reported_currency_code: String(rp.reported_currency_code),
+          reported_amount: toNumber(rp.reported_amount, 0),
+          reported_exchange_rate_ves_per_usd:
+            rp.reported_exchange_rate_ves_per_usd == null
+              ? null
+              : toNumber(rp.reported_exchange_rate_ves_per_usd, 0),
+          reported_amount_usd_equivalent: amountUsd,
+          reported_money_account_id: Number(rp.reported_money_account_id),
+          reference_code: rp.reference_code ?? null,
+          payer_name: rp.payer_name ?? null,
+          notes: rp.notes ?? null,
+        };
+      }
+    } else if (effectiveStatus === 'confirmed') {
+      state.confirmedCount += 1;
+    } else if (effectiveStatus === 'rejected') {
+      state.rejectedCount += 1;
+      state.rejectedUsd += amountUsd;
+    }
+  }
+
+  const [
+    { data: productsData, error: productsError },
+    { data: inventoryItemsData, error: inventoryItemsError },
+  ] = await Promise.all([
+    supabase
+      .from('products')
+      .select(`
+      id,
+      sku,
+      name,
+      type,
+      is_active,
+      source_price_amount,
+      source_price_currency,
+      base_price_usd,
+      base_price_bs,
+      units_per_service,
+      is_detail_editable,
+      detail_units_limit,
+      is_inventory_item,
+      is_temporary,
+      is_combo_component_selectable,
+      commission_mode,
+      commission_value,
+      commission_notes,
+      extra_fields,
+      internal_rider_pay_usd,
+      inventory_enabled,
+      inventory_kind,
+      inventory_deduction_mode,
+      inventory_unit_name,
+      packaging_name,
+      packaging_size,
+      current_stock_units,
+      low_stock_threshold,
+      inventory_group
+    `)
+      .order('id', { ascending: true }),
+    supabase
+      .from('inventory_items')
+      .select(`
+      id,
+      name,
+      inventory_kind,
+      unit_name,
+      packaging_name,
+      packaging_size,
+      current_stock_units,
+      low_stock_threshold,
+      inventory_group,
+      is_active,
+      notes,
+      created_at
+    `)
+      .order('is_active', { ascending: false })
+      .order('name', { ascending: true }),
+  ]);
+
+  if (inventoryItemsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando inventario interno</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los items internos de inventario.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {inventoryItemsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (productsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando catÃ¡logo</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo obtener la tabla de productos.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {productsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const [
+    { data: inventoryRecipesData, error: inventoryRecipesError },
+    { data: inventoryRecipeComponentsData, error: inventoryRecipeComponentsError },
+    { data: productInventoryLinksData, error: productInventoryLinksError },
+    { data: productComponentsData, error: productComponentsError },
+  ] = await Promise.all([
+    supabase
+      .from('inventory_recipes')
+      .select(`
+      id,
+      output_inventory_item_id,
+      recipe_kind,
+      output_quantity_units,
+      notes,
+      is_active,
+      created_at
+    `)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('inventory_recipe_components')
+      .select(`
+      id,
+      recipe_id,
+      input_inventory_item_id,
+      quantity_units,
+      sort_order
+    `)
+      .order('recipe_id', { ascending: true })
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('product_inventory_links')
+      .select(`
+      id,
+      product_id,
+      inventory_item_id,
+      deduction_mode,
+      quantity_units,
+      sort_order,
+      notes,
+      is_active,
+      created_at
+    `)
+      .order('product_id', { ascending: true })
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('product_components')
+      .select(`
+      id,
+      parent_product_id,
+      component_product_id,
+      component_mode,
+      quantity,
+      counts_toward_detail_limit,
+      is_required,
+      sort_order,
+      notes,
+      parent_product:products!product_components_parent_product_id_fkey (
+        id,
+        sku,
+        name,
+        type
+      ),
+      component_product:products!product_components_component_product_id_fkey (
+        id,
+        sku,
+        name,
+        type
+      )
+    `)
+      .order('parent_product_id', { ascending: true })
+      .order('sort_order', { ascending: true }),
+  ]);
+
+  if (inventoryRecipesError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando recetas de inventario</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener las recetas de producciÃ³n/empaque.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {inventoryRecipesError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (inventoryRecipeComponentsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando componentes de recetas</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los componentes de producciÃ³n/empaque.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {inventoryRecipeComponentsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (productInventoryLinksError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando enlaces de inventario</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los descuentos por composiciÃ³n del catÃ¡logo.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {productInventoryLinksError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (productComponentsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando composiciÃ³n de productos</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo obtener la composiciÃ³n de combos/productos.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {productComponentsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const catalogItems = ((productsData ?? []) as RawProductRow[]).map((p) => ({
+    id: Number(p.id),
+    sku: p.sku ?? '',
+    name: p.name,
+    type: p.type,
+    isActive: p.is_active,
+    sourcePriceAmount: toNumber(p.source_price_amount, 0),
+    sourcePriceCurrency: p.source_price_currency,
+    basePriceUsd: toNumber(p.base_price_usd, 0),
+    basePriceBs: toNumber(p.base_price_bs, 0),
+    unitsPerService: toNumber(p.units_per_service, 0),
+    isDetailEditable: p.is_detail_editable,
+    detailUnitsLimit: toNumber(p.detail_units_limit, 0),
+    isInventoryItem: p.is_inventory_item,
+    isTemporary: p.is_temporary,
+    isComboComponentSelectable: p.is_combo_component_selectable,
+    accessScope:
+      p.extra_fields && typeof p.extra_fields === 'object' && !Array.isArray(p.extra_fields)
+        ? String((p.extra_fields as Record<string, unknown>).catalog_access_scope || '') || null
+        : null,
+    commissionMode:
+      p.commission_mode === 'fixed_item'
+        ? ('fixed_item' as const)
+        : p.commission_mode === 'fixed_order'
+          ? ('fixed_order' as const)
+          : ('default' as const),
+    commissionValue: p.commission_value == null ? null : toNumber(p.commission_value, 0),
+    commissionNotes: p.commission_notes ?? null,
+    advisorGiftCostUsd: toNumber(
+      p.extra_fields && typeof p.extra_fields === 'object' && !Array.isArray(p.extra_fields)
+        ? (p.extra_fields as Record<string, unknown>).advisor_gift_cost_usd
+        : 0,
+      0
+    ),
+    internalRiderPayUsd: p.internal_rider_pay_usd == null ? null : toNumber(p.internal_rider_pay_usd, 0),
+    inventoryEnabled: p.inventory_enabled,
+    inventoryKind:
+      p.inventory_kind === 'raw_material'
+        ? ('raw_material' as const)
+        : p.inventory_kind === 'prepared_base'
+          ? ('prepared_base' as const)
+          : ('finished_good' as const),
+    inventoryDeductionMode:
+      p.inventory_deduction_mode === 'composition'
+        ? ('composition' as const)
+        : ('self' as const),
+    inventoryUnitName: p.inventory_unit_name ?? 'pieza',
+    packagingName: p.packaging_name ?? null,
+    packagingSize: p.packaging_size == null ? null : toNumber(p.packaging_size, 0),
+    currentStockUnits: toNumber(p.current_stock_units, 0),
+    lowStockThreshold: p.low_stock_threshold == null ? null : toNumber(p.low_stock_threshold, 0),
+    inventoryGroup:
+      p.inventory_group === 'raw' ||
+      p.inventory_group === 'fried' ||
+      p.inventory_group === 'prefried' ||
+      p.inventory_group === 'sauces' ||
+      p.inventory_group === 'beverages' ||
+      p.inventory_group === 'packaging'
+        ? p.inventory_group
+        : ('other' as const),
+  }));
+
+  const catalogItemById = new Map(catalogItems.map((item) => [item.id, item]));
+  const rawProductById = new Map(
+    ((productsData ?? []) as RawProductRow[]).map((product) => [Number(product.id), product])
+  );
+
+  const inventoryItems = ((inventoryItemsData ?? []) as RawInventoryItemRow[]).map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    inventoryKind: row.inventory_kind,
+    unitName: row.unit_name ?? 'pieza',
+    packagingName: row.packaging_name ?? null,
+    packagingSize: row.packaging_size == null ? null : toNumber(row.packaging_size, 0),
+    currentStockUnits: toNumber(row.current_stock_units, 0),
+    lowStockThreshold: row.low_stock_threshold == null ? null : toNumber(row.low_stock_threshold, 0),
+    inventoryGroup:
+      row.inventory_group === 'raw' ||
+      row.inventory_group === 'fried' ||
+      row.inventory_group === 'prefried' ||
+      row.inventory_group === 'sauces' ||
+      row.inventory_group === 'beverages' ||
+      row.inventory_group === 'packaging'
+        ? row.inventory_group
+        : ('other' as const),
+    isActive: Boolean(row.is_active),
+    notes: row.notes ?? null,
+    createdAt: row.created_at,
+  }));
+
+  const inventoryMovements: never[] = [];
+
+  const inventoryRecipes = ((inventoryRecipesData ?? []) as RawInventoryRecipeRow[]).map((row) => ({
+    id: Number(row.id),
+    outputInventoryItemId: Number(row.output_inventory_item_id),
+    recipeKind: row.recipe_kind,
+    outputQuantityUnits: toNumber(row.output_quantity_units, 0),
+    notes: row.notes ?? null,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+  }));
+
+  const inventoryRecipeComponents = ((inventoryRecipeComponentsData ?? []) as RawInventoryRecipeComponentRow[]).map((row) => ({
+    id: Number(row.id),
+    recipeId: Number(row.recipe_id),
+    inputInventoryItemId: Number(row.input_inventory_item_id),
+    quantityUnits: toNumber(row.quantity_units, 0),
+    sortOrder: toNumber(row.sort_order, 0),
+  }));
+
+  const productInventoryLinks = ((productInventoryLinksData ?? []) as RawProductInventoryLinkRow[]).map((row) => ({
+    id: Number(row.id),
+    productId: Number(row.product_id),
+    inventoryItemId: Number(row.inventory_item_id),
+    deductionMode: row.deduction_mode === 'recipe' ? ('recipe' as const) : ('self_link' as const),
+    quantityUnits: toNumber(row.quantity_units, 0),
+    sortOrder: toNumber(row.sort_order, 0),
+    notes: row.notes ?? null,
+    isActive: !!row.is_active,
+    createdAt: row.created_at,
+  }));
+
+const productComponents = ((productComponentsData ?? []) as RawProductComponentRow[])
+  .map((row) => {
+    const parent = Array.isArray(row.parent_product)
+      ? row.parent_product[0]
+      : row.parent_product;
+
+    const component = Array.isArray(row.component_product)
+      ? row.component_product[0]
+      : row.component_product;
+
+    return {
+      id: Number(row.id),
+      parentProductId: Number(row.parent_product_id),
+      componentProductId: Number(row.component_product_id),
+      componentMode: row.component_mode,
+      quantity: toNumber(row.quantity, 0),
+      countsTowardDetailLimit: row.counts_toward_detail_limit,
+      isRequired: row.is_required,
+      sortOrder: toNumber(row.sort_order, 0),
+      notes: row.notes ?? null,
+      parentSku: parent?.sku ?? '',
+      parentName: parent?.name ?? 'Producto padre',
+      componentSku: component?.sku ?? '',
+      componentName: component?.name ?? 'Componente',
+      componentType: component?.type ?? 'product',
+    };
+  })
+  .filter((row) => row.parentProductId && row.componentProductId);
+  const allDashboardOrders: ComponentProps<typeof MasterDashboardClient>['initialOrders'] = rawOrders.map((row) => {
+    const isCancelled = row.status === 'cancelled';
+    const clientFundUsedUsd = roundMoney(row.extra_fields?.payment?.client_fund_used_usd);
+    const moneySnapshot = getOrderMoneySnapshot(row);
+    const financialState = financialStateByOrderId.get(row.id);
+    const totalUsd = financialState
+      ? roundMoney(financialState.total_usd)
+      : roundMoney(moneySnapshot.totalUsd);
+    const totalBs = financialState
+      ? roundMoney(financialState.total_bs)
+      : roundMoney(moneySnapshot.totalBs);
+    const confirmedPaidUsd = isCancelled
+      ? 0
+      : financialState
+        ? roundMoney(financialState.confirmed_paid_usd)
+        : roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
+    const roundingClosure = getOrderRoundingClosureSnapshot(row);
+    const balanceUsd = isCancelled || roundingClosure.isClosed
+      ? 0
+      : financialState
+        ? roundMoney(financialState.pending_usd)
+        : roundMoney(Math.max(0, totalUsd - confirmedPaidUsd));
+
+    const reportState = reportsByOrder.get(row.id) ?? {
+      pendingCount: 0,
+      confirmedCount: 0,
+      rejectedCount: 0,
+      pendingUsd: 0,
+      rejectedUsd: 0,
+      latestPendingReport: null,
+    };
+    const pendingReportCount = financialState
+      ? Math.max(0, Math.trunc(toNumber(financialState.pending_reports_count, 0)))
+      : reportState.pendingCount;
+    const rejectedReportCount = financialState
+      ? Math.max(0, Math.trunc(toNumber(financialState.rejected_reports_count, 0)))
+      : reportState.rejectedCount;
+    const confirmedReportCount = financialState
+      ? Math.max(0, Math.trunc(toNumber(financialState.confirmed_reports_count, 0)))
+      : reportState.confirmedCount;
+
+    let paymentVerify: 'none' | 'pending' | 'confirmed' | 'rejected' = 'none';
+    if (isCancelled) paymentVerify = 'none';
+    else if (pendingReportCount > 0) paymentVerify = 'pending';
+    else if (rejectedReportCount > 0 && confirmedPaidUsd <= 0.01) paymentVerify = 'rejected';
+    else if (confirmedPaidUsd > 0.01 || confirmedReportCount > 0) paymentVerify = 'confirmed';
+
+const creatorRow = Array.isArray(row.creator) ? row.creator[0] : row.creator;
+const advisorRow = Array.isArray(row.advisor) ? row.advisor[0] : row.advisor;
+const clientRow = Array.isArray(row.client) ? row.client[0] : row.client;
+
+const creatorName = repairDisplayText(creatorRow?.full_name?.trim() || 'Usuario');
+const advisorProfileName = repairDisplayText(advisorRow?.full_name?.trim() || null);
+
+const advisorName =
+  row.source === 'master'
+    ? `M\u00E1ster (${creatorName})`
+    : row.source === 'walk_in'
+      ? `Walk-in (${creatorName})`
+      : advisorProfileName || creatorName || 'Sin asesor';
+
+const clientName = repairDisplayText(
+  clientRow?.full_name?.trim() ||
+  row.extra_fields?.receiver?.name?.trim() ||
+  'Cliente sin nombre'
+);
+const clientId = row.client_id == null ? null : Number(row.client_id);
+const clientType = String(clientRow?.client_type ?? '').trim();
+const clientCreatedAtMs = clientRow?.created_at ? Date.parse(clientRow.created_at) : Number.NaN;
+const isImportedClient =
+  Number.isFinite(clientCreatedAtMs) && clientCreatedAtMs < CLIENT_IMPORT_CUTOFF_MS;
+const clientOrderStats =
+  clientId != null && Number.isFinite(clientId) && clientId > 0
+    ? clientOrderStatsByClientId.get(clientId) ?? null
+    : null;
+const isNewClient =
+  row.status !== 'cancelled' &&
+  clientId != null &&
+  Number.isFinite(clientId) &&
+  clientId > 0 &&
+  Number.isFinite(clientCreatedAtMs) &&
+  clientCreatedAtMs >= CLIENT_IMPORT_CUTOFF_MS &&
+  clientOrderStats?.firstOrderId === Number(row.id);
+const returnedToAdvisor = Boolean(row.extra_fields?.review?.returned_to_advisor);
+
+    const deliveryAtISO = buildDeliveryISO(row.extra_fields, row.created_at);
+
+    const rowItems = sortOrderItemsByPriority(itemsByOrder.get(row.id) ?? [], (item) => {
+      const catalogItem = catalogItemById.get(Number(item.product_id));
+
+      return {
+        productType: catalogItem?.type,
+        productName: item.product_name_snapshot,
+        internalRiderPayUsd: catalogItem?.internalRiderPayUsd,
+      };
+    });
+    const paymentReports = paymentReportsByOrder.get(row.id) ?? [];
+    const orderEvents = orderEventsByOrder.get(row.id) ?? [];
+    const adminAdjustments = (adjustmentsByOrder.get(row.id) ?? []).map((adjustment) => ({
+      id: Number(adjustment.id),
+      orderItemId:
+        adjustment.order_item_id == null ? null : Number(adjustment.order_item_id),
+      adjustmentType: String(adjustment.adjustment_type || ''),
+      reason: String(adjustment.reason || '').trim(),
+      notes: adjustment.notes ?? null,
+      payload: adjustment.payload ?? {},
+      createdAt: adjustment.created_at,
+      createdByUserId: adjustment.created_by_user_id,
+      createdByName:
+        adjustmentCreatorNameById.get(adjustment.created_by_user_id) ??
+        'Admin',
+    }));
+
+const draftItems = rowItems.map((item) => {
+  const productId = Number(item.product_id);
+  const catalogItem = catalogItemById.get(productId);
+  const rawProduct = rawProductById.get(productId);
+  const qty = toNumber(item.qty, 0);
+  const unitPriceUsdSnapshot = toNumber(item.unit_price_usd_snapshot, 0);
+  const lineTotalUsd = toNumber(item.line_total_usd, unitPriceUsdSnapshot * qty);
+const pricingOriginCurrency: 'VES' | 'USD' =
+  (item as any).pricing_origin_currency === 'VES' ? 'VES' : 'USD';
+  const unitPriceBsSnapshot = toNumber((item as any).unit_price_bs_snapshot, 0);
+  const pricingOriginAmount = toNumber(
+    (item as any).pricing_origin_amount,
+    pricingOriginCurrency === 'VES'
+      ? unitPriceBsSnapshot
+      : unitPriceUsdSnapshot
+  );
+  const adminPriceOverrideUsd =
+    (item as any).admin_price_override_usd == null
+      ? null
+      : toNumber((item as any).admin_price_override_usd, 0);
+  const adminPriceOverrideCurrency: 'VES' | 'USD' | null =
+    adminPriceOverrideUsd == null
+      ? null
+      : pricingOriginCurrency === 'VES' &&
+          Math.abs(pricingOriginAmount - unitPriceBsSnapshot) < 0.01
+        ? 'VES'
+        : pricingOriginCurrency === 'USD' &&
+            Math.abs(pricingOriginAmount - unitPriceUsdSnapshot) < 0.000001
+          ? 'USD'
+          : null;
+  const linkedCommissionAdjustments = adminAdjustments.filter(
+    (adjustment) => adjustment.orderItemId === Number(item.id)
+  );
+  const latestAdminCommissionAdjustment = linkedCommissionAdjustments.find(
+    (adjustment) => adjustment.payload?.kind === ORDER_COMMISSION_TERMS_KIND
+  );
+  const latestEventCommissionAdjustment = linkedCommissionAdjustments.find(
+    (adjustment) => adjustment.payload?.kind === EVENT_COMMISSION_TERMS_KIND
+  );
+  const parsedAdminCommissionAdjustment = parseOrderCommissionAdjustmentPayload(
+    latestAdminCommissionAdjustment?.payload
+  );
+  const parsedEventCommissionAdjustment = parseOrderCommissionAdjustmentPayload(
+    latestEventCommissionAdjustment?.payload
+  );
+  const catalogCommissionTerms = resolveProductCommissionTerms({
+    currentMode: catalogItem?.commissionMode,
+    currentValue: catalogItem?.commissionValue,
+    extraFields: rawProduct?.extra_fields,
+    referenceDate: deliveryAtISO,
+  });
+  const inheritedCommissionTerms =
+    parsedEventCommissionAdjustment?.terms ?? catalogCommissionTerms;
+  const adminCommissionOverrideTerms =
+    parsedAdminCommissionAdjustment?.action === 'set'
+      ? parsedAdminCommissionAdjustment.terms
+      : null;
+
+  return {
+    localId: `existing-${item.id}`,
+    orderItemId: Number(item.id),
+    productId,
+    skuSnapshot: item.sku_snapshot ?? null,
+    productNameSnapshot: item.product_name_snapshot?.trim() || 'Producto',
+    qty,
+    internalRiderPayUsd: catalogItem?.internalRiderPayUsd ?? null,
+    sourcePriceCurrency: pricingOriginCurrency,
+    sourcePriceAmount: pricingOriginAmount,
+    unitPriceUsdSnapshot,
+    lineTotalUsd,
+    editableDetailLines: item.notes
+      ? item.notes
+          .split('\n')
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : [],
+    adminPriceOverrideUsd,
+    adminPriceOverrideCurrency,
+    adminPriceOverrideReason: (item as any).admin_price_override_reason ?? null,
+    adminPriceOverrideByUserId: (item as any).admin_price_override_by_user_id ?? null,
+    adminPriceOverrideAt: (item as any).admin_price_override_at ?? null,
+    commissionInheritedMode: inheritedCommissionTerms.mode,
+    commissionInheritedValue: inheritedCommissionTerms.value,
+    commissionInheritedSource: parsedEventCommissionAdjustment?.terms
+      ? ('event' as const)
+      : ('catalog' as const),
+    adminCommissionOverrideMode: adminCommissionOverrideTerms?.mode ?? null,
+    adminCommissionOverrideValue: adminCommissionOverrideTerms?.value ?? null,
+    adminCommissionOverrideReason:
+      adminCommissionOverrideTerms == null
+        ? null
+        : latestAdminCommissionAdjustment?.reason ?? null,
+    adminCommissionOverrideChanged: false,
+  };
+});
+
+const lines = rowItems.map((item) => {
+  const productName = item.product_name_snapshot?.trim() || 'Producto';
+  const qty = toNumber(item.qty, 0);
+  const productId = Number(item.product_id);
+  const productUnitsPerService = catalogItemById.get(productId)?.unitsPerService ?? 0;
+  const unitsPerService =
+    productUnitsPerService > 0
+      ? productUnitsPerService
+      : extractUnitsPerServiceFromName(productName);
+  const unitPriceUsd = toNumber(item.unit_price_usd_snapshot, 0);
+  const unitPriceBs = toNumber(
+    (item as any).unit_price_bs_snapshot,
+    estimateBsFromUsd(unitPriceUsd, activeRateBsPerUsd)
+  );
+
+  const isDelivery =
+    productName.toLowerCase().startsWith('delivery') ||
+    productName.toLowerCase().includes('delivery');
+  const crmRedemption = crmRedemptionByOrderItemId.get(Number(item.id));
+
+  return {
+    name: productName,
+    qty,
+    unitsPerService,
+    priceBs: unitPriceBs,
+    pricingOriginCurrency: item.pricing_origin_currency === 'USD' ? 'USD' as const : item.pricing_origin_currency === 'VES' ? 'VES' as const : null,
+    lineTotalBs: item.line_total_bs_snapshot == null ? null : toNumber(item.line_total_bs_snapshot, 0),
+    lineTotalUsd: toNumber(item.line_total_usd, 0),
+    crmPlayName: crmRedemption?.play_name_snapshot?.trim() || null,
+    crmBenefitStatus: crmRedemption?.status ?? null,
+    crmBenefitCreditUsd: crmRedemption
+      ? toNumber(crmRedemption.benefit_credit_usd, 0)
+      : null,
+    crmCustomerPaidDifferenceUsd: crmRedemption
+      ? toNumber(crmRedemption.customer_paid_difference_usd, 0)
+      : null,
+    productType: catalogItemById.get(productId)?.type,
+    isDelivery,
+    editableDetailLines: item.notes
+      ? item.notes
+          .split('\n')
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : [],
+  };
+});
+
+return {
+  id: row.id,
+  orderNumber: row.order_number,
+  createdAtISO: row.created_at,
+  lastModifiedAtISO: row.last_modified_at ?? null,
+  lastModifiedByUserId: row.last_modified_by ?? null,
+  sentToKitchenAtISO: row.sent_to_kitchen_at ?? null,
+  kitchenStartedAtISO: row.kitchen_started_at ?? null,
+  readyAtISO: row.ready_at ?? null,
+  deliveryAtISO,
+  source: row.source,
+  clientId,
+  clientFundBalanceUsd: toNumber(clientRow?.fund_balance_usd, 0),
+      clientCreatedAtISO: clientRow?.created_at ?? null,
+      clientType,
+      isImportedClient,
+      clientOrderCount: clientOrderStats?.orderCount ?? 0,
+      isNewClient,
+      attributedAdvisorUserId: row.attributed_advisor_id ?? null,
+      advisorName,
+      clientName,
+      clientPhone: clientRow?.phone ?? null,
+      fulfillment: row.fulfillment,
+  address: row.delivery_address ?? undefined,
+  isPriceLocked: Boolean(row.is_price_locked),
+  status: row.status,
+      queuedNeedsReapproval: row.queued_needs_reapproval ?? false,
+      returnedToAdvisor,
+      totalUsd,
+      balanceUsd,
+      totalBs,
+      pendingBs: financialState?.pending_bs == null ? null : Math.max(0, roundMoney(financialState.pending_bs)),
+      paymentCollectionMode: financialState?.collection_mode ?? null,
+      paymentStateOperationDate: financialState?.effective_operation_date ?? null,
+      paymentVerify,
+      confirmedPaidUsd,
+      pendingReportedUsd: financialState
+        ? roundMoney(financialState.pending_reports_usd)
+        : reportState.pendingUsd,
+      rejectedReportedUsd: financialState
+        ? roundMoney(financialState.rejected_reports_usd)
+        : reportState.rejectedUsd,
+      latestPendingReportId: reportState.latestPendingReport?.id,
+      latestPendingReportAmountUsd: reportState.latestPendingReport?.reported_amount_usd_equivalent,
+      latestPendingReportCurrency: reportState.latestPendingReport?.reported_currency_code,
+      latestPendingReportAmount: reportState.latestPendingReport?.reported_amount,
+      latestPendingReportExchangeRate: reportState.latestPendingReport?.reported_exchange_rate_ves_per_usd ?? null,
+      latestPendingReportMoneyAccountId: reportState.latestPendingReport?.reported_money_account_id,
+      latestPendingReportReferenceCode: reportState.latestPendingReport?.reference_code ?? null,
+      latestPendingReportPayerName: reportState.latestPendingReport?.payer_name ?? null,
+      latestPendingReportNotes: reportState.latestPendingReport?.notes ?? null,
+      latestPendingReportCreatedAt: reportState.latestPendingReport?.created_at ?? null,
+      notes: row.notes ?? '',
+      lines,
+            editMeta: {
+        clientId: row.client_id ?? null,
+        source: row.source,
+        attributedAdvisorUserId: row.attributed_advisor_id ?? null,
+        isAsap: Boolean(row.extra_fields?.schedule?.asap ?? false),
+        receiverName: row.extra_fields?.receiver?.name ?? row.receiver_name ?? null,
+        receiverPhone: row.extra_fields?.receiver?.phone ?? row.receiver_phone ?? null,
+        deliveryGpsUrl: row.extra_fields?.delivery?.gps_url ?? null,
+        kitchenEtaMinutes:
+          row.eta_minutes != null
+            ? toNumber(row.eta_minutes, 0)
+            : null,
+        deliveryEtaMinutes:
+          row.extra_fields?.delivery?.eta_minutes != null
+            ? toNumber(row.extra_fields.delivery.eta_minutes, 0)
+            : row.eta_minutes != null
+              ? toNumber(row.eta_minutes, 0)
+              : null,
+        deliveryEtaRecordedAtISO:
+          row.extra_fields?.delivery?.eta_recorded_at != null
+            ? String(row.extra_fields.delivery.eta_recorded_at)
+            : null,
+        deliveryCompletedAtISO:
+          row.extra_fields?.delivery?.completed_at != null
+            ? String(row.extra_fields.delivery.completed_at)
+            : null,
+        deliveryDistanceKm:
+          row.extra_fields?.delivery?.distance_km != null
+            ? toNumber(row.extra_fields.delivery.distance_km, 0)
+            : null,
+        deliveryCostUsd:
+          row.extra_fields?.delivery?.cost_usd != null
+            ? toNumber(row.extra_fields.delivery.cost_usd, 0)
+            : null,
+        deliveryCostSource:
+          row.extra_fields?.delivery?.cost_source != null
+            ? String(row.extra_fields.delivery.cost_source)
+            : null,
+        paymentMethod: row.extra_fields?.payment?.method ?? null,
+        paymentCurrency: row.extra_fields?.payment?.currency ?? null,
+        paymentRequiresChange: Boolean(row.extra_fields?.payment?.requires_change ?? false),
+        paymentChangeFor:
+          row.extra_fields?.payment?.change_for != null
+            ? String(row.extra_fields.payment.change_for)
+            : null,
+        paymentChangeCurrency: row.extra_fields?.payment?.change_currency ?? null,
+        paymentNote: row.extra_fields?.payment?.notes ?? null,
+        clientFundUsedUsd:
+          row.extra_fields?.payment?.client_fund_used_usd != null
+            ? toNumber(row.extra_fields.payment.client_fund_used_usd, 0)
+            : null,
+        hasDeliveryNote: Boolean(row.extra_fields?.documents?.has_delivery_note ?? false),
+        hasInvoice: Boolean(row.extra_fields?.documents?.has_invoice ?? false),
+        invoiceDataNote: row.extra_fields?.documents?.invoice_data_note ?? null,
+        invoiceSnapshot: row.extra_fields?.documents?.invoice_snapshot
+          ? {
+              companyName: row.extra_fields.documents.invoice_snapshot.company_name ?? null,
+              taxId: row.extra_fields.documents.invoice_snapshot.tax_id ?? null,
+              address: row.extra_fields.documents.invoice_snapshot.address ?? null,
+              phone: row.extra_fields.documents.invoice_snapshot.phone ?? null,
+            }
+          : null,
+        deliveryNoteSnapshot: row.extra_fields?.documents?.delivery_note_snapshot
+          ? {
+              name: row.extra_fields.documents.delivery_note_snapshot.name ?? null,
+              documentId: row.extra_fields.documents.delivery_note_snapshot.document_id ?? null,
+              address: row.extra_fields.documents.delivery_note_snapshot.address ?? null,
+              phone: row.extra_fields.documents.delivery_note_snapshot.phone ?? null,
+            }
+          : null,
+        fxRate:
+          row.extra_fields?.pricing?.fx_rate != null
+            ? toNumber(row.extra_fields.pricing.fx_rate, 0)
+            : null,
+        discountEnabled: Boolean(row.extra_fields?.pricing?.discount_enabled ?? false),
+        discountPct:
+          row.extra_fields?.pricing?.discount_pct != null
+            ? toNumber(row.extra_fields.pricing.discount_pct, 0)
+            : null,
+        invoiceTaxPct:
+          row.extra_fields?.pricing?.invoice_tax_pct != null
+            ? toNumber(row.extra_fields.pricing.invoice_tax_pct, 0)
+            : null,
+        invoiceTaxAmountUsd:
+          row.extra_fields?.pricing?.invoice_tax_amount_usd != null
+            ? toNumber(row.extra_fields.pricing.invoice_tax_amount_usd, 0)
+            : null,
+        invoiceTaxAmountBs:
+          row.extra_fields?.pricing?.invoice_tax_amount_bs != null
+            ? toNumber(row.extra_fields.pricing.invoice_tax_amount_bs, 0)
+            : null,
+        subtotalBs:
+          row.extra_fields?.pricing?.subtotal_bs != null
+            ? toNumber(row.extra_fields.pricing.subtotal_bs, 0)
+            : null,
+        subtotalUsd:
+          row.extra_fields?.pricing?.subtotal_usd != null
+            ? toNumber(row.extra_fields.pricing.subtotal_usd, 0)
+            : null,
+        subtotalAfterDiscountBs:
+          row.extra_fields?.pricing?.subtotal_after_discount_bs != null
+            ? toNumber(row.extra_fields.pricing.subtotal_after_discount_bs, 0)
+            : null,
+        subtotalAfterDiscountUsd:
+          row.extra_fields?.pricing?.subtotal_after_discount_usd != null
+            ? toNumber(row.extra_fields.pricing.subtotal_after_discount_usd, 0)
+            : null,
+      },
+      draftItems,
+      events: orderEvents,
+      paymentReports,
+      adminAdjustments,
+      internalDriverUserId: row.internal_driver_user_id ?? null,
+      externalPartnerId: row.external_partner_id ?? null,
+      externalReference: row.external_reference ?? null,
+      riderName:
+        (row.internal_driver_user_id
+          ? internalDriverNameById.get(row.internal_driver_user_id)
+          : null) ||
+        row.external_driver_name ||
+        undefined,
+      externalPartner: row.external_partner_id
+        ? deliveryPartnerNameById.get(Number(row.external_partner_id)) ||
+          `Partner #${row.external_partner_id}`
+        : undefined,
+    };
+  });
+
+  const initialOrders = allDashboardOrders.filter((order) => operationOrderIdSet.has(order.id));
+  const calculationOrders = allDashboardOrders.filter((order) => calculationOrderIdSet.has(order.id));
+  const inboxOrders = allDashboardOrders.filter((order) => inboxOrderIdSet.has(order.id));
+
+  return (
+    <MasterDashboardClient
+snapshotStartedAt={snapshotStartedAt}
+currentUser={{
+  id: user.id,
+  email: user.email ?? '',
+  fullName: currentProfile?.full_name?.trim() || user.email || '',
+}}
+
+
+      roles={roles}
+      dashboardUsers={dashboardUsers}
+      dashboardUserRoles={dashboardUserRoles}
+      initialMasterInboxItemStates={initialMasterInboxItemStates}
+      initialMasterNotifications={initialMasterNotifications}
+      advisors={advisorOptions}
+      advisorCommissionPeriods={advisorCommissionPeriods}
+      advisorCommissionClosures={advisorCommissionClosures}
+      advisorCommissionSetupMissing={advisorCommissionSetupMissing}
+      drivers={driverOptions}
+      deliveryPartners={deliveryPartnerOptions}
+      initialOrders={initialOrders}
+      inboxOrders={inboxOrders}
+      calculationOrders={calculationOrders}
+      calculationScope={{
+        generated: Boolean(calculationRangeRequested),
+        dateFrom: calcFromKey,
+        dateTo: calcToKey,
+        source: calcSource,
+        advisorId: calcAdvisorId || null,
+        basePct: calcBasePct || null,
+        generatedAt: calcGeneratedAt,
+        limit: MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT,
+        limitExceeded: calculationOrdersLimitExceeded,
+      }}
+      orderScope={{
+        focusDate: focusDateKey,
+        limit: MASTER_DASHBOARD_ORDER_LIMIT,
+        limitExceeded: ordersLimitExceeded,
+      }}
+      operationSummary={{
+        weekStats: operationWeekStats,
+      }}
+      moneyAccounts={moneyAccounts}
+      moneyAccountPaymentRules={moneyAccountPaymentRules}
+      moneyAccountClosureProfiles={moneyAccountClosureProfiles}
+      moneyMovements={moneyMovements}
+      moneyAccountClosures={moneyAccountClosures}
+      moneyAccountBaselines={moneyAccountBaselines}
+      moneyAccountReconciliationItems={moneyAccountReconciliationItems}
+      moneyAccountBalanceSnapshots={initialMoneyAccountBalanceSnapshots}
+      inventoryItems={inventoryItems}
+      inventoryMovements={inventoryMovements}
+      inventoryRecipes={inventoryRecipes}
+      inventoryRecipeComponents={inventoryRecipeComponents}
+      productInventoryLinks={productInventoryLinks}
+      clients={[]}
+      catalogItems={catalogItems}
+      productComponents={productComponents}
+      activeExchangeRate={
+        activeRateRow
+          ? {
+              id: Number(activeRateRow.id),
+              rateBsPerUsd: toNumber(activeRateRow.rate_bs_per_usd, 0),
+              effectiveAt: activeRateRow.effective_at,
+            }
+          : null
+      }
+      publicVapidKey={getPublicVapidKey()}
+    />
+  );
+}

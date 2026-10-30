@@ -1,0 +1,1 @@
+import {headers} from 'next/headers';import {makeSupabase} from '@/bench/fixture';export async function createSupabaseServer(){await headers();return makeSupabase();}

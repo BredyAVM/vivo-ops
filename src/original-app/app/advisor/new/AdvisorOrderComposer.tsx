@@ -1,0 +1,5470 @@
+'use client';
+import { countsTowardCrmMinimum, dailyBenefitConflict } from '@/lib/crm/benefit-eligibility';
+
+import { type FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { hasMenuOrderDetails, menuQuoteDetailLines, readMenuOrderQuote, type MenuOrderQuote } from '@/lib/brands/order-menu';
+const MuerdemeOrderPicker = dynamic(() => import('@/components/orders/MuerdemeOrderPicker'));
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
+import { normalizeDecimalInput, parseDecimalInput } from '@/lib/number-input';
+import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
+import { normalizeRemoteSearchValue, normalizeSearchValue, splitSearchTokens } from '@/lib/search/normalize-search';
+import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import { storedApprovedPriceLine, type ApprovedPriceLine } from '@/lib/orders/approved-price-preservation';
+import { preservedAgreedPriceSnapshot } from '@/lib/orders/operational-edit-pricing';
+import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/play-order';
+import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persistence';
+import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
+import { refreshAdvisorAsapSchedule } from '@/lib/orders/advisor-creation-schedule';
+import RewardLineSelector from '@/components/rewards/RewardLineSelector';
+import { REWARD_GRANT_SELECT, type RewardGrant } from '@/lib/rewards/wallet-model';
+import { fundedOrderSnapshot, rewardDraftAvailable, type RewardLineFunding } from '@/lib/rewards/order-funding';
+import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
+import { readDraftCrmBenefit, restoreDraftCrmItems, type DraftCrmBenefit } from '@/lib/crm/order-benefit-preservation';
+import { shouldResolveCatalogGift } from '@/lib/crm/catalog-gift';
+import {
+  buildWhatsAppOrderSummaryText,
+  cleanWhatsAppUnitsFromName,
+  formatWhatsAppBs,
+  formatWhatsAppDateVE,
+  formatWhatsAppItemPrice,
+  formatWhatsAppQuantity,
+  formatWhatsAppTimeAmPm,
+  getWhatsAppLineUnits,
+} from '@/lib/orders/whatsapp-summary';
+import {
+  createAdvisorOrderAction,
+  loadAdvisorExistingOrderCrmContextAction,
+  prepareAdvisorCrmPlayBenefitsAction,
+  resolveAdvisorCatalogGiftAction,
+  replaceAdvisorOrderItemsAction,
+  saveAdvisorOrderDraftAction,
+  submitAdvisorOrderCorrectionForReviewAction,
+  validateAdvisorOrderDetailsAction,
+  validateAdvisorMuerdemeItemsAction,
+} from './actions';
+
+type ClientType = 'assigned' | 'own' | 'legacy';
+type FulfillmentType = 'pickup' | 'delivery';
+type PaymentMethod =
+  | 'pending'
+  | 'payment_mobile'
+  | 'transfer'
+  | 'cash_usd'
+  | 'cash_ves'
+  | 'pos'
+  | 'zelle'
+  | 'wallet_usd'
+  | 'mixed';
+type CurrencyCode = 'USD' | 'VES';
+
+export type ClientRow = {
+  id: number;
+  full_name: string;
+  phone: string | null;
+  client_type: string | null;
+  fund_balance_usd?: number | string | null;
+  recent_addresses?: unknown;
+  billing_company_name?: string | null;
+  billing_tax_id?: string | null;
+  billing_address?: string | null;
+  billing_phone?: string | null;
+  delivery_note_name?: string | null;
+  delivery_note_document_id?: string | null;
+  delivery_note_address?: string | null;
+  delivery_note_phone?: string | null;
+};
+
+type ProductRow = {
+  id: number;
+  sku: string | null;
+  name: string;
+  is_active: boolean | null;
+  extra_fields: Record<string, unknown> | null;
+  type: 'product' | 'combo' | 'service' | 'promo' | 'gambit' | null;
+  base_price_usd: number | string | null;
+  source_price_currency: CurrencyCode | null;
+  source_price_amount: number | string | null;
+  units_per_service: number | null;
+  is_detail_editable: boolean | null;
+  detail_units_limit: number | null;
+  inventory_group?: string | null;
+  internal_rider_pay_usd?: number | string | null;
+};
+
+type ProductAvailability = {
+  product_id: number;
+  availability_state:
+    | 'not_tracked'
+    | 'outside_horizon'
+    | 'inventory_not_active'
+    | 'configuration_pending'
+    | 'selection_required'
+    | 'requires_opening'
+    | 'availability_unknown'
+    | 'unavailable'
+    | 'declared_unavailable'
+    | 'relies_on_incoming'
+    | 'low'
+    | 'available';
+  severity: 'info' | 'warning' | 'critical';
+  message: string;
+  available_without_affecting_confirmed: number | null;
+  available_without_planned_incoming: number | null;
+  depends_on_incoming: boolean;
+  next_available_at: string | null;
+  requires_master_review: boolean;
+  inventory_blocks_submission: boolean;
+  protected_balance_active?: boolean;
+  protected_maximum_quantity?: number | null;
+  protected_available_component_units?: number | null;
+};
+
+type ProductComponentRow = {
+  parent_product_id: number;
+  component_product_id: number;
+  component_mode: 'fixed' | 'selectable';
+  quantity: number | null;
+  counts_toward_detail_limit: boolean | null;
+  is_required: boolean | null;
+  sort_order: number | null;
+};
+
+type ConfigSelection = {
+  componentProductId: number;
+  name: string;
+  qty: number;
+};
+
+type ConfigOption = ProductRow & {
+  componentMode: ProductComponentRow['component_mode'];
+  componentQuantity: number;
+  isRequired: boolean;
+  countsTowardDetailLimit: boolean;
+  sortOrder: number;
+  inventoryBlocked: boolean;
+  inventoryMessage: string | null;
+};
+
+type DraftItem = {
+  reward?: RewardLineFunding;
+  localId: string;
+  persistedOrderItemId?: number;
+  product_id: number;
+  product_type: ProductRow['type'];
+  sku_snapshot: string | null;
+  product_name_snapshot: string;
+  units_per_service: number;
+  qty: number;
+  source_price_currency: CurrencyCode;
+  source_price_amount: number;
+  unit_price_usd_snapshot: number;
+  line_total_usd: number;
+  editable_detail_lines: string[];
+  crm_benefit?: DraftCrmBenefit;
+};
+
+type ClientAddress = {
+  addressText: string;
+  gpsUrl: string;
+};
+
+type RecentClientChip = {
+  id: number;
+  full_name: string;
+  phone: string | null;
+  client_type: string | null;
+  fund_balance_usd?: number | string | null;
+  recent_addresses?: unknown;
+  billing_company_name?: string | null;
+  billing_tax_id?: string | null;
+  billing_address?: string | null;
+  billing_phone?: string | null;
+  delivery_note_name?: string | null;
+  delivery_note_document_id?: string | null;
+  delivery_note_address?: string | null;
+  delivery_note_phone?: string | null;
+};
+
+type ExistingOrderRow = {
+  id: number;
+  order_number?: string | null;
+  total_usd?: number | string | null;
+  status: string | null;
+  last_modified_at?: string | null;
+  last_modified_by?: string | null;
+  fulfillment: FulfillmentType;
+  delivery_address: string | null;
+  receiver_name: string | null;
+  receiver_phone: string | null;
+  notes: string | null;
+  extra_fields: {
+    schedule?: {
+      date?: string | null;
+      time_12?: string | null;
+      asap?: boolean | null;
+    } | null;
+    delivery?: {
+      gps_url?: string | null;
+    } | null;
+    payment?: {
+      method?: PaymentMethod | null;
+      currency?: CurrencyCode | null;
+      requires_change?: boolean | null;
+      change_for?: string | number | null;
+      change_currency?: CurrencyCode | null;
+      notes?: string | null;
+    } | null;
+    pricing?: {
+      discount_enabled?: boolean | null;
+      discount_pct?: number | string | null;
+      fx_rate?: number | string | null;
+      recalculation_required?: boolean | null;
+      recalculation_fx_rate?: number | string | null;
+      recalculation_requested_at?: string | null;
+      invoice_tax_pct?: number | string | null;
+      invoice_tax_amount_usd?: number | string | null;
+      invoice_tax_amount_bs?: number | string | null;
+      total_bs?: number | string | null;
+    } | null;
+    documents?: {
+      has_delivery_note?: boolean | null;
+      has_invoice?: boolean | null;
+      invoice_data_note?: string | null;
+      invoice_snapshot?: {
+        company_name?: string | null;
+        tax_id?: string | null;
+        address?: string | null;
+        phone?: string | null;
+      } | null;
+      delivery_note_snapshot?: {
+        name?: string | null;
+        document_id?: string | null;
+        address?: string | null;
+        phone?: string | null;
+      } | null;
+    } | null;
+    note?: string | null;
+  } | null;
+  client:
+    | ClientRow[]
+    | ClientRow
+    | null;
+};
+
+type ExistingOrderItemRow = {
+  reward_grant_id?: number | null;
+  reward_purpose?: 'customer_gift' | 'personal_purchase' | null;
+  reward_amount_usd?: number | string | null;
+  id: number;
+  product_id: number;
+  qty: number | string;
+  pricing_origin_currency: CurrencyCode | null;
+  pricing_origin_amount: number | string | null;
+  unit_price_usd_snapshot: number | string | null;
+  line_total_usd: number | string | null;
+  unit_price_bs_snapshot: number | string | null;
+  line_total_bs_snapshot: number | string | null;
+  admin_price_override_usd: number | string | null;
+  admin_price_override_reason: string | null;
+  sku_snapshot: string | null;
+  product_name_snapshot: string | null;
+  notes: string | null;
+  crm_play_member_id: number | string | null;
+  crm_play_benefit_id: number | string | null;
+  crm_play_benefit_upgrade_id: number | string | null;
+  product:
+    | {
+        type: ProductRow['type'];
+        units_per_service: number | null;
+      }[]
+    | {
+        type: ProductRow['type'];
+        units_per_service: number | null;
+      }
+    | null;
+};
+
+type ExistingCrmRedemptionRow = {
+  order_item_id: number | string | null;
+  status: 'reserved' | 'redeemed';
+};
+
+type OrderEditSnapshot = {
+  clientId: number | null;
+  fulfillment: FulfillmentType;
+  deliveryDate: string;
+  deliveryTime12: string;
+  isAsap: boolean;
+  receiverName: string;
+  receiverPhone: string;
+  deliveryAddress: string;
+  deliveryGpsUrl: string;
+  orderNote: string;
+  paymentMethod: PaymentMethod;
+  paymentCurrency: CurrencyCode;
+  paymentRequiresChange: boolean;
+  paymentChangeFor: string;
+  paymentChangeCurrency: CurrencyCode;
+  paymentNote: string;
+  fxRate: string;
+  discountEnabled: boolean;
+  discountPct: string;
+  hasInvoice: boolean;
+  invoiceTaxPct: string;
+  hasDeliveryNote: boolean;
+  invoiceCompanyName: string;
+  invoiceTaxId: string;
+  invoiceAddress: string;
+  invoicePhone: string;
+  deliveryNoteName: string;
+  deliveryNoteDocumentId: string;
+  deliveryNoteAddress: string;
+  deliveryNotePhone: string;
+  totalUsd: number;
+  totalBs: number;
+  items: Array<{
+    productId: number;
+    productName: string;
+    qty: number;
+    lineTotalUsd: number;
+    detailLines: string[];
+  }>;
+};
+
+type AdvisorOrderDraftStatus = 'draft' | 'quoted' | 'converted' | 'archived';
+
+type AdvisorOrderDraftPayload = {
+  version?: number;
+  clientId?: number | null;
+  fulfillment?: FulfillmentType;
+  deliveryDate?: string;
+  deliveryHour12?: string;
+  deliveryMinute?: string;
+  deliveryAmPm?: 'AM' | 'PM';
+  isAsap?: boolean;
+  receiverName?: string;
+  receiverPhone?: string;
+  deliveryAddress?: string;
+  deliveryGpsUrl?: string;
+  orderNote?: string;
+  paymentMethod?: PaymentMethod;
+  paymentCurrency?: CurrencyCode;
+  paymentRequiresChange?: boolean;
+  paymentChangeFor?: string;
+  paymentChangeCurrency?: CurrencyCode;
+  paymentNote?: string;
+  fxRate?: string;
+  discountEnabled?: boolean;
+  discountPct?: string;
+  invoiceTaxPct?: string;
+  hasDeliveryNote?: boolean;
+  hasInvoice?: boolean;
+  invoiceCompanyName?: string;
+  invoiceTaxId?: string;
+  invoiceAddress?: string;
+  invoicePhone?: string;
+  deliveryNoteName?: string;
+  deliveryNoteDocumentId?: string;
+  deliveryNoteAddress?: string;
+  deliveryNotePhone?: string;
+  newClient?: {
+    fullName?: string;
+    phone?: string;
+    type?: ClientType;
+  };
+  items?: DraftItem[];
+};
+
+type AdvisorOrderDraftInitial = {
+  id: number;
+  status: AdvisorOrderDraftStatus | string | null;
+  title: string | null;
+  client_id: number | string | null;
+  client_snapshot: Partial<ClientRow> | null;
+  new_client_snapshot: Record<string, unknown> | null;
+  payload: AdvisorOrderDraftPayload | null;
+  quote_text: string | null;
+  total_usd: number | string | null;
+  total_bs: number | string | null;
+  fx_rate: number | string | null;
+  quoted_at: string | null;
+  updated_at: string | null;
+};
+
+function protectedDraftViolation(
+  items: DraftItem[],
+  availabilityByProductId: Map<number, ProductAvailability>,
+) {
+  const productQuantities = new Map<number, number>();
+  const componentQuantities = new Map<number, number>();
+  for (const item of items) {
+    productQuantities.set(item.product_id, (productQuantities.get(item.product_id) ?? 0) + item.qty);
+    for (const line of item.editable_detail_lines) {
+      const match = line.match(/^@sel\|([1-9][0-9]*)\|([0-9]+(?:\.[0-9]+)?)$/);
+      if (!match) continue;
+      const componentId = Number(match[1]);
+      const quantity = Number(match[2]);
+      componentQuantities.set(componentId, (componentQuantities.get(componentId) ?? 0) + quantity);
+    }
+  }
+
+  for (const [productId, quantity] of productQuantities) {
+    const availability = availabilityByProductId.get(productId);
+    const maximum = Number(availability?.protected_maximum_quantity);
+    if (availability?.protected_balance_active && Number.isFinite(maximum) && quantity > maximum + 0.0001) {
+      return availability;
+    }
+  }
+  for (const [productId, quantity] of componentQuantities) {
+    const availability = availabilityByProductId.get(productId);
+    const maximum = Number(availability?.protected_available_component_units);
+    if (availability?.protected_balance_active && Number.isFinite(maximum) && quantity > maximum + 0.0001) {
+      return availability;
+    }
+  }
+  return null;
+}
+
+const STORAGE_KEYS = {
+  recentClients: 'advisor_recent_clients_v1',
+  recentProducts: 'advisor_recent_products_v1',
+  favoriteProducts: 'advisor_favorite_products_v1',
+  recentAddresses: 'advisor_recent_addresses_v1',
+  clientUsage: 'advisor_client_usage_v1',
+  productUsage: 'advisor_product_usage_v1',
+  displayName: 'advisor_display_name_v1',
+  catalogCache: 'advisor_catalog_cache_v1',
+} as const;
+
+const ADVISOR_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type AdvisorCatalogCache = {
+  cachedAt: number;
+  products: ProductRow[];
+  productComponents: ProductComponentRow[];
+  activeRate: number;
+};
+
+function pad2(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+function getTodayInputValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+}
+
+function getCaracasCurrentMinuteKey() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Caracas',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || '';
+
+  return `${value('year')}-${value('month')}-${value('day')}T${value('hour')}:${value('minute')}`;
+}
+
+function isPastAdvisorSchedule(date: string, time24: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time24)) return false;
+  return `${date}T${time24}` < getCaracasCurrentMinuteKey();
+}
+
+function getRoundedTime() {
+  const date = new Date();
+  date.setSeconds(0, 0);
+  const mins = date.getMinutes();
+
+  if (mins > 0 && mins < 30) date.setMinutes(30);
+  else if (mins > 30) {
+    date.setHours(date.getHours() + 1);
+    date.setMinutes(0);
+  }
+
+  return date;
+}
+
+function to12h(date: Date) {
+  const hour24 = date.getHours();
+  const minute = date.getMinutes();
+  const ampm: 'AM' | 'PM' = hour24 >= 12 ? 'PM' : 'AM';
+  let hour12 = hour24 % 12;
+  if (hour12 === 0) hour12 = 12;
+  return { hour12: String(hour12), minute: pad2(minute), ampm };
+}
+
+function from12hTo24h(hour12: string, minute: string, ampm: 'AM' | 'PM') {
+  let hour = Number(hour12);
+  const mins = Number(minute);
+
+  if (!Number.isFinite(hour) || hour < 1 || hour > 12) throw new Error('Hora invalida.');
+  if (!Number.isFinite(mins) || mins < 0 || mins > 59) throw new Error('Minutos invalidos.');
+
+  if (ampm === 'AM') {
+    if (hour === 12) hour = 0;
+  } else if (hour !== 12) {
+    hour += 12;
+  }
+
+  return `${pad2(hour)}:${pad2(mins)}`;
+}
+
+function availabilityTone(availability: ProductAvailability | null) {
+  if (!availability || availability.availability_state === 'not_tracked') {
+    return 'border-[#2A3040] bg-[#151925] text-[#CCD3E2]';
+  }
+  if (availability.availability_state === 'available') {
+    return 'border-[#1C5036] bg-[#0F2119] text-[#7CE0A9]';
+  }
+  if (availability.availability_state === 'declared_unavailable') {
+    return 'border-red-500/45 bg-red-500/10 text-red-100';
+  }
+  return 'border-[#564511] bg-[#2A2209] text-[#F7DA66]';
+}
+
+function availabilityLabel(availability: ProductAvailability | null) {
+  if (!availability) return 'Sin lectura';
+  switch (availability.availability_state) {
+    case 'available': return 'Disponible';
+    case 'low': return 'Quedan pocos';
+    case 'unavailable': return 'Sin disponibilidad protegida';
+    case 'declared_unavailable': return 'Venta detenida por Máster';
+    case 'relies_on_incoming': return 'Depende de reposición';
+    case 'outside_horizon': return 'Fuera de 10 días';
+    case 'selection_required': return 'Depende de la selección';
+    case 'not_tracked': return 'No inventariable';
+    default: return 'Revisión de Máster';
+  }
+}
+
+function parseStoredTime12(value: string | null | undefined, fallback: { hour12: string; minute: string; ampm: 'AM' | 'PM' }) {
+  const match = String(value || '')
+    .trim()
+    .match(/^(\d{1,2})[:.](\d{2})\s*(AM|PM)$/i);
+
+  if (!match) return fallback;
+
+  return {
+    hour12: String(Number(match[1] || fallback.hour12)),
+    minute: pad2(Number(match[2] || fallback.minute)),
+    ampm: String(match[3] || fallback.ampm).toUpperCase() === 'PM' ? 'PM' : 'AM',
+  } as const;
+}
+
+function sanitizeQuantityInput(value: string | number | null | undefined) {
+  return normalizeDecimalInput(value).replace('-', '');
+}
+
+function parseQuantityValue(value: string | number | null | undefined) {
+  const normalized = sanitizeQuantityInput(value);
+  if (!normalized || normalized === '.') return Number.NaN;
+
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : Number.NaN;
+}
+
+function formatUsd(value: number) {
+  return `$${value.toFixed(2)}`;
+}
+
+function formatBs(value: number) {
+  return `Bs ${value.toFixed(2)}`;
+}
+
+function formatBsWhatsApp(value: number) {
+  return formatWhatsAppBs(value);
+}
+
+const HIDDEN_DETAIL_PREFIX = '@sel|';
+const WHATSAPP_PRIMARY_BULLET = '\u2022';
+
+function formatQuantityValue(value: number) {
+  return formatWhatsAppQuantity(value);
+}
+
+function getPaymentMethodLabel(method: PaymentMethod) {
+  return getSharedPaymentMethodLabel(method, { lowercase: true });
+}
+
+function getVisibleDetailLines(lines: string[]) {
+  return lines
+    .map((line) => normalizeSnapshotText(line))
+    .filter((line) => line && !isInternalOrderDetailLine(line));
+}
+
+function isHiddenDetailLine(line: string) {
+  return isInternalOrderDetailLine(line);
+}
+
+function formatDraftItemWhatsAppLine(item: DraftItem) {
+  const price = formatWhatsAppItemPrice(item.qty, item.line_total_usd);
+  const normalizedName = normalizeSnapshotText(item.product_name_snapshot) || 'Item';
+  const isDelivery = isDeliveryCatalogItemName(normalizedName);
+
+  if (isDelivery) {
+    return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${price}`;
+  }
+
+  const units = getWhatsAppLineUnits({
+    qty: item.qty,
+    name: normalizedName,
+    unitsPerService: item.units_per_service,
+  });
+  if (units !== null) {
+    const cleanName = cleanWhatsAppUnitsFromName(normalizedName);
+    const servicePrefix = item.product_type === 'service' ? 'Serv. ' : '';
+    return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${servicePrefix}${cleanName} (${formatWhatsAppQuantity(units)} und): ${price}`;
+  }
+
+  return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${price}`;
+}
+
+function toSafeNumber(value: unknown, fallback = 0) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : fallback;
+}
+
+function getProductSourcePricing(product: ProductRow) {
+  const sourceCurrency = (product.source_price_currency || 'USD') as CurrencyCode;
+  const sourceAmount =
+    Number(
+      product.source_price_amount ??
+        (sourceCurrency === 'USD' ? product.base_price_usd : 0) ??
+        0
+    ) || 0;
+
+  return { sourceCurrency, sourceAmount };
+}
+
+function buildCrmBenefitDraftItem(
+  context: AdvisorCrmOrderContext,
+  benefit: AdvisorCrmOrderContext['benefits'][number],
+  productById: Map<number, ProductRow>,
+  playBenefitUpgradeId: number | null = null,
+) {
+  const upgrade = playBenefitUpgradeId == null
+    ? null
+    : benefit.upgrades.find((option) => option.id === playBenefitUpgradeId) ?? null;
+  const product = productById.get(upgrade?.productId ?? benefit.productId);
+  if (!product) return null;
+
+  const quantity = upgrade?.quantity ?? benefit.quantity;
+  const customerDifferenceUsd = Math.max(0, upgrade?.customerDifferenceUsd ?? 0);
+  const catalogPricing = getProductSourcePricing(product);
+  return {
+    localId: `crm-${context.playMemberId}-${benefit.playBenefitId}`,
+    product_id: product.id,
+    product_type: product.type,
+    sku_snapshot: upgrade?.sku ?? benefit.sku ?? product.sku,
+    product_name_snapshot: upgrade?.name ?? benefit.name ?? product.name,
+    units_per_service: Number(product.units_per_service ?? 0) || 0,
+    qty: quantity,
+    source_price_currency: 'USD' as const,
+    source_price_amount: quantity > 0 ? customerDifferenceUsd / quantity : 0,
+    unit_price_usd_snapshot: quantity > 0 ? customerDifferenceUsd / quantity : 0,
+    line_total_usd: customerDifferenceUsd,
+    editable_detail_lines: [],
+    crm_benefit: {
+      playMemberId: context.playMemberId,
+      playBenefitId: benefit.playBenefitId,
+      playBenefitUpgradeId: upgrade?.id ?? null,
+      eligibleUnitPriceUsd: quantity > 0 ? customerDifferenceUsd / quantity : 0,
+      catalogSourceCurrency: catalogPricing.sourceCurrency,
+      catalogSourceAmount: catalogPricing.sourceAmount,
+    },
+  } satisfies DraftItem;
+}
+
+function calculateCatalogSnapshotForDraftItem(item: DraftItem, product: ProductRow, fxRateNumber: number) {
+  const { sourceCurrency, sourceAmount } = getProductSourcePricing(product);
+  const snapshot = calculateOrderLineSnapshot({
+    sourceCurrency,
+    sourceAmount,
+    quantity: Number(item.qty || 0),
+    fxRate: fxRateNumber,
+    fallbackUnitUsd: Number(product.base_price_usd ?? item.unit_price_usd_snapshot ?? 0),
+  });
+
+  return { sourceCurrency, sourceAmount, snapshot };
+}
+
+function draftItemHasCatalogPriceDrift(item: DraftItem, product: ProductRow, fxRateNumber: number) {
+  const current = calculateCatalogSnapshotForDraftItem(item, product, fxRateNumber);
+  const epsilon = current.sourceCurrency === 'VES' ? 0.01 : 0.005;
+
+  return (
+    item.source_price_currency !== current.sourceCurrency ||
+    Math.abs(Number(item.source_price_amount || 0) - current.sourceAmount) > epsilon
+  );
+}
+
+function buildRepeatedDraftItemFromCatalog(input: {
+  item: ExistingOrderItemRow;
+  product: ProductRow;
+  activeRate: number;
+}): DraftItem {
+  const qty = Number(input.item.qty || 0);
+  const { sourceCurrency, sourceAmount } = getProductSourcePricing(input.product);
+  const snapshot = calculateOrderLineSnapshot({
+    sourceCurrency,
+    sourceAmount,
+    quantity: qty,
+    fxRate: input.activeRate,
+    fallbackUnitUsd: Number(input.product.base_price_usd ?? 0),
+  });
+
+  return {
+    localId: `repeat-${input.item.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    product_id: input.product.id,
+    product_type: input.product.type,
+    sku_snapshot: input.product.sku,
+    product_name_snapshot: input.product.name,
+    units_per_service: Number(input.product.units_per_service ?? 0) || 0,
+    qty,
+    source_price_currency: sourceCurrency,
+    source_price_amount: sourceAmount,
+    unit_price_usd_snapshot: snapshot.unitUsd,
+    line_total_usd: snapshot.lineUsd,
+    editable_detail_lines: input.item.notes?.trim()
+      ? input.item.notes
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [],
+  };
+}
+
+function clientTypeLabel(value: string | null | undefined) {
+  if (value === 'assigned') return 'Asignado';
+  if (value === 'own') return 'Propio';
+  if (value === 'legacy') return 'Antiguo';
+  return 'Sin clasificar';
+}
+
+function normalizeClientAddresses(input: unknown): ClientAddress[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((row) => {
+      const data = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+      const addressText = String(data.address_text ?? data.addressText ?? '').trim();
+      const gpsUrl = String(data.gps_url ?? data.gpsUrl ?? '').trim();
+      return { addressText, gpsUrl };
+    })
+    .filter((row) => row.addressText || row.gpsUrl)
+    .slice(0, 2);
+}
+
+function mergeRecentAddresses(currentValue: unknown, nextAddressText: string, nextGpsUrl: string) {
+  const current = normalizeClientAddresses(currentValue).map((row) => ({
+    address_text: row.addressText,
+    gps_url: row.gpsUrl || null,
+  }));
+  const normalizedAddressText = String(nextAddressText || '').trim();
+  const normalizedGpsUrl = String(nextGpsUrl || '').trim() || null;
+
+  if (!normalizedAddressText && !normalizedGpsUrl) {
+    return current.slice(0, 2);
+  }
+
+  const nextEntry = {
+    address_text: normalizedAddressText,
+    gps_url: normalizedGpsUrl,
+  };
+
+  return [
+    nextEntry,
+    ...current.filter(
+      (row) =>
+        !(
+          String(row.address_text || '').trim() === normalizedAddressText &&
+          String(row.gps_url || '').trim() === String(normalizedGpsUrl || '').trim()
+        ),
+    ),
+  ].slice(0, 2);
+}
+
+function readStoredJson<T>(key: string, fallback: T) {
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function readStoredString(key: string, fallback = '') {
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    return window.localStorage.getItem(key)?.trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readFreshCatalogCache() {
+  const cache = readStoredJson<AdvisorCatalogCache | null>(STORAGE_KEYS.catalogCache, null);
+  if (!cache || !Array.isArray(cache.products) || !Array.isArray(cache.productComponents)) return null;
+  if (!Number.isFinite(Number(cache.cachedAt))) return null;
+  if (Date.now() - Number(cache.cachedAt) > ADVISOR_CATALOG_CACHE_TTL_MS) return null;
+
+  return cache;
+}
+
+function writeCatalogCache(input: Omit<AdvisorCatalogCache, 'cachedAt'>) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEYS.catalogCache,
+      JSON.stringify({
+        cachedAt: Date.now(),
+        products: input.products,
+        productComponents: input.productComponents,
+        activeRate: input.activeRate,
+      } satisfies AdvisorCatalogCache)
+    );
+  } catch {
+    // Cache is optional; storage quota or private mode should not block order capture.
+  }
+}
+
+function extractInitials(value: string) {
+  return normalizeSearchValue(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => token[0] || '')
+    .join('');
+}
+
+function compactAddressLabel(value: string, maxLength = 46) {
+  const text = String(value || '').trim().replace(/\s+/g, ' ');
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trimEnd()}...`;
+}
+
+function isDeliveryCatalogItemName(value: string | null | undefined) {
+  const normalized = normalizeSearchValue(value);
+  return normalized.includes('delivery');
+}
+
+function buildNormalizedIndexMap(value: string) {
+  let normalized = '';
+  const indexMap: number[] = [];
+
+  Array.from(value).forEach((char, index) => {
+    const partial = char
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    if (!partial) return;
+
+    normalized += partial;
+    for (let i = 0; i < partial.length; i += 1) {
+      indexMap.push(index);
+    }
+  });
+
+  return { normalized, indexMap };
+}
+
+function buildHighlightRanges(value: string, query: string) {
+  const { normalized, indexMap } = buildNormalizedIndexMap(value);
+  const tokens = splitSearchTokens(query);
+  const ranges: Array<{ start: number; end: number }> = [];
+
+  tokens.forEach((token) => {
+    let searchFrom = 0;
+
+    while (searchFrom < normalized.length) {
+      const matchIndex = normalized.indexOf(token, searchFrom);
+      if (matchIndex === -1) break;
+
+      const start = indexMap[matchIndex];
+      const end = indexMap[Math.min(indexMap.length - 1, matchIndex + token.length - 1)] + 1;
+
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+        ranges.push({ start, end });
+      }
+
+      searchFrom = matchIndex + token.length;
+    }
+  });
+
+  return ranges.sort((a, b) => a.start - b.start).reduce<Array<{ start: number; end: number }>>((merged, range) => {
+    const last = merged[merged.length - 1];
+    if (!last || range.start > last.end) {
+      merged.push(range);
+      return merged;
+    }
+
+    last.end = Math.max(last.end, range.end);
+    return merged;
+  }, []);
+}
+
+function renderHighlightedText(value: string, query: string, keyPrefix: string) {
+  const text = String(value || '');
+  const ranges = buildHighlightRanges(text, query);
+
+  if (ranges.length === 0) return text;
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  ranges.forEach((range, index) => {
+    if (range.start > cursor) {
+      nodes.push(<span key={`${keyPrefix}-plain-${index}`}>{text.slice(cursor, range.start)}</span>);
+    }
+
+    nodes.push(
+      <span
+        key={`${keyPrefix}-hit-${index}`}
+        className="rounded-[6px] bg-[#2A2209] px-0.5 text-[#F7DA66]"
+      >
+        {text.slice(range.start, range.end)}
+      </span>,
+    );
+    cursor = range.end;
+  });
+
+  if (cursor < text.length) {
+    nodes.push(<span key={`${keyPrefix}-tail`}>{text.slice(cursor)}</span>);
+  }
+
+  return nodes;
+}
+
+function productSearchScore(params: {
+  product: ProductRow;
+  query: string;
+  favoriteIds: number[];
+  recentIds: number[];
+  usageById: Record<string, number>;
+}) {
+  const normalizedQuery = normalizeSearchValue(params.query);
+  if (!normalizedQuery) return Number.NEGATIVE_INFINITY;
+
+  const normalizedName = normalizeSearchValue(params.product.name);
+  const normalizedSku = normalizeSearchValue(params.product.sku);
+  const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
+  const queryTokens = splitSearchTokens(params.query);
+  const initials = extractInitials(params.product.name);
+
+  let score = 0;
+
+  if (normalizedName === normalizedQuery || normalizedSku === normalizedQuery) score += 220;
+  else if (
+    queryTokens.length > 1 &&
+    queryTokens.every((token) => nameTokens.some((nameToken) => nameToken.startsWith(token)))
+  ) {
+    score += 190;
+  } else if (normalizedName.startsWith(normalizedQuery)) score += 160;
+  else if (nameTokens[0]?.startsWith(normalizedQuery)) score += 145;
+  else if (nameTokens.some((token) => token.startsWith(normalizedQuery))) score += 120;
+  else if (initials.startsWith(normalizedQuery)) score += 118;
+  else if (normalizedSku.startsWith(normalizedQuery)) score += 105;
+  else if (normalizedName.includes(normalizedQuery)) score += 90;
+  else if (normalizedSku.includes(normalizedQuery)) score += 70;
+  else return Number.NEGATIVE_INFINITY;
+
+  if (queryTokens.length > 1) {
+    score += queryTokens.reduce((sum, token) => {
+      if (nameTokens.some((nameToken) => nameToken.startsWith(token))) return sum + 12;
+      if (normalizedName.includes(token)) return sum + 6;
+      return sum;
+    }, 0);
+  }
+
+  const favoriteBoost = params.favoriteIds.includes(params.product.id) ? 30 : 0;
+  const recentIndex = params.recentIds.indexOf(params.product.id);
+  const recentBoost = recentIndex >= 0 ? Math.max(0, 24 - recentIndex * 3) : 0;
+  const usageBoost = Math.min(60, Number(params.usageById[String(params.product.id)] || 0) * 6);
+
+  return score + favoriteBoost + recentBoost + usageBoost;
+}
+
+function clientSearchScore(params: {
+  client: ClientRow;
+  query: string;
+  recentIds: number[];
+  usageById: Record<string, number>;
+}) {
+  const normalizedQuery = normalizeSearchValue(params.query);
+  if (!normalizedQuery) return Number.NEGATIVE_INFINITY;
+
+  const normalizedName = normalizeSearchValue(params.client.full_name);
+  const normalizedPhone = normalizeSearchValue(params.client.phone);
+  const phoneQueryTerms = getPhoneSearchTerms(params.query).map(normalizeSearchValue);
+  const clientPhoneTerms = getPhoneSearchTerms(params.client.phone).map(normalizeSearchValue);
+  const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
+  const queryTokens = splitSearchTokens(params.query);
+  const phoneMatches =
+    phoneQueryTerms.length > 0 &&
+    phoneQueryTerms.some((queryTerm) =>
+      clientPhoneTerms.some(
+        (clientTerm) =>
+          clientTerm === queryTerm ||
+          clientTerm.startsWith(queryTerm) ||
+          clientTerm.includes(queryTerm)
+      )
+    );
+
+  let score = 0;
+
+  if (normalizedPhone === normalizedQuery || normalizedName === normalizedQuery) score += 220;
+  else if (phoneMatches) score += 190;
+  else if (normalizedPhone.startsWith(normalizedQuery)) score += 170;
+  else if (
+    queryTokens.length > 1 &&
+    queryTokens.every((token) => nameTokens.some((nameToken) => nameToken.startsWith(token)))
+  ) {
+    score += 165;
+  }
+  else if (normalizedName.startsWith(normalizedQuery)) score += 150;
+  else if (nameTokens[0]?.startsWith(normalizedQuery)) score += 140;
+  else if (nameTokens.some((token) => token.startsWith(normalizedQuery))) score += 115;
+  else if (normalizedPhone.includes(normalizedQuery)) score += 95;
+  else if (normalizedName.includes(normalizedQuery)) score += 85;
+  else return Number.NEGATIVE_INFINITY;
+
+  if (queryTokens.length > 1) {
+    score += queryTokens.reduce((sum, token) => {
+      if (nameTokens.some((nameToken) => nameToken.startsWith(token))) return sum + 10;
+      if (normalizedName.includes(token)) return sum + 5;
+      return sum;
+    }, 0);
+  }
+
+  const recentIndex = params.recentIds.indexOf(params.client.id);
+  const recentBoost = recentIndex >= 0 ? Math.max(0, 16 - recentIndex * 2) : 0;
+  const usageBoost = Math.min(36, Number(params.usageById[String(params.client.id)] || 0) * 4);
+
+  return score + recentBoost + usageBoost;
+}
+
+function normalizeSnapshotText(value: string | null | undefined) {
+  return String(value || '').trim();
+}
+
+function buildDraftItemsSnapshot(items: DraftItem[]) {
+  return items.map((item) => ({
+    productId: Number(item.product_id || 0),
+    productName: normalizeSnapshotText(item.product_name_snapshot),
+    qty: Number(item.qty || 0),
+    lineTotalUsd: Number(Number(item.line_total_usd || 0).toFixed(2)),
+    detailLines: getVisibleDetailLines(item.editable_detail_lines),
+  }));
+}
+
+function normalizeDraftItemsPayload(value: unknown): DraftItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item, index): DraftItem | null => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Partial<DraftItem>;
+      const productId = Number(row.product_id || 0);
+      const qty = Number(row.qty || 0);
+      const sourceCurrency = row.source_price_currency === 'VES' ? 'VES' : 'USD';
+
+      if (!Number.isFinite(productId) || productId <= 0 || !Number.isFinite(qty) || qty <= 0) {
+        return null;
+      }
+
+      return {
+        localId: String(row.localId || `draft-${productId}-${index}-${Date.now()}`),
+        product_id: productId,
+        product_type: row.product_type ?? null,
+        sku_snapshot: row.sku_snapshot ?? null,
+        product_name_snapshot: String(row.product_name_snapshot || 'Item'),
+        units_per_service: Number(row.units_per_service || 0) || 0,
+        qty,
+        source_price_currency: sourceCurrency,
+        source_price_amount: Number(row.source_price_amount || 0) || 0,
+        unit_price_usd_snapshot: Number(row.unit_price_usd_snapshot || 0) || 0,
+        line_total_usd: Number(row.line_total_usd || 0) || 0,
+        crm_benefit: readDraftCrmBenefit(row.crm_benefit),
+        editable_detail_lines: Array.isArray(row.editable_detail_lines)
+          ? persistableOrderDetailLines(row.editable_detail_lines)
+          : [],
+      } satisfies DraftItem;
+    })
+    .filter((item): item is DraftItem => !!item);
+}
+
+function normalizeDraftStatus(value: unknown): AdvisorOrderDraftStatus | null {
+  if (value === 'draft' || value === 'quoted' || value === 'converted' || value === 'archived') return value;
+  return null;
+}
+
+function getDraftStatusLabel(status: AdvisorOrderDraftStatus | null) {
+  return status === 'quoted' ? 'Cotizado' : status === 'draft' ? 'Borrador' : '';
+}
+
+function exactClientMatch(client: ClientRow, query: string) {
+  const normalizedQuery = normalizeSearchValue(query);
+  const normalizedName = normalizeSearchValue(client.full_name);
+  const normalizedPhone = normalizeSearchValue(client.phone);
+  const phoneQueryTerms = getPhoneSearchTerms(query).map(normalizeSearchValue);
+  const clientPhoneTerms = getPhoneSearchTerms(client.phone).map(normalizeSearchValue);
+  const phoneMatches =
+    phoneQueryTerms.length > 0 &&
+    phoneQueryTerms.some((queryTerm) => clientPhoneTerms.includes(queryTerm));
+
+  return normalizedQuery.length > 0 && (normalizedName === normalizedQuery || normalizedPhone === normalizedQuery || phoneMatches);
+}
+
+function buildOrderEditChangeSummary(before: OrderEditSnapshot, after: OrderEditSnapshot) {
+  const sections = new Set<string>();
+  const summary: string[] = [];
+
+  if (JSON.stringify(before.items) !== JSON.stringify(after.items)) {
+    sections.add('pedido');
+    summary.push('Se modificó el pedido.');
+  }
+
+  if (before.clientId !== after.clientId) {
+    sections.add('cliente');
+    summary.push('Se cambió el cliente.');
+  }
+
+  if (
+    before.fulfillment !== after.fulfillment ||
+    before.deliveryDate !== after.deliveryDate ||
+    before.deliveryTime12 !== after.deliveryTime12 ||
+    before.isAsap !== after.isAsap ||
+    before.receiverName !== after.receiverName ||
+    before.receiverPhone !== after.receiverPhone
+  ) {
+    sections.add('entrega');
+    summary.push('Se modificaron datos de entrega.');
+  }
+
+  if (before.deliveryAddress !== after.deliveryAddress || before.deliveryGpsUrl !== after.deliveryGpsUrl) {
+    sections.add('direccion');
+    summary.push('Se modificó la dirección.');
+  }
+
+  if (
+    before.paymentMethod !== after.paymentMethod ||
+    before.paymentCurrency !== after.paymentCurrency ||
+    before.paymentRequiresChange !== after.paymentRequiresChange ||
+    before.paymentChangeFor !== after.paymentChangeFor ||
+    before.paymentChangeCurrency !== after.paymentChangeCurrency ||
+    before.paymentNote !== after.paymentNote
+  ) {
+    sections.add('pago');
+    summary.push('Se modificaron datos de pago.');
+  }
+
+  if (
+    before.fxRate !== after.fxRate ||
+    before.discountEnabled !== after.discountEnabled ||
+    before.discountPct !== after.discountPct ||
+    before.hasInvoice !== after.hasInvoice ||
+    before.invoiceTaxPct !== after.invoiceTaxPct ||
+    before.totalUsd !== after.totalUsd ||
+    before.totalBs !== after.totalBs
+  ) {
+    sections.add('precio');
+    summary.push('Se modificó el total de la orden.');
+  }
+
+  if (
+    before.hasInvoice !== after.hasInvoice ||
+    before.invoiceCompanyName !== after.invoiceCompanyName ||
+    before.invoiceTaxId !== after.invoiceTaxId ||
+    before.invoiceAddress !== after.invoiceAddress ||
+    before.invoicePhone !== after.invoicePhone
+  ) {
+    sections.add('factura');
+    summary.push('Se modificaron datos de factura.');
+  }
+
+  if (
+    before.hasDeliveryNote !== after.hasDeliveryNote ||
+    before.deliveryNoteName !== after.deliveryNoteName ||
+    before.deliveryNoteDocumentId !== after.deliveryNoteDocumentId ||
+    before.deliveryNoteAddress !== after.deliveryNoteAddress ||
+    before.deliveryNotePhone !== after.deliveryNotePhone
+  ) {
+    sections.add('nota_entrega');
+    summary.push('Se modificaron datos de nota de entrega.');
+  }
+
+  if (before.orderNote !== after.orderNote) {
+    sections.add('nota');
+    summary.push('Se modificó la nota de la orden.');
+  }
+
+  return {
+    sections: Array.from(sections),
+    summary: Array.from(new Set(summary)),
+  };
+}
+
+function inputClass(multiline = false) {
+  return [
+    'min-w-0 w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] placeholder:text-[#636C80]',
+    multiline ? 'min-h-[92px] py-3' : 'h-11',
+  ].join(' ');
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-1.5 text-[12px] font-medium text-[#AAB2C5]">{label}</div>
+      {children}
+      {hint ? <div className="mt-1 text-[11px] leading-5 text-[#6F7890]">{hint}</div> : null}
+    </label>
+  );
+}
+
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-4">
+      <h2 className="text-base font-semibold text-[#F5F7FB]">{title}</h2>
+      {subtitle ? <p className="mt-1 text-xs leading-5 text-[#8B93A7]">{subtitle}</p> : null}
+      <div className="mt-3 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function parseEditableDetailLines(lines: string[]) {
+  let alias = '';
+  const selections: Array<{ componentName: string; qty: number; componentProductId: number | null }> = [];
+  const selectionByProductId = new Map<number, number>();
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || '').trim();
+    if (!line) continue;
+
+    if (isHiddenDetailLine(line)) {
+      const [, componentProductIdRaw, qtyRaw] = line.split('|');
+      const componentProductId = Number(componentProductIdRaw || 0);
+      const qty = Number(qtyRaw || 0);
+      if (Number.isFinite(componentProductId) && componentProductId > 0 && Number.isFinite(qty) && qty > 0) {
+        selectionByProductId.set(componentProductId, qty);
+      }
+      continue;
+    }
+
+    if (/^para\s*:/i.test(line)) {
+      alias = line.replace(/^para\s*:/i, '').trim();
+      continue;
+    }
+
+    const match = line.match(/^(\d+)\s+(.+)$/i);
+    if (!match) continue;
+
+    const qty = Number(match[1]);
+    const componentName = match[2].trim();
+
+    if (Number.isFinite(qty) && qty > 0 && componentName) {
+      selections.push({ componentName, qty, componentProductId: null });
+    }
+  }
+
+  return {
+    alias,
+    selections: [
+      ...Array.from(selectionByProductId.entries()).map(([componentProductId, qty]) => ({
+        componentName: '',
+        componentProductId,
+        qty,
+      })),
+      ...selections,
+    ],
+  };
+}
+
+function ConfigSheet(props: {
+  open: boolean;
+  title: string;
+  alias: string;
+  setAlias: (value: string) => void;
+  totalSelected: number;
+  totalLimit: number;
+  options: ConfigOption[];
+  selections: ConfigSelection[];
+  onChangeQty: (product: ConfigOption, qty: number) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+  isEditing: boolean;
+}) {
+  if (!props.open) return null;
+
+  const remaining = props.totalLimit > 0 ? props.totalLimit - props.totalSelected : 0;
+  const hasBlockedSelection = props.selections.some((selection) =>
+    selection.qty > 0
+    && props.options.some((option) => option.id === selection.componentProductId && option.inventoryBlocked),
+  );
+  const canConfirm = !hasBlockedSelection && (
+    props.options.length === 0
+    || (props.totalLimit > 0 ? props.totalSelected === props.totalLimit : true)
+  );
+
+  return (
+    <div className="advisor-fade-in fixed inset-0 z-40 bg-[#040507]/84 backdrop-blur-sm">
+      <div className="advisor-slide-up absolute inset-x-0 bottom-0 max-h-[92dvh] rounded-t-[28px] border border-[#232632] bg-[#0C1017] shadow-[0_-24px_48px_rgba(0,0,0,0.5)]">
+        <div className="mx-auto flex max-h-[92dvh] max-w-screen-md flex-col">
+          <div className="shrink-0 px-4 pt-4">
+            <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">
+                Configurar producto
+              </div>
+              <h3 className="mt-1 text-lg font-semibold text-[#F5F7FB]">{props.title}</h3>
+              <div className="mt-1 text-xs text-[#8B93A7]">
+                {props.totalLimit > 0
+                  ? `Seleccionado ${props.totalSelected} de ${props.totalLimit} piezas`
+                  : `${props.selections.length} opciones marcadas`}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={props.onClose}
+              className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3 text-sm text-[#F5F7FB]"
+            >
+              Cerrar
+            </button>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+            {props.totalLimit > 0 ? (
+              <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-[#AAB2C5]">Piezas por completar</span>
+                  <span className={remaining === 0 ? 'font-semibold text-emerald-400' : 'font-semibold text-[#F7DA66]'}>
+                    {remaining > 0 ? `${remaining} pendientes` : 'Completo'}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+            <Field label="Para">
+              <input
+                value={props.alias}
+                onChange={(e) => props.setAlias(e.target.value)}
+                className={inputClass()}
+                placeholder="Nombre o referencia"
+              />
+            </Field>
+
+            <div className="space-y-2">
+              {props.options.length === 0 ? (
+                <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
+                  Este producto no tiene opciones configuradas.
+                </div>
+              ) : (
+                props.options.map((option) => {
+                  const currentQty =
+                    props.selections.find((item) => item.componentProductId === option.id)?.qty || 0;
+                  const isOptionalFixed = option.componentMode === 'fixed' && !option.isRequired;
+
+                  return (
+                    <div
+                      key={option.id}
+                      className="grid grid-cols-[1fr_136px] items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-[#F5F7FB]">{option.name}</div>
+                        <div className={`mt-1 text-xs ${option.inventoryBlocked ? 'text-red-300' : 'text-[#8B93A7]'}`}>
+                          {option.inventoryBlocked
+                            ? option.inventoryMessage ?? 'Venta detenida por Máster'
+                            : isOptionalFixed ? 'Opcional' : option.sku || 'Sin codigo'}
+                        </div>
+                      </div>
+                      {isOptionalFixed ? (
+                        <button
+                          type="button"
+                          disabled={option.inventoryBlocked}
+                          onClick={() => props.onChangeQty(option, currentQty > 0 ? 0 : option.componentQuantity || 1)}
+                          className={[
+                            'h-11 rounded-[14px] border px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-45',
+                            currentQty > 0
+                              ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
+                              : 'border-[#232632] bg-[#12151d] text-[#F5F7FB]',
+                          ].join(' ')}
+                        >
+                          {currentQty > 0 ? 'Incluida' : 'Incluir'}
+                        </button>
+                      ) : (
+                        <div className="grid grid-cols-[38px_minmax(44px,1fr)_38px] gap-2">
+                          <button
+                            type="button"
+                            disabled={option.inventoryBlocked}
+                            onClick={() => props.onChangeQty(option, Math.max(0, currentQty - 1))}
+                            className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB] disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            -
+                          </button>
+                          <input
+                            disabled={option.inventoryBlocked}
+                            value={String(currentQty)}
+                            onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
+                            onFocus={(e) => e.currentTarget.select()}
+                            className="h-11 min-w-0 w-full rounded-[14px] border border-[#232632] bg-[#12151d] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80] disabled:cursor-not-allowed disabled:opacity-45"
+                            inputMode="numeric"
+                          />
+                          <button
+                            type="button"
+                            disabled={option.inventoryBlocked}
+                            onClick={() => props.onChangeQty(option, currentQty + 1)}
+                            className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB] disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            +
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="shrink-0 border-t border-[#1A1D26] bg-[#0C1017] px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={props.onClose}
+                className="h-11 rounded-[16px] border border-[#232632] text-sm font-semibold text-[#F5F7FB]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={props.onConfirm}
+                disabled={!canConfirm}
+                className={[
+                  'h-11 rounded-[16px] text-sm font-semibold disabled:cursor-not-allowed',
+                  canConfirm ? 'bg-[#F0D000] text-[#17191E]' : 'bg-[#232632] text-[#6F7890]',
+                ].join(' ')}
+              >
+                {props.isEditing ? 'Guardar' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function AdvisorOrderComposer({
+  existingOrderId = null,
+  templateOrderId = null,
+  initialDraft = null,
+  initialClient = null,
+  initialCrmContext = null,
+}: {
+  existingOrderId?: number | null;
+  templateOrderId?: number | null;
+  initialDraft?: AdvisorOrderDraftInitial | null;
+  initialClient?: ClientRow | null;
+  initialCrmContext?: AdvisorCrmOrderContext | null;
+}) {
+  const router = useRouter();
+  const supabase = useMemo(() => createSupabaseBrowser(), []);
+  const rounded = useMemo(() => to12h(getRoundedTime()), []);
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [searchingClient, setSearchingClient] = useState(false);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  const [authUserId, setAuthUserId] = useState('');
+  const [authUserLabel, setAuthUserLabel] = useState('Asesor');
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [productComponents, setProductComponents] = useState<ProductComponentRow[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [muerdemeEdit, setMuerdemeEdit] = useState<{ key: string; quote: MenuOrderQuote } | null>(null);
+  const deferredProductSearch = useDeferredValue(productSearch);
+  const productSearchIsPending = productSearch.trim() !== deferredProductSearch.trim();
+  const [productActiveIndex, setProductActiveIndex] = useState<number>(-1);
+  const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
+  const [recentProductIds, setRecentProductIds] = useState<number[]>([]);
+  const [favoriteProductIds, setFavoriteProductIds] = useState<number[]>([]);
+  const [productUsageById, setProductUsageById] = useState<Record<string, number>>({});
+  const [availabilityByProductId, setAvailabilityByProductId] = useState<Map<number, ProductAvailability>>(new Map());
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [qty, setQty] = useState('1');
+  const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
+  const [rewardGrants, setRewardGrants] = useState<RewardGrant[]>([]);
+  const [rewardPersonalClientId, setRewardPersonalClientId] = useState<number | null>(null);
+  const [rewardOrderReserved, setRewardOrderReserved] = useState<Record<number,number>>({});
+  const [rewardLoadError, setRewardLoadError] = useState('');
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [clientResults, setClientResults] = useState<ClientRow[]>([]);
+  const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
+  const [crmContext, setCrmContext] = useState<AdvisorCrmOrderContext | null>(initialCrmContext);
+  const [crmContextLoading, setCrmContextLoading] = useState(false);
+  const [catalogGiftLoading, setCatalogGiftLoading] = useState(false);
+  const [catalogGiftChoiceResult, setCatalogGiftChoiceResult] = useState<{ key: string; choices: Awaited<ReturnType<typeof resolveAdvisorCatalogGiftAction>> } | null>(null);
+  const catalogGiftKey = `${selectedClient?.id}:${selectedProductId}:${qty}`;
+  const catalogGiftChoices = catalogGiftChoiceResult?.key === catalogGiftKey ? catalogGiftChoiceResult.choices : [];
+  const catalogGiftBusyRef = useRef(false);
+  const catalogGiftSelectionRef = useRef('');
+  useEffect(() => {
+    catalogGiftSelectionRef.current = `${selectedClient?.id}:${selectedProductId}:${qty}`;
+  }, [selectedClient?.id, selectedProductId, qty]);
+  const [recentClients, setRecentClients] = useState<RecentClientChip[]>([]);
+  const [clientUsageById, setClientUsageById] = useState<Record<string, number>>({});
+  const [isNewClientMode, setIsNewClientMode] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientType, setNewClientType] = useState<ClientType>('assigned');
+
+  const [fulfillment, setFulfillment] = useState<FulfillmentType>('pickup');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [deliveryHour12, setDeliveryHour12] = useState('');
+  const [deliveryMinute, setDeliveryMinute] = useState('');
+  const [deliveryAmPm, setDeliveryAmPm] = useState<'AM' | 'PM'>(rounded.ampm);
+  const [isAsap, setIsAsap] = useState(false);
+  const [receiverName, setReceiverName] = useState('');
+  const [receiverPhone, setReceiverPhone] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryGpsUrl, setDeliveryGpsUrl] = useState('');
+  const [deliveryAddressTouched, setDeliveryAddressTouched] = useState(false);
+  const [recentAddresses, setRecentAddresses] = useState<ClientAddress[]>([]);
+  const [orderNote, setOrderNote] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pending');
+  const [paymentCurrency, setPaymentCurrency] = useState<CurrencyCode>('USD');
+  const [paymentRequiresChange, setPaymentRequiresChange] = useState(false);
+  const [paymentChangeFor, setPaymentChangeFor] = useState('');
+  const [paymentChangeCurrency, setPaymentChangeCurrency] = useState<CurrencyCode>('USD');
+  const [paymentNote, setPaymentNote] = useState('');
+  const [fxRate, setFxRate] = useState('');
+  const [discountEnabled, setDiscountEnabled] = useState(false);
+  const [discountPct, setDiscountPct] = useState('0');
+  const [invoiceTaxPct, setInvoiceTaxPct] = useState('16');
+  const [hasDeliveryNote, setHasDeliveryNote] = useState(false);
+  const [hasInvoice, setHasInvoice] = useState(false);
+  const [invoiceCompanyName, setInvoiceCompanyName] = useState('');
+  const [invoiceTaxId, setInvoiceTaxId] = useState('');
+  const [invoiceAddress, setInvoiceAddress] = useState('');
+  const [invoicePhone, setInvoicePhone] = useState('');
+  const [deliveryNoteName, setDeliveryNoteName] = useState('');
+  const [deliveryNoteDocumentId, setDeliveryNoteDocumentId] = useState('');
+  const [deliveryNoteAddress, setDeliveryNoteAddress] = useState('');
+  const [deliveryNotePhone, setDeliveryNotePhone] = useState('');
+  const [invoicePanelOpen, setInvoicePanelOpen] = useState(false);
+  const [deliveryNotePanelOpen, setDeliveryNotePanelOpen] = useState(false);
+  const [copyingQuote, setCopyingQuote] = useState(false);
+  const searchingClientRef = useRef(false);
+  const creatingClientRef = useRef(false);
+  const copyingQuoteRef = useRef(false);
+  const savingOrderRef = useRef(false);
+  const orderCreationRequestRef = useRef<string | null>(null);
+  const orderCreationTimeRef = useRef<Date | null>(null);
+  const originalItemPricesRef = useRef(new Map<number, ApprovedPriceLine>());
+  const savingDraftRef = useRef(false);
+  const crmLookupRequestRef = useRef(0);
+  const [itemJustAdded, setItemJustAdded] = useState(false);
+  const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
+  const [existingOrderStatus, setExistingOrderStatus] = useState('');
+  const [existingOrderLastModifiedAt, setExistingOrderLastModifiedAt] = useState<string | null>(null);
+  const [advisorRecalculationMode, setAdvisorRecalculationMode] = useState(false);
+  const [activeDraftId, setActiveDraftId] = useState<number | null>(
+    initialDraft?.id ? Number(initialDraft.id) : null
+  );
+  const [activeDraftStatus, setActiveDraftStatus] = useState<AdvisorOrderDraftStatus | null>(
+    normalizeDraftStatus(initialDraft?.status)
+  );
+
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configEditingLocalId, setConfigEditingLocalId] = useState<string | null>(null);
+  const [configProductId, setConfigProductId] = useState<number | null>(null);
+  const [configQty, setConfigQty] = useState(1);
+  const [configAlias, setConfigAlias] = useState('');
+  const [configSelections, setConfigSelections] = useState<ConfigSelection[]>([]);
+  const [configPendingCrmItem, setConfigPendingCrmItem] = useState<DraftItem | null>(null);
+  const isEditingOrder = Number.isFinite(existingOrderId) && Number(existingOrderId) > 0;
+  const fxRateLockedForAdvisorEdit = isEditingOrder && !advisorRecalculationMode;
+  const sourceOrderId =
+    Number.isFinite(existingOrderId) && Number(existingOrderId) > 0
+      ? Number(existingOrderId)
+      : Number.isFinite(templateOrderId) && Number(templateOrderId) > 0
+        ? Number(templateOrderId)
+        : null;
+  const isRepeatingOrder = !isEditingOrder && sourceOrderId != null;
+
+  const selectedProduct = useMemo(() => {
+    if (selectedProductId === '') return null;
+    return products.find((product) => product.id === selectedProductId) ?? null;
+  }, [products, selectedProductId]);
+
+  const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const selectedClientFundUsd = Number(selectedClient?.fund_balance_usd ?? 0) || 0;
+  const selectedClientAddresses = useMemo(
+    () => normalizeClientAddresses(selectedClient?.recent_addresses),
+    [selectedClient]
+  );
+  const quickAddresses = useMemo(() => {
+    if (!selectedClient) return [];
+
+    const seen = new Set<string>();
+    return selectedClientAddresses.filter((address) => {
+      const key = `${address.addressText.trim()}|${address.gpsUrl.trim()}`;
+      if (!address.addressText.trim() && !address.gpsUrl.trim()) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [selectedClient, selectedClientAddresses]);
+  const fxRateNumber = Math.max(0, parseDecimalInput(fxRate, 0));
+  const discountPctNumber = Math.max(0, Math.min(100, parseDecimalInput(discountPct, 0)));
+  const commercialSubtotalAfterDiscountUsd = useMemo(() => {
+    const subtotal = draftItems.reduce((sum, item) => {
+      if (item.crm_benefit) return sum;
+      const snapshot = calculateOrderLineSnapshot({
+        sourceCurrency: item.source_price_currency,
+        sourceAmount: Number(item.source_price_amount || 0),
+        quantity: Number(item.qty || 0),
+        fxRate: fxRateNumber,
+        fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
+      });
+      const funded=fundedOrderSnapshot(snapshot,item.reward,item.qty,fxRateNumber);
+      return countsTowardCrmMinimum({ productName: item.product_name_snapshot, isCrmBenefit: Boolean(item.crm_benefit), lineUsd: funded.lineUsd }) ? sum + funded.lineUsd : sum;
+    }, 0);
+    return Number((subtotal * (1 - (discountEnabled ? discountPctNumber : 0) / 100)).toFixed(2));
+  }, [discountEnabled, discountPctNumber, draftItems, fxRateNumber]);
+  const crmPurchaseEligible = !crmContext
+    || crmContext.purchaseRequirementMode === 'none'
+    || commercialSubtotalAfterDiscountUsd + 0.005 >= Number(crmContext.minimumOrderAmountUsd ?? 0);
+  const effectiveDraftPricing = useMemo(() => draftItems.map((item) => {
+    if (!item.crm_benefit) {
+      return {
+        sourceCurrency: item.source_price_currency,
+        sourceAmount: Number(item.source_price_amount || 0),
+      };
+    }
+    if (crmPurchaseEligible || (isEditingOrder && item.persistedOrderItemId) || activeDraftId != null) {
+      return {
+        sourceCurrency: 'USD' as const,
+        sourceAmount: Number(item.crm_benefit.eligibleUnitPriceUsd || 0),
+      };
+    }
+    return {
+      sourceCurrency: item.crm_benefit.catalogSourceCurrency,
+      sourceAmount: Number(item.crm_benefit.catalogSourceAmount || 0),
+    };
+  }), [crmPurchaseEligible, draftItems, isEditingOrder, activeDraftId]);
+  const draftItemSnapshots = useMemo(
+    () =>
+      draftItems.map((item, index) => {
+        const preserved = isEditingOrder && !advisorRecalculationMode
+          ? preservedAgreedPriceSnapshot({
+              orderItemId: item.persistedOrderItemId, productId: item.product_id, qty: item.qty,
+              sourcePriceCurrency: item.source_price_currency, sourcePriceAmount: item.source_price_amount,
+              adminPriceOverrideUsd: null, adminPriceOverrideReason: null,
+              editableDetailLines: item.editable_detail_lines, crmPlayMemberId: item.crm_benefit?.playMemberId,
+              unitPriceUsdSnapshot: item.unit_price_usd_snapshot, lineTotalUsd: item.line_total_usd,
+            }, originalItemPricesRef.current.get(Number(item.persistedOrderItemId)), Number(originalEditSnapshot?.fxRate || 0))
+          : null;
+        const base = preserved ?? calculateOrderLineSnapshot({
+          sourceCurrency: effectiveDraftPricing[index]?.sourceCurrency ?? item.source_price_currency,
+          sourceAmount: effectiveDraftPricing[index]?.sourceAmount ?? Number(item.source_price_amount || 0),
+          quantity: Number(item.qty || 0),
+          fxRate: fxRateNumber,
+          fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
+        });
+        return fundedOrderSnapshot(base, item.reward, item.qty, fxRateNumber);
+      }),
+    [draftItems, effectiveDraftPricing, fxRateNumber, isEditingOrder, advisorRecalculationMode, originalEditSnapshot?.fxRate]
+  );
+  useEffect(() => {
+    if (!authUserId) return;
+    let cancelled=false;
+    async function load() {
+      const [grants,personal,uses]=await Promise.all([
+        supabase.from('advisor_reward_grants').select(REWARD_GRANT_SELECT).eq('advisor_id',authUserId).eq('status','active').order('id',{ascending:false}).limit(101),
+        supabase.from('advisor_reward_personal_clients').select('client_id').eq('advisor_id',authUserId).maybeSingle(),
+        existingOrderId ? supabase.from('advisor_reward_uses').select('grant_id,amount').eq('order_id',existingOrderId).eq('status','reserved') : Promise.resolve({data:[],error:null}),
+      ]);
+      if(cancelled)return;
+      if(grants.error||personal.error||uses.error||(grants.data?.length??0)>100){setRewardLoadError('No se pudo verificar el monedero. Los pedidos normales siguen disponibles; actualiza antes de usar un premio.');return;}
+      setRewardLoadError('');setRewardGrants((grants.data??[]) as RewardGrant[]);
+      setRewardPersonalClientId(personal.data?Number(personal.data.client_id):null);
+      const amounts:Record<number,number>={};for(const use of uses.data??[])amounts[Number(use.grant_id)]=(amounts[Number(use.grant_id)]??0)+Number(use.amount);
+      setRewardOrderReserved(amounts);
+    }
+    void load();return ()=>{cancelled=true;};
+  },[authUserId,existingOrderId,supabase]);
+  const displayDraftItems = sortOrderItemsByPriority(
+    draftItems.map((item, index) => ({ item, index })),
+    ({ item }) => ({
+      productType: item.product_type,
+      productName: item.product_name_snapshot,
+      inventoryGroup: productById.get(item.product_id)?.inventory_group,
+      internalRiderPayUsd: Number(productById.get(item.product_id)?.internal_rider_pay_usd || 0),
+    }),
+  );
+  const catalogPriceDriftItems = useMemo(() => {
+    if (!isEditingOrder || fxRateNumber <= 0) return [];
+    if (!advisorRecalculationMode) return [];
+    if (existingOrderStatus === 'delivered' || existingOrderStatus === 'cancelled') return [];
+
+    return draftItems.filter((item) => {
+      if (item.crm_benefit || hasMenuOrderDetails(item.editable_detail_lines)) return false;
+      const product = productById.get(item.product_id);
+      if (!product) return false;
+      return draftItemHasCatalogPriceDrift(item, product, fxRateNumber);
+    });
+  }, [advisorRecalculationMode, draftItems, existingOrderStatus, fxRateNumber, isEditingOrder, productById]);
+  const advisorEditHasCatalogPriceDrift = catalogPriceDriftItems.length > 0;
+  const draftTotalUsd = useMemo(
+    () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0),
+    [draftItemSnapshots]
+  );
+  const invoiceTaxPctNumber = hasInvoice
+    ? Math.max(0, parseDecimalInput(invoiceTaxPct, 0))
+    : 0;
+  const draftSubtotalBs = useMemo(
+    () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0),
+    [draftItemSnapshots]
+  );
+  const totalsSnapshot = calculateOrderTotalsSnapshot({
+    subtotalUsd: draftTotalUsd,
+    subtotalBs: draftSubtotalBs,
+    discountPct: discountEnabled ? discountPctNumber : 0,
+    invoiceTaxPct: invoiceTaxPctNumber,
+  });
+  const discountAmountUsd = totalsSnapshot.discountAmountUsd;
+  const discountAmountBs = totalsSnapshot.discountAmountBs;
+  const subtotalAfterDiscountUsd = totalsSnapshot.subtotalAfterDiscountUsd;
+  const subtotalAfterDiscountBs = totalsSnapshot.subtotalAfterDiscountBs;
+  const invoiceTaxAmountUsd = totalsSnapshot.invoiceTaxAmountUsd;
+  const invoiceTaxAmountBs = totalsSnapshot.invoiceTaxAmountBs;
+  const finalTotalUsd = totalsSnapshot.totalUsd;
+  const finalTotalBs = totalsSnapshot.totalBs;
+  const crmFulfillments = useMemo(() => draftItems.flatMap((item) => item.crm_benefit
+    ? [{
+        playBenefitId: item.crm_benefit.playBenefitId,
+        playBenefitUpgradeId: item.crm_benefit.playBenefitUpgradeId,
+      }]
+    : []), [draftItems]);
+
+  const configProduct = useMemo(
+    () => (configProductId ? productById.get(configProductId) ?? null : null),
+    [configProductId, productById]
+  );
+
+  const configOptions = useMemo(() => {
+    if (!configProductId) return [];
+    return productComponents
+      .filter(
+        (row) =>
+          row.parent_product_id === configProductId &&
+          (row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required))
+      )
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+      .map((row) => {
+        const product = productById.get(row.component_product_id);
+        if (!product) return null;
+        return {
+          ...product,
+          componentMode: row.component_mode,
+          componentQuantity: Number(row.quantity || 0),
+          isRequired: Boolean(row.is_required),
+          countsTowardDetailLimit: row.counts_toward_detail_limit !== false,
+          sortOrder: Number(row.sort_order || 0),
+          inventoryBlocked: !isEditingOrder
+            && Boolean(availabilityByProductId.get(product.id)?.inventory_blocks_submission),
+          inventoryMessage: availabilityByProductId.get(product.id)?.message ?? null,
+        } satisfies ConfigOption;
+      })
+      .filter((row): row is ConfigOption => !!row);
+  }, [availabilityByProductId, configProductId, isEditingOrder, productById, productComponents]);
+
+  const configBaseLimit = Number(configProduct?.detail_units_limit || 0);
+  const configTotalLimit = configBaseLimit > 0 ? configBaseLimit * Math.max(1, configQty) : 0;
+  const configSelectedUnits = useMemo(() => {
+    if (!configProductId) return configSelections.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const componentById = new Map(
+      productComponents
+        .filter((row) => row.parent_product_id === configProductId)
+        .map((row) => [row.component_product_id, row] as const)
+    );
+
+    return configSelections.reduce((sum, item) => {
+      const component = componentById.get(item.componentProductId);
+      if (component && component.counts_toward_detail_limit === false) return sum;
+      return sum + Number(item.qty || 0);
+    }, 0);
+  }, [configProductId, configSelections, productComponents]);
+  const hasDeliveryItem = useMemo(
+    () => draftItems.some((item) => isDeliveryCatalogItemName(item.product_name_snapshot)),
+    [draftItems]
+  );
+  const scheduleReady =
+    isAsap ||
+    (deliveryDate.trim().length > 0 &&
+      deliveryHour12.trim().length > 0 &&
+      deliveryMinute.trim().length > 0);
+  const advisorScheduleIsPast = useMemo(() => {
+    if (isEditingOrder || isAsap || !scheduleReady) return false;
+
+    try {
+      return isPastAdvisorSchedule(
+        deliveryDate.trim(),
+        from12hTo24h(deliveryHour12.trim(), deliveryMinute.trim(), deliveryAmPm),
+      );
+    } catch {
+      return false;
+    }
+  }, [deliveryAmPm, deliveryDate, deliveryHour12, deliveryMinute, isAsap, isEditingOrder, scheduleReady]);
+  const availabilityTargetAt = useMemo(() => {
+    if (!scheduleReady || advisorScheduleIsPast) return null;
+    if (isAsap) return new Date().toISOString();
+    try {
+      const time24 = from12hTo24h(
+        deliveryHour12.trim(),
+        deliveryMinute.trim(),
+        deliveryAmPm,
+      );
+      return `${deliveryDate.trim()}T${time24}:00-04:00`;
+    } catch {
+      return null;
+    }
+  }, [advisorScheduleIsPast, deliveryAmPm, deliveryDate, deliveryHour12, deliveryMinute, isAsap, scheduleReady]);
+
+  const baseCreateReady =
+    draftItems.length > 0 &&
+    (!!selectedClient || (isNewClientMode && newClientName.trim() && newClientPhone.trim())) &&
+    (fulfillment === 'pickup' || deliveryAddress.trim().length > 0) &&
+    (fulfillment !== 'delivery' || hasDeliveryItem) &&
+    fxRateNumber > 0;
+  const createReady = baseCreateReady && scheduleReady && !advisorScheduleIsPast;
+  const createReadyHint = !draftItems.length
+    ? 'Agrega al menos un item.'
+    : !selectedClient && !(isNewClientMode && newClientName.trim() && newClientPhone.trim())
+      ? 'Selecciona o crea el cliente.'
+      : !scheduleReady
+        ? 'Falta colocar fecha y hora.'
+        : advisorScheduleIsPast
+          ? 'La fecha y hora no pueden ser anteriores al momento actual.'
+        : fulfillment === 'delivery' && !deliveryAddress.trim().length
+          ? 'Falta la direccion de entrega.'
+          : fulfillment === 'delivery' && !hasDeliveryItem
+            ? 'Agrega el item de delivery para cerrar la orden.'
+            : !fxRateNumber
+              ? 'Falta la tasa del dia.'
+              : isEditingOrder
+                ? 'Todo listo para guardar los cambios.'
+                : 'Todo listo para copiar y crear.';
+  const footerSummary = [
+    `${draftItems.length} item${draftItems.length === 1 ? '' : 's'}`,
+    fulfillment === 'delivery' ? 'Delivery' : 'Retiro',
+    getPaymentMethodLabel(paymentMethod),
+  ].join(' · ');
+  const filteredProducts = useMemo(() => {
+    const query = deferredProductSearch.trim().toLowerCase();
+    if (!query) return [];
+    return products
+      .filter(
+        (product) =>
+          product.is_active !== false &&
+          product.extra_fields?.inventory_component_only !== true &&
+          product.extra_fields?.catalog_access_scope !== 'admin_internal' &&
+          !isCrmOnlyCatalogProduct(product)
+      )
+      .map((product) => ({
+        product,
+        score: productSearchScore({
+          product,
+          query,
+          favoriteIds: favoriteProductIds,
+          recentIds: recentProductIds,
+          usageById: productUsageById,
+        }),
+      }))
+      .filter((row) => Number.isFinite(row.score))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.product.name.localeCompare(b.product.name, 'es', { sensitivity: 'base' });
+      })
+      .slice(0, 40)
+      .map((row) => row.product);
+  }, [deferredProductSearch, favoriteProductIds, productUsageById, products, recentProductIds]);
+
+  useEffect(() => {
+    if (!availabilityTargetAt || products.length === 0) {
+      setAvailabilityByProductId(new Map());
+      setAvailabilityError(null);
+      setAvailabilityLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const productIds = products
+      .filter((product) =>
+        product.is_active !== false &&
+        product.extra_fields?.inventory_component_only !== true &&
+        product.extra_fields?.catalog_access_scope !== 'admin_internal'
+      )
+      .map((product) => product.id)
+      .slice(0, 200);
+
+    setAvailabilityLoading(true);
+    setAvailabilityError(null);
+    const timer = window.setTimeout(async () => {
+      const { data, error: availabilityQueryError } = await supabase.rpc(
+        'inventory_catalog_availability_v1',
+        {
+          p_target_at: availabilityTargetAt,
+          p_product_ids: productIds,
+          p_surface: 'advisor_availability',
+        },
+      );
+      if (cancelled) return;
+      if (availabilityQueryError) {
+        setAvailabilityByProductId(new Map());
+        setAvailabilityError('No se pudo consultar el inventario. Puedes continuar; Máster revisará la solicitud.');
+      } else {
+        const rows = Array.isArray(data?.products) ? data.products as ProductAvailability[] : [];
+        setAvailabilityByProductId(new Map(rows.map((row) => [Number(row.product_id), row])));
+      }
+      setAvailabilityLoading(false);
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [availabilityTargetAt, products, supabase]);
+
+  useEffect(() => {
+    if (!deferredProductSearch.trim()) {
+      setProductActiveIndex(-1);
+      return;
+    }
+
+    if (filteredProducts.length === 0) {
+      setProductActiveIndex(-1);
+      return;
+    }
+
+    setProductActiveIndex(0);
+    setSelectedProductId(filteredProducts[0]?.id ?? '');
+  }, [deferredProductSearch, filteredProducts]);
+
+  useEffect(() => {
+    setRecentClients(readStoredJson<RecentClientChip[]>(STORAGE_KEYS.recentClients, []));
+    setRecentProductIds(readStoredJson<number[]>(STORAGE_KEYS.recentProducts, []));
+    setFavoriteProductIds(readStoredJson<number[]>(STORAGE_KEYS.favoriteProducts, []));
+    setRecentAddresses(readStoredJson<ClientAddress[]>(STORAGE_KEYS.recentAddresses, []));
+    setClientUsageById(readStoredJson<Record<string, number>>(STORAGE_KEYS.clientUsage, {}));
+    setProductUsageById(readStoredJson<Record<string, number>>(STORAGE_KEYS.productUsage, {}));
+    const storedDisplayName = readStoredString(STORAGE_KEYS.displayName, '');
+    if (storedDisplayName) {
+      setAuthUserLabel(storedDisplayName);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.recentClients, JSON.stringify(recentClients.slice(0, 6)));
+  }, [recentClients]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.recentProducts, JSON.stringify(recentProductIds.slice(0, 8)));
+  }, [recentProductIds]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.favoriteProducts, JSON.stringify(favoriteProductIds.slice(0, 8)));
+  }, [favoriteProductIds]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.recentAddresses, JSON.stringify(recentAddresses.slice(0, 6)));
+  }, [recentAddresses]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.clientUsage, JSON.stringify(clientUsageById));
+  }, [clientUsageById]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.productUsage, JSON.stringify(productUsageById));
+  }, [productUsageById]);
+
+  useEffect(() => {
+    async function boot() {
+      setLoading(true);
+      setError(null);
+
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) {
+        setError(authError.message);
+        setLoading(false);
+        return;
+      }
+
+      const user = authData.user;
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      setAuthUserId(user.id);
+      setAuthUserLabel(
+        readStoredString(STORAGE_KEYS.displayName, '') ||
+          String(
+            user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            'Asesor'
+        ).trim() || 'Asesor'
+      );
+
+      const cachedCatalog = readFreshCatalogCache();
+      if (cachedCatalog) {
+        setProducts(cachedCatalog.products);
+        setProductComponents(cachedCatalog.productComponents);
+        if (!isEditingOrder && cachedCatalog.activeRate > 0) {
+          setFxRate(String(Number(cachedCatalog.activeRate.toFixed(2))));
+        }
+        if (!sourceOrderId && !initialDraft) {
+          setLoading(false);
+        }
+      }
+
+      const baseRequests = [
+        supabase
+          .from('products')
+          .select(
+            'id, sku, name, is_active, extra_fields, type, base_price_usd, source_price_currency, source_price_amount, units_per_service, is_detail_editable, detail_units_limit, inventory_group, internal_rider_pay_usd'
+          )
+          .order('name', { ascending: true }),
+        supabase
+          .from('product_components')
+          .select(
+            'parent_product_id, component_product_id, component_mode, quantity, counts_toward_detail_limit, is_required, sort_order'
+          )
+          .order('parent_product_id', { ascending: true })
+          .order('sort_order', { ascending: true }),
+        supabase
+          .from('exchange_rates')
+          .select('rate_bs_per_usd')
+          .eq('is_active', true)
+          .order('effective_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ] as const;
+
+      const editRequests = sourceOrderId
+        ? ([
+            supabase
+              .from('orders')
+              .select(
+                'id, order_number, total_usd, status, last_modified_at, last_modified_by, fulfillment, delivery_address, receiver_name, receiver_phone, notes, extra_fields, client:clients!orders_client_id_fkey(id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone)'
+              )
+              .eq('id', Number(sourceOrderId))
+              .eq('attributed_advisor_id', user.id)
+              .maybeSingle(),
+            supabase
+              .from('order_items')
+              .select(
+                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, sku_snapshot, product_name_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, reward_grant_id, reward_purpose, reward_amount_usd, product:products(type, units_per_service)'
+              )
+              .eq('order_id', Number(sourceOrderId))
+              .order('id', { ascending: true }),
+            supabase
+              .from('crm_play_redemptions')
+              .select('order_item_id, status')
+              .eq('order_id', Number(sourceOrderId))
+              .in('status', ['reserved', 'redeemed']),
+          ] as const)
+        : null;
+
+      const dataRequestsPromise = editRequests
+        ? Promise.all([...baseRequests, ...editRequests])
+        : Promise.all(baseRequests);
+      const existingOrderCrmContextPromise = isEditingOrder && sourceOrderId
+        ? loadAdvisorExistingOrderCrmContextAction({ orderId: sourceOrderId }).catch((contextError) => {
+            console.warn(
+              'No se pudo revisar la jugada al modificar la orden.',
+              contextError instanceof Error ? contextError.message : contextError,
+            );
+            return null;
+          })
+        : Promise.resolve(null);
+      const [results, existingOrderCrmContext] = await Promise.all([
+        dataRequestsPromise,
+        existingOrderCrmContextPromise,
+      ]);
+
+      const [
+        productResult,
+        componentResult,
+        exchangeRateResult,
+        existingOrderResult,
+        existingItemsResult,
+        existingRedemptionsResult,
+      ] = results as [
+        Awaited<(typeof baseRequests)[0]>,
+        Awaited<(typeof baseRequests)[1]>,
+        Awaited<(typeof baseRequests)[2]>,
+        | Awaited<NonNullable<typeof editRequests>[0]>
+        | undefined,
+        | Awaited<NonNullable<typeof editRequests>[1]>
+        | undefined,
+        | Awaited<NonNullable<typeof editRequests>[2]>
+        | undefined,
+      ];
+
+      const { data: productData, error: productError } = productResult;
+      const { data: componentData, error: componentError } = componentResult;
+      const activeRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
+      const nextProducts = (productData ?? []) as ProductRow[];
+      const nextProductComponents = (componentData ?? []) as ProductComponentRow[];
+
+      if (productError) {
+        if (!cachedCatalog) setError(productError.message);
+      } else {
+        setProducts(nextProducts);
+      }
+
+      if (componentError) {
+        if (!cachedCatalog) setError(componentError.message);
+      } else {
+        setProductComponents(nextProductComponents);
+      }
+
+      if (!productError && !componentError) {
+        writeCatalogCache({
+          products: nextProducts,
+          productComponents: nextProductComponents,
+          activeRate,
+        });
+      }
+
+      if (!isEditingOrder && activeRate > 0) {
+        setFxRate(String(Number(activeRate.toFixed(2))));
+      }
+
+      if (!isEditingOrder) {
+        setOriginalEditSnapshot(null);
+        setExistingOrderStatus('');
+        setExistingOrderLastModifiedAt(null);
+        setAdvisorRecalculationMode(false);
+      }
+
+      if (sourceOrderId) {
+        if (existingOrderResult?.error || existingItemsResult?.error || existingRedemptionsResult?.error) {
+          setError(
+            existingOrderResult?.error?.message
+              ?? existingItemsResult?.error?.message
+              ?? existingRedemptionsResult?.error?.message
+              ?? 'No se pudo cargar la orden.',
+          );
+        } else if (!existingOrderResult?.data) {
+          setError(isEditingOrder ? 'No se pudo cargar la orden para corregir.' : 'No se pudo cargar la orden base.');
+        } else {
+          const order = existingOrderResult.data as ExistingOrderRow;
+          setExistingOrderLastModifiedAt(order.last_modified_at ?? null);
+          if (isEditingOrder && !canAdvisorModifyOrder(String(order.status || ''))) {
+            router.replace(`/app/advisor/orders/${order.id}`);
+            return;
+          }
+
+          const orderClient = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
+          const existingOrderItems = (existingItemsResult?.data ?? []) as ExistingOrderItemRow[];
+          originalItemPricesRef.current = isRepeatingOrder ? new Map() : new Map(
+            existingOrderItems.map((item) => [Number(item.id), storedApprovedPriceLine(item)]),
+          );
+          const redemptionStatusByOrderItemId = new Map(
+            ((existingRedemptionsResult?.data ?? []) as ExistingCrmRedemptionRow[])
+              .map((redemption) => [Number(redemption.order_item_id), redemption.status] as const)
+              .filter(([orderItemId]) => Number.isFinite(orderItemId) && orderItemId > 0),
+          );
+          const activeProductById = new Map(nextProducts.map((product) => [product.id, product]));
+          const skippedRepeatItems: ExistingOrderItemRow[] = [];
+          const pricing = order.extra_fields?.pricing;
+          const recalculationRequested =
+            isEditingOrder &&
+            String(order.status || '') === 'created' &&
+            Boolean(pricing?.recalculation_required);
+          const recalculationRate = activeRate > 0
+            ? activeRate
+            : toSafeNumber(pricing?.recalculation_fx_rate, 0);
+          const editFxRate = isRepeatingOrder
+            ? activeRate
+            : recalculationRequested
+              ? recalculationRate
+              : toSafeNumber(pricing?.fx_rate, activeRate);
+          const orderItems = existingOrderItems.map((item) => {
+            const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
+
+            // Repeating is a new purchase; recalculating an existing order is not.
+            if (isRepeatingOrder) {
+              const currentProduct = activeProductById.get(Number(item.product_id));
+              if (!currentProduct) {
+                skippedRepeatItems.push(item);
+                return null;
+              }
+
+              return buildRepeatedDraftItemFromCatalog({
+                item,
+                product: currentProduct,
+                activeRate: editFxRate,
+              });
+            }
+
+            const currentProduct = activeProductById.get(Number(item.product_id));
+            const crmPlayMemberId = Number(item.crm_play_member_id || 0);
+            const crmPlayBenefitId = Number(item.crm_play_benefit_id || 0);
+            const crmUpgradeId = Number(item.crm_play_benefit_upgrade_id || 0);
+            const crmBenefit = crmPlayMemberId > 0 && crmPlayBenefitId > 0
+              ? {
+                  playMemberId: crmPlayMemberId,
+                  playBenefitId: crmPlayBenefitId,
+                  playBenefitUpgradeId: crmUpgradeId > 0 ? crmUpgradeId : null,
+                  eligibleUnitPriceUsd:
+                    Number(item.qty || 0) > 0
+                      ? Number(item.line_total_usd ?? 0) / Number(item.qty || 1)
+                      : 0,
+                  catalogSourceCurrency: (currentProduct?.source_price_currency || 'USD') as CurrencyCode,
+                  catalogSourceAmount: Number(
+                    currentProduct?.source_price_amount
+                      ?? currentProduct?.base_price_usd
+                      ?? 0,
+                  ) || 0,
+                  redemptionStatus: redemptionStatusByOrderItemId.get(Number(item.id)) ?? null,
+                }
+              : undefined;
+
+            if (recalculationRequested && !crmBenefit) {
+              const product = activeProductById.get(Number(item.product_id));
+              if (!product) { skippedRepeatItems.push(item); return null; }
+              return buildRepeatedDraftItemFromCatalog({ item, product, activeRate: editFxRate });
+            }
+
+            return {
+              localId: `existing-${item.id}`,
+              persistedOrderItemId: Number(item.id),
+              product_id: Number(item.product_id),
+              product_type: relatedProduct?.type ?? null,
+              sku_snapshot: item.sku_snapshot,
+              product_name_snapshot: String(item.product_name_snapshot || 'Item'),
+              units_per_service: Number(relatedProduct?.units_per_service ?? 0) || 0,
+              qty: Number(item.qty || 0),
+              source_price_currency: (item.pricing_origin_currency || 'USD') as CurrencyCode,
+              source_price_amount:
+                Number(item.pricing_origin_amount ?? item.unit_price_usd_snapshot ?? 0) || 0,
+              unit_price_usd_snapshot: Number(item.unit_price_usd_snapshot ?? 0) || 0,
+              line_total_usd: Number(item.line_total_usd ?? 0) || 0,
+              editable_detail_lines: item.notes?.trim()
+                ? persistableOrderDetailLines(item.notes.split('\n'))
+                : [],
+              crm_benefit: crmBenefit,
+              reward: item.reward_grant_id && item.reward_purpose ? {
+                grantId:Number(item.reward_grant_id),title:'Premio #'+item.reward_grant_id,purpose:item.reward_purpose,
+                amountUsd:Number(item.reward_amount_usd),kind:'credit' as const,
+                retainedSnapshot:{unitUsd:Number(item.unit_price_usd_snapshot),lineUsd:Number(item.line_total_usd),unitBs:Number(item.unit_price_bs_snapshot),lineBs:Number(item.line_total_bs_snapshot)},
+              } : undefined,
+            };
+          }).filter((item): item is DraftItem => !!item);
+          const schedule = order.extra_fields?.schedule;
+          const paymentData = order.extra_fields?.payment;
+          const documents = order.extra_fields?.documents;
+          const orderMoney = getOrderMoneySnapshot(order);
+          const blankTime = { hour12: '', minute: '', ampm: rounded.ampm } as const;
+          const parsedTime = parseStoredTime12(schedule?.time_12, schedule?.asap ? rounded : blankTime);
+
+          setSelectedClient(orderClient ? (orderClient as ClientRow) : null);
+          if (orderClient) rememberClient(orderClient as ClientRow);
+          setSearchTerm(orderClient?.phone || orderClient?.full_name || '');
+          setClientResults([]);
+          setIsNewClientMode(false);
+          setDraftItems(orderItems);
+          if (isEditingOrder) setCrmContext(existingOrderCrmContext);
+          setFulfillment(order.fulfillment || 'pickup');
+          setDeliveryDate(isEditingOrder ? schedule?.date || (schedule?.asap ? getTodayInputValue() : '') : '');
+          setDeliveryHour12(isEditingOrder ? parsedTime.hour12 : '');
+          setDeliveryMinute(isEditingOrder ? parsedTime.minute : '');
+          setDeliveryAmPm(isEditingOrder ? parsedTime.ampm : rounded.ampm);
+          setIsAsap(isEditingOrder ? Boolean(schedule?.asap) : false);
+          setReceiverName(order.receiver_name || '');
+          setReceiverPhone(order.receiver_phone || '');
+          setDeliveryAddress(order.delivery_address || '');
+          setDeliveryGpsUrl(order.extra_fields?.delivery?.gps_url || '');
+          setDeliveryAddressTouched(Boolean(order.delivery_address || order.extra_fields?.delivery?.gps_url));
+          rememberAddress(order.delivery_address || '', order.extra_fields?.delivery?.gps_url || '');
+          setOrderNote(order.notes || order.extra_fields?.note || '');
+          setPaymentMethod(isRepeatingOrder ? 'pending' : (paymentData?.method as PaymentMethod) || 'pending');
+          setPaymentCurrency(isRepeatingOrder ? 'USD' : (paymentData?.currency as CurrencyCode) || 'USD');
+          setPaymentRequiresChange(isRepeatingOrder ? false : Boolean(paymentData?.requires_change));
+          setPaymentChangeFor(
+            isRepeatingOrder || paymentData?.change_for == null ? '' : String(paymentData.change_for)
+          );
+          setPaymentChangeCurrency(isRepeatingOrder ? 'USD' : (paymentData?.change_currency as CurrencyCode) || 'USD');
+          setPaymentNote(isRepeatingOrder ? '' : paymentData?.notes || '');
+          setFxRate(editFxRate > 0 ? String(Number(editFxRate.toFixed(2))) : '');
+          setAdvisorRecalculationMode(recalculationRequested);
+          setDiscountEnabled(isRepeatingOrder ? false : Boolean(pricing?.discount_enabled));
+          setDiscountPct(
+            isRepeatingOrder || pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
+          );
+          setInvoiceTaxPct(
+            isRepeatingOrder || pricing?.invoice_tax_pct == null ? '16' : String(pricing.invoice_tax_pct)
+          );
+          setHasDeliveryNote(isRepeatingOrder ? false : Boolean(documents?.has_delivery_note));
+          setHasInvoice(isRepeatingOrder ? false : Boolean(documents?.has_invoice));
+          setDeliveryNotePanelOpen(isRepeatingOrder ? false : Boolean(documents?.has_delivery_note));
+          setInvoicePanelOpen(isRepeatingOrder ? false : Boolean(documents?.has_invoice));
+          setInvoiceCompanyName(
+            documents?.invoice_snapshot?.company_name ||
+              orderClient?.billing_company_name ||
+              ''
+          );
+          setInvoiceTaxId(
+            documents?.invoice_snapshot?.tax_id || orderClient?.billing_tax_id || ''
+          );
+          setInvoiceAddress(
+            documents?.invoice_snapshot?.address || orderClient?.billing_address || ''
+          );
+          setInvoicePhone(
+            documents?.invoice_snapshot?.phone || orderClient?.billing_phone || ''
+          );
+          setDeliveryNoteName(
+            documents?.delivery_note_snapshot?.name || orderClient?.delivery_note_name || ''
+          );
+          setDeliveryNoteDocumentId(
+            documents?.delivery_note_snapshot?.document_id ||
+              orderClient?.delivery_note_document_id ||
+              ''
+          );
+          setDeliveryNoteAddress(
+            documents?.delivery_note_snapshot?.address ||
+              orderClient?.delivery_note_address ||
+              ''
+          );
+          setDeliveryNotePhone(
+            documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone || ''
+          );
+          setExistingOrderStatus(String(order.status || ''));
+
+          if (isEditingOrder) {
+            setOriginalEditSnapshot({
+              clientId: orderClient?.id ? Number(orderClient.id) : null,
+              fulfillment: (order.fulfillment || 'pickup') as FulfillmentType,
+              deliveryDate: normalizeSnapshotText(schedule?.date || (schedule?.asap ? getTodayInputValue() : '')),
+              deliveryTime12: normalizeSnapshotText(`${parsedTime.hour12}:${parsedTime.minute} ${parsedTime.ampm}`),
+              isAsap: Boolean(schedule?.asap),
+              receiverName: normalizeSnapshotText(order.receiver_name),
+              receiverPhone: normalizeSnapshotText(order.receiver_phone),
+              deliveryAddress: normalizeSnapshotText(order.delivery_address),
+              deliveryGpsUrl: normalizeSnapshotText(order.extra_fields?.delivery?.gps_url),
+              orderNote: normalizeSnapshotText(order.notes || order.extra_fields?.note),
+              paymentMethod: ((paymentData?.method as PaymentMethod) || 'pending'),
+              paymentCurrency: ((paymentData?.currency as CurrencyCode) || 'USD'),
+              paymentRequiresChange: Boolean(paymentData?.requires_change),
+              paymentChangeFor: normalizeSnapshotText(
+                paymentData?.change_for == null ? '' : String(paymentData.change_for)
+              ),
+              paymentChangeCurrency: ((paymentData?.change_currency as CurrencyCode) || 'USD'),
+              paymentNote: normalizeSnapshotText(paymentData?.notes),
+              fxRate: normalizeSnapshotText(editFxRate > 0 ? String(Number(editFxRate.toFixed(2))) : ''),
+              discountEnabled: Boolean(pricing?.discount_enabled),
+              discountPct: normalizeSnapshotText(
+                pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
+              ),
+              hasInvoice: Boolean(documents?.has_invoice),
+              invoiceTaxPct: normalizeSnapshotText(
+                pricing?.invoice_tax_pct == null ? '16' : String(pricing.invoice_tax_pct)
+              ),
+              hasDeliveryNote: Boolean(documents?.has_delivery_note),
+              invoiceCompanyName: normalizeSnapshotText(
+                documents?.invoice_snapshot?.company_name || orderClient?.billing_company_name
+              ),
+              invoiceTaxId: normalizeSnapshotText(
+                documents?.invoice_snapshot?.tax_id || orderClient?.billing_tax_id
+              ),
+              invoiceAddress: normalizeSnapshotText(
+                documents?.invoice_snapshot?.address || orderClient?.billing_address
+              ),
+              invoicePhone: normalizeSnapshotText(
+                documents?.invoice_snapshot?.phone || orderClient?.billing_phone
+              ),
+              deliveryNoteName: normalizeSnapshotText(
+                documents?.delivery_note_snapshot?.name || orderClient?.delivery_note_name
+              ),
+              deliveryNoteDocumentId: normalizeSnapshotText(
+                documents?.delivery_note_snapshot?.document_id ||
+                  orderClient?.delivery_note_document_id
+              ),
+              deliveryNoteAddress: normalizeSnapshotText(
+                documents?.delivery_note_snapshot?.address || orderClient?.delivery_note_address
+              ),
+              deliveryNotePhone: normalizeSnapshotText(
+                documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone
+              ),
+              totalUsd: orderMoney.totalUsd,
+              totalBs: orderMoney.totalBs,
+              items: orderItems.map((item) => ({
+                productId: Number(item.product_id || 0),
+                productName: normalizeSnapshotText(item.product_name_snapshot),
+                qty: Number(item.qty || 0),
+                lineTotalUsd: Number(Number(item.line_total_usd || 0).toFixed(2)),
+                detailLines: item.editable_detail_lines
+                  .map((line) => normalizeSnapshotText(line))
+                  .filter(Boolean),
+              })),
+            });
+            setInfo(
+              recalculationRequested
+                ? skippedRepeatItems.length > 0
+                  ? `Pedido listo para recalcular con tasa vigente. ${skippedRepeatItems.length} item${skippedRepeatItems.length === 1 ? '' : 's'} ya no esta${skippedRepeatItems.length === 1 ? '' : 'n'} activo${skippedRepeatItems.length === 1 ? '' : 's'} y debe revisarlo master/admin.`
+                  : 'Pedido listo para recalcular con precios y tasa vigentes.'
+                : 'Pedido listo para corregir.'
+            );
+          } else {
+            setOriginalEditSnapshot(null);
+            setExistingOrderStatus('');
+            setInfo(
+              skippedRepeatItems.length > 0
+                ? `Pedido base listo para repetir con precios vigentes. ${skippedRepeatItems.length} item${skippedRepeatItems.length === 1 ? '' : 's'} ya no esta${skippedRepeatItems.length === 1 ? '' : 'n'} activo${skippedRepeatItems.length === 1 ? '' : 's'} y no se copio${skippedRepeatItems.length === 1 ? '' : 'n'}.`
+                : 'Pedido base listo para repetir con precios, tasa y condiciones vigentes.'
+            );
+          }
+        }
+      } else if (initialDraft) {
+        applyInitialDraft(initialDraft);
+      } else if (initialCrmContext) {
+        setCrmContext(initialCrmContext);
+        setSelectedClient(initialCrmContext.client);
+        rememberClient(initialCrmContext.client);
+        setSearchTerm(initialCrmContext.client.phone || initialCrmContext.client.full_name || '');
+        setClientResults([]);
+        setIsNewClientMode(false);
+        setDraftItems([]);
+        setInfo(
+          `La jugada ${initialCrmContext.playName} está disponible. Elige un beneficio solo si deseas aplicarlo; también puedes crear el pedido sin obsequio.`
+        );
+      } else if (initialClient) {
+        setCrmContext(null);
+        setSelectedClient(initialClient);
+        rememberClient(initialClient);
+        setSearchTerm(initialClient.phone || initialClient.full_name || '');
+        setClientResults([]);
+        setIsNewClientMode(false);
+        setInfo(`Pedido iniciado para ${initialClient.full_name}.`);
+      }
+
+      setLoading(false);
+    }
+
+    void boot();
+  }, [initialClient, initialCrmContext, initialDraft, isEditingOrder, rounded, router, sourceOrderId, supabase]);
+
+  useEffect(() => {
+    if (
+      paymentMethod === 'cash_ves' ||
+      paymentMethod === 'transfer' ||
+      paymentMethod === 'payment_mobile' ||
+      paymentMethod === 'pos'
+    ) {
+      setPaymentCurrency('VES');
+    } else if (paymentMethod === 'cash_usd' || paymentMethod === 'zelle' || paymentMethod === 'wallet_usd' || paymentMethod === 'pending') {
+      setPaymentCurrency('USD');
+    }
+  }, [paymentMethod]);
+
+  useEffect(() => {
+    if (
+      fulfillment === 'delivery' &&
+      !deliveryAddressTouched &&
+      !deliveryAddress.trim() &&
+      selectedClientAddresses.length > 0
+    ) {
+      setDeliveryAddress(selectedClientAddresses[0].addressText);
+      setDeliveryGpsUrl(selectedClientAddresses[0].gpsUrl);
+    }
+  }, [deliveryAddress, deliveryAddressTouched, deliveryGpsUrl, fulfillment, selectedClientAddresses]);
+
+  function clearMessages() {
+    setError(null);
+    setInfo(null);
+  }
+
+  function rememberClient(client: ClientRow | RecentClientChip) {
+    const nextClient = {
+      id: Number(client.id),
+      full_name: String(client.full_name || 'Cliente'),
+      phone: client.phone || null,
+      client_type: client.client_type || null,
+      fund_balance_usd: client.fund_balance_usd ?? null,
+      recent_addresses: client.recent_addresses,
+      billing_company_name: client.billing_company_name ?? null,
+      billing_tax_id: client.billing_tax_id ?? null,
+      billing_address: client.billing_address ?? null,
+      billing_phone: client.billing_phone ?? null,
+      delivery_note_name: client.delivery_note_name ?? null,
+      delivery_note_document_id: client.delivery_note_document_id ?? null,
+      delivery_note_address: client.delivery_note_address ?? null,
+      delivery_note_phone: client.delivery_note_phone ?? null,
+    } satisfies RecentClientChip;
+
+    setRecentClients((current) => [
+      nextClient,
+      ...current.filter((row) => row.id !== nextClient.id),
+    ].slice(0, 6));
+    setClientUsageById((current) => ({
+      ...current,
+      [String(nextClient.id)]: Number(current[String(nextClient.id)] || 0) + 1,
+    }));
+  }
+
+  function rememberProduct(productId: number) {
+    setRecentProductIds((current) => [productId, ...current.filter((id) => id !== productId)].slice(0, 8));
+    setProductUsageById((current) => ({
+      ...current,
+      [String(productId)]: Number(current[String(productId)] || 0) + 1,
+    }));
+  }
+
+  function rememberAddress(addressText: string, gpsUrl: string) {
+    const normalized = {
+      addressText: String(addressText || '').trim(),
+      gpsUrl: String(gpsUrl || '').trim(),
+    };
+    if (!normalized.addressText && !normalized.gpsUrl) return;
+
+    setRecentAddresses((current) => [
+      normalized,
+      ...current.filter(
+        (row) =>
+          row.addressText.trim() !== normalized.addressText || row.gpsUrl.trim() !== normalized.gpsUrl
+      ),
+    ].slice(0, 6));
+  }
+
+  function toggleFavoriteProduct(productId: number) {
+    setFavoriteProductIds((current) =>
+      current.includes(productId) ? current.filter((id) => id !== productId) : [productId, ...current].slice(0, 8)
+    );
+  }
+
+  function buildCurrentEditSnapshot(clientId: number | null): OrderEditSnapshot {
+    return {
+      clientId,
+      fulfillment,
+      deliveryDate: normalizeSnapshotText(deliveryDate),
+      deliveryTime12: normalizeSnapshotText(`${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`),
+      isAsap,
+      receiverName: normalizeSnapshotText(receiverName),
+      receiverPhone: normalizeSnapshotText(receiverPhone),
+      deliveryAddress: normalizeSnapshotText(deliveryAddress),
+      deliveryGpsUrl: normalizeSnapshotText(deliveryGpsUrl),
+      orderNote: normalizeSnapshotText(orderNote),
+      paymentMethod,
+      paymentCurrency,
+      paymentRequiresChange,
+      paymentChangeFor: normalizeSnapshotText(paymentChangeFor),
+      paymentChangeCurrency,
+      paymentNote: normalizeSnapshotText(paymentNote),
+      fxRate: normalizeSnapshotText(fxRate),
+      discountEnabled,
+      discountPct: normalizeSnapshotText(discountPct),
+      hasInvoice,
+      invoiceTaxPct: normalizeSnapshotText(invoiceTaxPct),
+      hasDeliveryNote,
+      invoiceCompanyName: normalizeSnapshotText(invoiceCompanyName),
+      invoiceTaxId: normalizeSnapshotText(invoiceTaxId),
+      invoiceAddress: normalizeSnapshotText(invoiceAddress),
+      invoicePhone: normalizeSnapshotText(invoicePhone),
+      deliveryNoteName: normalizeSnapshotText(deliveryNoteName),
+      deliveryNoteDocumentId: normalizeSnapshotText(deliveryNoteDocumentId),
+      deliveryNoteAddress: normalizeSnapshotText(deliveryNoteAddress),
+      deliveryNotePhone: normalizeSnapshotText(deliveryNotePhone),
+      totalUsd: Number(finalTotalUsd.toFixed(2)),
+      totalBs: Number(finalTotalBs.toFixed(2)),
+      items: buildDraftItemsSnapshot(draftItems),
+    };
+  }
+
+  function applyInitialDraft(draft: AdvisorOrderDraftInitial) {
+    const payload = draft.payload || {};
+    const clientSnapshot = draft.client_snapshot || null;
+    const clientId = Number(clientSnapshot?.id || draft.client_id || 0);
+    const newClientSnapshot = draft.new_client_snapshot || {};
+    const payloadNewClient = payload.newClient || {};
+    const nextStatus = normalizeDraftStatus(draft.status) || 'draft';
+
+    setActiveDraftId(Number(draft.id));
+    setActiveDraftStatus(nextStatus);
+    setOriginalEditSnapshot(null);
+    setExistingOrderStatus('');
+    setAdvisorRecalculationMode(false);
+
+    if (clientId > 0 && clientSnapshot?.full_name) {
+      const client = {
+        id: clientId,
+        full_name: String(clientSnapshot.full_name || 'Cliente'),
+        phone: clientSnapshot.phone || null,
+        client_type: clientSnapshot.client_type || null,
+        fund_balance_usd: clientSnapshot.fund_balance_usd ?? null,
+        recent_addresses: clientSnapshot.recent_addresses,
+        billing_company_name: clientSnapshot.billing_company_name ?? null,
+        billing_tax_id: clientSnapshot.billing_tax_id ?? null,
+        billing_address: clientSnapshot.billing_address ?? null,
+        billing_phone: clientSnapshot.billing_phone ?? null,
+        delivery_note_name: clientSnapshot.delivery_note_name ?? null,
+        delivery_note_document_id: clientSnapshot.delivery_note_document_id ?? null,
+        delivery_note_address: clientSnapshot.delivery_note_address ?? null,
+        delivery_note_phone: clientSnapshot.delivery_note_phone ?? null,
+      } satisfies ClientRow;
+
+      setSelectedClient(client);
+      rememberClient(client);
+      setSearchTerm(client.phone || client.full_name);
+      setIsNewClientMode(false);
+    } else {
+      const fullName =
+        String(newClientSnapshot.fullName || newClientSnapshot.full_name || payloadNewClient.fullName || '').trim();
+      const phone = String(newClientSnapshot.phone || payloadNewClient.phone || '').trim();
+      const typeValue = String(newClientSnapshot.type || payloadNewClient.type || 'assigned');
+
+      setSelectedClient(null);
+      setNewClientName(fullName);
+      setNewClientPhone(phone);
+      setNewClientType(typeValue === 'own' || typeValue === 'legacy' ? typeValue : 'assigned');
+      setIsNewClientMode(Boolean(fullName || phone));
+      setSearchTerm(phone || fullName);
+    }
+
+    let normalizedItems: DraftItem[];
+    try { normalizedItems = normalizeDraftItemsPayload(payload.items); }
+    catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : 'Revisa la jugada del borrador.');
+      return;
+    }
+    setCrmContext(initialCrmContext);
+    let restoredItems = normalizedItems;
+    try {
+      restoredItems = restoreDraftCrmItems(normalizedItems, initialCrmContext);
+    } catch (restoreError) {
+      // Keep the gift visible and its reference intact, but do not allow an
+      // unavailable campaign to become a paid catalog line on restoration.
+      setError(restoreError instanceof Error ? restoreError.message : 'Revisa la jugada del borrador.');
+    }
+    setClientResults([]);
+    setDraftItems(restoredItems);
+    setFulfillment(payload.fulfillment === 'delivery' ? 'delivery' : 'pickup');
+    setDeliveryDate(String(payload.deliveryDate || ''));
+    setDeliveryHour12(String(payload.deliveryHour12 || ''));
+    setDeliveryMinute(String(payload.deliveryMinute || ''));
+    setDeliveryAmPm(payload.deliveryAmPm === 'PM' ? 'PM' : 'AM');
+    setIsAsap(Boolean(payload.isAsap));
+    setReceiverName(String(payload.receiverName || ''));
+    setReceiverPhone(String(payload.receiverPhone || ''));
+    setDeliveryAddress(String(payload.deliveryAddress || ''));
+    setDeliveryGpsUrl(String(payload.deliveryGpsUrl || ''));
+    setDeliveryAddressTouched(Boolean(payload.deliveryAddress || payload.deliveryGpsUrl));
+    rememberAddress(String(payload.deliveryAddress || ''), String(payload.deliveryGpsUrl || ''));
+    setOrderNote(String(payload.orderNote || ''));
+    setPaymentMethod((payload.paymentMethod as PaymentMethod) || 'pending');
+    setPaymentCurrency((payload.paymentCurrency as CurrencyCode) || 'USD');
+    setPaymentRequiresChange(Boolean(payload.paymentRequiresChange));
+    setPaymentChangeFor(String(payload.paymentChangeFor || ''));
+    setPaymentChangeCurrency((payload.paymentChangeCurrency as CurrencyCode) || 'USD');
+    setPaymentNote(String(payload.paymentNote || ''));
+    setFxRate(String(payload.fxRate || draft.fx_rate || ''));
+    setDiscountEnabled(Boolean(payload.discountEnabled));
+    setDiscountPct(String(payload.discountPct ?? '0'));
+    setInvoiceTaxPct(String(payload.invoiceTaxPct ?? '16'));
+    setHasDeliveryNote(Boolean(payload.hasDeliveryNote));
+    setHasInvoice(Boolean(payload.hasInvoice));
+    setDeliveryNotePanelOpen(Boolean(payload.hasDeliveryNote));
+    setInvoicePanelOpen(Boolean(payload.hasInvoice));
+    setInvoiceCompanyName(String(payload.invoiceCompanyName || ''));
+    setInvoiceTaxId(String(payload.invoiceTaxId || ''));
+    setInvoiceAddress(String(payload.invoiceAddress || ''));
+    setInvoicePhone(String(payload.invoicePhone || ''));
+    setDeliveryNoteName(String(payload.deliveryNoteName || ''));
+    setDeliveryNoteDocumentId(String(payload.deliveryNoteDocumentId || ''));
+    setDeliveryNoteAddress(String(payload.deliveryNoteAddress || ''));
+    setDeliveryNotePhone(String(payload.deliveryNotePhone || ''));
+    setInfo(nextStatus === 'quoted' ? 'Cotizacion cargada. Al crear el pedido se respetan estos precios y tasa.' : 'Borrador cargado.');
+  }
+
+  function buildClientSnapshot() {
+    if (!selectedClient) return null;
+
+    return {
+      id: selectedClient.id,
+      full_name: selectedClient.full_name,
+      phone: selectedClient.phone,
+      client_type: selectedClient.client_type,
+      fund_balance_usd: selectedClient.fund_balance_usd ?? null,
+      recent_addresses: selectedClient.recent_addresses ?? null,
+      billing_company_name: selectedClient.billing_company_name ?? null,
+      billing_tax_id: selectedClient.billing_tax_id ?? null,
+      billing_address: selectedClient.billing_address ?? null,
+      billing_phone: selectedClient.billing_phone ?? null,
+      delivery_note_name: selectedClient.delivery_note_name ?? null,
+      delivery_note_document_id: selectedClient.delivery_note_document_id ?? null,
+      delivery_note_address: selectedClient.delivery_note_address ?? null,
+      delivery_note_phone: selectedClient.delivery_note_phone ?? null,
+    };
+  }
+
+  function buildNewClientSnapshot() {
+    if (!isNewClientMode && !newClientName.trim() && !newClientPhone.trim()) return null;
+
+    return {
+      fullName: newClientName.trim(),
+      phone: normalizePhone(newClientPhone.trim()) || newClientPhone.trim(),
+      type: newClientType,
+    };
+  }
+
+  function buildAdvisorDraftTitle() {
+    const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente pendiente';
+    const itemLabel = `${draftItems.length} item${draftItems.length === 1 ? '' : 's'}`;
+    return `${clientName} · ${itemLabel}`;
+  }
+
+  function buildAdvisorDraftPayload() {
+    return {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      clientId: selectedClient?.id ?? null,
+      newClient: buildNewClientSnapshot(),
+      fulfillment,
+      deliveryDate,
+      deliveryHour12,
+      deliveryMinute,
+      deliveryAmPm,
+      isAsap,
+      receiverName,
+      receiverPhone,
+      deliveryAddress,
+      deliveryGpsUrl,
+      orderNote,
+      paymentMethod,
+      paymentCurrency,
+      paymentRequiresChange,
+      paymentChangeFor,
+      paymentChangeCurrency,
+      paymentNote,
+      fxRate,
+      discountEnabled,
+      discountPct,
+      invoiceTaxPct,
+      hasDeliveryNote,
+      hasInvoice,
+      invoiceCompanyName,
+      invoiceTaxId,
+      invoiceAddress,
+      invoicePhone,
+      deliveryNoteName,
+      deliveryNoteDocumentId,
+      deliveryNoteAddress,
+      deliveryNotePhone,
+      totals: {
+        subtotalUsd: Number(draftTotalUsd.toFixed(2)),
+        subtotalBs: Number(draftSubtotalBs.toFixed(2)),
+        totalUsd: Number(finalTotalUsd.toFixed(2)),
+        totalBs: Number(finalTotalBs.toFixed(2)),
+      },
+      items: draftItems,
+    };
+  }
+
+  function canSaveCurrentDraft() {
+    return (
+      draftItems.length > 0 ||
+      Boolean(selectedClient) ||
+      newClientName.trim().length > 0 ||
+      newClientPhone.trim().length > 0
+    );
+  }
+
+  async function saveCurrentDraft(status: AdvisorOrderDraftStatus = 'draft', quoteText?: string | null) {
+    if (draftItems.some(item=>item.reward)) {
+      setError('Los premios se reservan al guardar el pedido, no al cotizar. Quita el premio para guardar una cotización normal.');
+      return false;
+    }
+    if (savingDraftRef.current) return false;
+
+    clearMessages();
+    if (!canSaveCurrentDraft()) {
+      setError('Agrega un cliente o un item para guardar el borrador.');
+      return false;
+    }
+
+    savingDraftRef.current = true;
+    setSavingDraft(true);
+
+    try {
+      const result = await saveAdvisorOrderDraftAction({
+        draftId: activeDraftId,
+        status: status === 'quoted' ? 'quoted' : 'draft',
+        title: buildAdvisorDraftTitle(),
+        clientId: selectedClient?.id ?? null,
+        clientSnapshot: buildClientSnapshot(),
+        newClientSnapshot: buildNewClientSnapshot(),
+        payload: buildAdvisorDraftPayload(),
+        quoteText: quoteText ?? null,
+        totalUsd: Number(finalTotalUsd.toFixed(2)),
+        totalBs: Number(finalTotalBs.toFixed(2)),
+        fxRate: fxRateNumber > 0 ? fxRateNumber : null,
+      });
+
+      setActiveDraftId(result.id);
+      setActiveDraftStatus(normalizeDraftStatus(result.status) || status);
+      setInfo(status === 'quoted' ? 'Presupuesto copiado y cotizacion guardada.' : 'Borrador guardado.');
+      return true;
+    } catch (draftError) {
+      setError(draftError instanceof Error ? draftError.message : 'No se pudo guardar el borrador.');
+      return false;
+    } finally {
+      savingDraftRef.current = false;
+      setSavingDraft(false);
+    }
+  }
+
+  function applyClientProfile(client: ClientRow) {
+    setInvoiceCompanyName(client.billing_company_name || '');
+    setInvoiceTaxId(client.billing_tax_id || '');
+    setInvoiceAddress(client.billing_address || '');
+    setInvoicePhone(client.billing_phone || '');
+    setDeliveryNoteName(client.delivery_note_name || '');
+    setDeliveryNoteDocumentId(client.delivery_note_document_id || '');
+    setDeliveryNoteAddress(client.delivery_note_address || '');
+    setDeliveryNotePhone(client.delivery_note_phone || '');
+  }
+
+  async function detectClientCrmContext(client: ClientRow, fallbackNotice: string) {
+    const requestId = crmLookupRequestRef.current + 1;
+    crmLookupRequestRef.current = requestId;
+    setCrmContextLoading(true);
+    setCrmContext(null);
+    setDraftItems((current) => current.filter((item) => !item.crm_benefit));
+
+    try {
+      const response = await fetch(`/api/advisor/clients/${client.id}/crm-order-context`, {
+        cache: 'no-store',
+      });
+      const payload = await response.json() as {
+        context?: AdvisorCrmOrderContext | null;
+        error?: string;
+      };
+      if (crmLookupRequestRef.current !== requestId) return;
+      if (!response.ok) throw new Error(payload.error || 'No se pudo revisar la jugada del cliente.');
+
+      const context = payload.context ?? null;
+      if (!context || Number(context.client.id) !== Number(client.id)) {
+        setCrmContext(null);
+        setInfo(fallbackNotice);
+        return;
+      }
+
+      setCrmContext(context);
+      setDraftItems((current) => current.filter((item) => !item.crm_benefit));
+      setInfo(
+        `${client.full_name} está en ${context.playName}. Elige un beneficio solo si deseas aplicarlo; el pedido puede continuar sin obsequio.`,
+      );
+    } catch (lookupError) {
+      if (crmLookupRequestRef.current !== requestId) return;
+      setCrmContext(null);
+      setInfo(`${fallbackNotice} No se pudo verificar su jugada en este momento; el pedido normal sigue disponible.`);
+      console.warn(
+        'No se pudo detectar la jugada del cliente.',
+        lookupError instanceof Error ? lookupError.message : lookupError,
+      );
+    } finally {
+      if (crmLookupRequestRef.current === requestId) setCrmContextLoading(false);
+    }
+  }
+
+  function selectClient(client: ClientRow, notice?: string) {
+    const nextNotice = notice || `Cliente listo: ${client.full_name}`;
+    setSelectedClient(client);
+    rememberClient(client);
+    applyClientProfile(client);
+    setDeliveryAddressTouched(false);
+    setIsNewClientMode(false);
+    setClientResults([]);
+    setSearchTerm(client.phone ?? client.full_name);
+    setInfo(nextNotice);
+    void detectClientCrmContext(client, nextNotice);
+  }
+
+  function clearSelectedClient() {
+    crmLookupRequestRef.current += 1;
+    setCrmContextLoading(false);
+    setCrmContext(null);
+    setSelectedClient(null);
+    setDraftItems((current) => current.filter((item) => !item.crm_benefit));
+    setSearchTerm('');
+    setClientResults([]);
+    setInfo('Busca el cliente que hará el pedido.');
+  }
+
+  async function handleSearchClients(e?: FormEvent) {
+    e?.preventDefault();
+    if (searchingClientRef.current) return;
+
+    clearMessages();
+
+    const query = searchTerm.trim();
+    const remoteQuery = normalizeRemoteSearchValue(query);
+    if (!query) {
+      setClientResults([]);
+      return;
+    }
+    if (!remoteQuery) {
+      setClientResults([]);
+      return;
+    }
+
+    searchingClientRef.current = true;
+    setSearchingClient(true);
+
+    let clientMatches: ClientRow[] = [];
+
+    try {
+      const phoneFilters = getPhoneSearchTerms(remoteQuery || query)
+        .map((term) => term.replace(/[,%]/g, ' '))
+        .filter(Boolean)
+        .slice(0, 5)
+        .map((term) => `phone.ilike.%${term}%`);
+
+      const { data: accentSafeData, error: accentSafeError } = await supabase.rpc('search_clients_unaccent', {
+        p_query: remoteQuery,
+        p_limit: 12,
+      });
+
+      const { data, error: searchError } = accentSafeError
+        ? await supabase
+            .from('clients')
+            .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
+            .or([`phone.ilike.%${remoteQuery}%`, ...phoneFilters, `full_name.ilike.%${remoteQuery}%`].join(','))
+            .order('id', { ascending: false })
+            .limit(12)
+        : { data: accentSafeData, error: null };
+
+      if (searchError) {
+        setError(searchError.message);
+        return;
+      }
+
+      clientMatches = (data ?? []) as ClientRow[];
+    } catch {
+      setError('No se pudo buscar el cliente.');
+      return;
+    } finally {
+      searchingClientRef.current = false;
+      setSearchingClient(false);
+    }
+
+    const sortedResults = clientMatches
+      .map((client) => ({
+        client,
+        score: clientSearchScore({
+          client,
+          query,
+          recentIds: recentClients.map((row) => row.id),
+          usageById: clientUsageById,
+        }),
+      }))
+      .filter((row) => Number.isFinite(row.score))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.client.full_name.localeCompare(b.client.full_name, 'es', { sensitivity: 'base' });
+      })
+      .map((row) => row.client);
+
+    if (sortedResults.length === 1 && exactClientMatch(sortedResults[0], query)) {
+      selectClient(sortedResults[0]);
+      return;
+    }
+
+    setClientResults(sortedResults);
+    setInfo(
+      sortedResults.length === 0
+        ? `No hubo coincidencias para "${query}".`
+        : sortedResults.length === 1
+          ? '1 cliente listo para elegir.'
+          : `${sortedResults.length} clientes listos para elegir.`
+    );
+  }
+
+  async function createClientNow() {
+    if (creatingClientRef.current) throw new Error('Ya se esta creando el cliente.');
+
+    clearMessages();
+    const full_name = newClientName.trim();
+    const phone = normalizePhone(newClientPhone.trim());
+
+    if (!full_name) throw new Error('Falta el nombre del cliente.');
+    if (!phone) throw new Error('Falta el telefono del cliente.');
+
+    creatingClientRef.current = true;
+    setCreatingClient(true);
+
+    try {
+      const phoneFilters = getPhoneSearchTerms(phone)
+        .map((term) => term.replace(/[,%]/g, ' '))
+        .filter(Boolean)
+        .slice(0, 5)
+        .map((term) => `phone.ilike.%${term}%`);
+      const { data: existing, error: existingError } = await supabase
+        .from('clients')
+        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
+        .or([`phone.eq.${phone}`, ...phoneFilters].join(','))
+        .limit(1);
+
+      if (existingError) throw new Error(existingError.message);
+
+      if (existing && existing.length > 0) {
+        const current = existing[0] as ClientRow;
+        selectClient(current);
+        return current.id;
+      }
+
+      const { data: created, error: createError } = await supabase
+        .from('clients')
+        .insert({ full_name, phone, client_type: newClientType })
+        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
+        .single();
+
+      if (createError) throw new Error(createError.message);
+
+      const client = created as ClientRow;
+      selectClient(client, `Cliente creado: ${client.full_name}`);
+      return client.id;
+    } finally {
+      creatingClientRef.current = false;
+      setCreatingClient(false);
+    }
+  }
+
+  async function handleCreateClientClick() {
+    try {
+      await createClientNow();
+    } catch (clientError) {
+      setError(clientError instanceof Error ? clientError.message : 'No se pudo crear el cliente.');
+    }
+  }
+
+  function resetConfig() {
+    setConfigOpen(false);
+    setConfigEditingLocalId(null);
+    setConfigProductId(null);
+    setConfigQty(1);
+    setConfigAlias('');
+    setConfigSelections([]);
+    setConfigPendingCrmItem(null);
+  }
+
+  function pulseAddedItemFeedback() {
+    setItemJustAdded(true);
+    window.setTimeout(() => setItemJustAdded(false), 900);
+  }
+
+  function applyClientAddress(address: ClientAddress) {
+    setDeliveryAddressTouched(true);
+    setDeliveryAddress(address.addressText);
+    setDeliveryGpsUrl(address.gpsUrl);
+    rememberAddress(address.addressText, address.gpsUrl);
+  }
+
+  function chooseProduct(product: ProductRow) {
+    setSelectedProductId(product.id);
+    setProductSearch(product.name);
+    setProductActiveIndex(filteredProducts.findIndex((row) => row.id === product.id));
+  }
+
+  function getProductComponents(productId: number) {
+    return productComponents
+      .filter((row) => row.parent_product_id === productId)
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+  }
+
+  function buildComponentDetailLines(
+    productId: number,
+    options?: {
+      totalMultiplier?: number;
+      requiredMultiplier?: number;
+      selectedByProductId?: Map<number, number>;
+      includeMetadata?: boolean;
+    }
+  ) {
+    const totalMultiplier = Math.max(1, Number(options?.totalMultiplier || 1));
+    const selectedByProductId = options?.selectedByProductId ?? new Map<number, number>();
+    const detailLines: string[] = [];
+
+    for (const component of getProductComponents(productId)) {
+      let componentQty = 0;
+
+      if (component.component_mode === 'fixed' && component.is_required) {
+        componentQty = Number(component.quantity || 0) * (options?.requiredMultiplier ?? 1);
+      } else {
+        componentQty = selectedByProductId.get(component.component_product_id) ?? 0;
+      }
+
+      componentQty = Math.max(0, Number(componentQty || 0));
+      if (componentQty <= 0) continue;
+
+      const product = productById.get(component.component_product_id);
+      const componentName = product?.name || `Componente ${component.component_product_id}`;
+      const totalQty = componentQty * totalMultiplier;
+      detailLines.push(`${totalQty} ${componentName}`);
+
+      if (options?.includeMetadata) {
+        detailLines.push(`${HIDDEN_DETAIL_PREFIX}${component.component_product_id}|${totalQty}`);
+      }
+    }
+
+    return detailLines;
+  }
+
+  function buildDraftItem(product: ProductRow, quantity: number, lines: string[]) {
+    const { sourceCurrency, sourceAmount } = getProductSourcePricing(product);
+    const snapshot = calculateOrderLineSnapshot({
+      sourceCurrency,
+      sourceAmount,
+      quantity,
+      fxRate: fxRateNumber,
+      fallbackUnitUsd: Number(product.base_price_usd ?? 0),
+    });
+
+    return {
+      localId: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      product_id: product.id,
+      product_type: product.type,
+      sku_snapshot: product.sku,
+      product_name_snapshot: product.name,
+      units_per_service: Number(product.units_per_service ?? 0) || 0,
+      qty: quantity,
+      source_price_currency: sourceCurrency,
+      source_price_amount: sourceAmount,
+      unit_price_usd_snapshot: snapshot.unitUsd,
+      line_total_usd: snapshot.lineUsd,
+      editable_detail_lines: lines,
+    } satisfies DraftItem;
+  }
+
+  function productNeedsConfiguration(product: ProductRow) {
+    return Boolean(product.is_detail_editable) || productComponents.some(
+      (row) =>
+        row.parent_product_id === product.id
+        && (row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required))
+    );
+  }
+
+  function applyCrmBenefitDraftItem(nextItem: DraftItem, editingLocalId: string | null, context = crmContext) {
+    setDraftItems((current) => {
+      const channelItems = context?.benefitFulfillment === 'delivery_zone_1'
+        ? current.filter((item) => item.crm_benefit || !isDeliveryCatalogItemName(item.product_name_snapshot))
+        : current;
+      const selectionBase = context?.benefitSelectionMode === 'single'
+        ? channelItems.filter((item) => !item.crm_benefit || item.localId === editingLocalId)
+        : channelItems;
+
+      if (editingLocalId && selectionBase.some((item) => item.localId === editingLocalId)) {
+        return selectionBase.map((item) => item.localId === editingLocalId
+          ? { ...nextItem, localId: item.localId, persistedOrderItemId: item.persistedOrderItemId }
+          : item);
+      }
+
+      return [...selectionBase, nextItem];
+    });
+  }
+
+  function selectCrmBenefitProduct(playBenefitId: number, playBenefitUpgradeId: number | null, context = crmContext) {
+    if (!context) return;
+    const conflict = context.recurrenceMode === 'daily'
+      ? dailyBenefitConflict(context.dailyUses ?? [], deliveryDate || getTodayInputValue(), existingOrderId) : null;
+    if (conflict) { setError(`El beneficio de ese día ya está reservado o entregado en la orden #${conflict.orderId}. Selecciona otro día.`); return; }
+    if (context.benefitFulfillment === 'pickup' && fulfillment !== 'pickup') {
+      setError('Esta jugada requiere retirar el pedido en el local.'); return;
+    }
+    if (context.benefitFulfillment === 'delivery_zone_1' && fulfillment !== 'delivery') {
+      setError('Esta jugada requiere delivery zona 1. Selecciona delivery para aplicarla.'); return;
+    }
+    const benefit = context.benefits.find((option) => option.playBenefitId === playBenefitId);
+    if (!benefit) return;
+    const upgrade = playBenefitUpgradeId == null
+      ? null
+      : benefit.upgrades.find((option) => option.id === playBenefitUpgradeId) ?? null;
+    const nextItem = buildCrmBenefitDraftItem(context, benefit, productById, playBenefitUpgradeId);
+    if (!nextItem) {
+      setError('Ese producto ya no está disponible en el catálogo.');
+      return;
+    }
+
+    const customerDifferenceUsd = Math.max(0, upgrade?.customerDifferenceUsd ?? 0);
+    const product = productById.get(nextItem.product_id);
+    const existingItem = draftItems.find((item) => item.crm_benefit?.playBenefitId === playBenefitId) ?? null;
+
+    if (!product) {
+      setError('Ese producto ya no está disponible en el catálogo.');
+      return;
+    }
+
+    if (productNeedsConfiguration(product)) {
+      const pendingItem = {
+        ...nextItem,
+        localId: existingItem?.localId ?? nextItem.localId,
+        persistedOrderItemId: existingItem?.persistedOrderItemId,
+      } satisfies DraftItem;
+
+      if (existingItem && existingItem.product_id === product.id) {
+        openEditConfig(existingItem, pendingItem);
+      } else {
+        openConfigForProduct(product, nextItem.qty, {
+          editingLocalId: existingItem?.localId ?? null,
+          pendingCrmItem: pendingItem,
+        });
+      }
+      clearMessages();
+      const compositionLabel = Number(product.detail_units_limit || 0) > 0
+        ? `las ${product.detail_units_limit} piezas`
+        : 'su composición';
+      setInfo(`Define ${compositionLabel} de ${product.name} y confirma para agregar el obsequio.`);
+      return;
+    }
+
+    applyCrmBenefitDraftItem(nextItem, existingItem?.localId ?? null, context);
+    clearMessages();
+    setInfo(upgrade
+      ? `${upgrade.name}: el cliente paga ${formatUsd(customerDifferenceUsd)} de diferencia si cumple la condición.`
+      : `${benefit.name}: incluido al cumplir la condición de la jugada.`);
+  }
+
+  function handleRecalculateDraftPricesFromCatalog() {
+    clearMessages();
+
+    let changedCount = 0;
+    const nextItems = draftItems.map((item) => {
+      if (item.crm_benefit || hasMenuOrderDetails(item.editable_detail_lines)) return item;
+      const product = productById.get(item.product_id);
+      if (!product) return item;
+
+      const next = calculateCatalogSnapshotForDraftItem(item, product, fxRateNumber);
+      if (!draftItemHasCatalogPriceDrift(item, product, fxRateNumber)) return item;
+
+      changedCount += 1;
+
+      return {
+        ...item,
+        product_type: product.type,
+        sku_snapshot: product.sku,
+        product_name_snapshot: product.name,
+        units_per_service: Number(product.units_per_service ?? 0) || 0,
+        source_price_currency: next.sourceCurrency,
+        source_price_amount: next.sourceAmount,
+        unit_price_usd_snapshot: next.snapshot.unitUsd,
+        line_total_usd: next.snapshot.lineUsd,
+        ...(item.reward ? {persistedOrderItemId:undefined,reward:{...item.reward,retainedSnapshot:undefined,amountUsd:item.reward.kind==='product_units'?next.snapshot.lineUsd:item.reward.amountUsd}} : {}),
+      };
+    });
+
+    setDraftItems(nextItems);
+
+    setInfo(
+      changedCount > 0
+        ? `Precios recalculados con el catalogo vigente (${changedCount} item${changedCount === 1 ? '' : 's'}).`
+        : 'Los items ya estan alineados con el catalogo vigente.'
+    );
+  }
+
+  function openConfigForProduct(
+    product: ProductRow,
+    quantity: number,
+    options?: { editingLocalId?: string | null; pendingCrmItem?: DraftItem | null },
+  ) {
+    const optionalFixedSelections = getProductComponents(product.id)
+      .filter((row) => row.component_mode === 'fixed' && !row.is_required && Number(row.quantity || 0) > 0)
+      .map((row) => {
+        const option = productById.get(row.component_product_id);
+        if (!option) return null;
+        return {
+          componentProductId: option.id,
+          name: option.name,
+          qty: Number(row.quantity || 0),
+        } satisfies ConfigSelection;
+      })
+      .filter((row): row is ConfigSelection => !!row);
+
+    setConfigEditingLocalId(options?.editingLocalId ?? null);
+    setConfigProductId(product.id);
+    setConfigQty(quantity);
+    setConfigAlias('');
+    setConfigSelections(optionalFixedSelections);
+    setConfigPendingCrmItem(options?.pendingCrmItem ?? null);
+    setConfigOpen(true);
+  }
+
+  function openEditConfig(item: DraftItem, pendingCrmItem: DraftItem | null = null) {
+    const muerdemeQuote = readMenuOrderQuote(item.editable_detail_lines);
+    if (muerdemeQuote) { setMuerdemeEdit({ key: item.localId, quote: muerdemeQuote }); return; }
+    const parsed = parseEditableDetailLines(item.editable_detail_lines);
+    const product = productById.get(item.product_id);
+    if (!product) {
+      setError('No se pudo cargar la configuracion del item.');
+      return;
+    }
+
+    const nextOptions = getProductComponents(product.id).filter(
+      (row) => row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required)
+    );
+
+    setConfigEditingLocalId(item.localId);
+    setConfigProductId(item.product_id);
+    setConfigQty(item.qty);
+    setConfigAlias(parsed.alias);
+    setConfigPendingCrmItem(pendingCrmItem);
+    setConfigSelections(
+      parsed.selections
+        .map((selection) => {
+          const component =
+            (selection.componentProductId != null
+              ? nextOptions.find((row) => row.component_product_id === selection.componentProductId)
+              : null) ??
+            nextOptions.find((row) => {
+              const product = productById.get(row.component_product_id);
+              return product?.name === selection.componentName;
+            });
+          const option = component ? productById.get(component.component_product_id) : null;
+          if (!component || !option) return null;
+          return {
+            componentProductId: option.id,
+            name: option.name,
+            qty: selection.qty,
+          };
+        })
+        .filter((row): row is ConfigSelection => !!row)
+    );
+    setConfigOpen(true);
+  }
+
+  function applyCatalogGiftChoice(choice: Awaited<ReturnType<typeof resolveAdvisorCatalogGiftAction>>[number]) {
+    if (Number(selectedClient?.id) !== Number(choice.context.client.id)) return;
+    if (Math.abs(parseQuantityValue(qty) - choice.quantity) > 0.001) {
+      setError(`Este beneficio permite ${choice.quantity} unidad(es). Ajusta la cantidad.`);
+      return;
+    }
+    if (draftItems.some((item) => item.crm_benefit && (
+      choice.context.benefitSelectionMode !== 'multiple'
+      || item.crm_benefit.playMemberId !== choice.context.playMemberId
+      || item.crm_benefit.playBenefitId === choice.benefitId
+    ))) {
+      setError('Ya hay un beneficio en este pedido. Modifícalo desde su línea o retíralo antes de elegir otro.');
+      return;
+    }
+    setCatalogGiftChoiceResult(null);
+    setCrmContext(choice.context);
+    selectCrmBenefitProduct(choice.benefitId, choice.upgradeId, choice.context);
+  }
+
+  async function addDraftItem() {
+    if (catalogGiftBusyRef.current || crmContextLoading) return;
+    clearMessages();
+    if (!selectedProduct) {
+      setError('Selecciona un producto.');
+      return;
+    }
+    if (!isEditingOrder && availabilityByProductId.get(selectedProduct.id)?.inventory_blocks_submission) {
+      setError(
+        availabilityByProductId.get(selectedProduct.id)?.message
+          ?? 'Máster detuvo temporalmente la venta de este producto.',
+      );
+      return;
+    }
+
+    const quantity = parseQuantityValue(qty);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setError('La cantidad debe ser mayor que cero.');
+      return;
+    }
+
+    const availability = availabilityByProductId.get(selectedProduct.id);
+    const protectedMaximum = Number(availability?.protected_maximum_quantity);
+    const existingQuantity = draftItems
+      .filter((item) => item.product_id === selectedProduct.id)
+      .reduce((sum, item) => sum + item.qty, 0);
+    if (
+      !isEditingOrder
+      && availability?.protected_balance_active
+      && Number.isFinite(protectedMaximum)
+      && existingQuantity + quantity > protectedMaximum + 0.0001
+    ) {
+      setError(availability.message || 'La cantidad supera el saldo protegido disponible para esa fecha.');
+      return;
+    }
+
+    if (shouldResolveCatalogGift(selectedProduct)) {
+      if (!selectedClient) {
+        setError('Selecciona primero al cliente para comprobar si este obsequio pertenece a una jugada.');
+        return;
+      }
+      const selectionKey = catalogGiftSelectionRef.current;
+      const clientRequest = crmLookupRequestRef.current;
+      catalogGiftBusyRef.current = true;
+      setCatalogGiftLoading(true);
+      try {
+        const choices = await resolveAdvisorCatalogGiftAction({ clientId: Number(selectedClient.id), productId: selectedProduct.id, quantity });
+        if (selectionKey !== catalogGiftSelectionRef.current || clientRequest !== crmLookupRequestRef.current) return;
+        if (choices.length > 1) {
+          setCatalogGiftChoiceResult({ key: selectionKey, choices });
+          setInfo('Este obsequio coincide con varias jugadas. Elige cuál aplicar.');
+          return;
+        }
+        if (choices.length === 1) {
+          applyCatalogGiftChoice(choices[0]);
+          return;
+        }
+      } catch (lookupError) {
+        setError(lookupError instanceof Error ? lookupError.message : 'No se pudo comprobar el beneficio.');
+        return;
+      } finally {
+        catalogGiftBusyRef.current = false;
+        setCatalogGiftLoading(false);
+      }
+    }
+
+    if (productNeedsConfiguration(selectedProduct)) {
+      if (quantity !== 1) {
+        setError('Los productos configurables se cargan uno por uno. Debes usar cantidad 1.');
+        return;
+      }
+
+      openConfigForProduct(selectedProduct, quantity);
+      return;
+    }
+
+    rememberProduct(selectedProduct.id);
+    setDraftItems((current) => [
+      ...current,
+      buildDraftItem(
+        selectedProduct,
+        quantity,
+        buildComponentDetailLines(selectedProduct.id, { totalMultiplier: quantity })
+      ),
+    ]);
+    pulseAddedItemFeedback();
+    setInfo(`Item agregado: ${selectedProduct.name}`);
+    setQty('1');
+    setSelectedProductId('');
+    setProductSearch('');
+    setProductActiveIndex(-1);
+  }
+
+  function removeDraftItem(localId: string) {
+    const protectedBenefit = draftItems.find((item) =>
+      item.localId === localId
+      && isEditingOrder
+      && item.persistedOrderItemId
+      && item.crm_benefit
+      && item.crm_benefit.redemptionStatus === 'redeemed'
+    );
+    if (protectedBenefit) {
+      setError('Este beneficio ya fue entregado y no puede quitarse durante una corrección ordinaria.');
+      return;
+    }
+    setDraftItems((current) => current.filter((item) => item.localId !== localId));
+  }
+
+  function updateQty(nextValue: number | string) {
+    const raw = String(nextValue ?? '').trim();
+    const normalized = sanitizeQuantityInput(raw);
+
+    if (!normalized) {
+      setQty('');
+      return;
+    }
+
+    if (normalized === '.') {
+      setQty('0.');
+      return;
+    }
+
+    setQty(normalized);
+  }
+
+  function setConfigSelectionQty(product: ProductRow, quantity: number) {
+    const nextQty = Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 0;
+
+    setConfigSelections((current) => {
+      const rest = current.filter((item) => item.componentProductId !== product.id);
+      if (nextQty <= 0) return rest;
+      return [...rest, { componentProductId: product.id, name: product.name, qty: nextQty }];
+    });
+  }
+
+  function confirmConfig() {
+    if (!configProduct) {
+      setError('No se encontro el producto a configurar.');
+      return;
+    }
+    const availability = availabilityByProductId.get(configProduct.id);
+    const protectedMaximum = Number(availability?.protected_maximum_quantity);
+    const existingQuantity = draftItems
+      .filter((item) => item.product_id === configProduct.id && item.localId !== configEditingLocalId)
+      .reduce((sum, item) => sum + item.qty, 0);
+    if (
+      !isEditingOrder
+      && availability?.protected_balance_active
+      && Number.isFinite(protectedMaximum)
+      && existingQuantity + configQty > protectedMaximum + 0.0001
+    ) {
+      setError(availability.message || 'La cantidad supera el saldo protegido disponible para esa fecha.');
+      return;
+    }
+
+    const blockedSelection = !isEditingOrder && configSelections.find(
+      (selection) =>
+        selection.qty > 0
+        && availabilityByProductId.get(selection.componentProductId)?.inventory_blocks_submission,
+    );
+    if (blockedSelection) {
+      setError(`${blockedSelection.name} está detenido temporalmente por Máster.`);
+      return;
+    }
+    const protectedSelection = !isEditingOrder && configSelections.find((selection) => {
+      const availability = availabilityByProductId.get(selection.componentProductId);
+      const maximum = Number(availability?.protected_available_component_units);
+      return availability?.protected_balance_active
+        && Number.isFinite(maximum)
+        && selection.qty > maximum + 0.0001;
+    });
+    if (protectedSelection) {
+      setError(
+        availabilityByProductId.get(protectedSelection.componentProductId)?.message
+          ?? `${protectedSelection.name} supera el saldo protegido disponible.`,
+      );
+      return;
+    }
+
+    if (configTotalLimit > 0 && configSelectedUnits !== configTotalLimit) {
+      setError(`Debes completar ${configTotalLimit} piezas para este producto.`);
+      return;
+    }
+
+    const selectedByProductId = new Map(
+      configSelections
+        .filter((item) => item.qty > 0)
+        .map((item) => [item.componentProductId, item.qty] as const)
+    );
+    const detailLines = [
+      configAlias.trim() ? `Para: ${configAlias.trim()}` : null,
+      ...buildComponentDetailLines(configProduct.id, {
+        selectedByProductId,
+        requiredMultiplier: configQty,
+        includeMetadata: true,
+      }),
+    ].filter((line): line is string => !!line);
+
+    const editingItem = configEditingLocalId
+      ? draftItems.find((draft) => draft.localId === configEditingLocalId) ?? null
+      : null;
+    const item = configPendingCrmItem
+      ? {
+          ...configPendingCrmItem,
+          qty: configQty,
+          editable_detail_lines: detailLines,
+        } satisfies DraftItem
+      : {
+          ...(editingItem && editingItem.product_id === configProduct.id && editingItem.qty === configQty
+            ? { ...editingItem, editable_detail_lines: detailLines }
+            : buildDraftItem(configProduct, configQty, detailLines)),
+          persistedOrderItemId: editingItem?.reward && editingItem.qty!==configQty ? undefined : editingItem?.persistedOrderItemId,
+          crm_benefit: editingItem?.crm_benefit,
+          reward: editingItem?.qty===configQty ? editingItem.reward : undefined,
+        } satisfies DraftItem;
+
+    if (configPendingCrmItem) {
+      applyCrmBenefitDraftItem(item, configEditingLocalId);
+      pulseAddedItemFeedback();
+      setInfo(`Obsequio configurado: ${configProduct.name}`);
+    } else if (configEditingLocalId) {
+      setDraftItems((current) => current.map((draft) =>
+        draft.localId === configEditingLocalId ? { ...item, localId: draft.localId } : draft
+      ));
+      setInfo(`Composición actualizada: ${configProduct.name}${editingItem?.reward&&editingItem.qty!==configQty?' · Cambió la cantidad: vuelve a elegir el premio si quieres aplicarlo.':''}`);
+    } else {
+      rememberProduct(configProduct.id);
+      setDraftItems((current) => [...current, item]);
+      pulseAddedItemFeedback();
+      setInfo(`Item agregado: ${configProduct.name}`);
+    }
+
+    setQty('1');
+    setSelectedProductId('');
+    setProductSearch('');
+    setProductActiveIndex(-1);
+    resetConfig();
+  }
+
+  function buildQuoteSummary() {
+    const parts: string[] = [];
+    const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
+    const clientPhone = selectedClient?.phone || newClientPhone.trim();
+    const effectiveDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
+    const deliveryDayLabel = effectiveDeliveryDate
+      ? new Date(`${effectiveDeliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+          weekday: 'long',
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+          timeZone: 'America/Caracas',
+        })
+      : 'Sin fecha';
+    const deliveryHourLabel =
+      deliveryHour12.trim() && deliveryMinute.trim()
+        ? `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`
+        : 'Sin hora';
+    parts.push('*Presupuesto*');
+    parts.push('');
+    parts.push(`✅ Asesor: ${authUserLabel}`);
+    parts.push('');
+    parts.push(`✅ Cliente: ${clientName}`);
+
+    if (clientPhone) {
+      parts.push('');
+      parts.push(`✅ Telefono: ${clientPhone}`);
+    }
+
+    parts.push('');
+    parts.push('✅ Pedido:');
+    parts.push('');
+
+    if (draftItems.length === 0) {
+      parts.push('- Sin items cargados');
+    } else {
+      for (const { item, index } of displayDraftItems) {
+        const lineBs = draftItemSnapshots[index].lineBs;
+        parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
+        const visibleDetails = getVisibleDetailLines(item.editable_detail_lines);
+        if (visibleDetails.length > 0) {
+          for (const detail of visibleDetails) {
+            parts.push(`   - ${detail}`);
+          }
+        }
+      }
+    }
+
+    parts.push('');
+    parts.push(`TOTAL: ${formatBsWhatsApp(finalTotalBs)} / ${finalTotalUsd.toFixed(2)}$`);
+    parts.push('');
+    parts.push(`✅ Forma de pago: ${getPaymentMethodLabel(paymentMethod)}`);
+    parts.push('');
+    parts.push('✅ Estatus de pago: Pendiente');
+    parts.push('');
+    parts.push(
+      `✅ Dia de entrega ${isAsap ? 'lo antes posible' : deliveryDayLabel}`
+    );
+
+    if (!isAsap) {
+      parts.push('');
+      parts.push(`✅ Hora: ${deliveryHourLabel}`);
+    }
+
+    if (fulfillment === 'delivery' && deliveryAddress.trim()) {
+      parts.push('');
+      parts.push(`✅ Direccion: ${deliveryAddress.trim()}`);
+    }
+
+    if (orderNote.trim()) {
+      parts.push('');
+      parts.push(`✅ Nota: ${orderNote.trim()}`);
+    }
+
+    return parts.join('\n');
+  }
+
+  function buildCleanQuoteSummary() {
+    const parts: string[] = [];
+    const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
+    const clientPhone = selectedClient?.phone || newClientPhone.trim();
+    const effectiveDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
+    const deliveryDayLabel = effectiveDeliveryDate
+      ? new Date(`${effectiveDeliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+          weekday: 'long',
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+          timeZone: 'America/Caracas',
+        })
+      : 'Sin fecha';
+    const deliveryHourLabel =
+      deliveryHour12.trim() && deliveryMinute.trim()
+        ? `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`
+        : 'Sin hora';
+    parts.push('*Presupuesto*');
+    parts.push('');
+    parts.push(`✅ Asesor: ${authUserLabel}`);
+    parts.push('');
+    parts.push(`✅ Cliente: ${clientName}`);
+
+    if (clientPhone) {
+      parts.push('');
+      parts.push(`✅ Teléfono: ${clientPhone}`);
+    }
+
+    parts.push('');
+    parts.push('✅ Pedido:');
+    parts.push('');
+
+    if (draftItems.length === 0) {
+      parts.push('- Sin items cargados');
+    } else {
+      for (const { item, index } of displayDraftItems) {
+        const lineBs = draftItemSnapshots[index].lineBs;
+        parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
+        for (const detail of getVisibleDetailLines(item.editable_detail_lines)) {
+          const normalizedDetail = String(detail || '').trim();
+          if (normalizedDetail) parts.push(`   - ${normalizedDetail}`);
+        }
+      }
+    }
+
+    parts.push('');
+    parts.push(`TOTAL: ${formatBsWhatsApp(finalTotalBs)} / ${finalTotalUsd.toFixed(2)}$`);
+    parts.push('');
+    parts.push(`✅ Forma de pago: ${getPaymentMethodLabel(paymentMethod)}`);
+    parts.push('');
+    parts.push('✅ Estatus de pago: Pendiente');
+    parts.push('');
+    parts.push(`✅ Día de entrega ${isAsap ? 'lo antes posible' : deliveryDayLabel}`);
+
+    if (!isAsap) {
+      parts.push('');
+      parts.push(`✅ Hora: ${deliveryHourLabel}`);
+    }
+
+    if (fulfillment === 'delivery' && deliveryAddress.trim()) {
+      parts.push('');
+      parts.push(`✅ Dirección: ${deliveryAddress.trim()}`);
+    }
+
+    if (orderNote.trim()) {
+      parts.push('');
+      parts.push(`✅ Nota: ${orderNote.trim()}`);
+    }
+
+    return parts.join('\n');
+  }
+
+  function buildMasterStyleQuoteSummary() {
+    const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
+    const clientPhone = selectedClient?.phone || newClientPhone.trim();
+    const effectiveDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
+    const deliveryDayLabel = effectiveDeliveryDate
+      ? new Date(`${effectiveDeliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+          weekday: 'long',
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+          timeZone: 'America/Caracas',
+        })
+      : 'Sin fecha';
+    const deliveryHourLabel =
+      deliveryHour12.trim() && deliveryMinute.trim()
+        ? `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`
+        : 'Sin hora';
+    const paymentChangeText =
+      paymentRequiresChange && paymentChangeFor.trim()
+        ? `${paymentChangeFor.trim()} ${paymentChangeCurrency}`.trim()
+        : null;
+
+    return buildWhatsAppOrderSummaryText({
+      title: 'Presupuesto',
+      advisorName: authUserLabel,
+      clientName,
+      clientPhone,
+      receiverName,
+      receiverPhone,
+      lines: displayDraftItems.map(({ item,index }) => ({
+        text: item.reward ? `${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(draftItemSnapshots[index].lineBs)}` : formatDraftItemWhatsAppLine(item),
+        detailLines: getVisibleDetailLines(item.editable_detail_lines),
+        priority: {
+          productType: item.product_type,
+          productName: item.product_name_snapshot,
+          inventoryGroup: productById.get(item.product_id)?.inventory_group,
+          internalRiderPayUsd: Number(productById.get(item.product_id)?.internal_rider_pay_usd || 0),
+        },
+      })),
+      price: {
+        subtotalBs: draftSubtotalBs,
+        subtotalUsd: draftTotalUsd,
+        discountPct: discountPctNumber,
+        discountAmountBs: discountEnabled ? discountAmountBs : 0,
+        discountAmountUsd: discountEnabled ? discountAmountUsd : 0,
+        invoiceTaxPct: invoiceTaxPctNumber,
+        invoiceTaxAmountBs: hasInvoice ? invoiceTaxAmountBs : 0,
+        invoiceTaxAmountUsd: hasInvoice ? invoiceTaxAmountUsd : 0,
+        totalBs: finalTotalBs,
+        totalUsd: finalTotalUsd,
+      },
+      exchangeRate: fxRateNumber,
+      calculatedAt: new Date().toISOString(),
+      fulfillment,
+      deliveryText: isAsap ? `${deliveryDayLabel} - Lo antes posible` : `${deliveryDayLabel} - ${deliveryHourLabel}`,
+      deliveryDateText: formatWhatsAppDateVE(effectiveDeliveryDate),
+      deliveryTimeText:
+        isAsap
+          ? 'Lo antes posible'
+          : !deliveryHour12.trim() || !deliveryMinute.trim()
+            ? null
+          : formatWhatsAppTimeAmPm(`${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`),
+      address: deliveryAddress,
+      gpsUrl: deliveryGpsUrl,
+      paymentMethodLabel: getPaymentMethodLabel(paymentMethod),
+      paymentChangeText,
+      paymentNote,
+      paymentStatus: 'Pendiente',
+      invoice: {
+        enabled: hasInvoice,
+        companyName: invoiceCompanyName,
+        taxId: invoiceTaxId,
+        address: invoiceAddress,
+        phone: invoicePhone,
+      },
+      deliveryNote: {
+        enabled: hasDeliveryNote,
+        name: deliveryNoteName,
+        documentId: deliveryNoteDocumentId,
+        address: deliveryNoteAddress,
+        phone: deliveryNotePhone,
+      },
+      notes: orderNote,
+    });
+  }
+
+  async function handleCopyQuote() {
+    if (savingOrderRef.current) return;
+    if (copyingQuoteRef.current) return;
+
+    clearMessages();
+    if (draftItems.length === 0) {
+      setError('Agrega al menos un item para copiar el presupuesto.');
+      return;
+    }
+    if (fulfillment === 'delivery' && !hasDeliveryItem) {
+      setError('Agrega el item de delivery antes de copiar el presupuesto.');
+      return;
+    }
+
+    copyingQuoteRef.current = true;
+    setCopyingQuote(true);
+    try {
+      void buildQuoteSummary;
+      void buildCleanQuoteSummary;
+      const quoteText = buildMasterStyleQuoteSummary();
+      await navigator.clipboard.writeText(quoteText);
+      const saved = await saveCurrentDraft('quoted', quoteText);
+      if (!saved) {
+        setError('El resumen se copio, pero no se pudo guardar como cotizado.');
+      }
+    } catch {
+      setError('No se pudo copiar el resumen.');
+    } finally {
+      copyingQuoteRef.current = false;
+      setCopyingQuote(false);
+    }
+  }
+
+  async function ensureClientId() {
+    if (selectedClient) return selectedClient.id;
+    if (!isNewClientMode) throw new Error('Selecciona o crea un cliente.');
+    return createClientNow();
+  }
+
+  function buildExtraFields(creationTime?: Date) {
+    const normalizedDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
+    const normalizedDeliveryHour12 = deliveryHour12.trim() || (isAsap ? rounded.hour12 : '');
+    const normalizedDeliveryMinute = deliveryMinute.trim() || (isAsap ? rounded.minute : '');
+    const normalizedDeliveryAmPm = isAsap && !deliveryHour12.trim() ? rounded.ampm : deliveryAmPm;
+    const deliveryTime24 = from12hTo24h(
+      normalizedDeliveryHour12,
+      normalizedDeliveryMinute,
+      normalizedDeliveryAmPm,
+    );
+    const schedule = {
+      date: normalizedDeliveryDate,
+      time_12: `${normalizedDeliveryHour12}:${normalizedDeliveryMinute} ${normalizedDeliveryAmPm}`,
+      time_24: deliveryTime24,
+      asap: isAsap,
+    };
+    const invoiceDataNote = [
+      invoiceCompanyName.trim(),
+      invoiceTaxId.trim(),
+      invoiceAddress.trim(),
+      invoicePhone.trim(),
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    return {
+      schedule: creationTime ? refreshAdvisorAsapSchedule(schedule, creationTime) : schedule,
+      receiver: {
+        name: receiverName.trim() || null,
+        phone: receiverPhone.trim() ? normalizePhone(receiverPhone.trim()) : null,
+      },
+      delivery: {
+        address: fulfillment === 'delivery' ? deliveryAddress.trim() || null : null,
+        gps_url: fulfillment === 'delivery' ? deliveryGpsUrl.trim() || null : null,
+      },
+      payment: {
+        method: paymentMethod,
+        currency: paymentCurrency,
+        requires_change: paymentRequiresChange,
+        change_for: paymentRequiresChange && paymentChangeFor.trim() ? parseDecimalInput(paymentChangeFor, 0) : null,
+        change_currency: paymentRequiresChange ? paymentChangeCurrency : null,
+        notes: paymentNote.trim() || null,
+      },
+      pricing: {
+        fx_rate: fxRateNumber > 0 ? fxRateNumber : null,
+        discount_enabled: discountEnabled,
+        discount_pct: discountEnabled ? discountPctNumber : 0,
+        discount_amount_usd: discountEnabled ? discountAmountUsd : 0,
+        discount_amount_bs: discountEnabled ? Number(discountAmountBs.toFixed(2)) : 0,
+        subtotal_usd: draftTotalUsd,
+        subtotal_bs: Number(draftSubtotalBs.toFixed(2)),
+        subtotal_after_discount_usd: subtotalAfterDiscountUsd,
+        subtotal_after_discount_bs: Number(subtotalAfterDiscountBs.toFixed(2)),
+        invoice_tax_pct: hasInvoice ? invoiceTaxPctNumber : 0,
+        invoice_tax_amount_usd: hasInvoice ? invoiceTaxAmountUsd : 0,
+        invoice_tax_amount_bs: hasInvoice ? Number(invoiceTaxAmountBs.toFixed(2)) : 0,
+        total_usd: finalTotalUsd,
+        total_bs: Number(finalTotalBs.toFixed(2)),
+      },
+      documents: {
+        has_delivery_note: hasDeliveryNote,
+        has_invoice: hasInvoice,
+        invoice_data_note: hasInvoice ? invoiceDataNote || null : null,
+        invoice_snapshot: hasInvoice
+          ? {
+              company_name: invoiceCompanyName.trim() || null,
+              tax_id: invoiceTaxId.trim() || null,
+              address: invoiceAddress.trim() || null,
+              phone: normalizePhone(invoicePhone.trim()) || null,
+            }
+          : null,
+        delivery_note_snapshot: hasDeliveryNote
+          ? {
+              name: deliveryNoteName.trim() || null,
+              document_id: deliveryNoteDocumentId.trim() || null,
+              address: deliveryNoteAddress.trim() || null,
+              phone: normalizePhone(deliveryNotePhone.trim()) || null,
+            }
+          : null,
+      },
+      note: orderNote.trim() || null,
+      ui: {
+        quote_only: false,
+        surface: 'advisor_mobile',
+      },
+      crm: crmContext
+        ? {
+            play_member_id: crmContext.playMemberId,
+            play_name: crmContext.playName,
+            benefit_ids: crmFulfillments.map((fulfillment) => fulfillment.playBenefitId),
+            fulfillments: crmFulfillments,
+            purchase_requirement_met: crmPurchaseEligible,
+            commercial_subtotal_after_discount_usd: commercialSubtotalAfterDiscountUsd,
+          }
+        : null,
+    };
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (catalogGiftBusyRef.current || catalogGiftChoices.length > 0) {
+      setError('Termina de seleccionar la jugada del obsequio antes de guardar.');
+      return;
+    }
+    if (savingOrderRef.current) return;
+
+    clearMessages();
+
+    const restoredGifts = activeDraftId != null && !isEditingOrder
+      ? draftItems.filter(item => item.crm_benefit)
+      : [];
+    if (restoredGifts.length > 0) {
+      try { restoreDraftCrmItems(restoredGifts, crmContext); }
+      catch (restoreError) {
+        setError(restoreError instanceof Error ? restoreError.message : 'Revisa la jugada del borrador.');
+        return;
+      }
+      if (!crmPurchaseEligible) {
+        setError('El borrador conserva el obsequio, pero falta completar la compra mínima. Ajusta la compra o retira el beneficio expresamente antes de guardar.');
+        return;
+      }
+    }
+
+    const blockedDraft = draftItems.find((item) =>
+      availabilityByProductId.get(item.product_id)?.inventory_blocks_submission,
+    );
+    if (!isEditingOrder && blockedDraft) {
+      setError(
+        availabilityByProductId.get(blockedDraft.product_id)?.message
+          ?? `${blockedDraft.product_name_snapshot} está detenido temporalmente por Máster.`,
+      );
+      return;
+    }
+    const protectedDraft = !isEditingOrder
+      ? protectedDraftViolation(draftItems, availabilityByProductId)
+      : null;
+    if (protectedDraft) {
+      setError(protectedDraft.message || 'La orden supera el saldo protegido disponible para esa fecha.');
+      return;
+    }
+
+    if (!createReady) {
+      if (!scheduleReady) {
+        setError('Falta colocar la fecha y la hora de entrega.');
+      } else {
+        setError('Completa cliente, items y entrega para continuar.');
+      }
+      return;
+    }
+
+    if (
+      crmContext
+      && Number(selectedClient?.id) !== Number(crmContext.client.id)
+    ) {
+      setError('El pedido de una jugada debe conservar el cliente para quien fue publicado el beneficio.');
+      return;
+    }
+
+    if (!isAsap && !deliveryDate.trim()) {
+      setError('Falta colocar la fecha de entrega.');
+      return;
+    }
+
+    if (!isAsap && (!deliveryHour12.trim() || !deliveryMinute.trim())) {
+      setError('Falta colocar la hora de entrega.');
+      return;
+    }
+
+    let deliveryTime24 = '';
+    try {
+      deliveryTime24 = from12hTo24h(
+        deliveryHour12.trim() || (isAsap ? rounded.hour12 : ''),
+        deliveryMinute.trim() || (isAsap ? rounded.minute : ''),
+        isAsap && !deliveryHour12.trim() ? rounded.ampm : deliveryAmPm,
+      );
+    } catch (timeError) {
+      setError(timeError instanceof Error ? timeError.message : 'Hora invalida.');
+      return;
+    }
+
+    if (!isEditingOrder && !isAsap && isPastAdvisorSchedule(deliveryDate.trim(), deliveryTime24)) {
+      setError('No puedes crear una orden con fecha y hora anteriores al momento actual.');
+      return;
+    }
+
+    if (!isEditingOrder && availabilityTargetAt) {
+      const selectedComponentIds = draftItems.flatMap((item) =>
+        item.editable_detail_lines.flatMap((line) => {
+          const match = line.match(/^@sel\|([1-9][0-9]*)\|/);
+          return match ? [Number(match[1])] : [];
+        }),
+      );
+      const productIds = Array.from(new Set([
+        ...draftItems.map((item) => item.product_id),
+        ...selectedComponentIds,
+      ])).slice(0, 200);
+      const { data: currentAvailability, error: availabilityValidationError } = await supabase.rpc(
+        'inventory_catalog_availability_v1',
+        {
+          p_target_at: isAsap ? new Date().toISOString() : availabilityTargetAt,
+          p_product_ids: productIds,
+          p_surface: 'advisor_availability',
+        },
+      );
+      if (!availabilityValidationError) {
+        const currentRows = Array.isArray(currentAvailability?.products)
+          ? currentAvailability.products as ProductAvailability[]
+          : [];
+        const currentMap = new Map(currentRows.map((product) => [Number(product.product_id), product]));
+        const blocked = currentRows.find((product) => product.inventory_blocks_submission)
+          ?? protectedDraftViolation(draftItems, currentMap);
+        if (blocked) {
+          setError(blocked.message || 'Máster detuvo temporalmente uno de los productos para esa fecha.');
+          return;
+        }
+      }
+    }
+
+    if (advisorRecalculationMode) {
+      const { data: activeRateData, error: activeRateError } = await supabase
+        .from('exchange_rates')
+        .select('rate_bs_per_usd')
+        .eq('is_active', true)
+        .order('effective_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (activeRateError) {
+        setError(activeRateError.message);
+        return;
+      }
+
+      const latestRate = toSafeNumber(activeRateData?.rate_bs_per_usd, 0);
+      if (latestRate <= 0) {
+        setError('No hay una tasa activa para recalcular esta orden.');
+        return;
+      }
+
+      const normalizedLatestRate = Number(latestRate.toFixed(2));
+      if (Math.abs(normalizedLatestRate - fxRateNumber) > 0.000001) {
+        setFxRate(String(normalizedLatestRate));
+        setInfo('La tasa activa cambió. Se actualizaron los totales; revísalos y vuelve a guardar.');
+        return;
+      }
+    }
+
+    if (fxRateLockedForAdvisorEdit && originalEditSnapshot?.fxRate && fxRate !== originalEditSnapshot.fxRate) {
+      setFxRate(originalEditSnapshot.fxRate);
+      setError('La tasa snapshot de una orden creada solo puede corregirla master o admin desde el dashboard.');
+      return;
+    }
+
+    if (fxRateNumber <= 0) {
+      setError('Falta una tasa valida para la orden.');
+      return;
+    }
+
+    if (advisorEditHasCatalogPriceDrift) {
+      setError(
+        'Hay items con precios distintos al catalogo vigente. Recalcula los precios antes de guardar para no conservar snapshots vencidos.'
+      );
+      return;
+    }
+
+    if (crmContext && crmPurchaseEligible) {
+      if (crmContext.benefitSelectionMode === 'single' && crmFulfillments.length > 1) {
+        setError('Esta jugada permite aplicar un solo beneficio por pedido.');
+        return;
+      }
+    }
+
+    savingOrderRef.current = true;
+    setSaving(true);
+
+    try {
+      if (draftItems.some(item => hasMenuOrderDetails(item.editable_detail_lines))) await validateAdvisorMuerdemeItemsAction(draftItems.map(item => ({
+        productId: item.product_id, qty: item.qty, sourcePriceCurrency: item.source_price_currency,
+        sourcePriceAmount: item.source_price_amount, editableDetailLines: persistableOrderDetailLines(item.editable_detail_lines),
+        crmPlayMemberId: item.crm_benefit?.playMemberId ?? null, rewardGrantId: item.reward?.grantId ?? null,
+      })),isEditingOrder?Number(existingOrderId):null);
+      const validatedDetails = isEditingOrder
+        ? await validateAdvisorOrderDetailsAction(draftItems.map(item => ({
+            productId: item.product_id,
+            qty: item.qty,
+            editableDetailLines: persistableOrderDetailLines(item.editable_detail_lines),
+          })))
+        : [];
+      const clientId = await ensureClientId();
+      if (crmContext && crmPurchaseEligible && crmFulfillments.length > 0) {
+        const preparation = await prepareAdvisorCrmPlayBenefitsAction({
+          playMemberId: crmContext.playMemberId,
+          playBenefitIds: crmFulfillments.map((fulfillment) => fulfillment.playBenefitId),
+        });
+        if (!preparation.ok) {
+          throw new Error(`No se pudo preparar el beneficio: ${preparation.message}`);
+        }
+      }
+      const nextEditSnapshot = isEditingOrder ? buildCurrentEditSnapshot(clientId) : null;
+      const advisorEditChangeMeta =
+        isEditingOrder && nextEditSnapshot && originalEditSnapshot
+          ? buildOrderEditChangeSummary(originalEditSnapshot, nextEditSnapshot)
+          : null;
+      if (selectedClient) rememberClient(selectedClient);
+      if (fulfillment === 'delivery') rememberAddress(deliveryAddress, deliveryGpsUrl);
+      const recentAddresses = mergeRecentAddresses(
+        selectedClient?.recent_addresses,
+        fulfillment === 'delivery' ? deliveryAddress : '',
+        fulfillment === 'delivery' ? deliveryGpsUrl : ''
+      );
+
+      const { error: clientProfileError } = await supabase
+        .from('clients')
+        .update({
+          billing_company_name: hasInvoice ? invoiceCompanyName.trim() || null : null,
+          billing_tax_id: hasInvoice ? invoiceTaxId.trim() || null : null,
+          billing_address: hasInvoice ? invoiceAddress.trim() || null : null,
+          billing_phone: hasInvoice ? normalizePhone(invoicePhone) || null : null,
+          delivery_note_name: hasDeliveryNote ? deliveryNoteName.trim() || null : null,
+          delivery_note_document_id: hasDeliveryNote ? deliveryNoteDocumentId.trim() || null : null,
+          delivery_note_address: hasDeliveryNote ? deliveryNoteAddress.trim() || null : null,
+          delivery_note_phone: hasDeliveryNote ? normalizePhone(deliveryNotePhone) || null : null,
+          recent_addresses: recentAddresses,
+        })
+        .eq('id', clientId);
+
+      if (clientProfileError) throw new Error(clientProfileError.message);
+
+      // Keep one timestamp per creation attempt, including connection retries.
+      if (!isEditingOrder && !orderCreationTimeRef.current) {
+        orderCreationTimeRef.current = new Date();
+      }
+      const payload = {
+        client_id: clientId,
+        attributed_advisor_id: authUserId,
+        source: 'advisor',
+        status: 'created',
+        fulfillment,
+        total_usd: finalTotalUsd,
+        total_bs_snapshot: Number(finalTotalBs.toFixed(2)),
+        is_price_locked: false,
+        delivery_address: fulfillment === 'delivery' ? deliveryAddress.trim() || null : null,
+        receiver_name: receiverName.trim() || null,
+        receiver_phone: receiverPhone.trim() ? normalizePhone(receiverPhone.trim()) : null,
+        notes: orderNote.trim() || null,
+        extra_fields: buildExtraFields(isEditingOrder ? undefined : orderCreationTimeRef.current ?? undefined),
+      };
+
+      let targetOrderId = Number(existingOrderId || 0);
+      const orderItemsInput = draftItems.map((item, idx) => {
+        const snapshot = draftItemSnapshots[idx];
+        const effectivePricing = effectiveDraftPricing[idx];
+
+        return {
+          orderItemId: item.persistedOrderItemId ?? null,
+          draftPriceAgreementKey: activeDraftId && !isEditingOrder && !item.reward ? item.localId : null,
+          rewardGrantId: item.reward?.grantId ?? null,
+          rewardPurpose: item.reward?.purpose ?? null,
+          rewardAmountUsd: item.reward?.amountUsd ?? null,
+          productId: Number(item.product_id),
+          qty: Number(item.qty || 0),
+          sourcePriceCurrency: effectivePricing?.sourceCurrency ?? item.source_price_currency,
+          sourcePriceAmount: effectivePricing?.sourceAmount ?? Number(item.source_price_amount || 0),
+          unitPriceUsdSnapshot: snapshot.unitUsd,
+          lineTotalUsd: snapshot.lineUsd,
+          unitPriceBsSnapshot: snapshot.unitBs,
+          lineTotalBsSnapshot: snapshot.lineBs,
+          skuSnapshot: item.sku_snapshot,
+          productNameSnapshot: item.product_name_snapshot,
+          editableDetailLines: isEditingOrder
+            ? validatedDetails[idx]
+            : persistableOrderDetailLines(item.editable_detail_lines),
+          crmPlayMemberId: item.crm_benefit && (isEditingOrder || crmPurchaseEligible)
+            ? item.crm_benefit.playMemberId
+            : null,
+          crmPlayBenefitId: item.crm_benefit && (isEditingOrder || crmPurchaseEligible)
+            ? item.crm_benefit.playBenefitId
+            : null,
+          crmPlayBenefitUpgradeId: item.crm_benefit && (isEditingOrder || crmPurchaseEligible)
+            ? item.crm_benefit.playBenefitUpgradeId
+            : null,
+        };
+      });
+
+      if (isEditingOrder) {
+        const updateResult = await replaceAdvisorOrderItemsAction({
+          orderId: targetOrderId,
+          expectedLastModifiedAt: existingOrderLastModifiedAt,
+          payload,
+          items: orderItemsInput,
+        });
+        if (!updateResult.ok) {
+          throw new Error(updateResult.message);
+        }
+        setExistingOrderLastModifiedAt(updateResult.lastModifiedAt ?? existingOrderLastModifiedAt);
+        await submitAdvisorOrderCorrectionForReviewAction({
+          orderId: targetOrderId,
+          changeSummary: advisorEditChangeMeta,
+        });
+      } else {
+        if (!orderCreationRequestRef.current) {
+          orderCreationRequestRef.current = crypto.randomUUID();
+        }
+        const createResult = await createAdvisorOrderAction({
+          requestId: orderCreationRequestRef.current,
+          draftId: activeDraftId,
+          payload,
+          items: orderItemsInput,
+        });
+        if (!createResult.ok) {
+          throw new Error(createResult.message);
+        }
+        targetOrderId = createResult.orderId;
+        orderCreationRequestRef.current = null;
+        orderCreationTimeRef.current = null;
+      }
+
+      router.push(`/app/advisor/orders/${targetOrderId}`);
+    } catch (submitError) {
+      const submitMessage = submitError instanceof Error ? submitError.message : '';
+      const isOrderItemsRlsError =
+        isEditingOrder &&
+        submitMessage.toLowerCase().includes('row-level security') &&
+        submitMessage.toLowerCase().includes('order_items');
+      setError(
+        isOrderItemsRlsError
+          ? 'No se pudieron guardar los items recalculados por permisos de Supabase. Avísale a master/admin para aplicar la corrección de permisos y vuelve a guardar.'
+          : submitMessage
+          ? submitMessage
+          : isEditingOrder
+            ? 'No se pudo actualizar la orden.'
+            : 'No se pudo crear la orden.'
+      );
+    } finally {
+      savingOrderRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-5 text-sm text-[#AAB2C5]">
+        {isEditingOrder
+          ? 'Cargando pedido para corregir...'
+          : isRepeatingOrder
+            ? 'Cargando pedido base para repetir...'
+            : 'Cargando captura del asesor...'}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <form onSubmit={handleSubmit} className="space-y-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+        {!isEditingOrder ? (
+          <div className="flex items-center justify-between gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-4 py-3">
+            <div className="min-w-0">
+              <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">
+                {activeDraftId ? `${getDraftStatusLabel(activeDraftStatus)} #${activeDraftId}` : 'Nuevo pedido'}
+              </div>
+              <div className="mt-1 truncate text-sm font-medium text-[#F5F7FB]">
+                {activeDraftStatus === 'quoted'
+                  ? 'Precios y tasa guardados al copiar WhatsApp.'
+                  : 'Puedes guardarlo y retomarlo luego.'}
+              </div>
+            </div>
+            <Link
+              href="/app/advisor/drafts"
+              className="shrink-0 rounded-[14px] border border-[#2A3040] px-3 py-2 text-sm font-medium text-[#F5F7FB]"
+            >
+              Borradores
+            </Link>
+          </div>
+        ) : null}
+        {error ? <div className="rounded-[18px] border border-[#5E2229] bg-[#261114] px-4 py-3 text-sm text-[#F0A6AE]">{error}</div> : null}
+        {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
+
+        {crmContext ? (
+          <section className="rounded-[20px] border border-[#5A4F12] bg-[#171506] p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B7AA53]">Cliente en jugada</div>
+                <div className="mt-1 text-sm font-semibold text-[#FFF18B]">{crmContext.playName}</div>
+                {crmContext.recurrenceMode === 'daily' ? <p className="mt-1 text-[11px] text-[#D8CC82]">Un beneficio por cliente y por día de entrega. Puede repetir en días distintos. Compra mínima en productos pagados, sin delivery ni obsequios.{crmContext.benefitFulfillment === 'pickup' ? ' Solo retiro en el local.' : crmContext.benefitFulfillment === 'delivery_zone_1' ? ' Solo delivery zona 1: confirma el destino.' : ''}</p> : null}
+                <p className={`mt-1 text-xs ${crmPurchaseEligible ? 'text-[#7CE0A9]' : 'text-[#F7DA66]'}`}>
+                  {crmPurchaseEligible && crmFulfillments.length === 0
+                    ? crmContext.benefitSelectionMode === 'single'
+                      ? 'Elige abajo el beneficio que desea usar el cliente.'
+                      : 'Elige uno o varios beneficios para armar la combinación del cliente.'
+                    : crmPurchaseEligible
+                    ? 'Beneficio activo: el producto base queda incluido y una ampliación cobra solo la diferencia.'
+                    : draftItems.some((item) => item.crm_benefit && (item.persistedOrderItemId || activeDraftId != null))
+                      ? `La compra quedó por debajo del mínimo de ${formatUsd(Number(crmContext.minimumOrderAmountUsd ?? 0))}. Completa el consumo o retira el obsequio antes de guardar. Conservarlo requiere una excepción del administrador.`
+                      : `Faltan ${formatUsd(Math.max(0, Number(crmContext.minimumOrderAmountUsd ?? 0) - commercialSubtotalAfterDiscountUsd))} en otros productos. Mientras tanto, el producto conserva su precio normal.`}
+                </p>
+              </div>
+              {crmFulfillments.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setDraftItems((current) => current.filter((item) => !item.crm_benefit))}
+                  className="shrink-0 rounded-xl border border-[#4A421B] px-2.5 py-1.5 text-[10px] font-semibold text-[#C7BC7A]"
+                >
+                  No aplicar
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <div className="rounded-[12px] border border-[#4A421B] bg-[#100F08] px-3 py-2 text-[11px] leading-5 text-[#D8CC82]">
+                El obsequio no entra automáticamente. Toca una opción, define su composición cuando corresponda y confirma.
+              </div>
+              {crmContext.benefits.map((benefit) => {
+                const currentItem = draftItems.find((item) => item.crm_benefit?.playBenefitId === benefit.playBenefitId);
+                return (
+                  <div key={benefit.playBenefitId} className="rounded-[14px] border border-[#302B10] bg-[#0D0D0A] p-2.5">
+                    <div className="text-xs font-medium text-[#F5F7FB]">Crédito {formatUsd(benefit.creditUsd)} · elige el tamaño</div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        aria-pressed={currentItem?.crm_benefit?.playBenefitUpgradeId == null && !!currentItem}
+                        onClick={() => selectCrmBenefitProduct(benefit.playBenefitId, null)}
+                        className={`rounded-full border px-2.5 py-1.5 text-[10px] font-semibold ${currentItem?.crm_benefit?.playBenefitUpgradeId == null && currentItem ? 'border-[#F0D000] bg-[#F0D000] text-[#17191E]' : 'border-[#4A421B] text-[#E6DB93]'}`}
+                      >
+                        {benefit.name} · {crmPurchaseEligible ? 'incluido' : 'precio normal'}
+                      </button>
+                      {benefit.upgrades.map((upgrade) => (
+                        <button
+                          key={upgrade.id}
+                          type="button"
+                          aria-pressed={currentItem?.crm_benefit?.playBenefitUpgradeId === upgrade.id}
+                          onClick={() => selectCrmBenefitProduct(benefit.playBenefitId, upgrade.id)}
+                          className={`rounded-full border px-2.5 py-1.5 text-[10px] font-semibold ${currentItem?.crm_benefit?.playBenefitUpgradeId === upgrade.id ? 'border-cyan-300 bg-cyan-300 text-[#071317]' : 'border-[#27454A] text-cyan-100'}`}
+                        >
+                          {upgrade.name} · {crmPurchaseEligible ? `+${formatUsd(upgrade.customerDifferenceUsd)}` : 'precio normal'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        <Section
+          title="1. Cliente"
+          subtitle={crmContext ? 'La jugada se detectó automáticamente al elegir al cliente.' : 'Busca primero y crea solo si no existe.'}
+        >
+          {!crmContext ? (
+            <Field label="Buscar cliente">
+              <div className="flex gap-2">
+                <input
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      (e.currentTarget as HTMLInputElement).blur();
+                      void handleSearchClients();
+                    }
+                  }}
+                  className={inputClass()}
+                  placeholder="Telefono o nombre"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSearchClients()}
+                  disabled={searchingClient}
+                  className={[
+                    'h-11 rounded-[16px] border px-3.5 text-sm font-medium transition active:scale-[0.98] disabled:cursor-not-allowed',
+                    searchingClient
+                      ? 'border-[#232632] bg-[#232632] text-[#6F7890]'
+                      : 'border-[#232632] text-[#F5F7FB]',
+                  ].join(' ')}
+                >
+                  {searchingClient ? 'Buscando...' : 'Buscar'}
+                </button>
+              </div>
+            </Field>
+          ) : null}
+
+          {selectedClient ? (
+            <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{selectedClient.full_name}</div>
+                  <div className="mt-1 text-xs text-[#8B93A7]">{selectedClient.phone || 'Sin telefono'}</div>
+                </div>
+                {!isEditingOrder ? (
+                  <button
+                    type="button"
+                    onClick={clearSelectedClient}
+                    className="shrink-0 rounded-xl border border-[#303543] px-2.5 py-1.5 text-[10px] font-semibold text-[#C9D0DF]"
+                  >
+                    Cambiar
+                  </button>
+                ) : null}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded-[14px] border border-[#232632] bg-[#12151d] px-3 py-2">
+                  <div className="text-[#8B93A7]">Tipo</div>
+                  <div className="mt-1 font-medium text-[#F5F7FB]">
+                    {clientTypeLabel(selectedClient.client_type)}
+                  </div>
+                </div>
+                <div className="rounded-[14px] border border-[#232632] bg-[#12151d] px-3 py-2">
+                  <div className="text-[#8B93A7]">Fondo</div>
+                  <div className="mt-1 font-medium text-[#F5F7FB]">
+                    {selectedClientFundUsd > 0 ? formatUsd(selectedClientFundUsd) : 'Sin fondo'}
+                  </div>
+                </div>
+                <div className="min-w-0 rounded-[14px] border border-[#232632] bg-[#12151d] px-3 py-2">
+                  <div className="text-[#8B93A7]">Jugada</div>
+                  <div
+                    className={`mt-1 truncate font-medium ${crmContext ? 'text-[#FFF18B]' : 'text-[#F5F7FB]'}`}
+                    title={crmContext?.playName}
+                  >
+                    {crmContextLoading ? 'Revisando…' : crmContext?.playName || 'Sin jugada'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {!crmContext && clientResults.length > 0 ? (
+            <div className="space-y-2">
+              {clientResults.map((client) => (
+                <button
+                  key={client.id}
+                  type="button"
+                  onClick={() => selectClient(client, `Cliente seleccionado: ${client.full_name}`)}
+                  className="flex w-full items-center justify-between rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-left"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-[#F5F7FB]">
+                      {renderHighlightedText(client.full_name, searchTerm, `client-name-${client.id}`)}
+                    </div>
+                    <div className="mt-1 text-xs text-[#8B93A7]">
+                      {renderHighlightedText(client.phone || 'Sin telefono', searchTerm, `client-phone-${client.id}`)}
+                    </div>
+                  </div>
+                  <div className="text-xs text-[#AAB2C5]">Usar</div>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {!crmContext ? (
+            <button
+              type="button"
+              onClick={() => {
+                setIsNewClientMode((current) => !current);
+                setSelectedClient(null);
+              }}
+              className="h-10 rounded-[14px] border border-[#232632] text-sm font-medium text-[#F5F7FB]"
+            >
+              {isNewClientMode ? 'Cancelar cliente nuevo' : 'Crear cliente nuevo'}
+            </button>
+          ) : null}
+
+          {!crmContext && isNewClientMode ? (
+            <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <Field label="Nombre">
+                <input value={newClientName} onChange={(e) => setNewClientName(e.target.value)} className={inputClass()} placeholder="Nombre completo" />
+              </Field>
+              <Field label="Telefono">
+                <input value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} className={inputClass()} placeholder="0412..." />
+              </Field>
+              <Field label="Canal">
+                <select value={newClientType} onChange={(e) => setNewClientType(e.target.value as ClientType)} className={inputClass()}>
+                  <option value="assigned">Asignado</option>
+                  <option value="own">Propio</option>
+                  <option value="legacy">Antiguo</option>
+                </select>
+              </Field>
+              <button
+                type="button"
+                onClick={() => void handleCreateClientClick()}
+                disabled={creatingClient}
+                className={[
+                  'h-10 rounded-[14px] text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                  creatingClient ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+                ].join(' ')}
+              >
+                {creatingClient ? 'Creando...' : 'Guardar cliente'}
+              </button>
+            </div>
+          ) : null}
+        </Section>
+
+        <Section title="2. Fecha y hora" subtitle="Primero define cuándo se necesita el pedido; después verás la disponibilidad para ese momento.">
+          <button
+            type="button"
+            onClick={() => {
+              setIsAsap((current) => {
+                const next = !current;
+                if (next) {
+                  setDeliveryDate(getTodayInputValue());
+                  setDeliveryHour12(rounded.hour12);
+                  setDeliveryMinute(rounded.minute);
+                  setDeliveryAmPm(rounded.ampm);
+                }
+                return next;
+              });
+            }}
+            className={[
+              'h-10 rounded-[14px] border px-4 text-sm font-medium',
+              isAsap ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]',
+            ].join(' ')}
+          >
+            Lo antes posible
+          </button>
+
+          <Field label="Fecha">
+            <div className="min-w-0 overflow-hidden rounded-[16px]">
+              <input
+                type="date"
+                value={deliveryDate}
+                min={isEditingOrder ? undefined : getCaracasCurrentMinuteKey().slice(0, 10)}
+                aria-invalid={advisorScheduleIsPast}
+                onChange={(e) => {
+                  setDeliveryDate(e.target.value);
+                  setIsAsap(false);
+                }}
+                className={`${inputClass()} advisor-date-input min-w-0 max-w-full overflow-hidden [color-scheme:dark]`}
+              />
+            </div>
+          </Field>
+
+          <Field label="Hora">
+            <div className="grid grid-cols-[72px_72px_minmax(92px,1fr)] gap-2">
+              <input value={deliveryHour12} onChange={(e) => { setDeliveryHour12(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
+              <input value={deliveryMinute} onChange={(e) => { setDeliveryMinute(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
+              <select value={deliveryAmPm} onChange={(e) => { setDeliveryAmPm(e.target.value as 'AM' | 'PM'); setIsAsap(false); }} className={inputClass()}>
+                <option value="AM">AM</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
+            {advisorScheduleIsPast ? (
+              <p className="mt-2 text-xs text-[#FF7A45]" role="alert">
+                La fecha y hora no pueden ser anteriores al momento actual.
+              </p>
+            ) : null}
+          </Field>
+
+          <div className="rounded-[16px] border border-[#2A3040] bg-[#0F131B] px-3.5 py-3 text-sm text-[#AAB2C5]">
+            {availabilityLoading
+              ? 'Consultando disponibilidad para esta fecha…'
+              : availabilityError
+                ? availabilityError
+                : availabilityTargetAt
+                  ? 'Fecha lista. Las señales aparecerán junto a cada producto y nunca impedirán enviar la solicitud.'
+                  : 'Completa la fecha y la hora para consultar el inventario.'}
+          </div>
+        </Section>
+
+        <Section title="3. Pedido" subtitle="Catálogo con disponibilidad informativa para la fecha seleccionada.">
+          <div className="relative">
+            <Field label="Producto">
+              <input
+                value={productSearch}
+                aria-busy={productSearchIsPending}
+                disabled={!availabilityTargetAt}
+                onChange={(e) => {
+                  setProductSearch(e.target.value);
+                  setProductActiveIndex(-1);
+                  if (!e.target.value.trim()) setSelectedProductId('');
+                }}
+                onKeyDown={(e) => {
+                  if (!productSearch.trim() || filteredProducts.length === 0) return;
+
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setProductActiveIndex((prev) => {
+                      const next = prev < filteredProducts.length - 1 ? prev + 1 : 0;
+                      setSelectedProductId(filteredProducts[next]?.id ?? '');
+                      return next;
+                    });
+                    return;
+                  }
+
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setProductActiveIndex((prev) => {
+                      const next = prev > 0 ? prev - 1 : filteredProducts.length - 1;
+                      setSelectedProductId(filteredProducts[next]?.id ?? '');
+                      return next;
+                    });
+                    return;
+                  }
+
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const selected =
+                      productActiveIndex >= 0 ? filteredProducts[productActiveIndex] : filteredProducts[0];
+                    if (!selected) return;
+                    chooseProduct(selected);
+                  }
+                }}
+                className={`${inputClass()} disabled:cursor-not-allowed disabled:opacity-55`}
+                placeholder={availabilityTargetAt ? 'Escribe nombre o código' : 'Primero define fecha y hora'}
+              />
+            </Field>
+
+            {productSearch.trim() && (!selectedProduct || productSearch !== selectedProduct.name) ? (
+              <div className="absolute z-20 mt-2 max-h-[260px] w-full overflow-y-auto rounded-[18px] border border-[#232632] bg-[#0F131B]">
+                {productSearchIsPending ? (
+                  <div className="px-3 py-2 text-xs text-[#8B93A7]">Actualizando resultados...</div>
+                ) : null}
+                {filteredProducts.length === 0 && !productSearchIsPending ? (
+                  <div className="px-3 py-3 text-sm text-[#8B93A7]">Sin resultados</div>
+                ) : (
+                  filteredProducts.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => chooseProduct(product)}
+                      className={[
+                        'w-full border-b border-[#191926] px-3 py-3 text-left last:border-b-0',
+                        filteredProducts[productActiveIndex]?.id === product.id ? 'bg-[#121218]' : 'hover:bg-[#121218]',
+                      ].join(' ')}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-[#F5F7FB]">
+                            {renderHighlightedText(product.name, productSearch, `product-name-${product.id}`)}
+                          </div>
+                          <div className="mt-1 text-xs text-[#8B93A7]">
+                            {renderHighlightedText(product.sku || 'Sin codigo', productSearch, `product-sku-${product.id}`)} | ${Number(product.base_price_usd ?? 0).toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                          {availabilityTargetAt ? (
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${availabilityTone(availabilityByProductId.get(product.id) ?? null)}`}>
+                              {availabilityLoading ? 'Consultando…' : availabilityLabel(availabilityByProductId.get(product.id) ?? null)}
+                            </span>
+                          ) : null}
+                          {favoriteProductIds.includes(product.id) ? (
+                            <span className="rounded-full border border-[#564511] bg-[#2A2209] px-2 py-0.5 text-[10px] font-medium text-[#F7DA66]">
+                              Favorito
+                            </span>
+                          ) : null}
+                          {recentProductIds.includes(product.id) ? (
+                            <span className="rounded-full border border-[#2A3040] bg-[#151925] px-2 py-0.5 text-[10px] font-medium text-[#CCD3E2]">
+                              Reciente
+                            </span>
+                          ) : null}
+                          {Number(productUsageById[String(product.id)] || 0) >= 3 ? (
+                            <span className="rounded-full border border-[#1C5036] bg-[#0F2119] px-2 py-0.5 text-[10px] font-medium text-[#7CE0A9]">
+                              Muy usado
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      {availabilityTargetAt && availabilityByProductId.get(product.id)?.message ? (
+                        <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">
+                          {availabilityByProductId.get(product.id)?.message}
+                        </div>
+                      ) : null}
+                      <div className="mt-2 text-[10px] uppercase tracking-[0.18em] text-[#6F7890]">
+                        Enter para elegir
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          {selectedProduct && availabilityTargetAt ? (
+            <div className={`rounded-[16px] border px-3.5 py-3 text-sm ${availabilityTone(availabilityByProductId.get(selectedProduct.id) ?? null)}`}>
+              <div className="font-semibold">
+                {availabilityLoading ? 'Consultando inventario…' : availabilityLabel(availabilityByProductId.get(selectedProduct.id) ?? null)}
+              </div>
+              <div className="mt-1 text-xs leading-5 opacity-90">
+                {availabilityByProductId.get(selectedProduct.id)?.message
+                  ?? 'La lectura no está disponible; puedes continuar y Máster revisará la solicitud.'}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-[1fr_156px] gap-2">
+            <div className="rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+              {selectedProduct ? selectedProduct.name : 'Selecciona producto'}
+            </div>
+            <div className="grid grid-cols-[44px_minmax(52px,1fr)_44px] gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const currentQty = parseQuantityValue(qty);
+                  const baseQty = Number.isFinite(currentQty) && currentQty > 0 ? currentQty : 1;
+                  updateQty(formatQuantityValue(Math.max(0.5, baseQty - 0.5)));
+                }}
+                className="h-11 rounded-[16px] border border-[#232632] bg-[#0F131B] text-base font-semibold text-[#F5F7FB]"
+              >
+                -
+              </button>
+              <input
+                value={qty}
+                onChange={(e) => updateQty(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addDraftItem();
+                  }
+                }}
+                className="h-11 min-w-0 w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80]"
+                inputMode="decimal"
+                placeholder="0.50"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const currentQty = parseQuantityValue(qty);
+                  const baseQty = Number.isFinite(currentQty) && currentQty > 0 ? currentQty : 0;
+                  updateQty(formatQuantityValue(baseQty + 0.5));
+                }}
+                className="h-11 rounded-[16px] border border-[#232632] bg-[#0F131B] text-base font-semibold text-[#F5F7FB]"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {selectedProduct ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => toggleFavoriteProduct(selectedProduct.id)}
+                className={[
+                  'inline-flex h-8 items-center rounded-full px-3 text-[11px] font-medium',
+                  favoriteProductIds.includes(selectedProduct.id)
+                    ? 'border border-[#564511] bg-[#2A2209] text-[#F7DA66]'
+                    : 'border border-[#232632] bg-[#0F131B] text-[#AAB2C5]',
+                ].join(' ')}
+              >
+                {favoriteProductIds.includes(selectedProduct.id) ? '★ Favorito' : '☆ Fav'}
+              </button>
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={addDraftItem}
+            disabled={catalogGiftLoading || crmContextLoading}
+            className={[
+              'h-10 rounded-[14px] text-sm font-medium',
+              itemJustAdded
+                ? 'bg-[#163322] text-[#7CE0A9]'
+                : selectedProduct
+                  ? 'bg-[#F0D000] text-[#17191E]'
+                  : 'border border-[#232632] text-[#F5F7FB]',
+            ].join(' ')}
+          >
+            {catalogGiftLoading ? 'Comprobando jugada…' : itemJustAdded ? 'Item agregado' : 'Confirmar item'}
+          </button>
+
+          {catalogGiftChoices.length > 1 ? (
+            <div className="rounded-xl border border-[#564511] p-2 text-sm" aria-label="Elegir jugada para el obsequio">
+              <p>¿A qué jugada corresponde?</p>
+              {catalogGiftChoices.map((choice) => (
+                <button key={`${choice.context.playMemberId}-${choice.benefitId}-${choice.upgradeId}`} type="button"
+                  className="m-1 rounded-lg border border-[#564511] px-3 py-2 text-[#FFF18B]"
+                  onClick={() => applyCatalogGiftChoice(choice)}>{choice.context.playName} · {choice.context.benefits.find((b) => b.playBenefitId === choice.benefitId)?.name}</button>
+              ))}
+            </div>
+          ) : null}
+
+          <MuerdemeOrderPicker edit={muerdemeEdit} onEditDone={() => setMuerdemeEdit(null)} disabled={saving} onAdd={quote => {
+            const item: DraftItem = {
+              localId: muerdemeEdit?.key ?? crypto.randomUUID(), product_id: quote.productId, product_type: 'product',
+              sku_snapshot: null, product_name_snapshot: quote.title, units_per_service: 0, qty: 1,
+              source_price_currency: 'USD', source_price_amount: quote.unitUsd, unit_price_usd_snapshot: quote.unitUsd,
+              line_total_usd: quote.unitUsd, editable_detail_lines: menuQuoteDetailLines(quote),
+            };
+            setDraftItems(current => muerdemeEdit ? current.map(row => row.localId === muerdemeEdit.key ? { ...item, persistedOrderItemId: row.persistedOrderItemId } : row) : [...current, item]);
+            setMuerdemeEdit(null);
+          }} />
+          {draftItems.length === 0 ? (
+            <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
+              Agrega al menos un producto para activar el pedido.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {advisorEditHasCatalogPriceDrift ? (
+                <div className="rounded-[18px] border border-[#564511] bg-[#151208] px-3.5 py-3 text-sm text-[#F7DA66]">
+                  <div className="font-semibold text-[#F5F7FB]">Recalculo requerido</div>
+                  <div className="mt-1 text-xs leading-5 text-[#D8C36A]">
+                    Hay precios del catalogo actualizados en este pedido. Recalcula antes de guardar para generar un snapshot nuevo.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRecalculateDraftPricesFromCatalog}
+                    className="mt-3 h-9 rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
+                  >
+                    Recalcular precios
+                  </button>
+                </div>
+              ) : null}
+
+              {rewardLoadError ? <p role="alert" className="text-xs text-amber-200">{rewardLoadError}</p> : null}
+              {displayDraftItems.map(({ item, index }) => {
+                const snapshot = draftItemSnapshots[index];
+                const catalogProduct = productById.get(item.product_id);
+                const itemIsConfigurable = hasMenuOrderDetails(item.editable_detail_lines) || Boolean(catalogProduct?.is_detail_editable)
+                  || productComponents.some((row) =>
+                    row.parent_product_id === item.product_id
+                    && (row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required))
+                  );
+                const unitBs =
+                  snapshot?.unitBs ??
+                  (item.source_price_currency === 'VES'
+                    ? Number(item.source_price_amount || 0)
+                    : Number(item.unit_price_usd_snapshot || 0) * fxRateNumber);
+                const lineBs =
+                  snapshot?.lineBs ??
+                  (item.source_price_currency === 'VES'
+                    ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
+                    : Number(item.line_total_usd || 0) * fxRateNumber);
+                const isProtectedCrmBenefit = Boolean(
+                  isEditingOrder
+                  && item.persistedOrderItemId
+                  && item.crm_benefit?.redemptionStatus === 'redeemed'
+                );
+                const isReservedCrmBenefit = Boolean(
+                  isEditingOrder
+                  && item.persistedOrderItemId
+                  && item.crm_benefit?.redemptionStatus === 'reserved'
+                );
+
+                return (
+                <div key={item.localId} className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[#F5F7FB]">{item.product_name_snapshot}</div>
+                      <div className="mt-1 text-xs text-[#8B93A7]">
+                        {item.qty} x {formatBs(unitBs)}
+                      </div>
+                    </div>
+                    <div className="text-sm font-medium text-[#F0D000]">
+                      {item.crm_benefit && crmPurchaseEligible && lineBs <= 0.01 ? 'Incluido' : formatBs(lineBs)}
+                    </div>
+                  </div>
+
+                  {!item.crm_benefit && item.product_type!=='gambit' && !hasMenuOrderDetails(item.editable_detail_lines) ? <RewardLineSelector
+                    grants={rewardGrants} productId={item.product_id} quantity={item.qty}
+                    grossUsd={calculateOrderLineSnapshot({sourceCurrency:item.source_price_currency,sourceAmount:item.source_price_amount,quantity:item.qty,fxRate:fxRateNumber}).lineUsd}
+                    funding={item.reward} available={grant=>rewardDraftAvailable(grant,draftItems,rewardOrderReserved[grant.id]??0)}
+                    personalClient={selectedClient?.id===rewardPersonalClientId} disabled={Boolean(rewardLoadError)}
+                    onChange={reward=>setDraftItems(current=>current.map(row=>row.localId===item.localId?{...row,reward,persistedOrderItemId:undefined}:row))}
+                  /> : null}
+
+                  {getVisibleDetailLines(item.editable_detail_lines).length > 0 ? (
+                    <div className="mt-2 space-y-1 rounded-[14px] bg-[#0B0F15] px-3 py-2 text-xs text-[#AAB2C5]">
+                      {getVisibleDetailLines(item.editable_detail_lines).map((line, index) => (
+                        <div key={`${item.localId}-${index}`}>- {line}</div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {availabilityTargetAt && availabilityByProductId.get(item.product_id)?.requires_master_review ? (
+                    <div className="mt-2 rounded-[12px] border border-[#564511] bg-[#151208] px-3 py-2 text-xs leading-5 text-[#F7DA66]">
+                      {availabilityByProductId.get(item.product_id)?.message}
+                      <div className="mt-1 font-semibold">La orden puede enviarse; Máster tomará la decisión final.</div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 flex gap-2">
+                    {itemIsConfigurable && !isProtectedCrmBenefit ? (
+                      <button type="button" onClick={() => openEditConfig(item)} className="h-9 rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]">
+                        Editar
+                      </button>
+                    ) : null}
+                    {isProtectedCrmBenefit ? (
+                      <span className="inline-flex h-9 items-center rounded-[12px] border border-[#275B46] bg-[#0D1E18] px-3 text-xs font-medium text-[#7CE0A9]">
+                        Beneficio entregado
+                      </span>
+                    ) : (
+                      <>
+                        {isReservedCrmBenefit ? (
+                          <span className="inline-flex h-9 items-center rounded-[12px] border border-[#66551A] bg-[#231E0C] px-3 text-xs font-medium text-[#F7DA66]">
+                            Reservado
+                          </span>
+                        ) : null}
+                        <button type="button" onClick={() => removeDraftItem(item.localId)} className="h-9 rounded-[12px] border border-[#5E2229] px-3 text-xs font-medium text-[#F0A6AE]">
+                          Quitar
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                );
+              })}
+
+              {fulfillment === 'delivery' && !hasDeliveryItem ? (
+                <div className="rounded-[18px] border border-[#564511] bg-[#151208] px-3.5 py-3 text-sm text-[#F7DA66]">
+                  Este pedido es delivery. Agrega tambien el item de delivery antes de copiar o crear la orden.
+                </div>
+              ) : null}
+
+              <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <Field
+                    label={
+                      advisorRecalculationMode
+                        ? 'Tasa de recálculo (Bs/USD)'
+                        : fxRateLockedForAdvisorEdit
+                          ? 'Tasa snapshot (Bs/USD)'
+                          : 'Tasa del dia (Bs/USD)'
+                    }
+                  >
+                    <input
+                      value={fxRate}
+                      onChange={(e) => setFxRate(e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      disabled={fxRateLockedForAdvisorEdit}
+                      className={`${inputClass()} disabled:cursor-not-allowed disabled:opacity-70`}
+                      inputMode="decimal"
+                      placeholder="0"
+                    />
+                    {fxRateLockedForAdvisorEdit ? (
+                      <div className="mt-1 text-[11px] text-[#8B93A7]">
+                        La correccion de esta tasa la hace master/admin.
+                      </div>
+                    ) : advisorRecalculationMode ? (
+                      <div className="mt-1 text-[11px] text-[#8B93A7]">
+                        Esta orden fue devuelta para recalcular; al guardar queda esta tasa como nuevo snapshot.
+                      </div>
+                    ) : null}
+                  </Field>
+
+                  <label className="flex items-end gap-3 rounded-[16px] border border-[#232632] bg-[#12151d] px-3.5 py-3 text-sm text-[#F5F7FB]">
+                    <input
+                      type="checkbox"
+                      checked={discountEnabled}
+                      onChange={(e) => {
+                        setDiscountEnabled(e.target.checked);
+                        if (!e.target.checked) setDiscountPct('0');
+                      }}
+                    />
+                    <span>Aplicar descuento</span>
+                  </label>
+                </div>
+
+                {discountEnabled ? (
+                  <Field label="% Descuento">
+                    <input
+                      value={discountPct}
+                      onChange={(e) => setDiscountPct(e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className={inputClass()}
+                      inputMode="decimal"
+                      placeholder="0"
+                    />
+                  </Field>
+                ) : null}
+
+                <div className="grid gap-2 text-sm text-[#AAB2C5]">
+                  <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                    <span>Subtotal USD</span>
+                    <span className="text-[#F5F7FB]">{formatUsd(draftTotalUsd)}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                    <span>Subtotal Bs</span>
+                    <span className="text-[#F5F7FB]">{fxRateNumber > 0 ? formatBs(draftSubtotalBs) : 'Define la tasa'}</span>
+                  </div>
+                  {discountEnabled ? (
+                    <>
+                      <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                        <span>Descuento USD</span>
+                        <span className="text-[#F5F7FB]">-{formatUsd(discountAmountUsd)}</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                        <span>Descuento Bs</span>
+                        <span className="text-[#F5F7FB]">-{fxRateNumber > 0 ? formatBs(discountAmountBs) : 'Define la tasa'}</span>
+                      </div>
+                    </>
+                  ) : null}
+                  {hasInvoice ? (
+                    <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                      <span>IVA</span>
+                      <span className="text-[#F5F7FB]">
+                        {formatUsd(invoiceTaxAmountUsd)}
+                        {fxRateNumber > 0 ? ` / ${formatBs(invoiceTaxAmountBs)}` : ''}
+                      </span>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                    <span>Total</span>
+                    <span className="font-semibold text-[#F0D000]">
+                      {formatUsd(finalTotalUsd)}
+                      {fxRateNumber > 0 ? ` / ${formatBs(finalTotalBs)}` : ''}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </Section>
+
+        <Section title="4. Entrega" subtitle="Define retiro o delivery y los datos de recepción.">
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setFulfillment('pickup')} className={['h-10 rounded-[14px] border px-4 text-sm font-medium', fulfillment === 'pickup' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
+              Retiro
+            </button>
+            <button type="button" onClick={() => setFulfillment('delivery')} className={['h-10 rounded-[14px] border px-4 text-sm font-medium', fulfillment === 'delivery' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
+              Delivery
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Recibe">
+              <input value={receiverName} onChange={(e) => setReceiverName(e.target.value)} className={inputClass()} placeholder="Nombre" />
+            </Field>
+            <Field label="Telefono">
+              <input value={receiverPhone} onChange={(e) => setReceiverPhone(e.target.value)} className={inputClass()} placeholder="Contacto" />
+            </Field>
+          </div>
+
+          {fulfillment === 'delivery' ? (
+            <>
+              {quickAddresses.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {quickAddresses.map((address, index) => (
+                    <button
+                      key={`${address.addressText}-${index}`}
+                      type="button"
+                      onClick={() => applyClientAddress(address)}
+                      className={[
+                        'max-w-full rounded-[14px] border px-3 py-2 text-left',
+                        deliveryAddress.trim() === address.addressText.trim()
+                          ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
+                          : 'border-[#232632] bg-[#0F131B] text-[#F5F7FB]',
+                      ].join(' ')}
+                    >
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8B93A7]">
+                        {index === 0 ? 'Sugerida' : `Direccion ${index + 1}`}
+                      </div>
+                      <div className="mt-1 text-sm">{compactAddressLabel(address.addressText || 'Sin direccion')}</div>
+                      {address.gpsUrl ? <div className="mt-1 text-[11px] text-[#8B93A7]">Con GPS</div> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <Field label="Direccion" hint="Solo este campo puede crecer mas cuando haga falta.">
+                <textarea
+                  value={deliveryAddress}
+                  onChange={(e) => {
+                    setDeliveryAddressTouched(true);
+                    setDeliveryAddress(e.target.value);
+                  }}
+                  className={inputClass(true)}
+                  placeholder="Direccion completa"
+                />
+              </Field>
+              <Field label="GPS URL">
+                <input
+                  value={deliveryGpsUrl}
+                  onChange={(e) => {
+                    setDeliveryAddressTouched(true);
+                    setDeliveryGpsUrl(e.target.value);
+                  }}
+                  className={inputClass()}
+                  placeholder="Link de ubicacion"
+                />
+              </Field>
+            </>
+          ) : null}
+        </Section>
+
+        <Section title="4. Pago y notas" subtitle="Misma operacion base de master, sin ruido extra.">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Forma de pago">
+              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)} className={inputClass()}>
+                <option value="pending">Pendiente</option>
+                <option value="payment_mobile">Pago móvil</option>
+                <option value="transfer">Transferencia</option>
+                <option value="cash_usd">Efectivo USD</option>
+                <option value="cash_ves">Efectivo Bs</option>
+                <option value="pos">Punto de venta</option>
+                <option value="zelle">Zelle</option>
+                <option value="wallet_usd">Wallet USD</option>
+                <option value="mixed">Mixto</option>
+              </select>
+            </Field>
+            <Field label="Moneda principal">
+              <select value={paymentCurrency} onChange={(e) => setPaymentCurrency(e.target.value as CurrencyCode)} className={inputClass()} disabled={paymentMethod !== 'mixed'}>
+                <option value="USD">USD</option>
+                <option value="VES">Bs</option>
+              </select>
+            </Field>
+          </div>
+
+          <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+            <input type="checkbox" checked={paymentRequiresChange} onChange={(e) => setPaymentRequiresChange(e.target.checked)} />
+            <span>Requiere cambio</span>
+          </label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+              <input
+                type="checkbox"
+                checked={hasDeliveryNote}
+                onChange={(e) => {
+                  setHasDeliveryNote(e.target.checked);
+                  setDeliveryNotePanelOpen(e.target.checked);
+                  if (!e.target.checked) {
+                    setDeliveryNoteName('');
+                    setDeliveryNoteDocumentId('');
+                    setDeliveryNoteAddress('');
+                    setDeliveryNotePhone('');
+                  }
+                }}
+              />
+              <span>Lleva nota de entrega</span>
+            </label>
+
+            <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+              <input
+                type="checkbox"
+                checked={hasInvoice}
+                onChange={(e) => {
+                  setHasInvoice(e.target.checked);
+                  setInvoicePanelOpen(e.target.checked);
+                  if (e.target.checked && !String(invoiceTaxPct || '').trim()) {
+                    setInvoiceTaxPct('16');
+                  }
+                  if (!e.target.checked) {
+                    setInvoiceCompanyName('');
+                    setInvoiceTaxId('');
+                    setInvoiceAddress('');
+                    setInvoicePhone('');
+                    setInvoiceTaxPct('16');
+                  }
+                }}
+              />
+              <span>Lleva factura</span>
+            </label>
+          </div>
+
+          {paymentRequiresChange ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Cambio para">
+                <input value={paymentChangeFor} onChange={(e) => setPaymentChangeFor(e.target.value)} className={inputClass()} inputMode="decimal" placeholder="Monto" />
+              </Field>
+              <Field label="Moneda del cambio">
+                <select value={paymentChangeCurrency} onChange={(e) => setPaymentChangeCurrency(e.target.value as CurrencyCode)} className={inputClass()}>
+                  <option value="USD">USD</option>
+                  <option value="VES">Bs</option>
+                </select>
+              </Field>
+            </div>
+          ) : null}
+
+          {hasInvoice ? (
+            <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <button
+                type="button"
+                onClick={() => setInvoicePanelOpen((current) => !current)}
+                className="flex items-center justify-between text-left"
+              >
+                <div>
+                  <div className="text-sm font-medium text-[#F5F7FB]">Datos de factura</div>
+                  <div className="mt-1 text-xs text-[#8B93A7]">
+                    {invoiceCompanyName.trim() || invoiceTaxId.trim() ? 'Con datos cargados' : 'Toca para completar'}
+                  </div>
+                </div>
+                <span className="text-xs text-[#AAB2C5]">{invoicePanelOpen ? 'Ocultar' : 'Abrir'}</span>
+              </button>
+              {invoicePanelOpen ? (
+                <>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Nombre o razon social">
+                  <input value={invoiceCompanyName} onChange={(e) => setInvoiceCompanyName(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="RIF o documento">
+                  <input value={invoiceTaxId} onChange={(e) => setInvoiceTaxId(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="Telefono">
+                  <input value={invoicePhone} onChange={(e) => setInvoicePhone(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="% IVA">
+                  <input
+                    value={invoiceTaxPct}
+                    onChange={(e) => setInvoiceTaxPct(e.target.value)}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className={inputClass()}
+                    inputMode="decimal"
+                  />
+                </Field>
+              </div>
+              <Field label="Direccion fiscal">
+                <textarea value={invoiceAddress} onChange={(e) => setInvoiceAddress(e.target.value)} className={inputClass(true)} />
+              </Field>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
+          {hasDeliveryNote ? (
+            <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <button
+                type="button"
+                onClick={() => setDeliveryNotePanelOpen((current) => !current)}
+                className="flex items-center justify-between text-left"
+              >
+                <div>
+                  <div className="text-sm font-medium text-[#F5F7FB]">Datos de nota de entrega</div>
+                  <div className="mt-1 text-xs text-[#8B93A7]">
+                    {deliveryNoteName.trim() || deliveryNoteDocumentId.trim() ? 'Con datos cargados' : 'Toca para completar'}
+                  </div>
+                </div>
+                <span className="text-xs text-[#AAB2C5]">{deliveryNotePanelOpen ? 'Ocultar' : 'Abrir'}</span>
+              </button>
+              {deliveryNotePanelOpen ? (
+                <>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Nombre">
+                  <input value={deliveryNoteName} onChange={(e) => setDeliveryNoteName(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="Documento">
+                  <input value={deliveryNoteDocumentId} onChange={(e) => setDeliveryNoteDocumentId(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="Telefono">
+                  <input value={deliveryNotePhone} onChange={(e) => setDeliveryNotePhone(e.target.value)} className={inputClass()} />
+                </Field>
+              </div>
+              <Field label="Direccion">
+                <textarea value={deliveryNoteAddress} onChange={(e) => setDeliveryNoteAddress(e.target.value)} className={inputClass(true)} />
+              </Field>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
+          {(hasInvoice || hasDeliveryNote) && selectedClient ? (
+            <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#AAB2C5]">
+              {hasInvoice ? (
+                <div>
+                  <span className="text-[#F5F7FB]">Factura:</span>{' '}
+                  {[invoiceCompanyName.trim(), invoiceTaxId.trim(), invoiceAddress.trim(), invoicePhone.trim()]
+                    .filter(Boolean)
+                    .join(' | ') || 'Sin datos'}
+                </div>
+              ) : null}
+              {hasDeliveryNote ? (
+                <div className={hasInvoice ? 'mt-2' : ''}>
+                  <span className="text-[#F5F7FB]">Nota de entrega:</span>{' '}
+                  {[
+                    deliveryNoteName.trim(),
+                    deliveryNoteDocumentId.trim(),
+                    deliveryNoteAddress.trim(),
+                    deliveryNotePhone.trim(),
+                  ]
+                    .filter(Boolean)
+                    .join(' | ') || 'Sin datos'}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <Field label="Nota de pago">
+            <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} className={inputClass()} placeholder="Referencia o acuerdo" />
+          </Field>
+
+          <Field label="Observaciones del pedido">
+            <textarea value={orderNote} onChange={(e) => setOrderNote(e.target.value)} className={inputClass(true)} placeholder="Notas operativas utiles" />
+          </Field>
+        </Section>
+
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[#1A1D26] bg-[#090B10] px-3 pb-[calc(0.45rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-10px_24px_rgba(0,0,0,0.38)]">
+          <div className="mx-auto flex max-w-screen-md items-center justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-[#8B93A7]">Total</span>
+                <span className="text-base font-semibold leading-none text-[#F5F7FB]">{formatUsd(finalTotalUsd)}</span>
+              </div>
+              <div className="mt-1 truncate text-[11px] leading-tight text-[#8B93A7]">
+                {fxRateNumber > 0 ? formatBs(finalTotalBs) : 'Falta tasa'} · {footerSummary}
+              </div>
+              <div className="truncate text-[10px] leading-tight text-[#6F7890]">{createReadyHint}</div>
+            </div>
+            <div className="grid shrink-0 grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:justify-end">
+              {!isEditingOrder ? (
+                <button
+                  type="button"
+                  onClick={() => void saveCurrentDraft('draft')}
+                  aria-busy={savingDraft}
+                  data-busy={savingDraft ? 'true' : undefined}
+                  disabled={savingDraft || copyingQuote || saving || !canSaveCurrentDraft()}
+                  className={[
+                    'h-9 rounded-[12px] border px-2.5 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                    savingDraft || copyingQuote || saving || !canSaveCurrentDraft()
+                      ? 'border-[#232632] text-[#6F7890]'
+                      : 'border-[#2A3040] text-[#F5F7FB]',
+                  ].join(' ')}
+                >
+                  {savingDraft ? 'Guardando...' : 'Guardar'}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void handleCopyQuote()}
+                aria-busy={copyingQuote}
+                data-busy={copyingQuote ? 'true' : undefined}
+                disabled={copyingQuote || savingDraft || saving || draftItems.length === 0}
+                className={[
+                  'h-9 rounded-[12px] border px-2.5 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                  copyingQuote || savingDraft || saving || draftItems.length === 0
+                    ? 'border-[#232632] text-[#6F7890]'
+                    : 'border-[#232632] text-[#F5F7FB]',
+                ].join(' ')}
+              >
+                {copyingQuote ? 'Copiando...' : 'Presup. WS'}
+              </button>
+              <button
+                type="submit"
+                aria-busy={saving}
+                data-busy={saving ? 'true' : undefined}
+                disabled={saving || savingDraft || !createReady}
+                className={[
+                  'col-span-2 h-9 rounded-[12px] px-3 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed sm:col-span-1',
+                  saving || savingDraft || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+                ].join(' ')}
+              >
+                {saving ? 'Guardando...' : isEditingOrder ? 'Guardar' : 'Crear'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <ConfigSheet
+        open={configOpen}
+        title={configProduct?.name || 'Configurar producto'}
+        alias={configAlias}
+        setAlias={setConfigAlias}
+        totalSelected={configSelectedUnits}
+        totalLimit={configTotalLimit}
+        options={configOptions}
+        selections={configSelections}
+        onChangeQty={setConfigSelectionQty}
+        onClose={resetConfig}
+        onConfirm={confirmConfig}
+        isEditing={!!configEditingLocalId}
+      />
+    </>
+  );
+}
+

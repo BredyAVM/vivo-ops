@@ -1,0 +1,2261 @@
+'use client';
+import WorkspaceForm from '@/components/navigation/WorkspaceForm';
+
+import Link from '@/components/navigation/ContextLink';
+import BackLink from '@/components/navigation/BackLink';
+import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
+import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
+import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
+import { workflowPresentation } from '@/lib/crm/play-member-presentation';
+import NoApplyRequestsPanel, { type NoApplyReviewRow } from './NoApplyRequestsPanel';
+import { readOfferRestMode, type OfferRestMode } from '@/lib/crm/offer-rest';
+import { type PurchasedProductMode, type PurchasedProductScope } from '@/lib/crm/purchased-products';
+import { groupPlaysByMonth, isPlayCurrentlyActive, playDateInput, type PlayListFilter } from '@/lib/crm/play-dates';
+import { ModulePreference } from '../../ModulePreference';
+import {
+  addManualPlayMemberAction,
+  amendPublishedPlayMessageAction,
+  activatePlayAction,
+  changePlayLifecycleAction,
+  clonePlayAction,
+  clonePlayForNextPeriodAction,
+  confirmPlayListAction,
+  deleteDraftPlayAction,
+  excludePublishedPlayAdvisorAction,
+  excludePlayClientAction,
+  generatePlayListAction,
+  removePublishedPlayClientAction,
+  reopenPlayDesignAction,
+  revisePlayAudienceAction,
+  testPlayDefinitionAction,
+  type PlayActionResult,
+  type PlayAudiencePreview,
+  type PlayAnniversaryMode,
+  type PlayBenefitSelectionMode,
+  type PlayBenefitStackPolicy,
+  type PlayFulfillmentFilter,
+  type PlayKind,
+  type PlayOverlapPolicy,
+  type PlayPurchaseRequirementMode,
+  type SavePlayDraftInput,
+} from './actions';
+
+export type PlayBenefit = {
+  id: number;
+  name: string;
+  sku: string | null;
+  type: string;
+  referenceValueUsd: number;
+  referenceAdvisorCostUsd: number;
+  referenceCompanyCostUsd: number;
+};
+
+export type MasterPlay = {
+  id: number;
+  seriesKey: string;
+  version: number;
+  name: string;
+  description: string | null;
+  advisorGuidance: string | null;
+  messageTemplate: string | null;
+  status: 'draft' | 'frozen' | 'active' | 'paused' | 'closed' | 'cancelled';
+  rules: Record<string, unknown>;
+  summary: Record<string, unknown>;
+  metricWindow: number;
+  giftProductId: number;
+  giftQuantity: number;
+  plannedBudgetUsd: number | null;
+  benefitSelectionMode: PlayBenefitSelectionMode;
+  purchaseRequirementMode: PlayPurchaseRequirementMode;
+  minimumOrderAmountUsd: number | null;
+  recurrenceMode: 'once' | 'daily';
+  benefitFulfillment: 'any' | 'pickup' | 'delivery_zone_1';
+  overlapPolicy: PlayOverlapPolicy;
+  compatiblePlayIds: number[];
+  benefitStackPolicy: PlayBenefitStackPolicy;
+  evaluationWindowDays: number;
+  copiedFromPlayId: number | null;
+  pricingExchangeRateVesPerUsd: number | null;
+  pricingSnapshotAt: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  snapshotAt: string | null;
+  activatedAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  benefits: Array<{
+    id: number;
+    productId: number;
+    quantity: number;
+    unitBenefitValueUsd: number;
+    unitAdvisorCostUsd: number;
+    unitCompanyCostUsd: number;
+    sortOrder: number;
+    name: string;
+    sku: string | null;
+    upgrades: Array<{
+      id: number;
+      productId: number;
+      quantity: number;
+      sortOrder: number;
+      customerDifferenceUsd: number | null;
+      name: string;
+      sku: string | null;
+    }>;
+  }>;
+};
+
+export type MasterPlayMember = {
+  id: number;
+  playId: number;
+  clientId: number;
+  advisorId: string | null;
+  clientName: string;
+  clientPhone: string | null;
+  advisorName: string;
+  firstPurchaseOn: string | null;
+  lastPurchaseOn: string | null;
+  purchaseCount: number;
+  netRevenueUsd: number;
+  averageTicketUsd: number | null;
+  lastGiftOn: string | null;
+  daysSinceLastPurchase: number | null;
+  workflowStatus: string;
+  benefitStatus: string;
+  contactedAt: string | null;
+  respondedAt: string | null;
+  playLaunchedAt: string | null;
+  followUpDue: boolean;
+  noApplyStatus?: 'pending' | 'approved' | 'rejected' | null;
+};
+
+export type PlayAdvisorOption = {
+  id: string;
+  name: string;
+};
+
+export type ManualPlayClientSuggestion = {
+  clientId: number;
+  fullName: string;
+  phone: string | null;
+  primaryAdvisorId: string | null;
+  primaryAdvisorName: string | null;
+  currentWorkflowStatus: string | null;
+};
+
+export type PlayAmendment = {
+  id: number;
+  type: 'message_updated' | 'member_added' | 'member_removed' | 'advisor_excluded' | 'criteria_corrected' | 'design_reopened' | 'audience_revised';
+  clientId: number | null;
+  clientName: string | null;
+  advisorId: string | null;
+  advisorName: string | null;
+  reason: string;
+  actorName: string;
+  createdAt: string;
+};
+
+export type MasterPlayMonitorSummary = {
+  totalMembers: number;
+  pendingMembers: number;
+  contactedMembers: number;
+  launchedMembers: number;
+  respondedMembers: number;
+  noResponseMembers: number;
+  redeemedMembers: number;
+  expiredMembers: number;
+  redemptionOrders: number;
+  contactRatePct: number;
+  launchRatePct: number;
+  responseRatePct: number;
+  redemptionRatePct: number;
+  benefitCreditUsd: number;
+  advisorChargeUsd: number;
+  companyCostUsd: number;
+  customerPaidDifferenceUsd: number;
+  directOrderRevenueUsd: number;
+  respondedWithoutRedemptionMembers: number;
+  postContactPurchaseMembers: number;
+  cadenceImprovedMembers: number;
+  comparableCadenceMembers: number;
+  cadenceImprovementRatePct: number;
+  evaluationPendingMembers: number;
+  postContactRevenueUsd: number;
+  comparableBaselineCadenceDays: number;
+  comparablePostCadenceDays: number;
+  overdueFollowUps: number;
+  advisors: MasterPlayAdvisorMonitor[];
+};
+
+export type MasterPlayAdvisorMonitor = {
+  advisorId: string | null;
+  advisorName: string;
+  totalMembers: number;
+  pendingMembers: number;
+  contactedMembers: number;
+  launchedMembers: number;
+  respondedMembers: number;
+  noResponseMembers: number;
+  redeemedMembers: number;
+  expiredMembers: number;
+  overdueFollowUps: number;
+  contactRatePct: number;
+  launchRatePct: number;
+  responseRatePct: number;
+  lastActivityAt: string | null;
+};
+
+type Props = {
+  today: string;
+  roles: string[];
+  plays: MasterPlay[];
+  selectedPlay: MasterPlay | null;
+  benefits: PlayBenefit[];
+  historyProducts: Array<{ id: number; name: string; sku: string | null; active: boolean }>;
+  members: MasterPlayMember[];
+  memberCount: number;
+  memberPage: number;
+  memberPageSize: number;
+  memberSearch: string;
+  monitorSummary: MasterPlayMonitorSummary | null;
+  activeAdvisors: PlayAdvisorOption[];
+  manualClientSearch: string;
+  manualClientSuggestions: ManualPlayClientSuggestion[];
+  amendments: PlayAmendment[];
+  noApplyRequests: NoApplyReviewRow[];
+};
+
+type Notice = { tone: 'success' | 'error' | 'info'; text: string } | null;
+
+const KIND_LABELS: Record<PlayKind, string> = {
+  anniversary: 'Aniversario',
+  loyalty: 'Fidelidad',
+  new_client: 'Cliente nuevo',
+  reconnect: 'Reconexión',
+  seasonal: 'Temporada',
+  custom: 'Personalizada',
+};
+
+const STATUS_PRESENTATION: Record<MasterPlay['status'], { label: string; badge: string; dot: string }> = {
+  draft: { label: 'Diseño', badge: 'border-slate-500/30 bg-slate-500/10 text-slate-300', dot: 'bg-slate-400' },
+  frozen: { label: 'Lista confirmada', badge: 'border-amber-400/35 bg-amber-400/10 text-amber-200', dot: 'bg-amber-300' },
+  active: { label: 'Compartida', badge: 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200', dot: 'bg-emerald-300' },
+  paused: { label: 'Pausada', badge: 'border-orange-400/35 bg-orange-400/10 text-orange-200', dot: 'bg-orange-300' },
+  closed: { label: 'Cerrada', badge: 'border-blue-400/35 bg-blue-400/10 text-blue-200', dot: 'bg-blue-300' },
+  cancelled: { label: 'Cancelada', badge: 'border-red-400/35 bg-red-400/10 text-red-200', dot: 'bg-red-300' },
+};
+
+const moneyFormatter = new Intl.NumberFormat('es-VE', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
+const dateFormatter = new Intl.DateTimeFormat('es-VE', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'America/Caracas',
+});
+
+const dateTimeFormatter = new Intl.DateTimeFormat('es-VE', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'America/Caracas',
+});
+
+function numberValue(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function stringValue(value: unknown) {
+  return value == null ? '' : String(value);
+}
+
+function optionalNumberString(value: unknown) {
+  if (value == null || value === '') return '';
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? String(parsed) : '';
+}
+
+function caracasToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'America/Caracas',
+  }).formatToParts(new Date());
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function endOfMonth(dateKey: string) {
+  const [year, month] = dateKey.split('-').map(Number);
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+}
+
+function previousMonthRange(dateKey: string) {
+  const [year, month] = dateKey.split('-').map(Number);
+  const previous = new Date(Date.UTC(year, month - 2, 1));
+  const previousYear = previous.getUTCFullYear();
+  const previousMonth = previous.getUTCMonth() + 1;
+  const from = `${previousYear}-${String(previousMonth).padStart(2, '0')}-01`;
+  return { from, to: endOfMonth(from) };
+}
+
+function monthInput(value: string | null | undefined) {
+  if (!value) return '';
+  const match = value.match(/^\d{4}-\d{2}/);
+  return match?.[0] ?? '';
+}
+
+function monthStart(value: string) {
+  return /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : '';
+}
+
+function monthEnd(value: string) {
+  const start = monthStart(value);
+  return start ? endOfMonth(start) : '';
+}
+
+function dateLabel(value: string | null) {
+  if (!value) return '—';
+  const parsed = new Date(value.length === 10 ? `${value}T12:00:00-04:00` : value);
+  return Number.isNaN(parsed.getTime()) ? value : dateFormatter.format(parsed);
+}
+
+function pageHref(playId: number, page: number, search: string) {
+  const params = new URLSearchParams({ play: String(playId) });
+  if (page > 1) params.set('page', String(page));
+  if (search.trim()) params.set('q', search.trim());
+  return `/app/master/plays?${params.toString()}`;
+}
+
+function summaryNumber(play: MasterPlay | null, key: string) {
+  return Math.max(0, Math.trunc(numberValue(play?.summary?.[key], 0)));
+}
+
+function summaryAmount(play: MasterPlay | null, key: string) {
+  const raw = play?.summary?.[key];
+  if (raw == null || raw === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function advisorBreakdown(play: MasterPlay | null) {
+  const raw = play?.summary?.by_advisor;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const row = item as Record<string, unknown>;
+    return [{
+      id: stringValue(row.advisor_id),
+      name: stringValue(row.advisor_name) || 'Asesor',
+      count: Math.max(0, Math.trunc(numberValue(row.count, 0))),
+    }];
+  });
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-[#B7B7C2]">
+        <span>{label}</span>
+        {hint ? <span className="font-normal text-[#9B9BA7]">{hint}</span> : null}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const inputClass = 'h-9 w-full rounded-xl border border-[#2A2A35] bg-[#0B0B0D] px-3 text-xs text-[#F5F5F7] outline-none transition placeholder:text-[#5F5F6D] focus:border-[#FFFF00]/70';
+const buttonSecondary = 'inline-flex h-9 items-center justify-center rounded-xl border border-[#343440] bg-[#121218] px-3 text-xs font-semibold text-[#D1D1DA] transition hover:border-[#FFFF00]/50 disabled:cursor-not-allowed disabled:opacity-45';
+const buttonPrimary = 'inline-flex h-9 items-center justify-center rounded-xl bg-[#FFFF00] px-4 text-xs font-bold text-[#0B0B0D] transition hover:bg-[#FFF45A] disabled:cursor-not-allowed disabled:opacity-45';
+
+function PlayProgress({ status, hasPreview }: { status: MasterPlay['status']; hasPreview: boolean }) {
+  const stage = status === 'draft' ? (hasPreview ? 2 : 1) : status === 'frozen' ? 3 : 4;
+  const steps = [
+    { number: 1, label: 'Definir', detail: 'Condiciones' },
+    { number: 2, label: 'Probar', detail: 'Candidatos' },
+    { number: 3, label: 'Confirmar', detail: 'Snapshot' },
+    { number: 4, label: 'Compartir', detail: 'Asesores' },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-[#242433] bg-[#101014] sm:grid-cols-4">
+      {steps.map((step) => {
+        const complete = step.number < stage;
+        const active = step.number === stage;
+        return (
+          <div key={step.number} className={`flex items-center gap-2 border-r border-[#242433] px-3 py-2 last:border-r-0 ${active ? 'bg-[#FFFF00]/[0.07]' : ''}`}>
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${complete ? 'bg-emerald-400 text-black' : active ? 'bg-[#FFFF00] text-black' : 'bg-[#242433] text-[#B7B7C2]'}`}>
+              {complete ? '✓' : step.number}
+            </span>
+            <div className="min-w-0">
+              <div className={`truncate text-[11px] font-semibold ${active || complete ? 'text-[#F5F5F7]' : 'text-[#B7B7C2]'}`}>{step.label}</div>
+              <div className="truncate text-[9px] text-[#9B9BA7]">{step.detail}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PlayDefinitionForm({
+  play,
+  plays,
+  benefits,
+  historyProducts,
+  activeAdvisors,
+  busy,
+  onSubmit,
+  audienceRevision = false,
+}: {
+  play: MasterPlay | null;
+  plays: MasterPlay[];
+  benefits: PlayBenefit[];
+  historyProducts: Props['historyProducts'];
+  activeAdvisors: PlayAdvisorOption[];
+  busy: boolean;
+  onSubmit: (input: SavePlayDraftInput) => void;
+  audienceRevision?: boolean;
+}) {
+  const today = useMemo(() => caracasToday(), []);
+  const fallbackBenefit = benefits.find((benefit) => benefit.id === play?.giftProductId) ?? benefits[0];
+  const rules = play?.rules ?? {};
+  const [name, setName] = useState(play?.name ?? '');
+  const [description, setDescription] = useState(play?.description ?? '');
+  const [advisorGuidance, setAdvisorGuidance] = useState(play?.advisorGuidance ?? '');
+  const [messageTemplate, setMessageTemplate] = useState(play?.messageTemplate ?? '');
+  const [kind, setKind] = useState<PlayKind>(() => (play ? (stringValue(rules.play_type) || play.seriesKey) as PlayKind : 'custom'));
+  const [startsOn, setStartsOn] = useState(play ? playDateInput(play.startsAt) : today);
+  const [endsOn, setEndsOn] = useState(play ? playDateInput(play.endsAt) : endOfMonth(today));
+  const [benefitOptions, setBenefitOptions] = useState(() => play?.benefits.length
+    ? play.benefits.map((option) => ({
+        productId: String(option.productId),
+        quantity: String(option.quantity),
+        unitBenefitValueUsd: String(option.unitBenefitValueUsd),
+        unitAdvisorCostUsd: String(option.unitAdvisorCostUsd),
+        unitCompanyCostUsd: String(option.unitCompanyCostUsd),
+        upgradeProductIds: option.upgrades.map((upgrade) => String(upgrade.productId)),
+      }))
+    : [{
+        productId: fallbackBenefit ? String(fallbackBenefit.id) : '',
+        quantity: '1',
+        unitBenefitValueUsd: fallbackBenefit ? String(fallbackBenefit.referenceValueUsd) : '0',
+        unitAdvisorCostUsd: fallbackBenefit ? String(fallbackBenefit.referenceAdvisorCostUsd) : '0',
+        unitCompanyCostUsd: fallbackBenefit ? String(fallbackBenefit.referenceCompanyCostUsd) : '0',
+        upgradeProductIds: [] as string[],
+      }]);
+  const [benefitSelectionMode, setBenefitSelectionMode] = useState<PlayBenefitSelectionMode>(play?.benefitSelectionMode ?? 'single');
+  const [purchaseRequirementMode, setPurchaseRequirementMode] = useState<PlayPurchaseRequirementMode>(play?.purchaseRequirementMode ?? 'none');
+  const [minimumOrderAmount, setMinimumOrderAmount] = useState(play?.minimumOrderAmountUsd == null ? '' : String(play.minimumOrderAmountUsd));
+  const [recurrenceMode, setRecurrenceMode] = useState<'once' | 'daily'>(play?.recurrenceMode ?? 'once');
+  const [benefitFulfillment, setBenefitFulfillment] = useState<'any' | 'pickup' | 'delivery_zone_1'>(play?.benefitFulfillment ?? 'any');
+  const [overlapPolicy, setOverlapPolicy] = useState<PlayOverlapPolicy>(play?.overlapPolicy ?? 'exclusive');
+  const [compatiblePlayIds, setCompatiblePlayIds] = useState<number[]>(play?.compatiblePlayIds ?? []);
+  const [benefitStackPolicy, setBenefitStackPolicy] = useState<PlayBenefitStackPolicy>(play?.benefitStackPolicy ?? 'one_per_order');
+  const [evaluationWindowDays, setEvaluationWindowDays] = useState(String(play?.evaluationWindowDays ?? 90));
+  const [plannedBudget, setPlannedBudget] = useState(play?.plannedBudgetUsd == null ? '' : String(play.plannedBudgetUsd));
+  const [minPurchases, setMinPurchases] = useState(play ? optionalNumberString(rules.min_purchase_count) || '1' : '1');
+  const [maxPurchases, setMaxPurchases] = useState(play ? optionalNumberString(rules.max_purchase_count) : '');
+  const [minRevenue, setMinRevenue] = useState(play ? optionalNumberString(rules.min_net_revenue_usd) || '0' : '0');
+  const [minDays, setMinDays] = useState(play ? optionalNumberString(rules.min_days_since_purchase) : '');
+  const [maxDays, setMaxDays] = useState(play ? optionalNumberString(rules.max_days_since_purchase) : '');
+  const [firstFrom, setFirstFrom] = useState(play ? monthInput(stringValue(rules.first_purchase_from)) : '');
+  const [firstTo, setFirstTo] = useState(play ? monthInput(stringValue(rules.first_purchase_to)) : '');
+  const [lastFrom, setLastFrom] = useState(play ? monthInput(stringValue(rules.last_purchase_from)) : '');
+  const [lastTo, setLastTo] = useState(play ? monthInput(stringValue(rules.last_purchase_to)) : '');
+  const [lastGiftFrom, setLastGiftFrom] = useState(play ? monthInput(stringValue(rules.last_gift_from)) : '');
+  const [lastGiftTo, setLastGiftTo] = useState(play ? monthInput(stringValue(rules.last_gift_to)) : '');
+  const [includeNeverGifted, setIncludeNeverGifted] = useState(play ? rules.include_never_gifted !== false : true);
+  const [offerRestMode, setOfferRestMode] = useState<OfferRestMode>(() => play ? readOfferRestMode(rules) : 'days');
+  const [offerRestDays, setOfferRestDays] = useState(String(rules.offer_rest_days ?? 30));
+  const [offerRestFrom, setOfferRestFrom] = useState(stringValue(rules.offer_rest_from));
+  const [offerRestTo, setOfferRestTo] = useState(stringValue(rules.offer_rest_to));
+  const [purchasedProductIds, setPurchasedProductIds] = useState<number[]>(() => Array.isArray(rules.purchased_product_ids) ? rules.purchased_product_ids.map(Number) : []);
+  const [purchasedProductMode, setPurchasedProductMode] = useState<PurchasedProductMode>(rules.purchased_product_mode === 'all' ? 'all' : 'any');
+  const [purchasedProductScope, setPurchasedProductScope] = useState<PurchasedProductScope>(rules.purchased_product_scope === 'latest_delivery' ? 'latest_delivery' : 'any_purchase');
+  const [productHistorySearch, setProductHistorySearch] = useState('');
+  const [anniversaryMode, setAnniversaryMode] = useState<PlayAnniversaryMode>(() => {
+    const storedMode = stringValue(rules.anniversary_mode);
+    if (storedMode === 'include' || storedMode === 'exclude') return storedMode;
+    return play && rules.anniversary_month ? 'include' : 'any';
+  });
+  const [anniversaryMonth, setAnniversaryMonth] = useState(play ? optionalNumberString(rules.anniversary_month) : '');
+  const [fulfillment, setFulfillment] = useState<PlayFulfillmentFilter>(() => play ? (stringValue(rules.fulfillment) || 'any') as PlayFulfillmentFilter : 'any');
+  const [includedAdvisorIds, setIncludedAdvisorIds] = useState<string[]>(() => {
+    const storedIds = rules.included_advisor_ids;
+    if (!Array.isArray(storedIds)) return activeAdvisors.map((advisor) => advisor.id);
+    const activeIds = new Set(activeAdvisors.map((advisor) => advisor.id));
+    return storedIds.map(String).filter((id) => activeIds.has(id));
+  });
+  const projectedEconomicsPerClient = useMemo(() => {
+    const rows = benefitOptions.flatMap((option) => {
+      const quantity = Number(option.quantity);
+      const companyCost = Number(option.unitCompanyCostUsd);
+      const advisorCost = Number(option.unitAdvisorCostUsd);
+      return Number.isFinite(quantity) && quantity > 0
+        && Number.isFinite(companyCost) && companyCost >= 0
+        && Number.isFinite(advisorCost) && advisorCost >= 0
+        ? [{ company: quantity * companyCost, advisor: quantity * advisorCost }]
+        : [];
+    });
+    if (rows.length === 0) return null;
+    const companyValues = rows.map((row) => row.company);
+    const advisorValues = rows.map((row) => row.advisor);
+    return benefitSelectionMode === 'multiple'
+      ? {
+          companyMinimum: Math.min(...companyValues),
+          companyMaximum: companyValues.reduce((sum, value) => sum + value, 0),
+          advisorMinimum: Math.min(...advisorValues),
+          advisorMaximum: advisorValues.reduce((sum, value) => sum + value, 0),
+        }
+      : {
+          companyMinimum: Math.min(...companyValues),
+          companyMaximum: Math.max(...companyValues),
+          advisorMinimum: Math.min(...advisorValues),
+          advisorMaximum: Math.max(...advisorValues),
+        };
+  }, [benefitOptions, benefitSelectionMode]);
+
+  function applyPreset(nextKind: PlayKind) {
+    setKind(nextKind);
+    const month = Number(startsOn.slice(5, 7));
+    const monthYear = new Intl.DateTimeFormat('es-VE', { month: 'long', year: 'numeric', timeZone: 'America/Caracas' })
+      .format(new Date(`${startsOn}T12:00:00-04:00`));
+    setFirstFrom('');
+    setFirstTo('');
+    setLastFrom('');
+    setLastTo('');
+    setLastGiftFrom('');
+    setLastGiftTo('');
+    setIncludeNeverGifted(true);
+    setAnniversaryMode('any');
+    setAnniversaryMonth('');
+    setMinDays('');
+    setMaxDays('');
+    setMaxPurchases('');
+    setFulfillment('any');
+
+    if (nextKind === 'anniversary') {
+      setName(`Aniversario · ${monthYear}`);
+      setMinPurchases('2');
+      setMinRevenue('0');
+      setAnniversaryMode('include');
+      setAnniversaryMonth(String(month));
+      setAdvisorGuidance('Saluda con cercanía, presenta el detalle como un reconocimiento personal y propone coordinarlo dentro de la vigencia.');
+      setMessageTemplate('Epa {nombre} 😏💛\n¡Este mes tú también estás de aniversario con VIVO! 🎉 Se cumple otro año desde tu primer pedido, y nos alegra que formes parte de nuestra historia.\n\nTenemos un detallito para ti:\n🎁 *{beneficio}*, por cuenta nuestra.\n\nGracias por seguir haciéndonos un puesto en tu mesa 💛\n¿Te provoca coordinarlo {vigencia}?');
+    } else if (nextKind === 'loyalty') {
+      setName(`Fidelidad · ${monthYear}`);
+      setMinPurchases('8');
+      setMinRevenue('0');
+      setMaxDays('60');
+      setAnniversaryMode('exclude');
+      setAnniversaryMonth(String(month));
+    } else if (nextKind === 'new_client') {
+      const previous = previousMonthRange(startsOn);
+      setName(`Clientes nuevos · ${monthYear}`);
+      setMinPurchases('1');
+      setMinRevenue('0');
+      setFirstFrom(previous.from.slice(0, 7));
+      setFirstTo(previous.to.slice(0, 7));
+    } else if (nextKind === 'reconnect') {
+      setName(`Reconexión · ${monthYear}`);
+      setMinPurchases('2');
+      setMinRevenue('0');
+      setMinDays('60');
+    } else if (nextKind === 'seasonal') {
+      setName(`Temporada · ${monthYear}`);
+      setMinPurchases('1');
+      setMinRevenue('0');
+    } else {
+      setName('');
+      setMinPurchases('1');
+      setMinRevenue('0');
+    }
+  }
+
+  function updateBenefitProduct(index: number, productId: string) {
+    const selectedBenefit = benefits.find((benefit) => String(benefit.id) === productId);
+    setBenefitOptions((current) => current.map((candidate, candidateIndex) => candidateIndex === index
+      ? {
+          ...candidate,
+          productId,
+          unitBenefitValueUsd: selectedBenefit ? String(selectedBenefit.referenceValueUsd) : '0',
+          unitAdvisorCostUsd: selectedBenefit ? String(selectedBenefit.referenceAdvisorCostUsd) : '0',
+          unitCompanyCostUsd: selectedBenefit ? String(selectedBenefit.referenceCompanyCostUsd) : '0',
+          upgradeProductIds: candidate.upgradeProductIds.filter((id) => id !== productId),
+        }
+      : candidate));
+  }
+
+  function updateBenefitEconomics(
+    index: number,
+    field: 'unitBenefitValueUsd' | 'unitAdvisorCostUsd' | 'unitCompanyCostUsd',
+    value: string,
+  ) {
+    setBenefitOptions((current) => current.map((candidate, candidateIndex) => {
+      if (candidateIndex !== index) return candidate;
+      const next = { ...candidate, [field]: value };
+      const total = Number(next.unitBenefitValueUsd);
+      const advisor = Number(next.unitAdvisorCostUsd);
+      const company = Number(next.unitCompanyCostUsd);
+
+      if (field === 'unitCompanyCostUsd' && Number.isFinite(company) && Number.isFinite(advisor)) {
+        next.unitBenefitValueUsd = String(Number((company + advisor).toFixed(2)));
+      } else if (Number.isFinite(total) && Number.isFinite(advisor)) {
+        next.unitCompanyCostUsd = String(Number(Math.max(0, total - advisor).toFixed(2)));
+      }
+      return next;
+    }));
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit({
+      playId: play?.id ?? null,
+      name,
+      description,
+      advisorGuidance,
+      messageTemplate,
+      kind,
+      startsOn,
+      endsOn,
+      benefits: benefitOptions.map((option) => ({
+        productId: Number(option.productId),
+        quantity: Number(option.quantity),
+        unitBenefitValueUsd: Number(option.unitBenefitValueUsd),
+        unitAdvisorCostUsd: Number(option.unitAdvisorCostUsd),
+        unitCompanyCostUsd: Number(option.unitCompanyCostUsd),
+        upgradeProductIds: option.upgradeProductIds.map(Number),
+      })),
+      benefitSelectionMode,
+      recurrenceMode,
+      benefitFulfillment,
+      purchaseRequirementMode,
+      minimumOrderAmountUsd: purchaseRequirementMode === 'minimum_order' && minimumOrderAmount !== ''
+        ? Number(minimumOrderAmount)
+        : null,
+      overlapPolicy,
+      compatiblePlayIds: overlapPolicy === 'selected_compatible' ? compatiblePlayIds : [],
+      benefitStackPolicy,
+      evaluationWindowDays: Number(evaluationWindowDays),
+      plannedBudgetUsd: plannedBudget === '' ? null : Number(plannedBudget),
+      metricWindow: play?.metricWindow ?? 6,
+      minPurchaseCount: Number(minPurchases),
+      maxPurchaseCount: maxPurchases === '' ? null : Number(maxPurchases),
+      minNetRevenueUsd: Number(minRevenue),
+      minDaysSincePurchase: minDays === '' ? null : Number(minDays),
+      maxDaysSincePurchase: maxDays === '' ? null : Number(maxDays),
+      firstPurchaseFrom: monthStart(firstFrom),
+      firstPurchaseTo: monthEnd(firstTo),
+      lastPurchaseFrom: monthStart(lastFrom),
+      lastPurchaseTo: monthEnd(lastTo),
+      lastGiftFrom: monthStart(lastGiftFrom),
+      lastGiftTo: monthEnd(lastGiftTo),
+      includeNeverGifted,
+      offerRestMode,
+      offerRestDays: offerRestMode === 'days' ? Number(offerRestDays) : null,
+      offerRestFrom,
+      offerRestTo,
+      purchasedProductIds,
+      purchasedProductMode,
+      purchasedProductScope,
+      anniversaryMode,
+      anniversaryMonth: anniversaryMonth === '' ? null : Number(anniversaryMonth),
+      fulfillment,
+      includedAdvisorIds,
+    });
+  }
+
+  const editable = !play || play.status === 'draft';
+
+  return (
+    <WorkspaceForm onSubmit={submit} className="space-y-4">
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-[#F5F5F7]">1. Definición de la jugada</h2>
+            <p className="mt-0.5 text-[11px] text-[#B7B7C2]">{audienceRevision ? 'Revisa los filtros de clientes. La lista publicada no cambia hasta que apliques la prueba.' : 'Prueba las condiciones cuantas veces necesites. Nada se comparte todavía.'}</p>
+          </div>
+          {play ? <span className="text-[10px] text-[#9B9BA7]">Versión {play.version}</span> : null}
+        </div>
+
+        <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-[#0B0B0D] p-1.5 sm:grid-cols-6">
+          {(Object.keys(KIND_LABELS) as PlayKind[]).map((option) => (
+            <button
+              key={option}
+              type="button"
+              disabled={!editable}
+              onClick={() => applyPreset(option)}
+              className={`h-8 rounded-lg px-2 text-[10px] font-semibold transition ${kind === option ? 'bg-[#FFFF00] text-black' : 'text-[#8F8F9D] hover:bg-[#18181F] hover:text-white'} disabled:opacity-50`}
+            >
+              {KIND_LABELS[option]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <fieldset disabled={!editable || busy} className="space-y-4 disabled:opacity-70">
+        <div className="grid gap-3 md:grid-cols-[1.4fr_1fr_1fr]">
+          <Field label="Nombre">
+            <input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Reconexión septiembre" required />
+          </Field>
+          <Field label="Desde">
+            <input className={inputClass} type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} required />
+          </Field>
+          <Field label="Hasta">
+            <input className={inputClass} type="date" value={endsOn} onChange={(event) => setEndsOn(event.target.value)} required />
+          </Field>
+        </div>
+
+        <Field label="Objetivo interno" hint="No lo verá el cliente">
+          <textarea className={`${inputClass} min-h-16 resize-y py-2`} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Qué queremos lograr y cómo debe abordarse esta lista." />
+        </Field>
+
+        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.04] p-3">
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold text-cyan-100">Guion para ejecutar la jugada</h3>
+            <p className="mt-0.5 text-[10px] text-cyan-100/55">El asesor verá la orientación y podrá copiar el mensaje ya personalizado antes de abrir WhatsApp.</p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Field label="Orientación interna" hint="Solo para el asesor">
+              <textarea
+                className={`${inputClass} min-h-28 resize-y py-2`}
+                value={advisorGuidance}
+                onChange={(event) => setAdvisorGuidance(event.target.value.slice(0, 4000))}
+                placeholder="Tono, momento recomendado y cómo presentar el detalle."
+              />
+            </Field>
+            <Field label="Mensaje listo para copiar" hint="Usa las variables disponibles">
+              <textarea
+                className={`${inputClass} min-h-28 resize-y py-2`}
+                value={messageTemplate}
+                onChange={(event) => setMessageTemplate(event.target.value.slice(0, 6000))}
+                placeholder="Epa {nombre}…"
+              />
+              <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] text-cyan-100/60">
+                <span className="rounded-full border border-cyan-400/20 px-2 py-0.5">{'{nombre}'}</span>
+                <span className="rounded-full border border-cyan-400/20 px-2 py-0.5">{'{asesor}'}</span>
+                <span className="rounded-full border border-cyan-400/20 px-2 py-0.5">{'{beneficio}'}</span>
+                <span className="rounded-full border border-cyan-400/20 px-2 py-0.5">{'{vigencia}'}</span>
+              </div>
+            </Field>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[#3C3410] bg-[#171506] p-3">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-xs font-semibold text-[#FFF18B]">Beneficios disponibles</h3>
+              <p className="mt-0.5 text-[10px] text-[#A89F68]">Cada jugada congela su propio valor, cargo al asesor y aporte de la empresa.</p>
+            </div>
+            <button
+              type="button"
+              disabled={benefitOptions.length >= 8}
+              onClick={() => setBenefitOptions((current) => [...current, {
+                productId: '',
+                quantity: '1',
+                unitBenefitValueUsd: '0',
+                unitAdvisorCostUsd: '0',
+                unitCompanyCostUsd: '0',
+                upgradeProductIds: [] as string[],
+              }])}
+              className={buttonSecondary}
+            >
+              + Agregar alternativa
+            </button>
+          </div>
+          <div className="mb-3 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setBenefitSelectionMode('single')}
+              className={`rounded-xl border px-3 py-2 text-left transition ${benefitSelectionMode === 'single' ? 'border-[#FFFF00]/70 bg-[#FFFF00]/10 text-[#FFF18B]' : 'border-[#302B10] bg-[#0D0D0A] text-[#A89F68]'}`}
+            >
+              <span className="block text-[11px] font-semibold">Un solo obsequio</span>
+              <span className="mt-0.5 block text-[9px] opacity-70">El asesor debe escoger exactamente una alternativa.</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setBenefitSelectionMode('multiple'); setRecurrenceMode('once'); }}
+              className={`rounded-xl border px-3 py-2 text-left transition ${benefitSelectionMode === 'multiple' ? 'border-[#FFFF00]/70 bg-[#FFFF00]/10 text-[#FFF18B]' : 'border-[#302B10] bg-[#0D0D0A] text-[#A89F68]'}`}
+            >
+              <span className="block text-[11px] font-semibold">Combinación de obsequios</span>
+              <span className="mt-0.5 block text-[9px] opacity-70">El asesor puede escoger uno o varios de la lista.</span>
+            </button>
+          </div>
+          <div className="space-y-2">
+            {benefitOptions.map((option, index) => {
+              const usedByAnother = new Set(benefitOptions
+                .filter((_, candidateIndex) => candidateIndex !== index)
+                .map((candidate) => candidate.productId)
+                .filter(Boolean));
+              return (
+                <div key={index} className="grid gap-2 rounded-xl border border-[#302B10] bg-[#0D0D0A] p-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.5fr)_88px_110px_110px_110px_36px]">
+                  <Field label={`Alternativa ${index + 1}`}>
+                    <select
+                      className={inputClass}
+                      value={option.productId}
+                      onChange={(event) => updateBenefitProduct(index, event.target.value)}
+                      required
+                    >
+                      <option value="">Seleccionar beneficio</option>
+                      {benefits.map((benefit) => (
+                        <option key={benefit.id} value={benefit.id} disabled={usedByAnother.has(String(benefit.id))}>
+                          {benefit.name}{benefit.sku ? ` · ${benefit.sku}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Cantidad">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0.001"
+                      step="0.001"
+                      value={option.quantity}
+                      onChange={(event) => setBenefitOptions((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, quantity: event.target.value } : candidate))}
+                      required
+                    />
+                  </Field>
+                  <Field label="Valor USD" hint="Total">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={option.unitBenefitValueUsd}
+                      onChange={(event) => updateBenefitEconomics(index, 'unitBenefitValueUsd', event.target.value)}
+                      required
+                    />
+                  </Field>
+                  <Field label="Asesor USD" hint="Cargo">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={option.unitAdvisorCostUsd}
+                      onChange={(event) => updateBenefitEconomics(index, 'unitAdvisorCostUsd', event.target.value)}
+                      required
+                    />
+                  </Field>
+                  <Field label="Empresa USD" hint="Aporte">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={option.unitCompanyCostUsd}
+                      onChange={(event) => updateBenefitEconomics(index, 'unitCompanyCostUsd', event.target.value)}
+                      required
+                    />
+                  </Field>
+                  <button
+                    type="button"
+                    disabled={benefitOptions.length === 1}
+                    onClick={() => setBenefitOptions((current) => current.filter((_, candidateIndex) => candidateIndex !== index))}
+                    className="mt-5 flex h-9 w-9 items-center justify-center rounded-xl border border-red-500/20 text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-25"
+                    title="Quitar esta alternativa"
+                    aria-label={`Quitar alternativa ${index + 1}`}
+                  >
+                    ×
+                  </button>
+                  <div className="sm:col-span-2 xl:col-span-6">
+                    <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-[#8E875C]">
+                      Ampliaciones permitidas · el cliente paga solo la diferencia
+                    </div>
+                    <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto rounded-lg border border-[#26230F] bg-[#090907] p-1.5">
+                      {benefits
+                        .filter((benefit) => {
+                          if (String(benefit.id) === option.productId) return false;
+                          const quantity = Math.max(0, Number(option.quantity) || 0);
+                          const credit = Math.max(0, Number(option.unitBenefitValueUsd) || 0) * quantity;
+                          return benefit.referenceValueUsd * quantity > credit + 0.005;
+                        })
+                        .map((benefit) => {
+                          const selected = option.upgradeProductIds.includes(String(benefit.id));
+                          const quantity = Math.max(0, Number(option.quantity) || 0);
+                          const credit = Math.max(0, Number(option.unitBenefitValueUsd) || 0) * quantity;
+                          const difference = Math.max(0, benefit.referenceValueUsd * quantity - credit);
+                          return (
+                            <button
+                              key={benefit.id}
+                              type="button"
+                              aria-pressed={selected}
+                              onClick={() => setBenefitOptions((current) => current.map((candidate, candidateIndex) => {
+                                if (candidateIndex !== index) return candidate;
+                                return {
+                                  ...candidate,
+                                  upgradeProductIds: selected
+                                    ? candidate.upgradeProductIds.filter((id) => id !== String(benefit.id))
+                                    : [...candidate.upgradeProductIds, String(benefit.id)].slice(0, 8),
+                                };
+                              }))}
+                              className={`rounded-full border px-2 py-1 text-[9px] font-semibold transition ${selected ? 'border-cyan-300/60 bg-cyan-300/10 text-cyan-100' : 'border-[#343018] text-[#A89F68] hover:border-[#6A5B18]'}`}
+                            >
+                              {benefit.name} · diferencia ref. {moneyFormatter.format(difference)}
+                            </button>
+                          );
+                        })}
+                      {benefits.length <= 1 ? (
+                        <span className="px-1 py-1 text-[9px] text-[#6F6845]">No hay otros productos disponibles.</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-blue-400/20 bg-blue-400/[0.04] p-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_220px] md:items-end">
+            <div>
+              <h3 className="text-xs font-semibold text-blue-100">Presupuesto de esta jugada</h3>
+              <p className="mt-1 text-[10px] text-blue-100/55">
+                El presupuesto usa únicamente el aporte de la empresa. El cargo del asesor se proyecta por separado.
+              </p>
+              {projectedEconomicsPerClient ? (
+                <div className="mt-2 grid gap-1 text-[10px] font-semibold text-blue-100/80 sm:grid-cols-2">
+                  <span>Empresa por cliente: {moneyFormatter.format(projectedEconomicsPerClient.companyMinimum)} — {moneyFormatter.format(projectedEconomicsPerClient.companyMaximum)}</span>
+                  <span>Asesor por cliente: {moneyFormatter.format(projectedEconomicsPerClient.advisorMinimum)} — {moneyFormatter.format(projectedEconomicsPerClient.advisorMaximum)}</span>
+                </div>
+              ) : null}
+            </div>
+            <Field label="Presupuesto disponible USD" hint="Opcional">
+              <input
+                className={inputClass}
+                type="number"
+                min="0"
+                step="0.01"
+                value={plannedBudget}
+                onChange={(event) => setPlannedBudget(event.target.value)}
+                placeholder="Ej. 300"
+              />
+            </Field>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-violet-400/20 bg-violet-400/[0.04] p-3">
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold text-violet-100">Condición para aplicar el obsequio</h3>
+            <p className="mt-0.5 text-[10px] text-violet-100/55">Esto se valida en la orden del canje; no es la facturación histórica usada para construir la lista.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_220px]">
+            <button
+              type="button"
+              onClick={() => {
+                setPurchaseRequirementMode('none');
+                setMinimumOrderAmount('');
+              }}
+              className={`rounded-xl border px-3 py-2 text-left ${purchaseRequirementMode === 'none' ? 'border-violet-300/60 bg-violet-300/10 text-violet-100' : 'border-[#2A2A35] bg-[#0B0B0D] text-[#8F8F9D]'}`}
+            >
+              <span className="block text-[11px] font-semibold">Sin compra requerida</span>
+              <span className="mt-0.5 block text-[9px] opacity-65">Puede entregarse en una orden de valor cero.</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPurchaseRequirementMode('minimum_order')}
+              className={`rounded-xl border px-3 py-2 text-left ${purchaseRequirementMode === 'minimum_order' ? 'border-violet-300/60 bg-violet-300/10 text-violet-100' : 'border-[#2A2A35] bg-[#0B0B0D] text-[#8F8F9D]'}`}
+            >
+              <span className="block text-[11px] font-semibold">Condicionada a compra</span>
+              <span className="mt-0.5 block text-[9px] opacity-65">La orden debe alcanzar un monto mínimo.</span>
+            </button>
+            <Field label="Compra mínima USD" hint="Productos pagados, sin delivery ni beneficios">
+              <input
+                className={inputClass}
+                type="number"
+                min="0.01"
+                step="0.01"
+                disabled={purchaseRequirementMode === 'none'}
+                required={purchaseRequirementMode === 'minimum_order'}
+                value={minimumOrderAmount}
+                onChange={(event) => setMinimumOrderAmount(event.target.value)}
+                placeholder={purchaseRequirementMode === 'none' ? 'No aplica' : 'Ej. 20'}
+              />
+            </Field>
+          </div>
+        </div>
+
+        <div className="grid gap-3 rounded-2xl border border-[#2A2A35] p-3 sm:grid-cols-2">
+          <Field label="Frecuencia del beneficio" hint="Día de entrega, hora de Venezuela">
+            <select className={inputClass} value={recurrenceMode} onChange={(event) => {
+              const mode = event.target.value as 'once' | 'daily';
+              setRecurrenceMode(mode);
+              if (mode === 'daily') setBenefitSelectionMode('single');
+            }}>
+              <option value="once">Una vez durante la jugada</option>
+              <option value="daily">Una vez por cliente y por día</option>
+            </select>
+          </Field>
+          <Field label="Canal requerido para aplicar" hint="Condición del pedido">
+            <select className={inputClass} value={benefitFulfillment} onChange={(event) => setBenefitFulfillment(event.target.value as typeof benefitFulfillment)}>
+              <option value="any">Retiro o delivery</option>
+              <option value="pickup">Solo retiro en el local</option>
+              <option value="delivery_zone_1">Solo delivery zona 1</option>
+            </select>
+          </Field>
+          {recurrenceMode === 'daily' ? <p className="text-[10px] text-[#A89F68] sm:col-span-2">Puede repetir en días distintos durante la vigencia. Una reserva pendiente ocupa ese día; al cancelar o retirar el beneficio se libera.</p> : null}
+        </div>
+
+        <div className="rounded-2xl border border-orange-400/20 bg-orange-400/[0.04] p-3">
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold text-orange-100">Convivencia y control del estímulo</h3>
+            <p className="mt-0.5 text-[10px] text-orange-100/55">La protección predeterminada evita duplicar contactos y gastos sobre el mismo cliente.</p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setOverlapPolicy('exclusive');
+                  setCompatiblePlayIds([]);
+                }}
+                className={`w-full rounded-xl border px-3 py-2 text-left ${overlapPolicy === 'exclusive' ? 'border-orange-300/60 bg-orange-300/10 text-orange-100' : 'border-[#2A2A35] bg-[#0B0B0D] text-[#8F8F9D]'}`}
+              >
+                <span className="block text-[11px] font-semibold">Exclusiva durante su período</span>
+                <span className="mt-0.5 block text-[9px] opacity-65">Un cliente no puede aparecer en otra jugada solapada.</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOverlapPolicy('selected_compatible')}
+                className={`w-full rounded-xl border px-3 py-2 text-left ${overlapPolicy === 'selected_compatible' ? 'border-orange-300/60 bg-orange-300/10 text-orange-100' : 'border-[#2A2A35] bg-[#0B0B0D] text-[#8F8F9D]'}`}
+              >
+                <span className="block text-[11px] font-semibold">Permitir excepciones concretas</span>
+                <span className="mt-0.5 block text-[9px] opacity-65">Solo convivirá con las jugadas seleccionadas abajo.</span>
+              </button>
+              {overlapPolicy === 'selected_compatible' ? (
+                <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-[#2A2A35] bg-[#0B0B0D] p-2">
+                  {plays.filter((candidate) => candidate.id !== play?.id && candidate.overlapPolicy === 'selected_compatible').length === 0 ? (
+                    <p className="px-1 py-2 text-[10px] text-[#B7B7C2]">No hay otra jugada preparada para convivencia seleccionada.</p>
+                  ) : plays
+                    .filter((candidate) => candidate.id !== play?.id && candidate.overlapPolicy === 'selected_compatible')
+                    .map((candidate) => (
+                      <label key={candidate.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[10px] text-[#D8D8E0] hover:bg-[#18181F]">
+                        <input
+                          type="checkbox"
+                          checked={compatiblePlayIds.includes(candidate.id)}
+                          onChange={(event) => setCompatiblePlayIds((current) => event.target.checked
+                            ? [...current, candidate.id]
+                            : current.filter((id) => id !== candidate.id))}
+                          className="accent-[#FFFF00]"
+                        />
+                        <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
+                        <span className="text-[#9B9BA7]">{STATUS_PRESENTATION[candidate.status].label}</span>
+                      </label>
+                    ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-3">
+              <Field label="Beneficios económicos por pedido">
+                <select
+                  className={inputClass}
+                  value={benefitStackPolicy}
+                  onChange={(event) => setBenefitStackPolicy(event.target.value as PlayBenefitStackPolicy)}
+                >
+                  <option value="one_per_order">Solo uno por pedido</option>
+                  <option value="allow_multiple">Permitir varios explícitamente</option>
+                </select>
+              </Field>
+              <Field label="Ventana inicial de evaluación" hint="Se podrá comparar a 30, 60 y 90 días">
+                <div className="flex items-center gap-2">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min="7"
+                    max="365"
+                    value={evaluationWindowDays}
+                    onChange={(event) => setEvaluationWindowDays(event.target.value)}
+                    required
+                  />
+                  <span className="text-[10px] text-[#B7B7C2]">días</span>
+                </div>
+              </Field>
+            </div>
+          </div>
+        </div>
+
+      </fieldset>
+      <fieldset disabled={(!editable && !audienceRevision) || busy} className="space-y-4 disabled:opacity-70">
+        <div className="rounded-2xl border border-[#242433] bg-[#0F0F14] p-3">
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold text-[#E7E7ED]">Condiciones comerciales</h3>
+            <p className="mt-0.5 text-[10px] text-[#9B9BA7]">Deja un campo vacío cuando no quieras usar ese límite.</p>
+          </div>
+          <div className="mb-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.04] p-3">
+            <h4 className="text-[11px] font-semibold text-amber-100">Descanso entre propuestas</h4>
+            <p className="mt-1 text-[10px] text-[#9B9BA7]">Excluye a quienes recibieron la propuesta de cualquier jugada durante el período elegido. Un saludo o estar en una lista no cuenta.</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <Field label="Excluir propuestas anteriores">
+                <select className={inputClass} value={offerRestMode} onChange={(event) => setOfferRestMode(event.target.value as OfferRestMode)}>
+                  <option value="none">Sin exclusión por propuestas</option>
+                  <option value="days">Cantidad de días</option>
+                  <option value="dates">Rango de fechas</option>
+                  <option value="previous_month">Mes anterior (regla original)</option>
+                </select>
+              </Field>
+              {offerRestMode === 'days' ? (
+                <Field label="Días anteriores al inicio" hint="Días completos">
+                  <input className={inputClass} type="number" min="1" max="3650" step="1" value={offerRestDays} onChange={(event) => setOfferRestDays(event.target.value)} required />
+                </Field>
+              ) : null}
+              {offerRestMode === 'dates' ? (
+                <>
+                  <Field label="Propuesta lanzada desde">
+                    <input className={inputClass} type="date" value={offerRestFrom} onChange={(event) => setOfferRestFrom(event.target.value)} required />
+                  </Field>
+                  <Field label="Propuesta lanzada hasta">
+                    <input className={inputClass} type="date" min={offerRestFrom || undefined} value={offerRestTo} onChange={(event) => setOfferRestTo(event.target.value)} required />
+                  </Field>
+                </>
+              ) : null}
+            </div>
+            <p className="mt-2 text-[10px] text-amber-100/70">{offerRestMode === 'days' ? `Se revisan los ${offerRestDays || '…'} días completos anteriores al ${startsOn || 'inicio de la jugada'}.` : offerRestMode === 'dates' ? 'Se incluyen ambos días completos, en hora de Venezuela.' : offerRestMode === 'previous_month' ? 'Conserva el mes calendario anterior al inicio de esta jugada.' : 'No se excluye por propuestas previas; las demás condiciones siguen vigentes.'}</p>
+          </div>
+          <details className="mb-3 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3" open={purchasedProductIds.length > 0}>
+            <summary className="cursor-pointer text-[11px] font-semibold text-sky-100">Pedidos con estos productos · {purchasedProductIds.length === 0 ? 'sin filtro' : `${purchasedProductIds.length} seleccionados`}</summary>
+            <p className="mt-2 text-[10px] text-[#9B9BA7]">{purchasedProductScope === 'latest_delivery' ? 'Primero identifica el último pedido válido de tipo delivery hasta el corte de la lista y después comprueba sus productos. Las compras posteriores por pickup no lo sustituyen.' : 'Busca en compras válidas históricas y actuales hasta el corte de la lista.'} Se combina con los demás filtros. No busca por el nombre ni por componentes internos de un combo.</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <Field label="Buscar en">
+                <select className={inputClass} value={purchasedProductScope} onChange={event => setPurchasedProductScope(event.target.value as PurchasedProductScope)}>
+                  <option value="any_purchase">Cualquier compra del historial</option>
+                  <option value="latest_delivery">Último pedido de tipo delivery</option>
+                </select>
+              </Field>
+              <Field label="Productos requeridos">
+                <select className={inputClass} value={purchasedProductMode} onChange={event => setPurchasedProductMode(event.target.value as PurchasedProductMode)}>
+                  <option value="any">Cualquiera de los seleccionados</option>
+                  <option value="all">{purchasedProductScope === 'latest_delivery' ? 'Todos en ese último delivery' : 'Todos, incluso en pedidos distintos'}</option>
+                </select>
+              </Field>
+              <Field label="Buscar producto o código">
+                <input className={inputClass} value={productHistorySearch} onChange={event => setProductHistorySearch(event.target.value)} placeholder="Ej. Delivery Zona 1" />
+              </Field>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {historyProducts.filter(product => purchasedProductIds.includes(product.id)).map(product => <span key={product.id} className="rounded-full border border-sky-300/30 px-2 py-1 text-[10px] text-sky-100">{product.name}</span>)}
+            </div>
+            <div className="mt-2 max-h-36 overflow-y-auto rounded-lg border border-[#2A2A35] p-2">
+              {historyProducts.filter(product => `${product.name} ${product.sku ?? ''}`.toLocaleLowerCase('es').includes(productHistorySearch.toLocaleLowerCase('es'))).map(product => (
+                <label key={product.id} className="flex items-center gap-2 py-1 text-[10px] text-[#D8D8E0]">
+                  <input type="checkbox" checked={purchasedProductIds.includes(product.id)} onChange={event => setPurchasedProductIds(current => event.target.checked ? [...current, product.id] : current.filter(id => id !== product.id))} className="accent-sky-300" />
+                  <span>{product.name}{product.active ? '' : ' · inactivo'}</span>
+                </label>
+              ))}
+            </div>
+            <button type="button" className="mt-2 text-[10px] text-sky-200 underline" onClick={() => setPurchasedProductIds([])}>Quitar filtro de productos</button>
+          </details>
+          <div className="mb-3 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3">
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h4 className="text-[11px] font-semibold text-sky-100">Asesores incluidos</h4>
+                <p className="mt-0.5 text-[9px] text-sky-100/55">
+                  {includedAdvisorIds.length} de {activeAdvisors.length} seleccionados · la prueba solo incluirá clientes adjudicados a ellos.
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIncludedAdvisorIds(activeAdvisors.map((advisor) => advisor.id))}
+                  className="h-7 rounded-lg border border-sky-300/25 px-2.5 text-[9px] font-semibold text-sky-100 transition hover:bg-sky-300/10"
+                >
+                  Marcar todos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIncludedAdvisorIds([])}
+                  className="h-7 rounded-lg border border-[#343443] px-2.5 text-[9px] font-semibold text-[#B7B7C2] transition hover:bg-[#1B1B23]"
+                >
+                  Desmarcar todos
+                </button>
+              </div>
+            </div>
+            {activeAdvisors.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {activeAdvisors.map((advisor) => {
+                  const checked = includedAdvisorIds.includes(advisor.id);
+                  return (
+                    <label
+                      key={advisor.id}
+                      className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] transition ${checked ? 'border-sky-300/45 bg-sky-300/10 text-sky-50' : 'border-[#30303C] bg-[#0B0B0D] text-[#B7B7C2]'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => setIncludedAdvisorIds((current) => event.target.checked
+                          ? [...current, advisor.id]
+                          : current.filter((id) => id !== advisor.id))}
+                        className="h-3.5 w-3.5 accent-sky-300"
+                      />
+                      <span>{advisor.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-[10px] text-amber-200">No hay asesores activos disponibles para esta jugada.</p>
+            )}
+            {includedAdvisorIds.length === 0 ? (
+              <p className="mt-2 text-[9px] text-amber-200/80">La próxima prueba dará cero candidatos hasta que marques al menos un asesor.</p>
+            ) : null}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Cierres mínimos">
+              <input className={inputClass} type="number" min="0" value={minPurchases} onChange={(event) => setMinPurchases(event.target.value)} />
+            </Field>
+            <Field label="Cierres máximos">
+              <input className={inputClass} type="number" min="0" value={maxPurchases} onChange={(event) => setMaxPurchases(event.target.value)} placeholder="Sin límite" />
+            </Field>
+            <Field label="Facturación histórica mínima USD">
+              <input className={inputClass} type="number" min="0" step="0.01" value={minRevenue} onChange={(event) => setMinRevenue(event.target.value)} />
+            </Field>
+            <Field label="Canal utilizado">
+              <select className={inputClass} value={fulfillment} onChange={(event) => setFulfillment(event.target.value as PlayFulfillmentFilter)}>
+                <option value="any">Pickup o delivery</option>
+                <option value="pickup">Ha usado pickup</option>
+                <option value="delivery">Ha usado delivery</option>
+              </select>
+            </Field>
+            <Field label="Días sin comprar: mínimo">
+              <input className={inputClass} type="number" min="0" value={minDays} onChange={(event) => setMinDays(event.target.value)} placeholder="Sin mínimo" />
+            </Field>
+            <Field label="Días sin comprar: máximo">
+              <input className={inputClass} type="number" min="0" value={maxDays} onChange={(event) => setMaxDays(event.target.value)} placeholder="Sin máximo" />
+            </Field>
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+            <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+              <div className="mb-2">
+                <h4 className="text-[11px] font-semibold text-[#D8D8E0]">Aniversario de la primera compra</h4>
+                <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Permite incluirlos o evitar que reciban dos reconocimientos el mismo mes.</p>
+              </div>
+              <div className="space-y-2">
+                <Field label="Cómo usarlo">
+                  <select className={inputClass} value={anniversaryMode} onChange={(event) => setAnniversaryMode(event.target.value as PlayAnniversaryMode)}>
+                    <option value="any">No filtrar por aniversario</option>
+                    <option value="include">Solo quienes cumplen aniversario</option>
+                    <option value="exclude">Excluir quienes cumplen aniversario</option>
+                  </select>
+                </Field>
+                <Field label="Mes">
+                  <select className={inputClass} disabled={anniversaryMode === 'any'} value={anniversaryMonth} onChange={(event) => setAnniversaryMonth(event.target.value)} required={anniversaryMode !== 'any'}>
+                    <option value="">Seleccionar mes</option>
+                    {Array.from({ length: 12 }, (_, index) => (
+                      <option key={index + 1} value={index + 1}>{new Intl.DateTimeFormat('es-VE', { month: 'long' }).format(new Date(2026, index, 1))}</option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+              <div className="mb-2">
+                <h4 className="text-[11px] font-semibold text-[#D8D8E0]">Fecha de la primera compra</h4>
+                <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Filtra cuándo el cliente compró por primera vez. Es la base de clientes nuevos.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Desde mes">
+                  <input className={inputClass} type="month" value={firstFrom} onChange={(event) => setFirstFrom(event.target.value)} />
+                </Field>
+                <Field label="Hasta mes">
+                  <input className={inputClass} type="month" value={firstTo} onChange={(event) => setFirstTo(event.target.value)} />
+                </Field>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+              <div className="mb-2">
+                <h4 className="text-[11px] font-semibold text-[#D8D8E0]">Fecha de la última compra</h4>
+                <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Filtra cuándo ocurrió su compra más reciente; no modifica la primera compra.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Desde mes">
+                  <input className={inputClass} type="month" value={lastFrom} onChange={(event) => setLastFrom(event.target.value)} />
+                </Field>
+                <Field label="Hasta mes">
+                  <input className={inputClass} type="month" value={lastTo} onChange={(event) => setLastTo(event.target.value)} />
+                </Field>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.04] p-3">
+            <div className="mb-2">
+              <h4 className="text-[11px] font-semibold text-emerald-200">Último obsequio recibido</h4>
+              <p className="mt-0.5 text-[9px] text-emerald-200/55">Para no repetir reconocimientos. Ejemplo: usa “hasta” con el último día anterior al período que deseas bloquear.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1.2fr]">
+              <Field label="Desde mes">
+                <input className={inputClass} type="month" value={lastGiftFrom} onChange={(event) => setLastGiftFrom(event.target.value)} />
+              </Field>
+              <Field label="Hasta mes">
+                <input className={inputClass} type="month" value={lastGiftTo} onChange={(event) => setLastGiftTo(event.target.value)} />
+              </Field>
+              <label className="mt-5 flex h-9 items-center gap-2 rounded-xl border border-[#2A2A35] bg-[#0B0B0D] px-3 text-[10px] text-[#B7B7C2]">
+                <input type="checkbox" checked={includeNeverGifted} onChange={(event) => setIncludeNeverGifted(event.target.checked)} className="accent-[#FFFF00]" />
+                Incluir clientes que nunca recibieron obsequio
+              </label>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      {editable || audienceRevision ? (
+        <div className="flex flex-col gap-2 border-t border-[#242433] pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[10px] text-[#B7B7C2]">{audienceRevision ? 'Probar no cambia la publicación. Reservas, entregas y seguimientos se conservan.' : 'La prueba guardará el borrador y calculará inmediatamente los candidatos.'}</p>
+          <button type="submit" disabled={busy || (!audienceRevision && benefits.length === 0)} className={buttonPrimary}>
+            {audienceRevision ? 'Probar ajustes de la lista' : play ? 'Actualizar y probar de nuevo' : 'Probar definición'}
+          </button>
+        </div>
+      ) : null}
+    </WorkspaceForm>
+  );
+}
+
+function PublishedAudienceEditor(props: {
+  play: MasterPlay; plays: MasterPlay[]; benefits: PlayBenefit[];
+  historyProducts: Props['historyProducts']; activeAdvisors: PlayAdvisorOption[];
+}) {
+  const router = useRouter();
+  const [busy, startTransition] = useTransition();
+  const [preview, setPreview] = useState<{ input: SavePlayDraftInput; data: PlayAudiencePreview } | null>(null);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  function test(input: SavePlayDraftInput) {
+    setPreview(null);
+    setError('');
+    startTransition(async () => {
+      const result = await revisePlayAudienceAction(input);
+      if (!result.ok || !result.revision) setError(result.error || 'No se pudo generar la prueba.');
+      else setPreview({ input, data: result.revision });
+    });
+  }
+  const labels = { add: 'Entra', remove: 'Sale', keep: 'Permanece', protected: 'Protegido: reserva o pedido' };
+  return (
+    <details className="rounded-2xl border border-sky-400/25 bg-sky-400/[0.04]">
+      <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-sky-100">Revisar condiciones y lista publicada</summary>
+      <div className="space-y-3 border-t border-sky-400/15 p-4">
+        <p className="text-[11px] text-[#B7B7C2]">Puedes ajustar filtros y asesores. Los costos, beneficios y condiciones de entrega ya publicados no se reescriben aquí. Los clientes con beneficios reservados o pedidos conservan su lugar.</p>
+        <div onChangeCapture={() => setPreview(null)} onClickCapture={(event) => {
+          if ((event.target as HTMLElement).closest('button[type="button"]')) setPreview(null);
+        }}>
+          <PlayDefinitionForm {...props} busy={busy} audienceRevision onSubmit={test} />
+        </div>
+        {error ? <p role="alert" className="text-xs text-red-300">{error}</p> : null}
+        {preview ? (
+          <section className="space-y-3 rounded-xl border border-sky-400/20 p-3">
+            <p className="text-xs text-sky-100">Lista resultante: {preview.data.total} · Entran: {preview.data.added} · Salen: {preview.data.removed} · Protegidos: {preview.data.protected}</p>
+            <input aria-label="Buscar cliente en la revisión" className={inputClass} value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar cliente o asesor" />
+            <div className="max-h-64 overflow-y-auto">
+              {preview.data.clients.filter(client => `${client.name} ${client.advisor ?? ''} ${client.client_id}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(client => (
+                <div key={client.client_id} className="flex items-center justify-between gap-2 border-b border-[#242433] py-1.5 text-[10px]">
+                  <span>{client.client_id} · {client.name} <span className="text-[#9B9BA7]">· {client.advisor}</span></span>
+                  <span className={client.action === 'remove' ? 'text-red-300' : client.action === 'add' ? 'text-emerald-300' : 'text-sky-200'}>{labels[client.action]}</span>
+                </div>
+              ))}
+            </div>
+            <input aria-label="Motivo del cambio de lista" className={inputClass} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} placeholder="Motivo del ajuste (queda registrado)" />
+            <div className="flex gap-2">
+              <button type="button" disabled={busy} className={buttonSecondary} onClick={() => setPreview(null)}>Descartar prueba</button>
+              <button type="button" disabled={busy || reason.trim().length < 3} className={buttonPrimary} onClick={() => {
+                setError('');
+                startTransition(async () => {
+                  const result = await revisePlayAudienceAction(preview.input, preview.data.token, reason);
+                  if (!result.ok) { setError(result.error || 'No se pudo aplicar.'); setPreview(null); }
+                  else { setPreview(null); setReason(''); router.refresh(); }
+                });
+              }}>Aplicar ajustes a la publicación</button>
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function PublishedPlayEditor({
+  play,
+  activeAdvisors,
+  playAdvisors,
+  manualClientSearch,
+  manualClientSuggestions,
+  amendments,
+  busy,
+  onAmendMessage,
+  onAddClient,
+  onExcludeAdvisor,
+}: {
+  play: MasterPlay;
+  activeAdvisors: PlayAdvisorOption[];
+  playAdvisors: Array<{ id: string; name: string; count: number }>;
+  manualClientSearch: string;
+  manualClientSuggestions: ManualPlayClientSuggestion[];
+  amendments: PlayAmendment[];
+  busy: boolean;
+  onAmendMessage: (input: { messageTemplate: string; advisorGuidance: string; reason: string }) => void;
+  onAddClient: (input: { clientId: number; advisorId: string; reason: string }) => void;
+  onExcludeAdvisor: (input: { advisorId: string; reason: string }) => void;
+}) {
+  const [messageTemplate, setMessageTemplate] = useState(play.messageTemplate ?? '');
+  const [advisorGuidance, setAdvisorGuidance] = useState(play.advisorGuidance ?? '');
+  const [messageReason, setMessageReason] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [selectedAdvisorId, setSelectedAdvisorId] = useState('');
+  const [clientReason, setClientReason] = useState('');
+  const [excludedAdvisorId, setExcludedAdvisorId] = useState('');
+  const [advisorReason, setAdvisorReason] = useState('');
+  const selectedClient = manualClientSuggestions.find((client) => client.clientId === selectedClientId) ?? null;
+  const amendmentLabels: Record<PlayAmendment['type'], string> = {
+    message_updated: 'Mensaje ajustado',
+    member_added: 'Cliente incluido',
+    member_removed: 'Cliente retirado',
+    advisor_excluded: 'Asesor retirado',
+    criteria_corrected: 'Selección corregida',
+    design_reopened: 'Lista devuelta al diseño',
+    audience_revised: 'Filtros y lista ajustados',
+  };
+
+  function chooseClient(client: ManualPlayClientSuggestion) {
+    setSelectedClientId(client.clientId);
+    const primaryIsActive = activeAdvisors.some((advisor) => advisor.id === client.primaryAdvisorId);
+    setSelectedAdvisorId(primaryIsActive ? client.primaryAdvisorId ?? '' : activeAdvisors[0]?.id ?? '');
+  }
+
+  return (
+    <details className="rounded-2xl border border-violet-400/20 bg-violet-400/[0.04]" open>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+        <div>
+          <div className="text-sm font-semibold text-violet-100">Editar publicación</div>
+          <div className="mt-0.5 text-[10px] text-violet-100/50">Corrige mensaje, clientes y asesores. El administrador también puede revisar los filtros de la lista; los cambios quedan registrados.</div>
+        </div>
+        <span className="rounded-full border border-violet-300/20 px-2 py-1 text-[9px] text-violet-100/70">{amendments.length} movimientos recientes</span>
+      </summary>
+
+      <div className="grid gap-3 border-t border-violet-300/10 p-3 xl:grid-cols-2">
+        <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
+          <div className="text-xs font-semibold">Mensaje y pauta para el asesor</div>
+          <p className="mt-0.5 text-[9px] text-[#9B9BA7]">El texto nuevo se muestra de inmediato; la versión anterior queda en el historial.</p>
+          <div className="mt-2 space-y-2">
+            <Field label="Mensaje para copiar">
+              <textarea className={`${inputClass} min-h-28 resize-y py-2`} value={messageTemplate} onChange={(event) => setMessageTemplate(event.target.value)} maxLength={6000} />
+            </Field>
+            <Field label="Pauta interna">
+              <textarea className={`${inputClass} min-h-20 resize-y py-2`} value={advisorGuidance} onChange={(event) => setAdvisorGuidance(event.target.value)} maxLength={4000} />
+            </Field>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input className={inputClass} value={messageReason} onChange={(event) => setMessageReason(event.target.value)} maxLength={500} placeholder="Motivo obligatorio · quedará en el historial" />
+              <button
+                type="button"
+                className={buttonSecondary}
+                disabled={busy}
+                onClick={() => onAmendMessage({ messageTemplate, advisorGuidance, reason: messageReason })}
+              >
+                Guardar texto
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
+          <div className="text-xs font-semibold">Incluir un cliente manualmente</div>
+          <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Puede estar fuera de los filtros, pero no en otra jugada incompatible del mismo período.</p>
+          <WorkspaceForm action="/app/master/plays" method="get" className="mt-2 flex gap-2">
+            <input type="hidden" name="play" value={play.id} />
+            <input name="addq" defaultValue={manualClientSearch} className={inputClass} placeholder="Nombre, teléfono o número" minLength={2} />
+            <button type="submit" className={buttonSecondary}>Buscar</button>
+          </WorkspaceForm>
+          {manualClientSearch.length >= 2 ? (
+            <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+              {manualClientSuggestions.length === 0 ? (
+                <div className="rounded-lg border border-[#242433] px-2 py-3 text-center text-[10px] text-[#B7B7C2]">No encontramos clientes activos.</div>
+              ) : manualClientSuggestions.map((client) => {
+                const alreadyIncluded = client.currentWorkflowStatus != null && client.currentWorkflowStatus !== 'removed';
+                const selected = selectedClientId === client.clientId;
+                return (
+                  <button
+                    key={client.clientId}
+                    type="button"
+                    disabled={alreadyIncluded}
+                    onClick={() => chooseClient(client)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-2.5 py-2 text-left transition ${selected ? 'border-[#FFFF00]/60 bg-[#FFFF00]/[0.05]' : 'border-[#242433] hover:border-[#414150]'} disabled:cursor-not-allowed disabled:opacity-45`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[11px] font-semibold">{client.fullName}</span>
+                      <span className="block truncate text-[9px] text-[#9B9BA7]">#{client.clientId} · {client.phone || 'sin teléfono'} · {client.primaryAdvisorName || 'sin asesor actual'}</span>
+                    </span>
+                    <span className="shrink-0 text-[9px] text-[#8F8F9D]">{alreadyIncluded ? 'Ya está en la lista' : client.currentWorkflowStatus === 'removed' ? 'Reincorporar' : 'Seleccionar'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {selectedClient ? (
+            <div className="mt-2 grid gap-2 rounded-xl border border-[#343440] bg-[#121218] p-2 sm:grid-cols-[1fr_1fr_auto]">
+              <select className={inputClass} value={selectedAdvisorId} onChange={(event) => setSelectedAdvisorId(event.target.value)}>
+                <option value="">Selecciona asesor</option>
+                {activeAdvisors.map((advisor) => <option key={advisor.id} value={advisor.id}>{advisor.name}</option>)}
+              </select>
+              <input className={inputClass} value={clientReason} onChange={(event) => setClientReason(event.target.value)} maxLength={500} placeholder="Motivo obligatorio" />
+              <button
+                type="button"
+                className={buttonPrimary}
+                disabled={busy || !selectedAdvisorId}
+                onClick={() => onAddClient({ clientId: selectedClient.clientId, advisorId: selectedAdvisorId, reason: clientReason })}
+              >
+                Incluir
+              </button>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
+          <div className="text-xs font-semibold">Retirar un asesor de esta publicación</div>
+          <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Retira sus clientes pendientes en bloque. Los beneficios ya utilizados permanecen en el historial.</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <select className={inputClass} value={excludedAdvisorId} onChange={(event) => setExcludedAdvisorId(event.target.value)}>
+              <option value="">Selecciona asesor</option>
+              {playAdvisors.filter((advisor) => advisor.id).map((advisor) => <option key={advisor.id} value={advisor.id}>{advisor.name} · {advisor.count}</option>)}
+            </select>
+            <input className={inputClass} value={advisorReason} onChange={(event) => setAdvisorReason(event.target.value)} maxLength={500} placeholder="Motivo obligatorio" />
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center rounded-xl border border-red-500/30 px-3 text-xs font-semibold text-red-200 hover:bg-red-500/10 disabled:opacity-45"
+              disabled={busy || !excludedAdvisorId}
+              onClick={() => {
+                if (!window.confirm('¿Retirar de esta jugada todos los clientes pendientes de este asesor?')) return;
+                onExcludeAdvisor({ advisorId: excludedAdvisorId, reason: advisorReason });
+              }}
+            >
+              Retirar
+            </button>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-[#2A2A35] bg-[#0D0D11] p-3">
+          <div className="text-xs font-semibold">Historial de cambios</div>
+          <div className="mt-2 max-h-40 divide-y divide-[#242433] overflow-y-auto">
+            {amendments.length === 0 ? (
+              <div className="py-5 text-center text-[10px] text-[#B7B7C2]">Esta publicación todavía no tiene ajustes.</div>
+            ) : amendments.map((amendment) => (
+              <div key={amendment.id} className="py-2 first:pt-0">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-[10px] font-semibold text-[#D5D5DD]">
+                    {amendmentLabels[amendment.type]}{amendment.clientName ? ` · ${amendment.clientName}` : amendment.advisorName ? ` · ${amendment.advisorName}` : ''}
+                  </span>
+                  <span className="shrink-0 text-[9px] text-[#9B9BA7]">{dateTimeFormatter.format(new Date(amendment.createdAt))}</span>
+                </div>
+                <div className="mt-0.5 truncate text-[9px] text-[#B7B7C2]">{amendment.reason} · {amendment.actorName}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </details>
+  );
+}
+
+function MemberList({
+  play,
+  members,
+  memberCount,
+  page,
+  pageSize,
+  search,
+  busy,
+  onRemove,
+}: {
+  play: MasterPlay;
+  members: MasterPlayMember[];
+  memberCount: number;
+  page: number;
+  pageSize: number;
+  search: string;
+  busy: boolean;
+  onRemove: (member: MasterPlayMember) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(memberCount / pageSize));
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+      <div className="flex flex-col gap-2 border-b border-[#242433] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold">2. Revisar lista</h2>
+          <p className="mt-0.5 text-[10px] text-[#B7B7C2]">{memberCount.toLocaleString('es-VE')} clientes · ordenados por facturación</p>
+          <p className="mt-1 text-[11px] text-[#B7B7C2]">Toca el nombre del cliente para ver sus órdenes y excepciones de esta jugada.</p>
+          <p className="mt-1 text-[10px] text-[#9B9BA7]">Seguimiento: mismos colores y estados que ve el asesor.</p>
+        </div>
+        <WorkspaceForm action="/app/master/plays" method="get" className="flex items-center gap-2">
+          <input type="hidden" name="play" value={play.id} />
+          <input name="q" defaultValue={search} className={`${inputClass} w-56`} placeholder="Buscar cliente" />
+          <button className={buttonSecondary} type="submit">Buscar</button>
+        </WorkspaceForm>
+      </div>
+
+      {members.length === 0 ? (
+        <div className="px-4 py-12 text-center">
+          <div className="text-sm font-semibold text-[#D5D5DD]">{search ? 'No hay coincidencias' : 'La lista aún no ha sido generada'}</div>
+          <p className="mt-1 text-xs text-[#B7B7C2]">{search ? 'Prueba con otro nombre.' : 'Completa las condiciones y usa Probar definición.'}</p>
+        </div>
+      ) : (
+        <div className="divide-y divide-[#242433]">
+          <div className="hidden grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px] gap-3 bg-[#0D0D11] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#9B9BA7] lg:grid">
+            <span>Cliente</span><span>Asesor</span><span className="text-right">Cierres</span><span className="text-right">Facturación</span><span className="text-right">Sin comprar</span><span className="text-right">Últ. obsequio</span><span />
+          </div>
+          {members.map((member) => {
+            const presentation = workflowPresentation(
+              member.workflowStatus, member.followUpDue, member.benefitStatus,
+              member.contactedAt, member.respondedAt, member.playLaunchedAt,
+              member.noApplyStatus,
+            );
+            return (
+              <div key={member.id} className={`grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-l-4 px-3 py-2 lg:grid-cols-[minmax(180px,1.5fr)_minmax(130px,1fr)_74px_92px_86px_92px_34px] ${presentation.row}`}>
+                <div className="min-w-0">
+                  <Link
+                    href={`/app/master/plays/exceptions?client=${member.clientId}&member=${member.id}`}
+                    prefetch={false}
+                    aria-label={`Ver órdenes y excepciones de ${member.clientName}: ${presentation.label}`}
+                    className="group block rounded-md py-1 outline-none hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-amber-300"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${presentation.dot}`} />
+                      <span className="truncate text-xs font-semibold text-amber-100 underline decoration-amber-200/40 underline-offset-2 group-hover:text-amber-200">{member.clientName}</span>
+                    </span>
+                    <span className={`mt-1 inline-flex max-w-full rounded-full border px-1.5 py-0.5 text-[9px] leading-none ${presentation.chip}`}>{presentation.label}</span>
+                  </Link>
+                  <div className="mt-0.5 truncate text-[9px] text-[#9B9BA7]">#{member.clientId} · última {dateLabel(member.lastPurchaseOn)}</div>
+                </div>
+                <div className="hidden min-w-0 truncate text-[11px] text-[#B7B7C2] lg:block">{member.advisorName}</div>
+                <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.purchaseCount}</div>
+                <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{moneyFormatter.format(member.netRevenueUsd)}</div>
+                <div className="hidden text-right text-[11px] tabular-nums text-[#D5D5DD] lg:block">{member.daysSinceLastPurchase == null ? '—' : `${member.daysSinceLastPurchase} d`}</div>
+                <div className="hidden text-right text-[10px] tabular-nums text-[#D5D5DD] lg:block">{dateLabel(member.lastGiftOn)}</div>
+                {play.status === 'draft' || (['frozen', 'active', 'paused'].includes(play.status) && member.benefitStatus !== 'redeemed') ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onRemove(member)}
+                    title={play.status === 'draft' ? 'Retirar de esta prueba' : 'Retirar de la publicación'}
+                    aria-label={`Retirar a ${member.clientName} de esta jugada`}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-500/20 text-sm text-red-300 transition hover:bg-red-500/10 disabled:opacity-40"
+                  >
+                    ×
+                  </button>
+                ) : (
+                  <span className="text-center text-[10px] text-emerald-300" title={member.benefitStatus === 'redeemed' ? 'Beneficio ya utilizado: se conserva el historial' : undefined}>
+                    {member.benefitStatus === 'redeemed' ? '✓' : ''}
+                  </span>
+                )}
+                <div className="col-span-2 flex flex-wrap gap-1 text-[9px] text-[#8F8F9D] lg:hidden">
+                  <span>{member.advisorName}</span><span>·</span><span>{member.purchaseCount} cierres</span><span>·</span><span>{moneyFormatter.format(member.netRevenueUsd)}</span><span>·</span><span>{member.daysSinceLastPurchase ?? '—'} d</span><span>·</span><span>obsequio {dateLabel(member.lastGiftOn)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {memberCount > pageSize ? (
+        <div className="flex items-center justify-between gap-3 border-t border-[#242433] px-3 py-2">
+          <span className="text-[10px] text-[#B7B7C2]">Página {page} de {totalPages}</span>
+          <div className="flex gap-1.5">
+            <Link aria-disabled={page <= 1} href={pageHref(play.id, Math.max(1, page - 1), search)} className={`${buttonSecondary} ${page <= 1 ? 'pointer-events-none opacity-35' : ''}`}>Anterior</Link>
+            <Link aria-disabled={page >= totalPages} href={pageHref(play.id, Math.min(totalPages, page + 1), search)} className={`${buttonSecondary} ${page >= totalPages ? 'pointer-events-none opacity-35' : ''}`}>Siguiente</Link>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function PlayMonitor({
+  summary,
+  plannedBudgetUsd,
+}: {
+  summary: MasterPlayMonitorSummary;
+  plannedBudgetUsd: number | null;
+}) {
+  const budget = getPlayBudgetProgress({
+    plannedBudgetUsd,
+    companyCostUsd: summary.companyCostUsd,
+  });
+  const metrics = [
+    { label: 'Sin tocar', value: summary.pendingMembers, note: 'Pendientes de primer contacto' },
+    { label: 'Contactos iniciados', value: summary.contactedMembers, note: `${summary.contactRatePct.toFixed(1)}% de la lista` },
+    { label: 'Respondieron saludo', value: summary.respondedMembers, note: `${summary.responseRatePct.toFixed(1)}% de contactados` },
+    { label: 'Jugada lanzada', value: summary.launchedMembers, note: `${summary.launchRatePct.toFixed(1)}% de la lista` },
+    { label: 'No respondieron', value: summary.noResponseMembers, note: 'Marcados por el asesor' },
+    { label: 'Beneficio aplicado', value: summary.redeemedMembers, note: `${summary.redemptionRatePct.toFixed(1)}% de la lista` },
+  ];
+  return (
+    <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold">3. Supervisar ejecución</h2>
+        <p className="mt-0.5 text-[10px] text-[#B7B7C2]">Embudo vivo desde el saludo inicial hasta el mensaje de la jugada y el beneficio aplicado.</p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+        {metrics.map((metric) => (
+          <div key={metric.label} className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
+            <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#B7B7C2]">{metric.label}</div>
+            <div className="mt-1 text-xl font-semibold tabular-nums text-white">{metric.value.toLocaleString('es-VE')}</div>
+            <div className="mt-0.5 text-[9px] text-[#9B9BA7]">{metric.note}</div>
+          </div>
+        ))}
+      </div>
+      {summary.advisors.length > 0 ? (
+        <div className="mt-4 overflow-x-auto rounded-xl border border-[#242433]">
+          <table className="min-w-[1040px] w-full border-collapse text-left text-[10px]">
+            <caption className="border-b border-[#242433] bg-[#0D0D11] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-[#B7B7C2]">
+              Avance vivo por asesor
+            </caption>
+            <thead className="bg-[#101014] text-[#B7B7C2]">
+              <tr>
+                <th scope="col" className="px-3 py-2 font-medium">Asesor</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Lista</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Sin tocar</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Contactos</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Respondieron</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Lanzadas</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Sin respuesta</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Vencidos</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">Aplicadas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.advisors.map((advisor) => (
+                <tr key={advisor.advisorId ?? 'orphan'} className="border-t border-[#20202B] bg-[#121218] text-[#D6D6DF]">
+                  <th scope="row" className="max-w-[190px] px-3 py-2.5 font-medium">
+                    <div className="truncate">{advisor.advisorName}</div>
+                    <div className="mt-0.5 text-[9px] font-normal text-[#9B9BA7]">
+                      {advisor.lastActivityAt ? `Último movimiento ${dateTimeFormatter.format(new Date(advisor.lastActivityAt))}` : 'Todavía sin movimientos'}
+                    </div>
+                  </th>
+                  <td className="px-2 py-2.5 text-right tabular-nums">{advisor.totalMembers}</td>
+                  <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.pendingMembers > 0 ? 'text-amber-200' : 'text-[#B7B7C2]'}`}>{advisor.pendingMembers}</td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-blue-200">{advisor.contactedMembers}<span className="ml-1 text-[9px] text-[#9B9BA7]">{advisor.contactRatePct.toFixed(0)}%</span></td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-violet-200">{advisor.respondedMembers}<span className="ml-1 text-[9px] text-[#9B9BA7]">{advisor.responseRatePct.toFixed(0)}%</span></td>
+                  <td className="px-2 py-2.5 text-right tabular-nums">{advisor.launchedMembers}<span className="ml-1 text-[9px] text-[#9B9BA7]">{advisor.launchRatePct.toFixed(0)}%</span></td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-orange-200">{advisor.noResponseMembers}</td>
+                  <td className={`px-2 py-2.5 text-right tabular-nums ${advisor.overdueFollowUps > 0 ? 'text-rose-200' : 'text-[#B7B7C2]'}`}>{advisor.overdueFollowUps}</td>
+                  <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-emerald-200">{advisor.redeemedMembers}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2"><div className="text-[9px] text-emerald-100/50">Ventas directas · sin IVA</div><div className="mt-0.5 text-sm font-semibold text-emerald-100">{moneyFormatter.format(summary.directOrderRevenueUsd)}</div></div>
+        <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] px-3 py-2"><div className="text-[9px] text-cyan-100/50">Crédito entregado</div><div className="mt-0.5 text-sm font-semibold text-cyan-100">{moneyFormatter.format(summary.benefitCreditUsd)}</div></div>
+        <div className="rounded-xl border border-blue-400/15 bg-blue-400/[0.04] px-3 py-2"><div className="text-[9px] text-blue-100/50">Inversión empresa</div><div className="mt-0.5 text-sm font-semibold text-blue-100">{moneyFormatter.format(summary.companyCostUsd)}</div></div>
+        <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.04] px-3 py-2"><div className="text-[9px] text-amber-100/50">Cargo asesores · comisión</div><div className="mt-0.5 text-sm font-semibold text-amber-100">{moneyFormatter.format(summary.advisorChargeUsd)}</div></div>
+        <div className="rounded-xl border border-violet-400/15 bg-violet-400/[0.04] px-3 py-2"><div className="text-[9px] text-violet-100/50">Diferencias pagadas · comisionables</div><div className="mt-0.5 text-sm font-semibold text-violet-100">{moneyFormatter.format(summary.customerPaidDifferenceUsd)}</div></div>
+      </div>
+      <div className={`mt-2 rounded-xl border px-3 py-2.5 ${budget.status === 'exceeded' ? 'border-red-400/25 bg-red-400/[0.06]' : 'border-blue-400/15 bg-blue-400/[0.04]'}`}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className={`text-[10px] font-semibold ${budget.status === 'exceeded' ? 'text-red-200' : 'text-blue-100'}`}>Presupuesto ejecutado de la jugada</div>
+            <div className="mt-0.5 text-[9px] text-[#B7B7C2]">Solo consume el aporte real de la empresa en beneficios aplicados; el cargo del asesor se liquida aparte en su comisión.</div>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-right text-[9px]">
+            <div><div className="text-[#B7B7C2]">Presupuesto</div><div className="mt-0.5 text-xs font-semibold">{budget.plannedBudgetUsd == null ? 'No definido' : moneyFormatter.format(budget.plannedBudgetUsd)}</div></div>
+            <div><div className="text-[#B7B7C2]">Consumido</div><div className="mt-0.5 text-xs font-semibold">{moneyFormatter.format(budget.companyCostUsd)}{budget.usagePct == null ? '' : ` · ${budget.usagePct.toFixed(1)}%`}</div></div>
+            <div><div className="text-[#B7B7C2]">Saldo</div><div className={`mt-0.5 text-xs font-semibold ${budget.status === 'exceeded' ? 'text-red-200' : ''}`}>{budget.remainingBudgetUsd == null ? '—' : moneyFormatter.format(budget.remainingBudgetUsd)}</div></div>
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 border-t border-[#242433] pt-3">
+        <div className="mb-2">
+          <h3 className="text-xs font-semibold text-[#D6D6DF]">Efecto posterior</h3>
+          <p className="mt-0.5 text-[9px] text-[#9B9BA7]">Solo observa clientes que respondieron y no usaron el beneficio. No se contabiliza como aplicación directa.</p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
+            <div className="text-[9px] text-[#B7B7C2]">Respondieron sin aplicarlo</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums">{summary.respondedWithoutRedemptionMembers.toLocaleString('es-VE')}</div>
+          </div>
+          <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2.5">
+            <div className="text-[9px] text-emerald-100/50">Compraron después</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums text-emerald-100">{summary.postContactPurchaseMembers.toLocaleString('es-VE')}</div>
+            <div className="text-[9px] text-emerald-100/40">{moneyFormatter.format(summary.postContactRevenueUsd)} posteriores</div>
+          </div>
+          <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] px-3 py-2.5">
+            <div className="text-[9px] text-cyan-100/50">Mejoraron su ritmo</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums text-cyan-100">{summary.cadenceImprovedMembers.toLocaleString('es-VE')}</div>
+            <div className="text-[9px] text-cyan-100/40">{summary.cadenceImprovementRatePct.toFixed(1)}% de {summary.comparableCadenceMembers.toLocaleString('es-VE')} comparables</div>
+          </div>
+          <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-3 py-2.5">
+            <div className="text-[9px] text-[#B7B7C2]">Aún en observación</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums">{summary.evaluationPendingMembers.toLocaleString('es-VE')}</div>
+            <div className="text-[9px] text-[#9B9BA7]">Respondieron, sin compra posterior todavía</div>
+          </div>
+        </div>
+        {summary.comparableCadenceMembers > 0 ? (
+          <div className="mt-2 text-[9px] text-[#B7B7C2]">
+            Ritmo comparable: {summary.comparableBaselineCadenceDays.toFixed(1)} días antes · {summary.comparablePostCadenceDays.toFixed(1)} días después.
+          </div>
+        ) : null}
+      </div>
+      {summary.expiredMembers > 0 ? <div className="mt-2 text-[9px] text-[#B7B7C2]">{summary.expiredMembers.toLocaleString('es-VE')} beneficios vencieron sin utilizarse.</div> : null}
+    </section>
+  );
+}
+
+export default function MasterPlaysClient({
+  today,
+  roles,
+  plays,
+  selectedPlay,
+  benefits,
+  historyProducts,
+  members,
+  memberCount,
+  memberPage,
+  memberPageSize,
+  memberSearch,
+  monitorSummary,
+  activeAdvisors,
+  manualClientSearch,
+  manualClientSuggestions,
+  amendments,
+  noApplyRequests,
+}: Props) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [notice, setNotice] = useState<Notice>(null);
+  const [playSearch, setPlaySearch] = useState('');
+  const [playFilter, setPlayFilter] = useState<PlayListFilter>('all');
+  const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
+  const monthGroups = useMemo(() => groupPlaysByMonth(plays, today, playSearch, playFilter), [plays, today, playSearch, playFilter]);
+  const filteringPlays = playSearch.trim().length > 0 || playFilter !== 'all';
+  const activeModuleKey = roles.includes('admin') ? 'admin' : 'master';
+  const playCounts = useMemo(() => ({
+    design: plays.filter((play) => play.status === 'draft').length,
+    review: plays.filter((play) => play.status === 'frozen').length,
+    shared: plays.filter((play) => play.status === 'active' || play.status === 'paused').length,
+  }), [plays]);
+  const selectedSummaryTotal = summaryNumber(selectedPlay, 'total');
+  const selectedAdvisorCount = summaryNumber(selectedPlay, 'advisor_count');
+  const selectedExcludedCount = summaryNumber(selectedPlay, 'excluded_count');
+  const selectedOverlapConflictCount = summaryNumber(selectedPlay, 'overlap_conflict_count');
+  const selectedTotalClosures = summaryNumber(selectedPlay, 'total_purchase_count');
+  const selectedRevenue = summaryAmount(selectedPlay, 'total_net_revenue_usd') ?? 0;
+  const selectedProjectedCostMin = summaryAmount(selectedPlay, 'projected_cost_min_usd');
+  const selectedProjectedCostMax = summaryAmount(selectedPlay, 'projected_cost_max_usd');
+  const selectedAdvisorChargeMin = summaryAmount(selectedPlay, 'projected_advisor_charge_min_usd');
+  const selectedAdvisorChargeMax = summaryAmount(selectedPlay, 'projected_advisor_charge_max_usd');
+  const selectedBudgetBalance = summaryAmount(selectedPlay, 'budget_balance_worst_case_usd');
+  const selectedBudgetCapacity = summaryAmount(selectedPlay, 'budget_capacity_worst_case');
+  const selectedBudgetStatus = stringValue(selectedPlay?.summary?.budget_status) || 'not_defined';
+  const selectedHasPreview = Boolean(selectedPlay?.summary?.generated_at);
+  const advisors = advisorBreakdown(selectedPlay);
+
+  function handleResult(result: PlayActionResult, navigateToPlay = false) {
+    if (!result.ok) {
+      setNotice({ tone: 'error', text: result.error || 'No se pudo completar la acción.' });
+      return;
+    }
+    setNotice({ tone: 'success', text: result.message || 'Acción completada.' });
+    if (navigateToPlay && result.playId) {
+      router.push(`/app/master/plays?play=${result.playId}`);
+    } else {
+      router.refresh();
+    }
+  }
+
+  function run(action: () => Promise<PlayActionResult>, navigateToPlay = false) {
+    setNotice(null);
+    startTransition(async () => handleResult(await action(), navigateToPlay));
+  }
+
+  function removeDraft(playId: number) {
+    if (!window.confirm('¿Eliminar por completo esta prueba y su lista de candidatos?')) return;
+    setNotice(null);
+    startTransition(async () => {
+      const result = await deleteDraftPlayAction(playId);
+      if (!result.ok) {
+        setNotice({ tone: 'error', text: result.error || 'No se pudo eliminar la prueba.' });
+        return;
+      }
+      router.push('/app/master/plays?create=1');
+      router.refresh();
+    });
+  }
+
+  function clonePlay(playId: number) {
+    setNotice(null);
+    startTransition(async () => handleResult(await clonePlayAction(playId), true));
+  }
+
+  function clonePlayForNextPeriod(playId: number) {
+    setNotice(null);
+    startTransition(async () => handleResult(await clonePlayForNextPeriodAction(playId), true));
+  }
+
+  function changeLifecycle(playId: number, command: 'pause' | 'resume' | 'close') {
+    if (command === 'close' && !window.confirm('¿Cerrar esta jugada? Ya no aparecerá como trabajo activo para los asesores.')) return;
+    run(() => changePlayLifecycleAction(playId, command));
+  }
+
+  function removeMember(play: MasterPlay, member: MasterPlayMember) {
+    if (play.status === 'draft') {
+      run(() => excludePlayClientAction(play.id, member.clientId));
+      return;
+    }
+
+    const reason = window.prompt(`¿Por qué deseas retirar a ${member.clientName} de esta publicación?`);
+    if (reason == null) return;
+    if (reason.trim().length < 3) {
+      setNotice({ tone: 'error', text: 'Escribe un motivo de al menos 3 caracteres.' });
+      return;
+    }
+    run(() => removePublishedPlayClientAction(play.id, member.clientId, reason));
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
+      <ModulePreference moduleKey={activeModuleKey} />
+      <header className="sticky top-0 z-40 border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <BackLink fallbackHref="/app/master/dashboard" className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs text-[#B7B7C2] hover:border-[#FFFF00]/50 md:min-h-8" />
+            <div className="min-w-0">
+              <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[#B7B7C2]">CRM · Jugadas</div>
+              <h1 className="truncate text-base font-semibold">Diseño de jugadas</h1>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-1.5 text-[10px] text-[#8F8F9D] md:flex">
+              <span className="rounded-full border border-[#2A2A35] px-2 py-1">{playCounts.design} diseño</span>
+              <span className="rounded-full border border-amber-400/20 px-2 py-1 text-amber-200">{playCounts.review} revisión</span>
+              <span className="rounded-full border border-emerald-400/20 px-2 py-1 text-emerald-200">{playCounts.shared} compartidas</span>
+            </div>
+            <Link href="/app/master/plays?create=1" className={buttonPrimary}>+ Nueva jugada</Link>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-[1440px] gap-4 px-5 py-4 lg:grid-cols-[290px_minmax(0,1fr)]">
+        <aside className="h-fit overflow-hidden rounded-2xl border border-[#242433] bg-[#121218] lg:sticky lg:top-[78px]">
+          <div className="border-b border-[#242433] px-3 py-3">
+            <div className="text-xs font-semibold">Jugadas</div>
+            <div className="mt-0.5 text-[10px] text-[#B7B7C2]">Por mes · toca un mes para desplegarlo</div>
+            <input
+              type="search" aria-label="Buscar jugadas" placeholder="Buscar jugada o mes…" value={playSearch}
+              onChange={(event) => { setPlaySearch(event.target.value); setExpandedMonths({}); }}
+              className="mt-2 min-h-9 w-full rounded-lg border border-[#343442] bg-[#0B0B0D] px-2 text-xs text-[#F5F5F7]"
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <select aria-label="Filtrar jugadas por estado" value={playFilter}
+                onChange={(event) => { setPlayFilter(event.target.value as PlayListFilter); setExpandedMonths({}); }}
+                className="min-h-9 min-w-0 flex-1 rounded-lg border border-[#343442] bg-[#0B0B0D] px-2 text-xs">
+                <option value="all">Todos los estados</option>
+                <option value="active">Activas ahora</option>
+                <option value="draft">En diseño</option>
+                <option value="frozen">Lista confirmada</option>
+                <option value="paused">Pausadas</option>
+                <option value="closed">Cerradas</option>
+                <option value="cancelled">Canceladas</option>
+              </select>
+              <button type="button" className="min-h-9 shrink-0 rounded-lg px-1 text-[10px] text-[#D6D6DF] hover:text-[#FFFF00]"
+                onClick={() => setExpandedMonths(Object.fromEntries(monthGroups.map((group) => [group.key, false])))}>
+                Plegar todo
+              </button>
+            </div>
+          </div>
+          <div className="max-h-[50vh] overflow-y-auto p-1.5 lg:max-h-[calc(100vh-270px)]">
+            {plays.length === 0 ? (
+              <div className="px-3 py-8 text-center text-xs text-[#B7B7C2]">Aún no hay jugadas creadas.</div>
+            ) : monthGroups.length === 0 ? (
+              <div className="px-3 py-6 text-center text-xs text-[#B7B7C2]">No hay jugadas con esos filtros.</div>
+            ) : monthGroups.map((group) => {
+              const open = expandedMonths[group.key] ?? (filteringPlays || group.defaultOpen);
+              const activeCount = group.plays.filter((play) => isPlayCurrentlyActive(play, today)).length;
+              const allClosed = group.plays.every((play) => play.status === 'closed' || play.status === 'cancelled');
+              const containsSelected = group.plays.some((play) => play.id === selectedPlay?.id);
+              return (
+                <section key={group.key} className="mb-1">
+                  <button type="button" aria-expanded={open} aria-controls={`play-month-${group.key}`}
+                    onClick={() => setExpandedMonths((previous) => ({ ...previous, [group.key]: !open }))}
+                    className={`flex min-h-12 w-full items-center gap-2 rounded-lg border px-2 py-2 text-left hover:bg-[#1B1B24] ${containsSelected ? 'border-[#FFFF00]/30' : 'border-[#292934]'}`}>
+                    <span aria-hidden="true" className="text-[#B7B7C2]">{open ? '▾' : '▸'}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-semibold capitalize">{group.label}</span>
+                      <span className="block text-[10px] text-[#B7B7C2]">
+                        {group.plays.length} jugada{group.plays.length === 1 ? '' : 's'}
+                        {activeCount > 0 ? ` · ${activeCount} activa${activeCount === 1 ? '' : 's'}` : allClosed ? ' · Todas cerradas' : ''}
+                      </span>
+                    </span>
+                  </button>
+                  <div id={`play-month-${group.key}`} hidden={!open} className="pt-1">
+                    {group.plays.map((play) => {
+                      const status = STATUS_PRESENTATION[play.status];
+                      const selected = selectedPlay?.id === play.id;
+                      return (
+                        <Link key={play.id} href={`/app/master/plays?play=${play.id}`} aria-current={selected ? 'page' : undefined}
+                          title={`${play.name} · ${status.label} · ${summaryNumber(play, 'total')} clientes · ${dateLabel(play.startsAt)} — ${dateLabel(play.endsAt)}`}
+                          className={`flex min-h-10 items-center gap-2 rounded-lg border px-2 py-2 text-xs ${selected ? 'border-[#FFFF00]/70 bg-[#FFFF00]/[0.06]' : 'border-transparent hover:bg-[#1B1B24]'}`}>
+                          <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} />
+                          <span className="min-w-0 flex-1 truncate font-medium">{play.name}</span>
+                          <span className={`shrink-0 rounded border px-1 py-0.5 text-[9px] ${status.badge}`}>{status.label}</span>
+                          <span className="shrink-0 text-[10px] tabular-nums text-[#B7B7C2]" aria-label={`${summaryNumber(play, 'total')} clientes`}>{summaryNumber(play, 'total')}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </aside>
+
+        <div className="min-w-0 space-y-4">
+          {notice ? (
+            <div role="status" className={`rounded-xl border px-3 py-2.5 text-xs ${notice.tone === 'error' ? 'border-red-500/30 bg-red-500/10 text-red-200' : notice.tone === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-blue-500/30 bg-blue-500/10 text-blue-200'}`}>
+              {notice.text}
+            </div>
+          ) : null}
+
+          {selectedPlay ? (
+            <>
+              <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate text-lg font-semibold">{selectedPlay.name}</h2>
+                      <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${STATUS_PRESENTATION[selectedPlay.status].badge}`}>{STATUS_PRESENTATION[selectedPlay.status].label}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-[#B7B7C2]">{selectedPlay.description || 'Sin objetivo interno descrito.'}</p>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-[#3C3410] bg-[#211E0A] px-3 py-2 text-right">
+                    <div className="text-[9px] uppercase tracking-[0.12em] text-[#A99D4D]">
+                      Beneficios · {selectedPlay.benefitSelectionMode === 'multiple' ? 'uno o varios' : 'se entrega uno'}
+                    </div>
+                    <div className="mt-1 flex max-w-96 flex-wrap justify-end gap-1">
+                      {selectedPlay.benefits.map((option) => (
+                        <span key={option.id} className="rounded-full border border-[#554912] bg-[#151304] px-2 py-0.5 text-[9px] font-semibold text-[#FFF18B]">
+                          {option.quantity} × {option.name} · asesor {moneyFormatter.format(option.unitAdvisorCostUsd * option.quantity)}
+                          {option.upgrades.length > 0 ? ` · ${option.upgrades.length} ampliación${option.upgrades.length === 1 ? '' : 'es'}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => clonePlay(selectedPlay.id)}
+                      className="mt-2 inline-flex h-7 items-center justify-center rounded-lg border border-[#6A5B18] px-2 text-[9px] font-semibold text-[#FFF18B] hover:bg-[#312B0B] disabled:opacity-45"
+                    >
+                      Copiar como nueva
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pending || !selectedPlay.startsAt || !selectedPlay.endsAt}
+                      onClick={() => clonePlayForNextPeriod(selectedPlay.id)}
+                      className="mt-2 ml-1 inline-flex h-7 items-center justify-center rounded-lg border border-violet-400/35 px-2 text-[9px] font-semibold text-violet-200 hover:bg-violet-400/10 disabled:opacity-35"
+                      title={!selectedPlay.startsAt || !selectedPlay.endsAt ? 'Define primero un período completo.' : 'Copia todo y mueve la vigencia un mes.'}
+                    >
+                      Preparar siguiente mes
+                    </button>
+                    <div className="mt-1 text-[8px] text-[#B7B7C2]">
+                      Serie v{selectedPlay.version}{selectedPlay.copiedFromPlayId ? ` · deriva de #${selectedPlay.copiedFromPlayId}` : ' · original'}
+                    </div>
+                  </div>
+                </div>
+                <PlayProgress status={selectedPlay.status} hasPreview={selectedHasPreview} />
+
+                <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedSummaryTotal}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Clientes</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedAdvisorCount}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Asesores</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedTotalClosures.toLocaleString('es-VE')}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Cierres acumulados</div></div>
+                  <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{moneyFormatter.format(selectedRevenue)}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Facturación acumulada</div></div>
+                </div>
+
+                {selectedHasPreview ? (
+                  <div className="mt-3 rounded-2xl border border-blue-400/20 bg-blue-400/[0.04] p-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-xs font-semibold text-blue-100">Simulación de presupuesto</h3>
+                          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${selectedBudgetStatus === 'within' ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' : selectedBudgetStatus === 'exceeds' ? 'border-red-400/30 bg-red-400/10 text-red-200' : 'border-slate-400/25 bg-slate-400/10 text-slate-300'}`}>
+                            {selectedBudgetStatus === 'within' ? 'Dentro del presupuesto' : selectedBudgetStatus === 'exceeds' ? 'Supera el presupuesto' : 'Presupuesto por definir'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[10px] text-blue-100/55">{selectedPlay.recurrenceMode === 'daily' ? 'Estimación de una ronda: un beneficio por cliente. Las repeticiones en otros días aumentan la inversión; no es el costo total del mes.' : 'Empresa y asesor se calculan con los valores congelados en esta jugada.'}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-right sm:grid-cols-4">
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Disponible</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedPlay.plannedBudgetUsd == null ? '—' : moneyFormatter.format(selectedPlay.plannedBudgetUsd)}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Inversión estimada</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedProjectedCostMin == null || selectedProjectedCostMax == null ? '—' : selectedProjectedCostMin === selectedProjectedCostMax ? moneyFormatter.format(selectedProjectedCostMax) : `${moneyFormatter.format(selectedProjectedCostMin)} — ${moneyFormatter.format(selectedProjectedCostMax)}`}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Cargo asesores</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedAdvisorChargeMin == null || selectedAdvisorChargeMax == null ? '—' : selectedAdvisorChargeMin === selectedAdvisorChargeMax ? moneyFormatter.format(selectedAdvisorChargeMax) : `${moneyFormatter.format(selectedAdvisorChargeMin)} — ${moneyFormatter.format(selectedAdvisorChargeMax)}`}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">{selectedPlay.recurrenceMode === 'daily' ? 'Saldo tras una ronda' : 'Saldo conservador'}</div><div className={`mt-0.5 text-xs font-semibold tabular-nums ${selectedBudgetBalance != null && selectedBudgetBalance < 0 ? 'text-red-200' : 'text-blue-50'}`}>{selectedBudgetBalance == null ? '—' : moneyFormatter.format(selectedBudgetBalance)}</div></div>
+                        <div><div className="text-[9px] uppercase tracking-[0.1em] text-blue-100/45">Capacidad máxima</div><div className="mt-0.5 text-xs font-semibold tabular-nums text-blue-50">{selectedBudgetCapacity == null ? '—' : `${Math.trunc(selectedBudgetCapacity).toLocaleString('es-VE')} ${selectedPlay.recurrenceMode === 'daily' ? 'beneficios' : 'clientes'}`}</div></div>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-[9px] text-blue-100/40">
+                      {selectedExcludedCount.toLocaleString('es-VE')} retirados manualmente · {selectedOverlapConflictCount.toLocaleString('es-VE')} apartados por convivencia · {selectedPlay.benefits.length} alternativas disponibles.
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+
+              {['frozen', 'active', 'paused'].includes(selectedPlay.status) ? (
+                <PublishedPlayEditor
+                  key={`published-editor-${selectedPlay.id}`}
+                  play={selectedPlay}
+                  activeAdvisors={activeAdvisors}
+                  playAdvisors={advisors}
+                  manualClientSearch={manualClientSearch}
+                  manualClientSuggestions={manualClientSuggestions}
+                  amendments={amendments}
+                  busy={pending}
+                  onAmendMessage={(input) => run(() => amendPublishedPlayMessageAction({ playId: selectedPlay.id, ...input }))}
+                  onAddClient={(input) => run(() => addManualPlayMemberAction({ playId: selectedPlay.id, ...input }))}
+                  onExcludeAdvisor={(input) => run(() => excludePublishedPlayAdvisorAction(selectedPlay.id, input.advisorId, input.reason))}
+                />
+              ) : null}
+
+              {roles.includes('admin') && ['active', 'paused'].includes(selectedPlay.status) ? (
+                <PublishedAudienceEditor key={`audience-${selectedPlay.id}`} play={selectedPlay} plays={plays}
+                  benefits={benefits} historyProducts={historyProducts} activeAdvisors={activeAdvisors} />
+              ) : null}
+
+              {selectedPlay.status === 'draft' ? (
+                <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                  <PlayDefinitionForm
+                    key={selectedPlay.id}
+                    play={selectedPlay}
+                    plays={plays}
+                    benefits={benefits}
+                    historyProducts={historyProducts}
+                    activeAdvisors={activeAdvisors}
+                    busy={pending}
+                    onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
+                  />
+                </section>
+              ) : (
+                <details className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+                  <summary className="cursor-pointer list-none px-4 py-3">
+                    <div className="text-xs font-semibold text-[#D5D5DD]">Consultar definición vigente</div>
+                    <div className="mt-0.5 text-[9px] text-[#9B9BA7]">Condiciones, período y costos congelados · solo lectura</div>
+                  </summary>
+                  <div className="border-t border-[#242433] p-4">
+                    <PlayDefinitionForm
+                      key={`readonly-${selectedPlay.id}`}
+                      play={selectedPlay}
+                      plays={plays}
+                      benefits={benefits}
+                      historyProducts={historyProducts}
+                      activeAdvisors={activeAdvisors}
+                      busy={pending}
+                      onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
+                    />
+                  </div>
+                </details>
+              )}
+
+              {selectedPlay.status === 'draft' ? (
+                <section className="flex flex-col gap-3 rounded-2xl border border-[#3A3210] bg-[#1A180B] p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-[#FFF18B]">{selectedHasPreview ? 'Prueba lista para revisar' : 'Todavía no has probado esta definición'}</div>
+                    <p className="mt-1 text-[11px] text-[#A89F68]">{selectedHasPreview ? 'Ajusta condiciones, retira casos o confirma el snapshot cuando la cantidad y el presupuesto estén correctos.' : 'Ejecuta la prueba para conocer candidatos, facturación y presupuesto antes de confirmar.'}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button type="button" disabled={pending} onClick={() => removeDraft(selectedPlay.id)} className="inline-flex h-9 items-center justify-center rounded-xl border border-red-500/30 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:opacity-45">Eliminar prueba</button>
+                    <button type="button" disabled={pending} onClick={() => run(() => generatePlayListAction(selectedPlay.id))} className={buttonSecondary}>Probar condiciones guardadas</button>
+                    <button type="button" disabled={pending || !selectedHasPreview || selectedSummaryTotal <= 0} onClick={() => run(() => confirmPlayListAction(selectedPlay.id))} className={buttonPrimary}>Confirmar snapshot</button>
+                  </div>
+                </section>
+              ) : selectedPlay.status === 'frozen' ? (
+                <section className="flex flex-col gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.06] p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-emerald-200">La lista está confirmada y todavía es privada</div>
+                    <p className="mt-1 text-[11px] text-emerald-200/60">Revísala por última vez. Compartir la hará visible para cada asesor según su asignación.</p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    {roles.includes('admin') ? <button type="button" disabled={pending} className={buttonSecondary} onClick={() => {
+                      const reason = window.prompt('Motivo para volver al diseño. La jugada seguirá privada y tendrás que probar y confirmar otra vez.');
+                      if (reason?.trim()) run(() => reopenPlayDesignAction(selectedPlay.id, reason));
+                    }}>Volver al diseño</button> : null}
+                    <button type="button" disabled={pending} onClick={() => run(() => activatePlayAction(selectedPlay.id))} className={buttonPrimary}>Compartir con asesores</button>
+                  </div>
+                </section>
+              ) : selectedPlay.status === 'active' ? (
+                <section className="flex flex-col gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.06] px-4 py-3 text-xs text-emerald-200 sm:flex-row sm:items-center sm:justify-between">
+                  <span>Esta jugada ya está compartida. Cada asesor ve únicamente los clientes de su snapshot.</span>
+                  <div className="flex shrink-0 gap-2">
+                    <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'pause')} className={buttonSecondary}>Pausar</button>
+                    <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'close')} className="inline-flex h-9 items-center justify-center rounded-xl border border-red-400/30 px-3 text-xs font-semibold text-red-200 hover:bg-red-400/10 disabled:opacity-45">Cerrar</button>
+                  </div>
+                </section>
+              ) : selectedPlay.status === 'paused' ? (
+                <section className="flex flex-col gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] px-4 py-3 text-xs text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+                  <span>La jugada está pausada. La lista sigue visible, pero ningún beneficio puede aplicarse hasta reactivarla.</span>
+                  <div className="flex shrink-0 gap-2">
+                    <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'resume')} className={buttonPrimary}>Reactivar</button>
+                    <button type="button" disabled={pending} onClick={() => changeLifecycle(selectedPlay.id, 'close')} className="inline-flex h-9 items-center justify-center rounded-xl border border-red-400/30 px-3 text-xs font-semibold text-red-200 hover:bg-red-400/10 disabled:opacity-45">Cerrar</button>
+                  </div>
+                </section>
+              ) : null}
+
+              {monitorSummary && ['active', 'paused', 'closed'].includes(selectedPlay.status) ? (
+                <PlayMonitor
+                  summary={monitorSummary}
+                  plannedBudgetUsd={selectedPlay.plannedBudgetUsd}
+                />
+              ) : null}
+
+              {['active', 'paused', 'closed'].includes(selectedPlay.status) ? (
+                <NoApplyRequestsPanel requests={noApplyRequests} isAdmin={roles.includes('admin')} />
+              ) : null}
+
+              {advisors.length > 0 ? (
+                <section className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-3">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#B7B7C2]">Distribución por asesor</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {advisors.map((advisor) => <span key={`${advisor.id}-${advisor.name}`} className="rounded-full border border-[#2A2A35] bg-[#0D0D11] px-2.5 py-1 text-[10px] text-[#B7B7C2]">{advisor.name} <strong className="ml-1 text-white">{advisor.count}</strong></span>)}
+                  </div>
+                </section>
+              ) : null}
+
+              <MemberList
+                play={selectedPlay}
+                members={members}
+                memberCount={memberCount}
+                page={memberPage}
+                pageSize={memberPageSize}
+                search={memberSearch}
+                busy={pending}
+                onRemove={(member) => removeMember(selectedPlay, member)}
+              />
+            </>
+          ) : (
+            <section className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="mb-4 rounded-xl border border-[#2A2A35] bg-[#0D0D11] px-3 py-2.5 text-xs text-[#B7B7C2]">
+                Define y prueba la jugada cuantas veces necesites. Los asesores no verán nada hasta que confirmes el snapshot y lo compartas.
+              </div>
+              <PlayDefinitionForm
+                key="new-play"
+                play={null}
+                plays={plays}
+                benefits={benefits}
+                historyProducts={historyProducts}
+                activeAdvisors={activeAdvisors}
+                busy={pending}
+                onSubmit={(input) => run(() => testPlayDefinitionAction(input), true)}
+              />
+            </section>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
