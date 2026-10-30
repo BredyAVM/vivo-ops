@@ -817,6 +817,23 @@ propias reglas de autorización.
 
 ### 14.3 Cierre
 
+Protección de períodos cerrados (2026-10-30): un movimiento de efectivo incluido
+en un cierre vigente no puede cambiar de importe, moneda, cuenta, signo, fecha
+o estado, ni eliminarse. Tampoco se introduce dinero confirmado en un período
+cerrado por una fecha anterior. La base de datos rechaza la operación completa,
+incluidos sus efectos sobre pagos o fondos, e indica el cierre que debe revisarse.
+Las notas sin cambio monetario y los movimientos posteriores siguen permitidos.
+
+Administración utiliza la anulación auditada existente en Cuentas, desde el
+último cierre hacia los afectados; corrige después el movimiento con su flujo
+autorizado y registra un cierre nuevo con el conteo verificado. El cierre
+original conserva sus importes y el motivo de anulación. No se propaga una
+diferencia automáticamente a conteos físicos posteriores, no se crean egresos
+ficticios y no se condona deuda. Reintentar la anulación reutiliza su evidencia.
+Counter usa el corte temporal y los importes conciliados canónicos tanto para
+mostrar el saldo como para guardar el cierre. Un saldo esperado obsoleto se
+rechaza antes de persistir otro cierre. La protección no repara datos históricos.
+
 Counter puede cerrar una caja o punto únicamente con diferencia cero.
 
 El saldo esperado debe incluir todos los movimientos confirmados de la cuenta,
