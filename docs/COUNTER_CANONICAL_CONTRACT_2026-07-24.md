@@ -720,6 +720,12 @@ USD 10.
 
 ### 13.4 Retorno y liquidación
 
+Acceso operativo (2026-10-30): una orden delivery en camino o entregada conserva
+el acceso «Recibir dinero del motorizado», que abre su liquidación exacta bajo
+demanda. El acceso genérico distingue retorno de motorizado de pago nuevo del
+cliente antes de abrir el cobro ordinario, incluso desde búsqueda. Consultar o
+abrir esos paneles nunca registra dinero ni cierra la custodia por sí solo.
+
 Regla de saldo pendiente (2026-10-30): la cobertura del pago en bolívares
 también descuenta el cambio físico confirmado del delivery. El retorno bruto
 no puede activar el cierre por snapshot ignorando ese egreso. Liquidar al
