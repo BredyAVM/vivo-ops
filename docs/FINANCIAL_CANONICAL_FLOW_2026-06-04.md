@@ -122,6 +122,15 @@ días permanece vigente.
 
 - La fecha que manda es `operation_date` en America/Caracas. Reportar hoy un
   pago antiguo consulta el historial de aquel día, sin límite de tres días.
+- Esta norma es compartida por **Asesor, Counter, Master y Administración**;
+  no depende del módulo que carga el pago ni de quién creó el presupuesto.
+  El asesor consulta las tasas de la fecha elegida bajo demanda, puede elegir
+  cualquiera de ellas y reporta pago móvil/transferencia como pendiente. Master
+  verifica el dinero y confirma el mismo reporte, sin otra aprobación de tasa.
+- La fecha real se persiste junto con el reporte en la misma transacción,
+  antes de evaluar las tasas. Está prohibido crear el reporte usando hoy y
+  corregir su fecha después con otra llamada. La tasa reportada tampoco se
+  reconstruye dividiendo el monto Bs entre un equivalente USD redondeado.
 - Son válidas todas las tasas que estuvieron vigentes ese día: la que venía
   del día anterior y cada cambio registrado dentro del día. No se limita a dos
   tasas ni se usa exclusivamente la última. La tasa de otro día no se agrega
@@ -155,6 +164,13 @@ días permanece vigente.
 Migración: `20261031185249_payment_operation_day_rates.sql`. Regresiones:
 `tests/admin/payment-rate-protection-db.mjs` (tasas de apertura, cambios múltiples,
 fechas antiguas, abonos, Punto, reintentos y consultas sin escritura).
+
+Conexión del Asesor: `20261031190412_advisor_payment_day_rate_flow.sql`.
+Reutiliza la misma cotización de fecha/tasa con autorización por cartera;
+`create_payment_report_on_date_v1` guarda la fecha en la inserción atómica.
+La regresión integrada crea el reporte digital como Asesor y lo confirma como
+Master, sin rol Admin, sin doble ingreso y conservando los snapshots anteriores.
+La prueba de pantalla está en `tests/counter/advisor-payment-day-rates-ui.test.mjs`.
 
 Esta protección es prospectiva: no migra, revaloriza ni modifica reportes,
 movimientos o coberturas históricos. Tampoco cambia `get_order_financial_state`

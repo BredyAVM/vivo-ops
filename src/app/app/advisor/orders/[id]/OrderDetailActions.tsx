@@ -10,6 +10,7 @@ import { parseDecimalInput } from '@/lib/number-input';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { paymentCollectionGuidance } from '@/lib/orders/collection-policy';
 import { RATE_REVIEW_MARKER, withRateReviewRequest } from '@/lib/payments/rate-review';
+import { loadOrderPaymentDayQuoteAction } from '@/lib/payments/day-quote-actions';
 import {
   getPaymentReportRequirements,
   isAdvisorPaymentReportMethod,
@@ -204,6 +205,10 @@ export default function OrderDetailActions({
   const [operationDate, setOperationDate] = useState(getCaracasDateInputValue());
   const [amount, setAmount] = useState(getSuggestedAccountAmount(balanceUsd, balanceBs, 'USD', activeBsRate));
   const [exchangeRate, setExchangeRate] = useState('');
+  const [dayQuote, setDayQuote] = useState<Awaited<ReturnType<typeof loadOrderPaymentDayQuoteAction>> | null>(null);
+  const [dayQuoteLoading, startDayQuoteTransition] = useTransition();
+  const [dayQuoteError, setDayQuoteError] = useState<string | null>(null);
+  const dayQuoteRequest = useRef(0);
   const [referenceCode, setReferenceCode] = useState('');
   const [bankName, setBankName] = useState('');
   const [payerName, setPayerName] = useState('');
@@ -228,6 +233,7 @@ export default function OrderDetailActions({
   const suggestedVesAmount = getSuggestedAccountAmount(balanceUsd, balanceBs, 'VES', activeBsRate, useSnapshotQuote);
   const getSuggestedPaymentAmount = useCallback(
     (currencyCode: string | null | undefined, nextOperationDate = operationDate) => {
+      if (currencyCode === 'VES' && dayQuote?.operationDate === nextOperationDate) return String(dayQuote.pendingBs);
       const nextMode = getPaymentCollectionMode(nextOperationDate, deliveryReferenceDate, nativeUsdCollection);
       return getSuggestedAccountAmount(
         balanceUsd,
@@ -237,11 +243,12 @@ export default function OrderDetailActions({
         nextMode.key === 'snapshot_quote',
       );
     },
-    [activeBsRate, balanceBs, balanceUsd, deliveryReferenceDate, operationDate, nativeUsdCollection],
+    [activeBsRate, balanceBs, balanceUsd, deliveryReferenceDate, operationDate, nativeUsdCollection, dayQuote],
   );
   const getSuggestedPaymentExchangeRate = useCallback(
     (currencyCode: string | null | undefined, nextOperationDate = operationDate) => {
       if (currencyCode !== 'VES') return '';
+      if (dayQuote?.operationDate === nextOperationDate) return String(dayQuote.exchangeRate);
 
       const nextMode = getPaymentCollectionMode(nextOperationDate, deliveryReferenceDate, nativeUsdCollection);
       if (nextMode.key === 'snapshot_quote' && snapshotBsRate > 0) {
@@ -250,8 +257,27 @@ export default function OrderDetailActions({
 
       return activeBsRate > 0 ? String(Number(activeBsRate.toFixed(4))) : '';
     },
-    [activeBsRate, deliveryReferenceDate, operationDate, snapshotBsRate, nativeUsdCollection],
+    [activeBsRate, deliveryReferenceDate, operationDate, snapshotBsRate, nativeUsdCollection, dayQuote],
   );
+  const refreshDayQuote = useCallback((date: string, rate?: number) => {
+    const request = ++dayQuoteRequest.current;
+    setDayQuoteError(null);
+    startDayQuoteTransition(async () => {
+      try {
+        const quote = await loadOrderPaymentDayQuoteAction({ orderId, operationDate: date, exchangeRate: rate });
+        if (request !== dayQuoteRequest.current) return;
+        setDayQuote(quote);
+        setAmount(String(quote.pendingBs));
+        setExchangeRate(String(quote.exchangeRate));
+      } catch {
+        if (request === dayQuoteRequest.current) setDayQuoteError('No se pudieron consultar las tasas. Revisa la fecha y vuelve a intentar.');
+      }
+    });
+    return () => { dayQuoteRequest.current++; };
+  }, [orderId]);
+  useEffect(() => {
+    if (reportBoxOpen && selectedAccount?.currencyCode === 'VES') return refreshDayQuote(operationDate);
+  }, [reportBoxOpen, selectedAccount?.currencyCode, operationDate, refreshDayQuote]);
   const whatsappButtonClass = preferWhatsApp
     ? 'inline-flex h-9 items-center justify-center rounded-full bg-[#25D366] px-3.5 text-xs font-semibold text-[#07150C]'
     : 'inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#25D366]';
@@ -327,7 +353,9 @@ export default function OrderDetailActions({
   }, [activeAccounts, moneyAccountId]);
 
   const fundRequestDisabled = fundRequestPending || sendingFundRequest || fundRequestSent || !canRequestClientFund;
-  const paymentReportDisabled = isPending || sendingPaymentReport;
+  const dayQuoteReady = selectedAccount?.currencyCode !== 'VES' ||
+    (!dayQuoteLoading && !dayQuoteError && dayQuote?.operationDate === operationDate);
+  const paymentReportDisabled = isPending || sendingPaymentReport || !dayQuoteReady;
   const cancelOrderDisabled = isPending || sendingCancel || !canCancelOrder;
   const masterPingWaitMs = masterPingAvailableAt ? new Date(masterPingAvailableAt).getTime() - Date.now() : 0;
   const masterPingWaitMinutes = masterPingWaitMs > 0 ? Math.max(1, Math.ceil(masterPingWaitMs / 60000)) : 0;
@@ -782,8 +810,8 @@ export default function OrderDetailActions({
               </div>
             ) : null}
 
-            {paymentRequirements.requiresOperationDate ? (
-              <Field label="Fecha de operacion">
+            {paymentRequirements.requiresOperationDate || selectedAccount?.currencyCode === 'VES' ? (
+              <Field label="Fecha real del pago">
                 <input
                   value={operationDate}
                   onChange={(e) => {
@@ -814,7 +842,7 @@ export default function OrderDetailActions({
 
             {selectedAccount?.currencyCode === 'VES' && useSnapshotQuote ? (
               <div className="rounded-[14px] border border-[#3A3212] bg-[#1D1A00] px-3 py-2 text-xs leading-5 text-[#FEEF00]">
-                Usar monto Bs de la orden: {suggestedVesAmount || '0'}.
+                Usar monto Bs de la orden: {dayQuote?.pendingBs ?? suggestedVesAmount ?? '0'}.
                 <span className="block text-[#B7B7C2]">
                   La fecha de operacion no pasa la fecha de entrega, por eso no se modifica la tasa.
                 </span>
@@ -822,17 +850,20 @@ export default function OrderDetailActions({
             ) : null}
 
             {selectedAccount?.currencyCode === 'VES' && !useSnapshotQuote ? (
-              <Field label="Tasa VES por USD">
-                <input
+              <Field label="Tasa del día del pago">
+                <select
                   value={exchangeRate}
-                  onChange={(e) => setExchangeRate(e.target.value)}
-                  onFocus={(e) => e.currentTarget.select()}
+                  disabled={dayQuoteLoading || !dayQuoteReady}
+                  onChange={(e) => refreshDayQuote(operationDate, Number(e.target.value))}
                   className={inputClass()}
-                  inputMode="decimal"
-                  placeholder="Tasa"
-                />
+                >
+                  {dayQuote?.dayRates.map((rate) => <option key={rate} value={String(rate)}>{new Intl.NumberFormat('es-VE', { maximumFractionDigits: 6 }).format(rate)} Bs por USD</option>)}
+                </select>
+                <span className="text-xs text-[#B7B7C2]">Cualquiera de las tasas vigentes en esa fecha es válida. Master verifica el pago, sin autorización adicional de tasa.</span>
               </Field>
             ) : null}
+            {selectedAccount?.currencyCode === 'VES' && dayQuoteLoading ? <p role="status" className="text-xs text-[#B7B7C2]">Consultando tasas de la fecha del pago…</p> : null}
+            {selectedAccount?.currencyCode === 'VES' && dayQuoteError ? <div role="alert" className="text-xs text-red-200">{dayQuoteError} <button type="button" onClick={() => refreshDayQuote(operationDate)} className="min-h-11 underline">Reintentar</button></div> : null}
 
             <Field label="Referencia">
               <input
@@ -867,7 +898,7 @@ export default function OrderDetailActions({
 
             {selectedAccount?.currencyCode === 'VES' ? <label className="flex min-h-11 items-center gap-2 text-xs text-[#CCD3E2]">
               <input type="checkbox" checked={notes.includes(RATE_REVIEW_MARKER)} onChange={event => setNotes(withRateReviewRequest(notes, event.target.checked))} />
-              Pagó con un presupuesto anterior · solicitar revisión de tasa
+              Acuerdo excepcional con tasa de otro día · solicitar revisión de Administración
             </label> : null}
             <Field label="Notas">
               <textarea
@@ -945,7 +976,7 @@ export default function OrderDetailActions({
                   paymentReportDisabled ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >
-                {paymentReportDisabled ? 'Enviando...' : 'Enviar'}
+                {isPending || sendingPaymentReport ? 'Enviando...' : dayQuoteLoading ? 'Consultando tasas...' : 'Enviar'}
               </button>
               <button
                 type="button"

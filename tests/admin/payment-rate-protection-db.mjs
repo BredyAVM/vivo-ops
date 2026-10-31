@@ -345,6 +345,55 @@ test('rate protection — actual PostgreSQL regressions',async(t)=>{
     await db.query("update money_movements set status='voided' where id=$1",[m]);
     await assert.rejects(db.query("update money_movements set status='confirmed' where id=$1",[m]),/utilizada|reactivar/);
    });
+   await t.test('advisor digital report through the real writer uses its operation date from INSERT through Master confirmation',async()=>{
+    await db.exec(read('tests/admin/fixtures/advisor-create-payment-report.sql'));
+    const history=await snapshot();
+    await db.exec(read('supabase/migrations/20261031190412_advisor_payment_day_rate_flow.sql'));
+    assert.deepEqual(await snapshot(),history);
+    const advisor='00000000-0000-0000-0000-000000000002',master='00000000-0000-0000-0000-000000000003';
+    await db.exec(`insert into auth.users values('${advisor}'),('${master}');
+      insert into user_roles values('${advisor}','advisor'),('${master}','master');
+      insert into money_accounts values(3,'Test digital bank',true,'VES','bank');
+      insert into money_account_payment_rules values(3,3,'advisor','payment_mobile',true,true,false,false,true);`);
+    const id=await makeOrder(14,700),other=await makeOrder(14,700);
+    await db.query('update orders set attributed_advisor_id=$2 where id=$1',[id,advisor]);
+    await db.exec(`set test.role='advisor';set test.uid='${advisor}';set role authenticated`);
+    const quote=(await db.query("select read_order_payment_day_quote_v1($1,'2026-10-28',800) v",[id])).rows[0].v;
+    assert.equal(Number(quote.pendingBs),11200);assert.deepEqual(quote.dayRates.map(Number),[1000,900,800]);
+    await assert.rejects(db.query("select read_order_payment_day_quote_v1($1,'2026-10-28',800)",[other]),/No autorizado/);
+    const r=Number((await db.query("select create_payment_report_on_date_v1('2026-10-28',$1,3,'VES',11200,1000,'567890','Banco','Pago móvil del cliente') id",[id])).rows[0].id);
+    await assert.rejects(db.query("select create_payment_report_on_date_v1('2026-10-28',$1,3,'VES',11200,1000,'567891','Banco',null)",[other]),/Advisor cannot/);
+    await db.exec('reset role');
+    const saved=(await db.query('select operation_date::text,status from payment_reports where id=$1',[r])).rows[0];
+    assert.equal(saved.operation_date,'2026-10-28');assert.equal(saved.status,'pending');
+    assert.equal(Number((await db.query('select count(*) n from money_movements where order_id=$1',[id])).rows[0].n),0);
+    const e=(await db.query('select coverage_rate,source from app_private.payment_rate_reviews_v1 where report_id=$1',[r])).rows[0];
+    assert.equal(Number(e.coverage_rate),800);assert.equal(e.source,'operation_day_rate');
+    await db.exec(`set test.role='master';set test.uid='${master}'`);
+    assert.equal((await review(r)).canApprove,false);
+    const input={reportId:r,orderId:id,accountId:3,currency:'VES',amount:11200,rate:1000,date:'2026-10-28',
+      reviewNotes:'Pago móvil verificado por Master',reference:'567890',overrideOperationDate:true,
+      requireExplicitHandling:true,requireExactChange:true,changeLines:[]};
+    const call=()=>db.query('select app_private.confirm_payment_report_atomic_v1($1) v',[JSON.stringify(input)]);
+    const first=(await call()).rows[0].v,retry=(await call()).rows[0].v;
+    assert.equal(first.movementId,retry.movementId);assert.equal(retry.replayed,true);
+    assert.equal(Number((await state(id,1500)).pending_usd),0);
+    assert.equal(Number((await db.query('select count(*) n from money_movements where order_id=$1',[id])).rows[0].n),1);
+    await db.exec(`set test.role='admin';set test.uid='${actor}'`);
+    // Earlier snapshot-priced orders keep exact Bs coverage, without inventing
+    // a different reported FX by dividing rounded budget totals in TypeScript.
+    await db.exec('update app_private.usd_catalog_cutover_v1 set activated_at=null');
+    const legacy=await makeOrder(14,1000);
+    await db.query("update orders set attributed_advisor_id=$2,extra_fields=jsonb_set(extra_fields,'{schedule,date}','\"2026-10-30\"') where id=$1",[legacy,advisor]);
+    await db.exec('update app_private.usd_catalog_cutover_v1 set activated_at=statement_timestamp()');
+    await db.exec(`set test.role='advisor';set test.uid='${advisor}'`);
+    const lr=Number((await db.query("select create_payment_report_on_date_v1('2026-10-28',$1,3,'VES',14000,800,'567892','Banco',null) id",[legacy])).rows[0].id);
+    await db.exec(`set test.role='master';set test.uid='${master}'`);
+    await atConfirm(legacy,lr,14000,800);
+    assert.equal(Number((await state(legacy,1500)).pending_usd),0);
+    assert.equal(Number((await db.query('select reported_exchange_rate_ves_per_usd r from payment_reports where id=$1',[lr])).rows[0].r),800);
+    await db.exec(`set test.role='admin';set test.uid='${actor}'`);
+   });
   });
  } finally { await db.close(); }
 });

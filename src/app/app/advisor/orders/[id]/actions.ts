@@ -1,7 +1,6 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@supabase/supabase-js';
 import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/auth';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
@@ -15,22 +14,6 @@ import {
 import { sendPushToRoleDevices } from '@/lib/push';
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
-
-function createSupabaseServiceRoleServer() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) {
-    throw new Error('Falta configurar SUPABASE_SERVICE_ROLE_KEY para acciones administrativas.');
-  }
-
-  return createClient(url, key, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
 
 type OrderFinancialState = {
   total_usd: number | string | null;
@@ -118,6 +101,7 @@ function getAdvisorPaymentReportErrorMessage(error: unknown) {
     'Este método de pago',
     'No tienes permiso para reportar pagos',
     'Debes indicar',
+    'Indica la fecha real del pago',
     'Posible pago duplicado:',
   ];
 
@@ -126,27 +110,6 @@ function getAdvisorPaymentReportErrorMessage(error: unknown) {
   }
 
   return 'No se pudo reportar el pago. Revisa los datos e intenta nuevamente.';
-}
-
-function parseRpcId(value: unknown) {
-  const candidate = Array.isArray(value) ? value[0] : value;
-  const parsed = Number(candidate);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-async function savePaymentReportOperationDate(reportId: unknown, operationDate: unknown) {
-  const id = parseRpcId(reportId);
-  const normalizedOperationDate = normalizeDateOnly(operationDate);
-
-  if (!id || !normalizedOperationDate) return;
-
-  const adminSupabase = createSupabaseServiceRoleServer();
-  const { error } = await adminSupabase
-    .from('payment_reports')
-    .update({ operation_date: normalizedOperationDate })
-    .eq('id', id);
-
-  if (error) throw new Error(error.message);
 }
 
 function getCaracasDateString(value: Date) {
@@ -211,35 +174,6 @@ async function loadOrderFinancialState(
   }
 
   return (((data ?? []) as OrderFinancialState[])[0] ?? null);
-}
-
-function getSnapshotEquivalentUsdFromFinancialState(input: {
-  state: OrderFinancialState | null;
-  reportedAmount: number;
-}) {
-  const state = input.state;
-  if (!state || state.collection_mode !== 'snapshot_quote') return null;
-
-  const reportedAmount = roundMoney(input.reportedAmount);
-  const pendingUsd = roundMoney(state.pending_usd);
-  const pendingBs = roundMoney(state.pending_bs);
-  const totalUsd = roundMoney(state.total_usd);
-  const totalBs = roundMoney(state.total_bs);
-  const snapshotRate = toSafeNumber(state.snapshot_rate_bs_per_usd, 0);
-
-  if (pendingUsd > 0.005 && pendingBs > 0.005 && Math.abs(reportedAmount - pendingBs) <= 0.01) {
-    return pendingUsd;
-  }
-
-  if (reportedAmount > 0 && pendingBs > 0.005 && reportedAmount < pendingBs && snapshotRate > 0) {
-    return roundMoney(reportedAmount / snapshotRate);
-  }
-
-  if (totalUsd > 0.005 && totalBs > 0.005 && Math.abs(reportedAmount - totalBs) <= 0.01) {
-    return totalUsd;
-  }
-
-  return null;
 }
 
 async function loadOrderEventContext(
@@ -488,25 +422,6 @@ async function createAdvisorPaymentReport(input: AdvisorPaymentReportInput) {
   ].filter((part): part is string => Boolean(part));
   const reportNotes = notesParts.length > 0 ? notesParts.join('\n') : null;
   const reportPayerName = requirements.requiresBank ? bankName : payerName || null;
-  let snapshotEquivalentUsd: number | null = null;
-
-  if (reportedCurrency === 'VES') {
-    const financialState = await loadOrderFinancialState(ctx.supabase, {
-      orderId,
-      operationDate: normalizeDateOnly(operationDate),
-      activeBsRate: reportedExchangeRate,
-    });
-    snapshotEquivalentUsd = getSnapshotEquivalentUsdFromFinancialState({
-      state: financialState,
-      reportedAmount,
-    });
-  }
-
-  const effectiveReportedExchangeRate =
-    snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005
-      ? Number((reportedAmount / snapshotEquivalentUsd).toFixed(6))
-      : reportedExchangeRate;
-
   await assertNoActivePaymentDuplicate(ctx.supabase, {
     moneyAccountId: reportedMoneyAccountId,
     operationDate,
@@ -515,20 +430,19 @@ async function createAdvisorPaymentReport(input: AdvisorPaymentReportInput) {
     referenceCode,
   });
 
-  const { data: createdReportId, error } = await ctx.supabase.rpc('create_payment_report', {
+  const { error } = await ctx.supabase.rpc('create_payment_report_on_date_v1', {
+    p_operation_date: normalizeDateOnly(operationDate) || getCaracasDateString(new Date()),
     p_order_id: orderId,
     p_reported_money_account_id: reportedMoneyAccountId,
     p_reported_currency: reportedCurrency,
     p_reported_amount: reportedAmount,
-    p_reported_exchange_rate_ves_per_usd: effectiveReportedExchangeRate,
+    p_reported_exchange_rate_ves_per_usd: reportedExchangeRate,
     p_reference_code: referenceCode || null,
     p_payer_name: reportPayerName,
     p_notes: reportNotes,
   });
 
   if (error) throw new Error(error.message);
-
-  await savePaymentReportOperationDate(createdReportId, operationDate);
 
   const eventContext = await loadOrderEventContext(ctx.supabase, orderId);
   await appendOrderEvent(ctx.supabase, {
