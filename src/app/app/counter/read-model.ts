@@ -194,6 +194,7 @@ function mapCounterPaymentQuote(value: unknown): CounterPaymentQuote {
     exchangeRate: toNumber(quote.exchangeRate, 0),
     snapshotRate: toNumber(quote.snapshotRate, 0),
     collectionMode: normalizePaymentCollectionMode(collectionMode),
+    dayRates: asArray(quote.dayRates).map((rate) => toNumber(rate)).filter((rate) => rate > 0),
   };
 }
 
@@ -460,7 +461,7 @@ export async function loadCounterOrderDetailRead(
 
 export async function loadCounterPaymentQuoteRead(
   supabase: CounterReadClient,
-  input: { orderId: number; operationDate: string }
+  input: { orderId: number; operationDate: string; exchangeRate?: number }
 ): Promise<CounterPaymentQuote> {
   const orderId = Math.trunc(Number(input.orderId || 0));
   const operationDate = String(input.operationDate || '').trim();
@@ -471,9 +472,10 @@ export async function loadCounterPaymentQuoteRead(
     throw new Error('Indica una fecha de operacion valida.');
   }
 
-  return mapCounterPaymentQuote(await readRpcJson(supabase, 'counter_read_payment_quote', {
+  return mapCounterPaymentQuote(await readRpcJson(supabase, 'counter_read_payment_quote_at_rate_v1', {
     p_order_id: orderId,
     p_operation_date: operationDate,
+    p_rate: input.exchangeRate ?? null,
   }));
 }
 

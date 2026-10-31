@@ -576,6 +576,7 @@ export function OrderDetail({
   onLoadPaymentQuote: (input: {
     orderId: number;
     operationDate: string;
+    exchangeRate?: number;
   }) => Promise<CounterPaymentQuote>;
   onRequestRefund: (
     order: CounterOrder,

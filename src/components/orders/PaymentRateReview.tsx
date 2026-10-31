@@ -23,6 +23,7 @@ export default function PaymentRateReview({ reportId, initialResult, onResult }:
   const [pending, startTransition] = useTransition();
   const busy = useRef(false);
   const panelId = `payment-rate-review-${reportId}`;
+  const dailyRate = review?.source === 'operation_day_rate';
   const selectedQuote = !review?.decision ? review?.quoteCandidates?.find(quote => String(quote.id) === quoteId) : null;
 
   function receive(result: PaymentActionResult<Review>) {
@@ -75,13 +76,14 @@ export default function PaymentRateReview({ reportId, initialResult, onResult }:
         <dl className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 tabular-nums">
           <dt>Recibido · Bs</dt><dd>{amount(review.amountBs)}</dd>
           <dt>Tasa registrada · Bs/USD</dt><dd>{rate(review.recordedRate)}</dd>
-          <dt>Tasa del presupuesto / acuerdo · Bs/USD</dt><dd>{rate(selectedQuote?.rate ?? review.quoteRate)}</dd>
+          <dt>{dailyRate ? 'Tasa válida del día del pago · Bs/USD' : 'Tasa del presupuesto / acuerdo · Bs/USD'}</dt><dd>{rate(selectedQuote?.rate ?? review.quoteRate)}</dd>
           <dt>Presupuesto pendiente · USD</dt><dd>{amount(selectedQuote?.pendingUsd ?? review.quoteUsd)}</dd>
           <dt>Equivalente del presupuesto · Bs</dt><dd>{amount(selectedQuote?.pendingBs ?? review.quoteBs)}</dd>
         </dl>
-        <p className="text-[11px] text-[#B7B7C2]">Comprueba el presupuesto, la fecha real del pago y el acuerdo con el cliente, también si tiene retenciones o paga por fecha. La coincidencia de importes no prueba el acuerdo. Aprobarlo no mueve dinero, no cambia precios ni comisiones y no fija la tasa de futuros abonos.</p>
+        {dailyRate ? <p className="text-emerald-200">Esta tasa estuvo vigente en la fecha real del pago. No requiere autorización adicional de Administración. Verifica el comprobante y confirma este mismo reporte.</p>
+          : <p className="text-[11px] text-[#B7B7C2]">Comprueba el presupuesto, la fecha real del pago y el acuerdo con el cliente, también si tiene retenciones o paga por fecha. La coincidencia de importes no prueba el acuerdo. Aprobarlo no mueve dinero, no cambia precios ni comisiones y no fija la tasa de futuros abonos.</p>}
         {review.applied ? <p className="text-emerald-200">Cobertura ya aplicada al confirmar el pago.</p>
-          : review.decision ? <p className="text-emerald-200">Decisión registrada: {review.decision === 'quoted' ? 'respetar el presupuesto pagado a la tasa acordada' : 'aplicar la tasa registrada como abono'}. Puedes confirmar este mismo reporte con sus datos originales. La tasa registrada para caja no se sustituye por la tasa acordada para cubrir la deuda.</p>
+          : review.decision ? <p className="text-emerald-200">{dailyRate ? 'Se aplicará la tasa válida del día.' : `Decisión registrada: ${review.decision === 'quoted' ? 'respetar el presupuesto pagado a la tasa acordada' : 'aplicar la tasa registrada como abono'}.`} Puedes confirmar este mismo reporte con sus datos originales. La tasa registrada para caja no se sustituye por la tasa acordada para cubrir la deuda.</p>
           : review.canApprove ? <form onSubmit={event => { event.preventDefault(); approve(); }} className="space-y-2">
             <label className="grid gap-1">Tratamiento de este pago
               <select value={decision} onChange={event => setDecision(event.target.value as typeof decision)} disabled={pending}

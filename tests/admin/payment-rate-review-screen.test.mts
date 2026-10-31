@@ -58,6 +58,13 @@ const review: PaymentRateReview = { available: true, canApprove: true, reportId:
   amountBs: 86493.16, recordedRate: 887.30, quoteRate: 884.75, quoteUsd: 97.76, quoteBs: 86493.16,
   decision: null, applied: false, quoteCandidates: [] };
 const approval = { reportId: 3716, decision: 'quoted' as const, reason: 'Cliente con retención y pago a fecha acordada.' };
+test('daily rate confirmation explains that Master does not need an extra Administrator approval', () => {
+  const html = renderToStaticMarkup(createElement(PaymentRateReview, { reportId: 3716,
+    initialResult: { ok: true, value: { ...review, canApprove: false, source: 'operation_day_rate', decision: 'quoted' } } }));
+  assert.match(html, /tasa válida del día|Tasa válida del día/);
+  assert.match(html, /No requiere autorización adicional/);
+  assert.doesNotMatch(html, /Administración debe comprobar y registrar|Aprobar revisión de tasa/);
+});
 function reset() { role = 'admin'; authFailure = false; rpcFailure = null; confirmFailure = null;
   response = { ...review }; calls.length = 0; confirmations.length = 0; }
 

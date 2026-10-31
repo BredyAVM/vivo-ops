@@ -31,6 +31,7 @@ export async function loadCounterOrderDetailAction(input: { orderId: number }) {
 export async function loadCounterPaymentQuoteAction(input: {
   orderId: number;
   operationDate: string;
+  exchangeRate?: number;
 }) {
   const ctx = await requireCounterOperatorContext();
   return loadCounterPaymentQuoteRead(ctx.supabase, input);

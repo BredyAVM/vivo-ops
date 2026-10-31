@@ -218,6 +218,7 @@ export type CounterOrderItem = {
 };
 
 export type CounterPaymentQuote = {
+  dayRates?: number[];
   operationDate: string;
   pendingUsd: number;
   pendingBs: number;

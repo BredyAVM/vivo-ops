@@ -248,5 +248,103 @@ test('rate protection — actual PostgreSQL regressions',async(t)=>{
    await db.exec('set role anon'); await assert.rejects(db.query('select record_order_payment_quote_v1(1)'),/permission denied/);
    await assert.rejects(db.query('select read_payment_rate_review_v1(1)'),/permission denied/); await db.exec('reset role');
   });
+  await t.test('daily operation rates supersede only intra-day approval, without migrating any existing money',async(t)=>{
+   const before=await snapshot();
+   await db.exec(read('supabase/migrations/20261031185249_payment_operation_day_rates.sql'));
+   assert.deepEqual(await snapshot(),before);
+   await db.exec(`update money_accounts set account_kind='pos' where id=1; delete from exchange_rates;
+    insert into exchange_rates values(1,false,'2026-10-26 18:00Z',800),
+      (2,false,'2026-10-28 16:00Z',900),(3,false,'2026-10-28 23:00Z',1000),
+      (4,true,'2026-10-29 20:00Z',1100);`);
+   const atReport=async(id,amount,rate,date='2026-10-28',notes=null)=>Number((await db.query(`insert into payment_reports(order_id,status,operation_date,reported_currency_code,reported_amount,reported_amount_usd_equivalent,reported_exchange_rate_ves_per_usd,reported_money_account_id,created_by_user_id,notes)
+    values($1,'pending',$2::date,'VES',$3,round($3::numeric/$4::numeric,2),$4,1,auth.uid(),$5) returning id`,[id,date,amount,rate,notes])).rows[0].id);
+   const atConfirm=async(id,reportId,amount,rate,date='2026-10-28')=>{
+    const m=Number((await db.query(`insert into money_movements(order_id,status,direction,movement_type,currency_code,amount,amount_usd_equivalent,exchange_rate_ves_per_usd,movement_date,payment_report_id)
+     values($1,'confirmed','inflow','order_payment','VES',$2,round($2::numeric/$3::numeric,2),$3,$4::date,$5) returning id`,[id,amount,rate,date,reportId])).rows[0].id);
+    await db.query("update payment_reports set status='confirmed',confirmed_movement_id=$2 where id=$1",[reportId,m]);return m;
+   };
+   await t.test('opening rate carried from earlier date plus every same-day change, no following-day rate',async()=>{
+    assert.deepEqual((await db.query("select rate::float8 from app_private.payment_operation_day_rates_v1('2026-10-28') order by rate")).rows.map(x=>x.rate),[800,900,1000]);
+    assert.deepEqual((await db.query("select rate::float8 from app_private.payment_operation_day_rates_v1('2026-10-27') order by rate")).rows.map(x=>x.rate),[800]);
+    assert.deepEqual((await db.query("select rate::float8 from app_private.payment_operation_day_rates_v1('2026-10-30') order by rate")).rows.map(x=>x.rate),[1100]);
+   });
+   await t.test('historical full payment accepts any of three daily rates without Administrator agreement',async()=>{
+    for(const fx of [800,900,1000]) {
+     const id=await makeOrder(14,700),r=await atReport(id,14*fx,fx);
+     assert.equal((await review(r)).source,'operation_day_rate');
+     await db.exec("set test.role='master'"); await atConfirm(id,r,14*fx,fx); await db.exec("set test.role='admin'");
+     assert.equal(Number((await state(id,1500)).pending_usd),0);
+    }
+   });
+   await t.test('full old daily amount reported at newer daily rate closes only exact coverage, preserving native cash',async()=>{
+    const id=await makeOrder(14,700),r=await atReport(id,11200,1000);
+    assert.equal(Number((await review(r)).quoteRate),800);
+    const m=await atConfirm(id,r,11200,1000);
+    assert.equal(Number((await state(id,1500)).pending_usd),0);
+    const a=(await db.query('select * from order_payment_precision_allocations where movement_id=$1',[m])).rows[0];
+    assert.equal(Number(a.coverage_rate),800);assert.equal(Number(a.applied_usd),14);
+    const money=(await db.query('select amount,exchange_rate_ves_per_usd,amount_usd_equivalent from money_movements where id=$1',[m])).rows[0];
+    assert.deepEqual(Object.values(money).map(Number),[11200,1000,11.2]);
+   });
+   await t.test('partial at selected valid daily rate remains partial; next abono does not inherit it',async()=>{
+    const id=await makeOrder(14,700),r=await atReport(id,4000,800);await atConfirm(id,r,4000,800);
+    assert.equal(Number((await state(id,1100)).pending_usd),9);
+    const r2=await atReport(id,3300,1100,'2026-10-30');await atConfirm(id,r2,3300,1100,'2026-10-30');
+    assert.equal(Number((await state(id,1200)).pending_usd),6);
+   });
+   await t.test('old budget from another day still requires Admin, not a silent daily exception',async()=>{
+    const id=await makeOrder(14,700),r=await atReport(id,9800,1200,'2026-10-30');
+    assert.equal((await review(r)).decision,null);
+    await assert.rejects(atConfirm(id,r,9800,1200,'2026-10-30'),/Administración.*revisar/);
+   });
+   await t.test('Counter POS daily quote is immediate and replay creates exactly one movement',async()=>{
+    const id=await makeOrder(14,700),key='00000000-0000-0000-0000-000000000095';
+    const lines=[{line_key:'payment',money_account_id:1,payment_method:'pos',currency_code:'VES',amount:11200,exchange_rate_ves_per_usd:1000,operation_date:'2026-10-28',reference_code:'8822'}];
+    await db.exec("set test.role='counter'");
+    const call=()=>db.query("select counter_apply_order_payments_block2($1,$2,$3,null,'[]',null) v",[key,id,JSON.stringify(lines)]);
+    const first=(await call()).rows[0].v;assert.equal(first.reports[0].status,'confirmed');assert.deepEqual((await call()).rows[0].v,first);
+    assert.equal(Number((await state(id)).pending_usd),0);
+    assert.equal(Number((await db.query('select count(*) n from money_movements where order_id=$1',[id])).rows[0].n),1);
+    await db.exec("set test.role='admin'");
+   });
+   await t.test('quote selects only historical daily rates, keeps read-only and rejects future date',async()=>{
+    const id=await makeOrder(14,700),before=await snapshot();
+    const q=(await db.query("select counter_read_payment_quote_at_rate_v1($1,'2026-10-28',800) v",[id])).rows[0].v;
+    assert.deepEqual(q.dayRates.map(Number),[1000,900,800]);assert.equal(Number(q.pendingBs),11200);
+    await assert.rejects(db.query("select counter_read_payment_quote_at_rate_v1($1,'2026-10-28',1100)",[id]),/vigente/);
+    await assert.rejects(db.query("select counter_read_payment_quote_at_rate_v1($1,current_date+5,null)",[id]),/futura/);
+    assert.deepEqual(await snapshot(),before);
+   });
+   await t.test('pending old report preview remains read-only and confirms the same report at daily coverage',async()=>{
+    const id=await makeOrder(14,700),r=await atReport(id,11200,1000);
+    await db.query("update app_private.payment_rate_reviews_v1 set source='order_budget',decision=null,approved_at=null,coverage_rate=null where report_id=$1",[r]);
+    const before=await snapshot();await db.exec("set test.role='master'");
+    assert.equal((await review(r)).source,'operation_day_rate');assert.deepEqual(await snapshot(),before);
+    await atConfirm(id,r,11200,1000);assert.equal(Number((await state(id)).pending_usd),0);
+    await db.exec("set test.role='admin'");
+   });
+   await t.test('private coverage functions cannot be called directly by application roles',async()=>{
+    await db.exec('set role authenticated');
+    await assert.rejects(db.query("select app_private.prepare_payment_day_coverage_v1(1,current_date,1,1)"),/permission denied/);
+    await assert.rejects(db.query("select * from app_private.payment_operation_day_rates_v1(current_date)"),/permission denied/);
+    await db.exec('reset role');
+   });
+   await t.test('a POS receipt never waits for Master, but an unrelated old budget is not granted',async()=>{
+    const id=await makeOrder(14,700),key='00000000-0000-0000-0000-000000000094';
+    const lines=[{line_key:'payment',money_account_id:1,payment_method:'pos',currency_code:'VES',amount:9800,exchange_rate_ves_per_usd:1200,operation_date:'2026-10-30',reference_code:'9922'}];
+    const result=(await db.query("select counter_apply_order_payments_block2($1,$2,$3,null,'[]',null) v",[key,id,JSON.stringify(lines)])).rows[0].v;
+    assert.equal(result.reports[0].status,'confirmed');
+    assert.ok(Number((await state(id)).pending_usd)>5);
+   });
+   await t.test('daily coverage revalidates a digital report after another payment, never covering twice',async()=>{
+    const id=await makeOrder(14,700),r=await atReport(id,11200,800);
+    await confirm(id,2,null,'USD');
+    const m=await atConfirm(id,r,11200,800);
+    const allocation=(await db.query('select pending_before_usd from order_payment_precision_allocations where movement_id=$1',[m])).rows[0];
+    assert.equal(Number(allocation.pending_before_usd),12);
+    await db.query("update money_movements set status='voided' where id=$1",[m]);
+    await assert.rejects(db.query("update money_movements set status='confirmed' where id=$1",[m]),/utilizada|reactivar/);
+   });
+  });
  } finally { await db.close(); }
 });

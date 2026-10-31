@@ -476,6 +476,19 @@ identidad de operación en un reintento sin modificaciones.
 
 ### 10.2 Efectivo y punto
 
+Regla de no regresión (2026-10-31): un Punto habilitado conserva su confirmación
+inmediata; una diferencia de tasa no lo convierte en reporte bancario pendiente
+de Master. El formulario permite elegir la fecha real del pago y cualquiera de
+las tasas registradas que estuvieron vigentes ese día, sin límite de días
+transcurridos ni de cambios intradía. La selección vuelve a consultar la
+cotización canónica bajo demanda y conserva referencia y datos capturados.
+El servidor revalida la cobertura; no se perdona una deuda por consultar.
+
+Los pagos digitales sí requieren confirmación habitual de Master/Admin, pero
+una tasa válida del día real del pago no requiere autorización administrativa
+adicional. Detalle y precedencia en `FINANCIAL_CANONICAL_FLOW_2026-06-04.md`,
+«Tasas válidas por fecha real de operación — 2026-10-31».
+
 Efectivo y punto pueden confirmarse automáticamente solo cuando:
 
 - la cuenta está habilitada para Counter;

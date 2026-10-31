@@ -113,6 +113,49 @@ apartados Cobranza USD por versión, Diferencias de jugadas y Activación.
 
 ### Protección de pagos de presupuestos anteriores (2026-10-21)
 
+**Precedencia desde 2026-10-31:** la regla de tasas del día real del pago que
+sigue sustituye la aprobación adicional por diferencias intradía y el bloqueo
+del dinero recibido por Punto. El resto de la protección de acuerdos de otros
+días permanece vigente.
+
+#### Tasas válidas por fecha real de operación — 2026-10-31
+
+- La fecha que manda es `operation_date` en America/Caracas. Reportar hoy un
+  pago antiguo consulta el historial de aquel día, sin límite de tres días.
+- Son válidas todas las tasas que estuvieron vigentes ese día: la que venía
+  del día anterior y cada cambio registrado dentro del día. No se limita a dos
+  tasas ni se usa exclusivamente la última. La tasa de otro día no se agrega
+  por aparecer en un presupuesto ni por ser la tasa actual al reportar.
+- Para una venta USD, el operador puede seleccionar una tasa válida de esa
+  fecha. Un abono aplica solo lo recibido a esa tasa; no liquida por fuerza la
+  orden ni congela la tasa de abonos posteriores.
+- Si el importe recibido coincide exactamente con el pendiente completo a otra
+  tasa válida del mismo día, se certifica esa cobertura con la tasa diaria
+  correspondiente. No depende del presupuesto original. El importe nativo,
+  cuenta, referencia, fecha y valoración contable reportados no se reescriben.
+- No se inventa una tasa dividiendo totales redondeados. La comprobación usa
+  el estado financiero canónico para cada tasa registrada del día.
+- Master confirma los pagos digitales como siempre, sin una aprobación extra
+  de Administración por usar una tasa de ese día. La consulta muestra la tasa
+  diaria aplicable y no confirma dinero ni altera el reporte al abrirlo.
+- Un Punto autorizado de Counter se confirma en la operación de cobro, sin
+  verificación de Master. Si una tasa fuera del día no respalda una cobertura
+  especial, se registra el dinero real a la tasa reportada y queda el saldo
+  que corresponda; no se concede un presupuesto antiguo automáticamente.
+- Acuerdos especiales fuera de las tasas válidas del día conservan revisión
+  administrativa. Las órdenes anteriores con snapshot Bs protegido conservan
+  su contrato; esta regla no convierte su precio Bs otra vez desde USD.
+- La aplicación es prospectiva. Reportes pendientes existentes se revalidan
+  al confirmar el mismo reporte; no se recargan, no se confirman en masa y no
+  se modifican movimientos, cierres, deuda ni coberturas ya confirmadas.
+- La evidencia usa `payment_rate_reviews_v1` y las asignaciones de precisión
+  existentes, distinguiendo norma diaria de excepción administrativa. Un
+  movimiento anulado no puede reactivarse ni consumir la cobertura dos veces.
+
+Migración: `20261031185249_payment_operation_day_rates.sql`. Regresiones:
+`tests/admin/payment-rate-protection-db.mjs` (tasas de apertura, cambios múltiples,
+fechas antiguas, abonos, Punto, reintentos y consultas sin escritura).
+
 Esta protección es prospectiva: no migra, revaloriza ni modifica reportes,
 movimientos o coberturas históricos. Tampoco cambia `get_order_financial_state`
 ni la política `native_usd`: el saldo todavía no abonado se convierte a tasa
