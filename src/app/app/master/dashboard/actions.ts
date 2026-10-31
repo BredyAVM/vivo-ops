@@ -271,26 +271,6 @@ function normalizeDateOnly(value: unknown) {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 }
 
-function parseRpcId(value: unknown) {
-  const candidate = Array.isArray(value) ? value[0] : value;
-  const parsed = Number(candidate);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-async function savePaymentReportOperationDate(reportId: unknown, operationDate: unknown) {
-  const id = parseRpcId(reportId);
-  const normalizedOperationDate = normalizeDateOnly(operationDate);
-
-  if (!id || !normalizedOperationDate) return;
-
-  const adminSupabase = createSupabaseServiceRoleServer();
-  const { error } = await adminSupabase
-    .from('payment_reports')
-    .update({ operation_date: normalizedOperationDate })
-    .eq('id', id);
-
-  if (error) throw new Error(error.message);
-}
 
 function getCaracasDateString(value: Date) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -403,34 +383,6 @@ async function loadOrderFinancialState(
   return (((data ?? []) as OrderFinancialState[])[0] ?? null);
 }
 
-function getSnapshotEquivalentUsdFromFinancialState(input: {
-  state: OrderFinancialState | null;
-  reportedAmount: number;
-}) {
-  const state = input.state;
-  if (!state || state.collection_mode !== 'snapshot_quote') return null;
-
-  const reportedAmount = roundMoney(input.reportedAmount);
-  const pendingUsd = roundMoney(state.pending_usd);
-  const pendingBs = roundMoney(state.pending_bs);
-  const totalUsd = roundMoney(state.total_usd);
-  const totalBs = roundMoney(state.total_bs);
-  const snapshotRate = toSafeNumber(state.snapshot_rate_bs_per_usd, 0);
-
-  if (pendingUsd > 0.005 && pendingBs > 0.005 && Math.abs(reportedAmount - pendingBs) <= 0.01) {
-    return pendingUsd;
-  }
-
-  if (reportedAmount > 0 && pendingBs > 0.005 && reportedAmount < pendingBs && snapshotRate > 0) {
-    return roundMoney(reportedAmount / snapshotRate);
-  }
-
-  if (totalUsd > 0.005 && totalBs > 0.005 && Math.abs(reportedAmount - totalBs) <= 0.01) {
-    return totalUsd;
-  }
-
-  return null;
-}
 
 function requiresAdminMovementApproval(
   roles: readonly string[],
@@ -1699,7 +1651,7 @@ export async function createPaymentReportAction(input: {
   const payerName = String(input.payerName || '').trim();
 
   if (!operationDate) {
-    throw new Error('Debes indicar la fecha de la operaciÃ³n.');
+    throw new Error('Debes indicar la fecha de la operación.');
   }
 
   if (requiresOperationData && !operationDate) {
@@ -1742,109 +1694,19 @@ export async function createPaymentReportAction(input: {
     referenceCode,
   });
 
-  let snapshotEquivalentUsd: number | null = null;
-
-  if (reportedCurrency === 'VES') {
-    const financialState = await loadOrderFinancialState(supabase, {
-      orderId: input.orderId,
-      operationDate: normalizeDateOnly(operationDate),
-      activeBsRate: input.reportedExchangeRateVesPerUsd,
-    });
-    snapshotEquivalentUsd = getSnapshotEquivalentUsdFromFinancialState({
-      state: financialState,
-      reportedAmount: input.reportedAmount,
-    });
-  }
-
-  const effectiveReportedExchangeRate =
-    snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005
-      ? Number((input.reportedAmount / snapshotEquivalentUsd).toFixed(6))
-      : input.reportedExchangeRateVesPerUsd;
-  let createdPaymentReportId: number | null = null;
-
-  if (paymentMethod === 'retention') {
-    const reportedAmount = roundMoney(input.reportedAmount);
-    const exchangeRate = toSafeNumber(effectiveReportedExchangeRate, 0);
-    const reportedAmountUsdEquivalent =
-      reportedCurrency === 'VES'
-        ? exchangeRate > 0
-          ? roundMoney(reportedAmount / exchangeRate)
-          : 0
-        : reportedAmount;
-
-    if (reportedCurrency === 'VES' && exchangeRate <= 0) {
-      throw new Error('Debes indicar una tasa válida para registrar la retención.');
-    }
-
-    if (reportedAmountUsdEquivalent <= 0.005) {
-      throw new Error('El monto de la retención no es válido.');
-    }
-
-    const { data: insertedRetention, error: insertRetentionError } = await supabase
-      .from('payment_reports')
-      .insert({
-        order_id: input.orderId,
-        status: 'pending',
-        created_by_user_id: user.id,
-        reported_currency_code: reportedCurrency,
-        reported_amount: reportedAmount,
-        reported_exchange_rate_ves_per_usd:
-          reportedCurrency === 'VES' ? exchangeRate : null,
-        reported_amount_usd_equivalent: reportedAmountUsdEquivalent,
-        reported_money_account_id: input.reportedMoneyAccountId,
-        reference_code: referenceCode || null,
-        payer_name: reportPayerName,
-        notes: reportNotes,
-        operation_date: operationDate || null,
-      })
-      .select('id')
-      .single();
-
-    if (insertRetentionError) throw new Error(insertRetentionError.message);
-    createdPaymentReportId = Number(insertedRetention?.id || 0) || null;
-  } else {
-    const { data: createdReportId, error } = await supabase.rpc('create_payment_report', {
-      p_order_id: input.orderId,
-      p_reported_money_account_id: input.reportedMoneyAccountId,
-      p_reported_currency: input.reportedCurrency,
-      p_reported_amount: input.reportedAmount,
-      p_reported_exchange_rate_ves_per_usd: effectiveReportedExchangeRate,
-      p_reference_code: referenceCode || null,
-      p_payer_name: reportPayerName,
-      p_notes: reportNotes,
-    });
-
-    if (error) throw new Error(error.message);
-
-    createdPaymentReportId = Number(createdReportId || 0) || null;
-    await savePaymentReportOperationDate(createdReportId, operationDate);
-  }
-
-  if (snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005) {
-    const impliedRate = Number((input.reportedAmount / snapshotEquivalentUsd).toFixed(6));
-    const { data: latestReport } = await supabase
-      .from('payment_reports')
-      .select('id')
-      .eq('order_id', input.orderId)
-      .eq('status', 'pending')
-      .eq('reported_currency_code', 'VES')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (latestReport?.id) {
-      createdPaymentReportId = Number(latestReport.id || 0) || createdPaymentReportId;
-      const { error: updateEquivalentError } = await supabase
-        .from('payment_reports')
-        .update({
-          reported_amount_usd_equivalent: snapshotEquivalentUsd,
-          reported_exchange_rate_ves_per_usd: impliedRate,
-        })
-        .eq('id', latestReport.id);
-
-      if (updateEquivalentError) throw new Error(updateEquivalentError.message);
-    }
-  }
+  const { data: createdReportId, error: reportError } = await supabase.rpc('create_payment_report_on_date_v1', {
+    p_operation_date: operationDate,
+    p_order_id: input.orderId,
+    p_reported_money_account_id: input.reportedMoneyAccountId,
+    p_reported_currency: input.reportedCurrency,
+    p_reported_amount: input.reportedAmount,
+    p_reported_exchange_rate_ves_per_usd: input.reportedExchangeRateVesPerUsd,
+    p_reference_code: referenceCode || null,
+    p_payer_name: reportPayerName,
+    p_notes: reportNotes,
+  });
+  if (reportError) throw new Error(reportError.message);
+  const createdPaymentReportId = Number(createdReportId || 0) || null;
 
   const eventContext = await loadOrderEventContext(supabase, input.orderId);
   await appendOrderEvent(supabase, {

@@ -17,6 +17,7 @@ test('advisor selects a historical daily rate and reports the exact date/rate wi
   new Function('require','exports','module',ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText)(id=>{
     if(id==='react')return hooks;
     if(id==='react/jsx-runtime')return require(id);
+    if(id.endsWith('OrderPaymentEntry'))return {default:Object.defineProperty(function(){},'name',{value:'PaymentEntry'})};
     if(id==='next/link')return {default:()=>null};
     if(id==='next/navigation')return {useRouter:()=>({refresh(){}}),useSearchParams:()=>({get:()=>null})};
     if(id.endsWith('supabase/browser'))return {createSupabaseBrowser:()=>({auth:{getUser:async()=>({data:{user:null}})}})};
@@ -41,12 +42,9 @@ test('advisor selects a historical daily rate and reports the exact date/rate wi
   const flush=async()=>{render();for(const f of effects.splice(0))f();await Promise.all(pending.splice(0));render();};
   await flush();
   find(n=>n.type==='select'&&n.props.value==='').props.onChange({target:{value:'3'}});await flush();
-  find(n=>n.type==='input'&&n.props.type==='date').props.onChange({target:{value:'2026-10-28'}});await flush();
-  const rate=find(n=>n.type==='select'&&n.props.value==='1000');assert.ok(rate);
-  assert.deepEqual(rate.props.children.map(n=>n.props.value),['1000','900','800']);
-  rate.props.onChange({target:{value:'800'}});await flush();
-  assert.ok(find(n=>n.type==='input'&&n.props.value==='11200'));
-  assert.equal(quotes.at(-1).operationDate,'2026-10-28');assert.equal(quotes.at(-1).exchangeRate,800);
+  const entry=find(n=>n.type?.name==='PaymentEntry');assert.ok(entry);
+  entry.props.onChange({operationDate:'2026-10-28',exchangeRate:'800',amount:'11200'});
+  entry.props.onReadyChange(true);await flush();
   find(n=>n.type==='input'&&n.props.placeholder==='Numero de referencia').props.onChange({target:{value:'123456'}});
   find(n=>n.type==='input'&&n.props.placeholder==='Banco de la operacion').props.onChange({target:{value:'Venezuela'}});
   const submit=find(n=>n.type==='button'&&n.props.children==='Enviar');assert.ok(submit);assert.equal(submit.props.disabled,false);

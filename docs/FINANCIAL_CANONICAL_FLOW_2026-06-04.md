@@ -138,19 +138,21 @@ días permanece vigente.
 - Para una venta USD, el operador puede seleccionar una tasa válida de esa
   fecha. Un abono aplica solo lo recibido a esa tasa; no liquida por fuerza la
   orden ni congela la tasa de abonos posteriores.
-- Si el importe recibido coincide exactamente con el pendiente completo a otra
-  tasa válida del mismo día, se certifica esa cobertura con la tasa diaria
-  correspondiente. No depende del presupuesto original. El importe nativo,
-  cuenta, referencia, fecha y valoración contable reportados no se reescriben.
+- En reportes nuevos con tasa seleccionada explícitamente, esa selección manda:
+  una coincidencia del importe con el pendiente completo a otra tasa del día
+  **no cambia la tasa ni convierte un abono en pago completo**. La detección
+  automática entre tasas queda limitada a reportes anteriores que no contienen
+  evidencia de selección explícita. Nunca se revalorizan pagos confirmados.
 - No se inventa una tasa dividiendo totales redondeados. La comprobación usa
   el estado financiero canónico para cada tasa registrada del día.
 - Master confirma los pagos digitales como siempre, sin una aprobación extra
   de Administración por usar una tasa de ese día. La consulta muestra la tasa
   diaria aplicable y no confirma dinero ni altera el reporte al abrirlo.
 - Un Punto autorizado de Counter se confirma en la operación de cobro, sin
-  verificación de Master. Si una tasa fuera del día no respalda una cobertura
-  especial, se registra el dinero real a la tasa reportada y queda el saldo
-  que corresponda; no se concede un presupuesto antiguo automáticamente.
+  verificación de Master. La captura nueva valida que la tasa elegida sea del
+  día del pago. En reportes anteriores con una tasa ajena al día, no se concede
+  un presupuesto antiguo automáticamente: se conserva el dinero real y el saldo
+  correspondiente, salvo una excepción administrativa explícita.
 - Acuerdos especiales fuera de las tasas válidas del día conservan revisión
   administrativa. Las órdenes anteriores con snapshot Bs protegido conservan
   su contrato; esta regla no convierte su precio Bs otra vez desde USD.
@@ -171,6 +173,48 @@ Reutiliza la misma cotización de fecha/tasa con autorización por cartera;
 La regresión integrada crea el reporte digital como Asesor y lo confirma como
 Master, sin rol Admin, sin doble ingreso y conservando los snapshots anteriores.
 La prueba de pantalla está en `tests/counter/advisor-payment-day-rates-ui.test.mjs`.
+
+#### Captura única de pagos y abonos en todos los módulos — 2026-10-31
+
+- `OrderPaymentEntry` es la única interfaz de fecha, tasa, importe y estimación
+  para reportar pagos de clientes en Asesor, Counter y los tableros de
+  Master/Administración, incluido el formulario anterior. No se mantienen
+  formularios paralelos con cálculos o sugerencias independientes.
+- Primero se indica la fecha real del pago, inicialmente el día de Caracas.
+  Si solo hubo una tasa válida, se selecciona automáticamente. Si hubo varias,
+  se exige elegir la que se utilizó con el cliente; no se adivina a partir del
+  importe ni se sustituye por la última tasa del día.
+- Se escribe el dinero recibido en su moneda, con hasta dos decimales y sin
+  separadores de miles. Se muestra el importe nativo, su cobertura USD estimada
+  y el saldo o excedente estimados. «Completar saldo» usa la cotización canónica
+  de la fecha y tasa seleccionadas; no obliga a que todo pago sea completo.
+- No hace falta una casilla «abono»: si lo recibido cubre solo una parte, queda
+  el saldo real. Por ejemplo, Bs 37.301,04 a 888,12 cubren USD 42 de una orden
+  de USD 45 y dejan USD 3, aunque otra tasa del día produciría otra cobertura.
+- La selección solo admite tasas del historial de esa fecha. Un acuerdo ajeno
+  a esas tasas conserva su procedimiento administrativo de excepción; elegir
+  una tasa diaria no concede permisos nuevos ni aprueba dinero.
+- Una sola lectura autorizada, `read_order_payment_day_quote_v1`, proporciona
+  el saldo, modo comercial y tasas. No se consulta por cada tecla ni hay
+  precarga histórica o sondeo. Cambiar fecha invalida tasa e importe; respuestas
+  tardías, errores o cargas pendientes no habilitan el registro.
+- `create_payment_report_on_date_v1` escribe fecha y tasa elegida desde la
+  inserción. El adaptador atómico de Counter preserva esa misma tasa en lugar
+  de reemplazarla. La base valida el historial de nuevo y registra evidencia
+  de selección en el reporte; no se reconstruye la tasa desde USD redondeados.
+- Los pedidos anteriores con Bs de origen protegido conservan su snapshot y
+  las reglas por día de entrega, incluidos abonos y monedas mixtas. La selección
+  de tasa no vuelve a convertir su precio Bs desde un equivalente USD.
+- Se mantienen los permisos: efectivo/Punto autorizado de Counter se confirma
+  al cobrar; pagos digitales se reportan y Master/Administración verifica.
+  El cierre de custodia del motorizado sigue separado de la deuda del cliente.
+- Esta unificación no reescribe reportes, dinero, deudas ni cierres existentes,
+  ni agrega tablas, fondos o movimientos contables paralelos.
+
+Migración: `20261031210858_unified_explicit_payment_entry.sql`. Regresiones:
+`tests/counter/unified-payment-entry.test.mjs`, pruebas de integración de cada
+adaptador y `tests/admin/payment-rate-protection-db.mjs` con los comandos reales
+de Asesor, Master, Administración y Counter en PostgreSQL aislado.
 
 Esta protección es prospectiva: no migra, revaloriza ni modifica reportes,
 movimientos o coberturas históricos. Tampoco cambia `get_order_financial_state`

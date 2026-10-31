@@ -394,6 +394,39 @@ test('rate protection — actual PostgreSQL regressions',async(t)=>{
     assert.equal(Number((await db.query('select reported_exchange_rate_ves_per_usd r from payment_reports where id=$1',[lr])).rows[0].r),800);
     await db.exec(`set test.role='admin';set test.uid='${actor}'`);
    });
+   await t.test('unified selected-rate entry preserves explicit partial coverage through every canonical writer',async()=>{
+    const history=await snapshot();
+    // The entry wrapper delegates to the same real Counter writer under test.
+    await db.exec(`create function public.counter_apply_order_payments_block4(uuid,bigint,jsonb,text,jsonb,text)
+      returns jsonb language sql as $$select public.counter_apply_order_payments_block2($1,$2,$3,$4,$5,$6)$$;`);
+    await db.exec(read('supabase/migrations/20261031210858_unified_explicit_payment_entry.sql'));
+    assert.deepEqual(await snapshot(),history);
+    for(const role of ['advisor','master','admin']) {
+      const id=await makeOrder(14,700);await db.exec(`set test.role='${role}'`);
+      const r=Number((await db.query("select create_payment_report_on_date_v1('2026-10-28',$1,3,'VES',11200,1000,'778899','Banco',null) id",[id])).rows[0].id);
+      const evidence=(await db.query('select coverage_rate,source from app_private.payment_rate_reviews_v1 where report_id=$1',[r])).rows[0];
+      assert.equal(Number(evidence.coverage_rate),1000,'do not infer rate 800 from coincident full amount');
+      await db.exec("set test.role='master'");await atConfirm(id,r,11200,1000);
+      assert.equal(Number((await state(id)).pending_usd),2.8,'explicit selected rate leaves the real partial debt');
+      await db.exec("set test.role='admin'");
+    }
+    const original=await makeOrder(45,888.12);
+    await db.exec("insert into exchange_rates values(10,false,'2026-10-30 04:00Z',888.12),(11,true,'2026-10-30 22:00Z',888.90)");
+    const r=Number((await db.query("select create_payment_report_on_date_v1('2026-10-30',$1,3,'VES',37301.04,888.12,'112244','Banco',null) id",[original])).rows[0].id);
+    await atConfirm(original,r,37301.04,888.12,'2026-10-30');assert.equal(Number((await state(original)).pending_usd),3);
+    const counter=await makeOrder(14,700),key='00000000-0000-0000-0000-000000000088';
+    const lines=[{line_key:'payment',money_account_id:1,payment_method:'pos',currency_code:'VES',amount:4000,exchange_rate_ves_per_usd:800,operation_date:'2026-10-28',reference_code:'7744'}];
+    await db.exec("set test.role='counter'");
+    const call=()=>db.query("select counter_apply_order_payments($1,$2,$3,null,'[]',null) v",[key,counter,JSON.stringify(lines)]);
+    const first=(await call()).rows[0].v;assert.equal(first.reports[0].status,'confirmed');
+    assert.deepEqual((await call()).rows[0].v,first);
+    const movement=(await db.query('select amount,exchange_rate_ves_per_usd from money_movements where order_id=$1',[counter])).rows[0];
+    assert.equal(Number(movement.exchange_rate_ves_per_usd),800,'public wrapper must not replace the selection with 1000');
+    assert.equal(Number((await state(counter)).pending_usd),9);
+    const bad=JSON.stringify([{...lines[0],exchange_rate_ves_per_usd:1100}]);
+    await assert.rejects(db.query("select counter_apply_order_payments('00000000-0000-0000-0000-000000000087',$1,$2,null,'[]',null)",[counter,bad]),/tasa vigente/);
+    await db.exec("set test.role='admin'");
+   });
   });
  } finally { await db.close(); }
 });

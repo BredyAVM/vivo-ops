@@ -30,6 +30,15 @@ alcance de Counter, prevalece este contrato por ser la decisión operativa más
 reciente. Las fuentes contables generales continúan regidas por los documentos
 financieros canónicos.
 
+Actualización transversal del 2026-10-31: la captura de fecha real, tasa diaria,
+importe y estimación de pagos/abonos se implementa una sola vez en
+`OrderPaymentEntry`, compartida por Asesor, Counter, Master y Administración.
+Rige la sección «Captura única de pagos y abonos en todos los módulos» de
+`docs/FINANCIAL_CANONICAL_FLOW_2026-06-04.md`. Counter no puede reemplazar una
+tasa seleccionada por la última del día ni inferir otra tasa para cerrar una
+deuda parcial. Esta reutilización no amplía permisos ni modifica caja,
+liquidaciones o deudas históricas.
+
 Decisión posterior que prevalece sobre referencias financieras antiguas:
 
 ```text

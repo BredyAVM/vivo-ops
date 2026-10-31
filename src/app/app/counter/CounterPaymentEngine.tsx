@@ -2,8 +2,8 @@
 
 import { useMemo, useRef, useState, useTransition, type ReactNode } from 'react';
 import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
-import { paymentCollectionValueRate } from '@/lib/orders/collection-policy';
-import { withRateReviewRequest } from '@/lib/payments/rate-review';
+import { paymentEntryPreview } from '@/lib/payments/payment-entry';
+import OrderPaymentEntry from '@/components/orders/OrderPaymentEntry';
 import { CounterAmountReview } from './CounterAmountReview';
 import { COUNTER_AMOUNT_HINT, formatCounterAmount, parseCounterAmount } from './amount-review';
 import {
@@ -127,15 +127,6 @@ function amountForCurrency(currency: 'USD' | 'VES', usd: number, rate: number) {
     : roundMoney(Math.max(0, usd)).toFixed(2);
 }
 
-function canonicalPaymentAmount(currency: 'USD' | 'VES', quote: CounterPaymentQuote) {
-  return currency === 'VES'
-    ? roundMoney(Math.max(0, quote.pendingBs)).toFixed(2)
-    : roundMoney(Math.max(0, quote.pendingUsd)).toFixed(2);
-}
-
-function paymentValueRate(quote: CounterPaymentQuote) {
-  return paymentCollectionValueRate(quote);
-}
 
 function createPaymentDraft(
   account: CounterPaymentAccountOption,
@@ -143,10 +134,8 @@ function createPaymentDraft(
 ): PaymentDraft {
   return {
     accountKey: paymentAccountKey(account),
-    amount: canonicalPaymentAmount(account.currencyCode, quote),
-    exchangeRate: account.currencyCode === 'VES'
-      ? String(quote.exchangeRate)
-      : '',
+    amount: '',
+    exchangeRate: '',
     operationDate: quote.operationDate || todayCaracas(),
     referenceCode: '',
     bankName: '',
@@ -220,7 +209,6 @@ export function CounterPaymentEngine({
   const [reviewedChange, setReviewedChange] = useState<CounterGiveChangeIntent | null>(null);
   const changeKeyRef = useRef<string | null>(null);
   const waiveKeyRef = useRef<string | null>(null);
-  const paymentQuoteRequestId = useRef(0);
   const [paymentQuote, setPaymentQuote] = useState(order.paymentQuote);
   const [quoteLoading, startQuoteTransition] = useTransition();
   const [view, setView] = useState<CashierView>(
@@ -234,7 +222,7 @@ export function CounterPaymentEngine({
     firstAccount ? createPaymentDraft(firstAccount, order.paymentQuote) : null
   );
   const [paymentReceipt, setPaymentReceipt] = useState<CounterPaymentOperationResult | null>(null);
-  const [requestedRateReview, setRequestedRateReview] = useState(false);
+  const [paymentEntryReady, setPaymentEntryReady] = useState(false);
   const [changeAvailableUsd, setChangeAvailableUsd] = useState(
     roundMoney(order.changeAvailableUsd)
   );
@@ -264,32 +252,11 @@ export function CounterPaymentEngine({
   );
   const paymentRequirements = getPaymentReportRequirements(selectedMethod);
   const paymentAmount = parseCounterAmount(paymentDraft?.amount ?? '') ?? NaN;
-  const matchingDailyRate = paymentQuote.collectionMode === 'native_usd'
-    ? paymentQuote.dayRates?.find((rate) => paymentAmount === roundMoney(paymentQuote.pendingUsd * rate))
-    : undefined;
-  const canonicalValueRate = paymentValueRate(paymentQuote);
+
   const paymentAmountUsd = paymentAccount
-    ? (
-        paymentAccount.currencyCode === 'VES'
-        && (Math.abs(paymentAmount - paymentQuote.pendingBs) <= 0.01 || matchingDailyRate != null)
-        && paymentQuote.pendingUsd > 0.005
-      )
-      ? paymentQuote.pendingUsd
-      : amountUsd(
-          paymentAmount,
-          paymentAccount.currencyCode,
-          paymentAccount.currencyCode === 'VES' ? canonicalValueRate : null
-        )
+    ? paymentEntryPreview(paymentQuote, paymentAccount.currencyCode, paymentDraft?.amount ?? '')?.appliedUsd ?? 0
     : 0;
-  const suspectedBudgetPayment = paymentAccount?.currencyCode === 'VES'
-    && paymentQuote.collectionMode === 'native_usd'
-    && paymentQuote.snapshotRate > 0
-    && paymentQuote.snapshotRate !== paymentQuote.exchangeRate
-    && paymentAmount !== paymentQuote.pendingBs
-    && paymentAmount === roundMoney(paymentQuote.pendingUsd * paymentQuote.snapshotRate);
-  const usesDayRate = paymentQuote.dayRates?.includes(decimal(paymentDraft?.exchangeRate ?? '')) ?? false;
-  const paymentConfirmsNow = isImmediateAccount(paymentAccount)
-    && (selectedMethod === 'pos' || usesDayRate || (!(requestedRateReview && paymentAccount?.currencyCode === 'VES') && !suspectedBudgetPayment));
+  const paymentConfirmsNow = isImmediateAccount(paymentAccount);
   const paymentConfirmedUsd = paymentConfirmsNow ? paymentAmountUsd : 0;
   const projectedAppliedUsd = Math.min(paymentConfirmedUsd, paymentQuote.pendingUsd);
   const projectedPendingUsd = Math.max(0, roundMoney(paymentQuote.pendingUsd - projectedAppliedUsd));
@@ -353,38 +320,9 @@ export function CounterPaymentEngine({
     setPaymentDraft(createPaymentDraft(account, paymentQuote));
   }
 
-  function refreshPaymentQuote(operationDate: string, exchangeRate?: number) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(operationDate)) return;
-    const requestId = paymentQuoteRequestId.current + 1;
-    paymentQuoteRequestId.current = requestId;
-    startQuoteTransition(async () => {
-      try {
-        const nextQuote = await onLoadPaymentQuote({ orderId: order.id, operationDate, exchangeRate });
-        if (paymentQuoteRequestId.current !== requestId) return;
-        setPaymentQuote(nextQuote);
-        setPaymentDraft((current) => {
-          if (!current) return current;
-          const account = reportAccounts.find(
-            (item) => paymentAccountKey(item) === current.accountKey
-          ) ?? null;
-          return account
-            ? { ...current, amount: canonicalPaymentAmount(account.currencyCode, nextQuote),
-                exchangeRate: String(nextQuote.exchangeRate), operationDate }
-            : current;
-        });
-        invalidatePayment();
-      } catch (quoteError) {
-        if (paymentQuoteRequestId.current !== requestId) return;
-        setError(
-          quoteError instanceof Error
-            ? quoteError.message
-            : 'No se pudo actualizar el monto canonico.'
-        );
-      }
-    });
-  }
 
   function buildPaymentIntent(): CounterPaymentIntent | null {
+    if (!paymentEntryReady) { setError('Selecciona la fecha, la tasa y un monto válido antes de continuar.'); return null; }
     if (!paymentDraft || !paymentAccount || !Number.isFinite(paymentAmount) || paymentAmount <= 0) {
       setError(`Revisa la cuenta y el monto recibido. ${COUNTER_AMOUNT_HINT}`);
       return null;
@@ -435,7 +373,7 @@ export function CounterPaymentEngine({
         referenceCode: referenceCode || null,
         bankName: paymentDraft.bankName.trim() || null,
         payerName: paymentDraft.payerName.trim() || null,
-        notes: withRateReviewRequest(paymentDraft.notes, requestedRateReview && paymentAccount.currencyCode === 'VES') || null,
+        notes: paymentDraft.notes.trim() || null,
       }],
       overpaymentHandling: projectedFundUsd > 0.005 ? 'store_fund' : null,
       changeLines: [],
@@ -455,7 +393,6 @@ export function CounterPaymentEngine({
         idempotencyKey: paymentKeyRef.current,
       });
       setPaymentReceipt(result);
-        setRequestedRateReview(false);
       setChangeAvailableUsd((current) => roundMoney(current + result.fundCreditUsd));
       setPaymentStage('receipt');
       setError(null);
@@ -707,50 +644,10 @@ export function CounterPaymentEngine({
                           ))}
                         </select>
                       </Field>
-                      <Field label={`Monto recibido (${paymentAccount.currencyCode})`}>
-                        <input
-                          value={paymentDraft.amount}
-                          onChange={(event) => updatePayment({ amount: event.target.value })}
-                          onFocus={(event) => event.currentTarget.select()}
-                          inputMode="decimal"
-                          className="counter-field text-lg font-semibold"
-                        />
-                        <span className="mt-1 block text-xs text-[#C7C8D1]">
-                          {Number.isFinite(paymentAmount) ? `Se registrará: ${formatCounterAmount(paymentAmount, paymentAccount.currencyCode)}` : COUNTER_AMOUNT_HINT}
-                        </span>
-                      </Field>
-                      {paymentAccount.currencyCode === 'VES' ? (
-                        <Field label="Tasa del día del pago">
-                          <select value={paymentDraft.exchangeRate} disabled={quoteLoading}
-                            onChange={(event) => refreshPaymentQuote(paymentDraft.operationDate, Number(event.target.value))}
-                            className="counter-field">
-                            {(paymentQuote.dayRates?.length ? paymentQuote.dayRates : [paymentQuote.exchangeRate]).map((rate) => (
-                              <option key={rate} value={String(rate)}>{moneyBs(rate)} por USD</option>
-                            ))}
-                          </select>
-                          <span className="mt-1 block text-xs text-[#C7C8D1]">Puedes usar cualquiera de las tasas vigentes en esa fecha.</span>
-                        </Field>
-                      ) : null}
-                      {paymentAccount.currencyCode === 'VES' && selectedMethod !== 'pos' && !usesDayRate ? <label className="flex min-h-11 items-center gap-2 text-xs text-[#C7C8D1] sm:col-span-2">
-                        <input type="checkbox" checked={requestedRateReview} onChange={event => {
-                          setRequestedRateReview(event.target.checked); invalidatePayment();
-                        }} />
-                        El cliente pagó con un presupuesto anterior · revisar tasa con Administración
-                      </label> : null}
-                      {paymentRequirements.requiresOperationDate || paymentAccount.currencyCode === 'VES' ? (
-                        <Field label="Fecha real del pago">
-                          <input
-                            type="date"
-                            value={paymentDraft.operationDate}
-                            onChange={(event) => {
-                              const operationDate = event.target.value;
-                              updatePayment({ operationDate });
-                              if (paymentAccount.currencyCode === 'VES') refreshPaymentQuote(operationDate);
-                            }}
-                            className="counter-field"
-                          />
-                        </Field>
-                      ) : null}
+                      <OrderPaymentEntry key={paymentDraft.accountKey} orderId={order.id} currency={paymentAccount.currencyCode}
+                        value={{ operationDate: paymentDraft.operationDate, exchangeRate: paymentDraft.exchangeRate, amount: paymentDraft.amount }}
+                        onChange={next => updatePayment(next)} onReadyChange={setPaymentEntryReady}
+                        onQuoteChange={next => setPaymentQuote(next)} disabled={isWorking || submitting} />
                     </div>
                     <div className="mt-3 grid gap-3 lg:grid-cols-3">
                       {paymentRequirements.requiresReference || selectedMethod === 'pos' ? (
@@ -812,7 +709,7 @@ export function CounterPaymentEngine({
                         const intent = buildPaymentIntent();
                         if (intent) { setReviewedPayment(intent); setPaymentStage('review'); }
                       }}
-                      disabled={isWorking || quoteLoading}
+                      disabled={isWorking || quoteLoading || !paymentEntryReady}
                       className="min-h-12 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black disabled:opacity-60"
                     >
                       Revisar este pago
@@ -844,9 +741,6 @@ export function CounterPaymentEngine({
               onCorrect={() => { setReviewedPayment(null); setPaymentStage('input'); setError(null); }}
               onConfirm={() => void confirmPayment()}
             >
-              {matchingDailyRate != null && matchingDailyRate !== decimal(paymentDraft?.exchangeRate ?? '') ? (
-                <p className="text-sm text-emerald-200">El importe coincide con el saldo completo a {moneyBs(matchingDailyRate)} por USD, otra tasa válida del día del pago. Se comprobará al registrar.</p>
-              ) : null}
               {projectedFundUsd > 0.005 ? (
                 <p className="rounded-lg border border-orange-400/40 bg-orange-400/10 p-3 text-sm text-orange-100">
                   El monto supera lo pendiente. Excedente estimado: {formatCounterAmount(projectedFundUsd, 'USD')}. Se guardará en fondo y luego podrás entregar cambio.

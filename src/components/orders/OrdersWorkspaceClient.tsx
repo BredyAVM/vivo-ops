@@ -4,6 +4,7 @@ import { salesChannelLabel } from "@/lib/clients/commercial-classification";
 import dynamic from "next/dynamic";
 import { assignOwnTransportAction } from "@/app/app/master/ops/own-transport-actions";
 import OrderPaymentQuoteButton from "@/components/orders/OrderPaymentQuoteButton";
+import OrderPaymentEntry from "@/components/orders/OrderPaymentEntry";
 import OrdersWorkspaceInventoryLinks from "@/components/orders/OrdersWorkspaceInventoryLinks";
 import { useKitchenDispatch } from "@/lib/orders/use-kitchen-dispatch";
 import { useCoalescedRefresh } from "@/lib/refresh/use-coalesced-refresh";
@@ -104,7 +105,6 @@ import {
   confirmMasterOpsPaymentReportAction,
   decideCounterPickupChangeAction,
   loadMasterOpsOrderDetailAction,
-  loadMasterOpsPaymentSuggestionAction,
   selectMasterOpsOrderInventoryRouteAction,
   settleMasterOpsClientFundPayoutAction,
   storeMasterOpsOrderExcessAction,
@@ -408,19 +408,6 @@ function isRetentionPaymentAccount(option: MasterOpsPaymentAccountOption) {
   return option.paymentMethodCode === "retention";
 }
 
-function getSuggestedPaymentAmount(
-  order: MasterOpsOrder,
-  option: MasterOpsPaymentAccountOption | null,
-  suggestion: MasterOpsPaymentSuggestion
-) {
-  if (!option || order.balanceUsd <= 0.005) return "";
-  if (option.currencyCode === "VES") {
-    return suggestion.pendingBs != null && suggestion.pendingBs > 0
-      ? compactDecimal(suggestion.pendingBs, 2)
-      : "";
-  }
-  return compactDecimal(suggestion.pendingUsd, 2);
-}
 
 function getSuggestedPaymentExchangeRate(
   order: MasterOpsOrder,
@@ -433,39 +420,6 @@ function getSuggestedPaymentExchangeRate(
   return rate && rate > 0 ? compactDecimal(rate, 4) : "";
 }
 
-function getLoadedMasterOpsPaymentSuggestion(
-  order: MasterOpsOrder,
-  activeRate: number | null,
-  operationDate: string
-): MasterOpsPaymentSuggestion {
-  const matchesLoadedOperationDate =
-    !order.paymentStateOperationDate || order.paymentStateOperationDate === operationDate;
-  const pendingBs = matchesLoadedOperationDate ? order.pendingBs : null;
-  const fallbackRate = order.fxRate && order.fxRate > 0 ? order.fxRate : activeRate;
-  const resolvedPendingBs =
-    pendingBs != null
-      ? pendingBs
-      : order.confirmedPaidUsd <= 0.005 && order.totalBs != null
-        ? order.totalBs
-        : fallbackRate && fallbackRate > 0
-          ? Number((order.balanceUsd * fallbackRate).toFixed(2))
-          : null;
-  const exchangeRate =
-    resolvedPendingBs != null && resolvedPendingBs > 0.005 && order.balanceUsd > 0.005
-      ? Number((resolvedPendingBs / order.balanceUsd).toFixed(4))
-      : fallbackRate && fallbackRate > 0
-        ? Number(fallbackRate.toFixed(4))
-        : null;
-
-  return {
-    pendingUsd: order.balanceUsd,
-    pendingBs: resolvedPendingBs,
-    exchangeRate,
-    activeRate,
-    collectionMode: matchesLoadedOperationDate ? order.paymentCollectionMode : null,
-    operationDate,
-  };
-}
 
 const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.50;
 const ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD = 1;
@@ -1383,6 +1337,7 @@ function OrderDetailPanel({
   const paymentRateReview = paymentRateResult?.ok ? paymentRateResult.value : null;
   const paymentRateFieldsLocked = Boolean(paymentRateResult && (!paymentRateResult.ok || paymentRateResult.value.available));
   const [paymentReportOpen, setPaymentReportOpen] = useState(false);
+  const [paymentEntryReady, setPaymentEntryReady] = useState(false);
   const [staffPayrollOpen, setStaffPayrollOpen] = useState(false);
   const [paymentReportIsRetention, setPaymentReportIsRetention] = useState(false);
   const [paymentReportAccountKey, setPaymentReportAccountKey] = useState("");
@@ -1393,10 +1348,7 @@ function OrderDetailPanel({
   const [paymentReportBankName, setPaymentReportBankName] = useState("");
   const [paymentReportPayerName, setPaymentReportPayerName] = useState("");
   const [paymentReportNotes, setPaymentReportNotes] = useState("");
-  const [paymentSuggestion, setPaymentSuggestion] = useState<MasterOpsPaymentSuggestion | null>(null);
-  const [paymentSuggestionLoading, setPaymentSuggestionLoading] = useState(false);
-  const [paymentSuggestionError, setPaymentSuggestionError] = useState<string | null>(null);
-  const paymentSuggestionRequestRef = useRef(0);
+
   const [fundApplyBoxOpen, setFundApplyBoxOpen] = useState(false);
   const [fundApplyAmountUsd, setFundApplyAmountUsd] = useState("");
   const [fundApplyNotes, setFundApplyNotes] = useState("");
@@ -1494,16 +1446,7 @@ function OrderDetailPanel({
   const cancelRefundMatchesConfirmedMoney =
     Math.abs(cancelRefundTotalUsd - confirmedMoneyPaidUsd) < 0.005;
   const selectedPaymentAccount = paymentReportOptions.find((option) => option.key === paymentReportAccountKey) ?? null;
-  const loadedPaymentSuggestion = getLoadedMasterOpsPaymentSuggestion(
-    order,
-    activeRate,
-    paymentReportOperationDate
-  );
-  const effectivePaymentSuggestion =
-    paymentSuggestion?.operationDate === paymentReportOperationDate
-      ? paymentSuggestion
-      : loadedPaymentSuggestion;
-  const paymentCollectionMode = effectivePaymentSuggestion.collectionMode;
+
   const paymentReportRequirements = getPaymentReportRequirements(selectedPaymentAccount?.paymentMethodCode ?? "");
   const canOpenPaymentReport =
     !isIncompleteOrder && activeTab === "pagos" && order.balanceUsd > 0.005 && normalPaymentOptions.length > 0;
@@ -1934,72 +1877,16 @@ function OrderDetailPanel({
     }
   }
 
-  async function refreshPaymentSuggestion(
-    operationDate: string,
-    account: MasterOpsPaymentAccountOption | null,
-    isRetention: boolean
-  ) {
-    const requestId = paymentSuggestionRequestRef.current + 1;
-    paymentSuggestionRequestRef.current = requestId;
-
-    if (isRetention || account?.currencyCode !== "VES") {
-      setPaymentSuggestionLoading(false);
-      setPaymentSuggestionError(null);
-      return;
-    }
-
-    if (!operationDate) {
-      setPaymentSuggestion(null);
-      setPaymentSuggestionLoading(false);
-      setPaymentSuggestionError("Selecciona la fecha de operacion para calcular el saldo en bolivares.");
-      return;
-    }
-
-    setPaymentSuggestionLoading(true);
-    setPaymentSuggestionError(null);
-
-    const result = await loadMasterOpsPaymentSuggestionAction({
-      orderId: order.id,
-      operationDate,
-    });
-
-    if (paymentSuggestionRequestRef.current !== requestId) return;
-    setPaymentSuggestionLoading(false);
-
-    if (!result.ok) {
-      setPaymentSuggestionError(result.message);
-      return;
-    }
-
-    setPaymentSuggestion(result.suggestion);
-    setPaymentReportAmount(getSuggestedPaymentAmount(order, account, result.suggestion));
-    setPaymentReportExchangeRate(
-      getSuggestedPaymentExchangeRate(
-        order,
-        result.suggestion.activeRate ?? activeRate,
-        result.suggestion
-      )
-    );
-  }
 
   function closePaymentReport() {
-    paymentSuggestionRequestRef.current += 1;
     setPaymentReportOpen(false);
-    setPaymentSuggestionLoading(false);
-    setPaymentSuggestionError(null);
   }
 
   function openPaymentReport(isRetention: boolean) {
     const operationDate = getCaracasTodayKey();
-    const initialSuggestion = getLoadedMasterOpsPaymentSuggestion(order, activeRate, operationDate);
-
-    paymentSuggestionRequestRef.current += 1;
     setPaymentReportIsRetention(isRetention);
     setPaymentReportOpen(true);
     setPaymentReportAccountKey("");
-    setPaymentSuggestion(initialSuggestion);
-    setPaymentSuggestionLoading(false);
-    setPaymentSuggestionError(null);
     setPaymentReportAmount("");
     setPaymentReportExchangeRate("");
     setPaymentReportOperationDate(operationDate);
@@ -2007,80 +1894,17 @@ function OrderDetailPanel({
     setPaymentReportBankName("");
     setPaymentReportPayerName("");
     setPaymentReportNotes("");
+    setPaymentEntryReady(false);
   }
 
   function handlePaymentAccountChange(accountKey: string) {
-    const nextAccount = paymentReportOptions.find((option) => option.key === accountKey) ?? null;
     setPaymentReportAccountKey(accountKey);
-
-    if (!nextAccount) {
-      paymentSuggestionRequestRef.current += 1;
-      setPaymentSuggestionLoading(false);
-      setPaymentSuggestionError(null);
-      setPaymentReportAmount("");
-      setPaymentReportExchangeRate("");
-      return;
-    }
-
-    setPaymentReportAmount(
-      paymentReportIsRetention
-        ? ""
-        : getSuggestedPaymentAmount(order, nextAccount, effectivePaymentSuggestion)
-    );
-    setPaymentReportExchangeRate(
-      nextAccount?.currencyCode === "VES"
-        ? paymentReportIsRetention
-          ? activeRate && activeRate > 0
-            ? compactDecimal(activeRate, 4)
-            : ""
-          : getSuggestedPaymentExchangeRate(order, activeRate, effectivePaymentSuggestion)
-        : ""
-    );
-
-    void refreshPaymentSuggestion(
-      paymentReportOperationDate,
-      nextAccount,
-      paymentReportIsRetention
-    );
-  }
-
-  function handlePaymentOperationDateChange(operationDate: string) {
-    setPaymentReportOperationDate(operationDate);
-    setPaymentSuggestion(null);
-    setPaymentSuggestionError(null);
-
-    if (!selectedPaymentAccount) {
-      paymentSuggestionRequestRef.current += 1;
-      setPaymentSuggestionLoading(false);
-      setPaymentReportAmount("");
-      setPaymentReportExchangeRate("");
-      return;
-    }
-
-    if (paymentReportIsRetention) {
-      setPaymentReportExchangeRate(
-        selectedPaymentAccount?.currencyCode === "VES" && activeRate && activeRate > 0
-          ? compactDecimal(activeRate, 4)
-          : ""
-      );
-      return;
-    }
-
-    const immediateSuggestion = getLoadedMasterOpsPaymentSuggestion(order, activeRate, operationDate);
-    setPaymentReportAmount(
-      getSuggestedPaymentAmount(order, selectedPaymentAccount, immediateSuggestion)
-    );
-    setPaymentReportExchangeRate(
-      selectedPaymentAccount?.currencyCode === "VES"
-        ? getSuggestedPaymentExchangeRate(order, activeRate, immediateSuggestion)
-        : ""
-    );
-
-    void refreshPaymentSuggestion(operationDate, selectedPaymentAccount, false);
+    setPaymentReportAmount(""); setPaymentReportExchangeRate(""); setPaymentEntryReady(false);
   }
 
   async function handlePaymentReportSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!paymentEntryReady) return;
 
     if (!selectedPaymentAccount) {
       await onCreatePaymentReport(order, {
@@ -2112,7 +1936,6 @@ function OrderDetailPanel({
     if (ok) {
       closePaymentReport();
       setPaymentReportAmount("");
-      setPaymentSuggestion(null);
       setPaymentReportReferenceCode("");
       setPaymentReportBankName("");
       setPaymentReportPayerName("");
@@ -3117,43 +2940,6 @@ function OrderDetailPanel({
                       </button>
                     </div>
 
-                    {!paymentReportIsRetention ? (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        <div className="rounded-lg border border-sky-500/20 bg-[#0B0B0D] px-3 py-2">
-                          <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Saldo USD</div>
-                          <div className="mt-1 text-[13px] font-semibold text-[#F5F5F7]">
-                            {formatMasterOrderUSD(effectivePaymentSuggestion.pendingUsd)}
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-sky-500/20 bg-[#0B0B0D] px-3 py-2">
-                          <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Saldo Bs</div>
-                          <div className="mt-1 text-[13px] font-semibold text-[#F5F5F7]">
-                            {effectivePaymentSuggestion.pendingBs == null
-                              ? "No disponible"
-                              : formatMasterOrderBs(effectivePaymentSuggestion.pendingBs)}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {!paymentReportIsRetention && selectedPaymentAccount?.currencyCode === "VES" ? (
-                      <div className="mt-2 rounded-lg border border-sky-500/20 bg-[#0B0B0D] px-3 py-2 text-[11px] text-sky-100/80">
-                        {paymentSuggestionLoading
-                          ? "Actualizando saldo canonico..."
-                          : paymentCollectionMode === "snapshot_quote"
-                            ? `Presupuesto congelado: se conserva ${formatMasterOrderBs(effectivePaymentSuggestion.pendingBs)} pendiente de la orden.`
-                            : paymentCollectionMode === "post_delivery_usd"
-                              ? "Cobranza dolarizada: la fecha de operacion es posterior a la entrega y usa la tasa activa."
-                              : paymentCollectionMode === "native_usd"
-                                ? "Precio fijo en USD: solo el saldo pendiente se convierte a la tasa de la operación. Los abonos anteriores se conservan."
-                              : `Monto sugerido segun el estado financiero de la orden: ${formatMasterOrderBs(effectivePaymentSuggestion.pendingBs)}.`}
-                        {paymentSuggestionError ? (
-                          <div className="mt-1 text-amber-300">
-                            No se pudo refrescar el saldo: {paymentSuggestionError}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
 
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       <label className="text-[11px] text-[#B7B7C2]">
@@ -3172,40 +2958,11 @@ function OrderDetailPanel({
                         </select>
                       </label>
 
-                      <label className="text-[11px] text-[#B7B7C2]">
-                        Fecha de operacion
-                        <input
-                          className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
-                          type="date"
-                          value={paymentReportOperationDate}
-                          onChange={(event) => handlePaymentOperationDateChange(event.target.value)}
-                        />
-                      </label>
-
-                      <label className="text-[11px] text-[#B7B7C2]">
-                        Monto · {currencyLabel(selectedPaymentAccount?.currencyCode)}
-                        <input
-                          className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-                          value={paymentReportAmount}
-                          onChange={(event) => setPaymentReportAmount(event.target.value)}
-                          inputMode="decimal"
-                          placeholder={paymentReportIsRetention || !selectedPaymentAccount ? "0,00" : selectedPaymentAccount.currencyCode === "VES" ? `Pendiente ${formatMasterOrderBs(effectivePaymentSuggestion.pendingBs)}` : `Pendiente ${formatMasterOrderUSD(order.balanceUsd)}`}
-                        />
-                      </label>
-
-                      {selectedPaymentAccount?.currencyCode === "VES" &&
-                      (paymentReportIsRetention || paymentCollectionMode !== "snapshot_quote") ? (
-                        <label className="text-[11px] text-[#B7B7C2]">
-                          Tasa Bs/USD
-                          <input
-                            className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-                            value={paymentReportExchangeRate}
-                            onChange={(event) => setPaymentReportExchangeRate(event.target.value)}
-                            inputMode="decimal"
-                            placeholder="Tasa"
-                          />
-                        </label>
-                      ) : null}
+                      {selectedPaymentAccount ? <OrderPaymentEntry key={paymentReportAccountKey} orderId={order.id}
+                        currency={selectedPaymentAccount.currencyCode === "VES" ? "VES" : "USD"}
+                        value={{ operationDate: paymentReportOperationDate, exchangeRate: paymentReportExchangeRate, amount: paymentReportAmount }}
+                        onChange={next => { setPaymentReportOperationDate(next.operationDate); setPaymentReportExchangeRate(next.exchangeRate); setPaymentReportAmount(next.amount); }}
+                        onReadyChange={setPaymentEntryReady} disabled={busy} /> : null}
 
                       <label className="text-[11px] text-[#B7B7C2]">
                         Referencia{paymentReportRequirements.requiresReference ? "" : " (opcional)"}
@@ -3263,10 +3020,7 @@ function OrderDetailPanel({
                         disabled={
                           busy ||
                           !selectedPaymentAccount ||
-                          paymentSuggestionLoading ||
-                          (!paymentReportIsRetention &&
-                            selectedPaymentAccount?.currencyCode === "VES" &&
-                            Boolean(paymentSuggestionError))
+                          !paymentEntryReady
                         }
                       >
                         {runningAction === `${paymentReportIsRetention ? "report-retention" : "report-payment"}:${order.id}`

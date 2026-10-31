@@ -30,7 +30,8 @@ test('counter preserves old quotation FX and post-delivery FX', () => {
 test('all three payment surfaces consume the server commercial version without extra reads', () => {
   const read=(path:string)=>readFileSync(new URL('../../'+path,import.meta.url),'utf8');
   assert.match(read('src/app/app/counter/read-model.ts'),/collectionMode: normalizePaymentCollectionMode\(collectionMode\)/);
-  assert.match(read('src/app/app/counter/CounterPaymentEngine.tsx'),/return paymentCollectionValueRate\(quote\)/);
+  assert.match(read('src/app/app/counter/CounterPaymentEngine.tsx'),/paymentEntryPreview\(paymentQuote/);
   assert.match(read('src/app/app/advisor/orders/[id]/page.tsx'),/nativeUsdCollection=\{financialState\?\.collection_mode === 'native_usd'\}/);
-  assert.match(read('src/app/app/advisor/orders/[id]/OrderDetailActions.tsx'),/paymentCollectionGuidance\(nativeUsd,/);
+  assert.match(read('src/app/app/advisor/orders/[id]/OrderDetailActions.tsx'),/<OrderPaymentEntry/);
+  assert.match(read('src/lib/payments/payment-entry.ts'),/paymentCollectionValueRate\(quote\)/);
 });

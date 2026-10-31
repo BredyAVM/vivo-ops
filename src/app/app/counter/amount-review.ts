@@ -1,11 +1,4 @@
-/** Counter accepts an ungrouped amount, never guesses ambiguous thousands/decimals. */
-export function parseCounterAmount(raw: string): number | null {
-  const value = raw.trim();
-  if (!/^\d+(?:[.,]\d{1,2})?$/.test(value)) return null;
-  const amount = Number(value.replace(',', '.'));
-  if (!Number.isFinite(amount) || amount <= 0 || !Number.isSafeInteger(Math.round(amount * 100))) return null;
-  return amount;
-}
+export { parsePaymentAmount as parseCounterAmount } from '../../../lib/payments/payment-amount.ts';
 
 const amountFormatter = new Intl.NumberFormat('es-VE', {
   minimumFractionDigits: 2,

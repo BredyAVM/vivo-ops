@@ -7,7 +7,7 @@ export async function loadOrderPaymentDayQuoteAction(input: {
   orderId: number; operationDate: string; exchangeRate?: number;
 }): Promise<{
   operationDate: string; pendingUsd: number; pendingBs: number; exchangeRate: number;
-  collectionMode: string; dayRates: number[];
+  snapshotRate: number; collectionMode: string; dayRates: number[];
 }> {
   const ctx = await requireAuthContext();
   if (!Number.isSafeInteger(input.orderId) || input.orderId <= 0 ||
@@ -22,6 +22,7 @@ export async function loadOrderPaymentDayQuoteAction(input: {
   return {
     operationDate: String(data.operationDate), pendingUsd: Number(data.pendingUsd), pendingBs: Number(data.pendingBs),
     exchangeRate: Number(data.exchangeRate), collectionMode: String(data.collectionMode),
+    snapshotRate: Number(data.snapshotRate),
     dayRates: (Array.isArray(data.dayRates) ? data.dayRates : []).map(Number).filter((n: number) => Number.isFinite(n) && n > 0),
   };
 }

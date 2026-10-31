@@ -22,12 +22,12 @@ test('review is lazy, session-authorized and cannot write the financial ledger f
   assert.doesNotMatch(actions,/\.insert\(|\.update\(|money_movements|service_role/);
 });
 
-test('all reporting screens can request review without giving operators the authority to approve it', () => {
+test('all reporting screens share rate selection without giving operators the authority to approve exceptions', () => {
   for(const file of ['src/app/app/counter/CounterPaymentEngine.tsx','src/components/orders/OrdersWorkspaceClient.tsx','src/app/app/advisor/orders/[id]/OrderDetailActions.tsx']) {
-    const source=readFileSync(file,'utf8');assert.match(source,/withRateReviewRequest/);
+    const source=readFileSync(file,'utf8');assert.match(source,/<OrderPaymentEntry/);
     assert.doesNotMatch(source,/approve_payment_rate_review_v1/);
   }
   const ui=readFileSync('src/app/app/counter/CounterPaymentEngine.tsx','utf8');
   assert.match(ui,/no lo cargues de nuevo/);
-  assert.match(ui,/suspectedBudgetPayment/);
+  assert.doesNotMatch(ui,/suspectedBudgetPayment|matchingDailyRate/);
 });

@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import OrderPaymentEntry from '@/components/orders/OrderPaymentEntry';
 import { useKitchenDispatch } from '@/lib/orders/use-kitchen-dispatch';
 import { isPaymentMethodApplicableToAccount, getPaymentMethodRolesForAccount } from '@/lib/payments/account-rule-policy';
 import Link from 'next/link';
@@ -2753,37 +2754,6 @@ function getOrderPaymentBalanceBsAmount(
   return 0;
 }
 
-function getOrderPaymentBalanceExchangeRate(
-  order: Order,
-  activeBsRate: number,
-  currentTimeMs: number,
-  operationDate?: string | null
-) {
-  if (order.paymentCollectionMode === 'native_usd') {
-    return activeBsRate > 0 ? Number(activeBsRate.toFixed(4)) : 0;
-  }
-  const operationKey = operationDate || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(currentTimeMs);
-  const canonical = orderDetailCollectionSnapshot(order, operationKey);
-  if (canonical?.mode === 'post_delivery_usd') return activeBsRate > 0 ? Number(activeBsRate.toFixed(4)) : 0;
-  if (canonical?.mode === 'snapshot_quote' && Number(order.editMeta?.fxRate) > 0) {
-    return Number(Number(order.editMeta.fxRate).toFixed(4));
-  }
-  const balanceBs = getOrderPaymentBalanceBsAmount(order, activeBsRate, currentTimeMs, operationDate);
-  if (balanceBs > 0 && order.balanceUsd > 0.005) {
-    return Number((balanceBs / order.balanceUsd).toFixed(4));
-  }
-
-  if (operationDatePassedDeliveryGraceDay(order, operationDate, currentTimeMs) && activeBsRate > 0) {
-    return Number(activeBsRate.toFixed(4));
-  }
-
-  const snapshotRate = Number(order.editMeta?.fxRate || 0);
-  if (snapshotRate > 0) {
-    return Number(snapshotRate.toFixed(4));
-  }
-
-  return activeBsRate > 0 ? Number(activeBsRate.toFixed(4)) : 0;
-}
 
 function getOrderCollectionMode(
   order: Order,
@@ -4979,6 +4949,7 @@ const [deliveryCorrectionReason, setDeliveryCorrectionReason] = useState('');
 const [paymentReportBoxOpen, setPaymentReportBoxOpen] = useState(false);
 const [paymentReportMoneyAccountId, setPaymentReportMoneyAccountId] = useState('');
 const [paymentReportAmount, setPaymentReportAmount] = useState('');
+const [paymentEntryReady, setPaymentEntryReady] = useState(false);
 const [paymentReportExchangeRate, setPaymentReportExchangeRate] = useState('');
 const [paymentReportOperationDate, setPaymentReportOperationDate] = useState('');
 const [paymentReportReferenceCode, setPaymentReportReferenceCode] = useState('');
@@ -7386,6 +7357,7 @@ const handleReturn = async (o: Order) => {
 };
 
 const handleCreatePaymentReport = async (o: Order) => {
+  if (!paymentEntryReady) return;
   try {
     const paymentMethod = paymentReportMethodOverride || o.editMeta?.paymentMethod || '';
     const isRetentionReport = paymentMethod === 'retention';
@@ -12279,28 +12251,6 @@ const getOrderPaymentBalanceBs = (order: Order, operationDate?: string | null) =
   );
 };
 
-const getSuggestedOrderPaymentExchangeRate = (order: Order, operationDate?: string | null) => {
-  const rate = getOrderPaymentBalanceExchangeRate(
-    order,
-    activeBsRate,
-    currentTimeMs,
-    operationDate ?? paymentReportOperationDate
-  );
-  return rate > 0 ? String(rate) : '';
-};
-
-const getSuggestedOrderPaymentAmount = (
-  order: Order,
-  currencyCode: string | null | undefined,
-  operationDate?: string | null
-) => {
-  if (currencyCode === 'VES') {
-    const balanceBs = getOrderPaymentBalanceBs(order, operationDate);
-    return balanceBs > 0 ? String(Number(balanceBs.toFixed(2))) : '';
-  }
-
-  return order.balanceUsd > 0 ? String(Number(order.balanceUsd.toFixed(2))) : '';
-};
 
 const staffPayrollAmountUsdNumber = Number(String(staffPayrollAmountUsd || '').replace(',', '.'));
 const staffPayrollBalanceBsPreview = selectedOrder
@@ -21208,13 +21158,9 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
     onClick={() => {
       setPaymentReportBoxOpen(true);
       setPaymentReportMethodOverride(null);
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getCaracasTodayString();
       setPaymentReportOperationDate(today);
-      const suggestedCurrency = selectedOrder.editMeta?.paymentCurrency || 'USD';
-      setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, suggestedCurrency, today));
-      setPaymentReportExchangeRate(
-        suggestedCurrency === 'VES' ? getSuggestedOrderPaymentExchangeRate(selectedOrder, today) : ''
-      );
+      setPaymentReportAmount(''); setPaymentReportExchangeRate(''); setPaymentEntryReady(false);
       const suggestedFund = Math.max(
         0,
         Math.min(
@@ -21248,12 +21194,11 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
     onClick={() => {
       setPaymentReportBoxOpen(true);
       setPaymentReportMethodOverride('retention');
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getCaracasTodayString();
       setPaymentReportOperationDate(today);
       setPaymentReportAmount('');
-      setPaymentReportExchangeRate(
-        activeBsRate > 0 ? String(Number(activeBsRate.toFixed(4))) : ''
-      );
+      setPaymentReportExchangeRate('');
+      setPaymentEntryReady(false);
       setPaymentReportMoneyAccountId('');
       setPaymentReportReferenceCode('');
       setPaymentReportBankName('');
@@ -21384,28 +21329,6 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
         La retención se registra como documento fiscal. Puede cargarse aunque la orden ya esté pagada y se decidirá su destino al confirmarla.
       </div>
     ) : null}
-    <div className="mt-2 grid grid-cols-2 gap-2">
-      <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
-        <div className="text-[10px] text-[#8A8A96]">Saldo USD</div>
-        <div className="mt-0.5 text-[12px] font-semibold text-[#F5F5F7]">{fmtUSD(selectedOrder.balanceUsd)}</div>
-      </div>
-      <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
-        <div className="text-[10px] text-[#8A8A96]">Saldo Bs</div>
-        <div className="mt-0.5 text-[12px] font-semibold text-[#FEEF00]">
-          {getOrderPaymentBalanceBs(selectedOrder, paymentReportOperationDate) > 0
-            ? fmtBs(getOrderPaymentBalanceBs(selectedOrder, paymentReportOperationDate))
-            : '—'}
-        </div>
-      </div>
-    </div>
-    {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate) ? (
-      <div className="mt-2 rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#B7B7C2]">
-        <span className="font-semibold text-[#F5F5F7]">
-          {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.label}:
-        </span>{' '}
-        {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.description}
-      </div>
-    ) : null}
 
     <div className="mt-2 space-y-2">
       <select
@@ -21414,26 +21337,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
           const nextId = e.target.value;
           setPaymentReportMoneyAccountId(nextId);
 
-          const nextAccount = paymentReportAccountOptions.find((a) => a.id === Number(nextId));
-          if (nextAccount?.currencyCode === 'VES') {
-            if (!paymentReportIsRetention) {
-              setPaymentReportAmount(
-                getSuggestedOrderPaymentAmount(selectedOrder, nextAccount.currencyCode, paymentReportOperationDate)
-              );
-            }
-            setPaymentReportExchangeRate(
-              paymentReportIsRetention
-                ? activeBsRate > 0
-                  ? String(Number(activeBsRate.toFixed(4)))
-                  : ''
-                : getSuggestedOrderPaymentExchangeRate(selectedOrder, paymentReportOperationDate)
-            );
-          } else {
-            if (!paymentReportIsRetention) {
-              setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, nextAccount?.currencyCode));
-            }
-            setPaymentReportExchangeRate('');
-          }
+          setPaymentReportAmount(''); setPaymentReportExchangeRate(''); setPaymentEntryReady(false);
         }}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
@@ -21445,70 +21349,11 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
         ))}
       </select>
 
-      <input
-        value={paymentReportAmount}
-        onChange={(e) => setPaymentReportAmount(e.target.value)}
-        placeholder={
-          selectedPaymentReportAccount?.currencyCode === 'VES'
-            ? 'Monto reportado en Bs'
-            : 'Monto reportado'
-        }
-        type="number"
-        className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-      />
-      {selectedPaymentReportAccount?.currencyCode === 'VES' && !paymentReportIsRetention ? (
-        <div className="rounded-md border border-[#3A3212] bg-[#1D1A00] px-2 py-1.5 text-[11px] text-[#FEEF00]">
-          Usar monto Bs de la orden: {fmtBs(getOrderPaymentBalanceBs(selectedOrder, paymentReportOperationDate))}
-        </div>
-      ) : null}
-
-      {selectedPaymentReportAccount?.currencyCode === 'VES' &&
-      !paymentReportIsRetention &&
-      getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.key === 'snapshot_quote' ? (
-        <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#B7B7C2]">
-          Si el pago coincide con el saldo Bs snapshot, el sistema cierra contra el monto USD del pedido.
-        </div>
-      ) : null}
-
-      {selectedPaymentReportAccount?.currencyCode === 'VES' &&
-      (paymentReportIsRetention ||
-        getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.key !== 'snapshot_quote') ? (
-        <input
-          value={paymentReportExchangeRate}
-          onChange={(e) => setPaymentReportExchangeRate(e.target.value)}
-          placeholder="Tasa VES por USD"
-          type="number"
-          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-        />
-      ) : null}
-
-      <div>
-        <div className="mb-1 text-[10px] text-[#8A8A96]">Fecha de operación</div>
-        <input
-          value={paymentReportOperationDate}
-          onChange={(e) => {
-            const nextOperationDate = e.target.value;
-            setPaymentReportOperationDate(nextOperationDate);
-
-            if (selectedPaymentReportAccount?.currencyCode === 'VES') {
-              if (!paymentReportIsRetention) {
-                setPaymentReportAmount(
-                  getSuggestedOrderPaymentAmount(selectedOrder, 'VES', nextOperationDate)
-                );
-              }
-              setPaymentReportExchangeRate(
-                paymentReportIsRetention
-                  ? activeBsRate > 0
-                    ? String(Number(activeBsRate.toFixed(4)))
-                    : ''
-                  : getSuggestedOrderPaymentExchangeRate(selectedOrder, nextOperationDate)
-              );
-            }
-          }}
-          type="date"
-          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-        />
-      </div>
+      {selectedPaymentReportAccount ? <OrderPaymentEntry key={paymentReportMoneyAccountId} orderId={selectedOrder.id}
+        currency={selectedPaymentReportAccount.currencyCode === 'VES' ? 'VES' : 'USD'}
+        value={{ operationDate: paymentReportOperationDate, exchangeRate: paymentReportExchangeRate, amount: paymentReportAmount }}
+        onChange={next => { setPaymentReportOperationDate(next.operationDate); setPaymentReportExchangeRate(next.exchangeRate); setPaymentReportAmount(next.amount); }}
+        onReadyChange={setPaymentEntryReady} /> : null}
 
       <input
         value={paymentReportReferenceCode}
@@ -21593,6 +21438,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
       <div className="flex flex-col gap-1.5">
         <button
           className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
+          disabled={!paymentEntryReady}
           onClick={() => handleCreatePaymentReport(selectedOrder)}
         >
           Guardar reporte
