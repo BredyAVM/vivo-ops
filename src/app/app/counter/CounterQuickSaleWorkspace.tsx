@@ -2,6 +2,8 @@
 import { clientCommercialTypeLabel } from '@/lib/clients/commercial-classification';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { menuQuoteDetailLines, type MenuOrderQuote } from '@/lib/brands/order-menu';
 import {
   buildComponentDetailLines,
   getVisibleEditableDetailLines,
@@ -30,12 +32,15 @@ import {
 } from './useCounterProductAvailability';
 import { getCounterUiErrorMessage } from './ui-errors';
 
+const MuerdemeOrderPicker = dynamic(() => import('@/components/orders/MuerdemeOrderPicker'));
+
 type CounterQuickSaleCartItem = {
   id: string;
   productId: number;
   qty: string;
   notes: string;
   editableDetailLines: string[];
+  menuQuote?: MenuOrderQuote;
 };
 
 function protectedCartViolation(
@@ -232,6 +237,8 @@ export function CounterQuickSalePanel({
   const [qty, setQty] = useState('1');
   const [itemNotes, setItemNotes] = useState('');
   const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
+  const [muerdemeEdit, setMuerdemeEdit] = useState<{ key: string; quote: MenuOrderQuote } | null>(null);
+  const [muerdemeSalesEnabled, setMuerdemeSalesEnabled] = useState<boolean | null>(null);
   const [configProductId, setConfigProductId] = useState<number | null>(null);
   const [configAlias, setConfigAlias] = useState('');
   const [configSelections, setConfigSelections] = useState<Array<{
@@ -325,7 +332,9 @@ export function CounterQuickSalePanel({
         product?.sourcePriceCurrency === 'VES'
           ? product.sourcePriceAmount || product.basePriceBs
           : product?.sourcePriceAmount || product?.basePriceUsd || 0;
-      const snapshot = product
+      const snapshot = item.menuQuote
+        ? calculateOrderLineSnapshot({ sourceCurrency: 'USD', sourceAmount: item.menuQuote.unitUsd, quantity: 1, fxRate: activeBsRate })
+        : product
         ? calculateOrderLineSnapshot({
             sourceCurrency: product.sourcePriceCurrency,
             sourceAmount,
@@ -497,6 +506,26 @@ export function CounterQuickSalePanel({
   function changeScheduleMode(nextMode: 'now' | 'scheduled') {
     setScheduleMode(nextMode);
     setOpenPaymentAfterCreate(nextMode === 'now');
+  }
+
+  function addMuerdemeProduct(quote: MenuOrderQuote, salesEnabled: boolean) {
+    const editing = muerdemeEdit?.key;
+    if (editing && !cartItems.some(item => item.id === editing)) {
+      setLocalError('El producto ya no está en el pedido. Agrégalo nuevamente.');
+      return;
+    }
+    const item: CounterQuickSaleCartItem = {
+      id: editing ?? crypto.randomUUID(),
+      productId: quote.productId,
+      qty: '1',
+      notes: '',
+      editableDetailLines: menuQuoteDetailLines(quote),
+      menuQuote: quote,
+    };
+    setCartItems(current => editing ? current.map(row => row.id === editing ? item : row) : [...current, item]);
+    setMuerdemeSalesEnabled(salesEnabled);
+    setMuerdemeEdit(null);
+    setLocalError(null);
   }
 
   function addCartItem() {
@@ -725,6 +754,11 @@ export function CounterQuickSalePanel({
     const protectedItem = protectedCartViolation(cartItems, availabilityByProductId);
     if (protectedItem) {
       setLocalError(protectedItem.message || 'La venta supera el saldo protegido disponible para esa fecha.');
+      return;
+    }
+
+    if (cartItems.some(item => item.menuQuote) && muerdemeSalesEnabled !== true) {
+      setLocalError('Muérdeme está en preparación. Retira sus productos para guardar solo VIVO; la apertura comercial sigue pendiente.');
       return;
     }
 
@@ -1260,6 +1294,10 @@ export function CounterQuickSalePanel({
             </button>
           </div>
 
+          <fieldset disabled={isWorking} className="min-w-0">
+            <MuerdemeOrderPicker onAdd={addMuerdemeProduct} edit={muerdemeEdit} onEditDone={() => setMuerdemeEdit(null)} disabled={isWorking} />
+          </fieldset>
+          {cartItems.some(item => item.menuQuote) && muerdemeSalesEnabled === false ? <p role="status" className="text-xs text-amber-200">Muérdeme en preparación. Puedes revisar la configuración; para vender solo VIVO, retira las partidas Muérdeme.</p> : null}
           <div className="max-h-[240px] overflow-y-auto rounded-[8px] border border-[#242433]">
             {lineRows.length === 0 ? (
               <div className="p-4 text-sm text-[#9FA0AA]">Sin productos agregados.</div>
@@ -1269,12 +1307,15 @@ export function CounterQuickSalePanel({
                   <div key={row.item.id} className="grid gap-2 p-3 sm:grid-cols-[60px_1fr_145px_auto]">
                     <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(row.qty)}</div>
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">{row.product?.name || 'Producto'}</div>
+                      <div className="truncate text-sm font-semibold">{row.item.menuQuote?.title || row.product?.name || 'Producto'}</div>
                       <div className="mt-1 text-xs text-[#9FA0AA]">
                         Unit. {moneyUsd(row.snapshot.unitUsd)} / {moneyBs(row.snapshot.unitBs)}
                       </div>
                       {row.item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{row.item.notes}</div> : null}
-                      {getVisibleEditableDetailLines(row.item.editableDetailLines).length > 0 ? (
+                      {row.item.menuQuote ? <details className="mt-1 text-xs text-[#C7C8D1]">
+                        <summary className="min-h-9 cursor-pointer content-center">Ver composición</summary>
+                        <ul className="space-y-0.5">{getVisibleEditableDetailLines(row.item.editableDetailLines).map((detail, index) => <li key={index}>• {detail}</li>)}</ul>
+                      </details> : getVisibleEditableDetailLines(row.item.editableDetailLines).length > 0 ? (
                         <ul className="mt-1 space-y-0.5 text-xs text-[#C7C8D1]">
                           {getVisibleEditableDetailLines(row.item.editableDetailLines).map((detail, detailIdx) => (
                             <li key={`${row.item.id}-${detailIdx}`}>• {detail}</li>
@@ -1292,13 +1333,21 @@ export function CounterQuickSalePanel({
                       <div>{moneyUsd(row.snapshot.lineUsd)}</div>
                       <div className="mt-0.5 text-xs text-[#9FA0AA]">{moneyBs(row.snapshot.lineBs)}</div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setCartItems((current) => current.filter((item) => item.id !== row.item.id))}
-                      className="rounded-[8px] border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-400/10"
-                    >
-                      Quitar
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      {row.item.menuQuote ? <button type="button" disabled={isWorking}
+                        className="rounded-lg border border-[#393944] px-2 py-1 text-xs text-[#FFFF00]"
+                        onClick={() => setMuerdemeEdit({ key: row.item.id, quote: row.item.menuQuote! })}>Configurar</button> : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCartItems((current) => current.filter((item) => item.id !== row.item.id));
+                          if (muerdemeEdit?.key === row.item.id) setMuerdemeEdit(null);
+                        }}
+                        className="rounded-[8px] border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-400/10"
+                      >
+                        Quitar
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

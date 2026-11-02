@@ -6,7 +6,7 @@ import { decodeOrderMenuGraph, parseMenuOrderSelection, readMenuOrderQuote, MUER
 
 async function seller() {
   const ctx = await requireAuthContext();
-  if (!ctx.roles.some(role => ['admin', 'master', 'advisor'].includes(role))) throw new Error('Requiere permisos de ventas.');
+  if (!ctx.roles.some(role => ['admin', 'master', 'advisor', 'counter'].includes(role))) throw new Error('Requiere permisos de ventas.');
   return ctx;
 }
 export async function searchMuerdemeOrderMenu(query = '', kind: string | null = null, page = 1) {

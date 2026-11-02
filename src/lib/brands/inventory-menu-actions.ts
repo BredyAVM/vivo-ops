@@ -57,7 +57,7 @@ export async function saveMuerdemeStockRecipe(_previous:{error:string},form:Form
 }
 export async function previewMuerdemePreparation(selection:unknown,revisions:Record<string,number>){
  const {supabase,roles}=await requireAuthContext();
- if(!roles.some(r=>['admin','master','advisor'].includes(r)))throw new Error('Requiere permisos de ventas.');
+ if(!roles.some(r=>['admin','master','advisor','counter'].includes(r)))throw new Error('Requiere permisos de ventas.');
  const parsed=parseMenuOrderSelection(selection);
  if(!revisions||typeof revisions!=='object'||Array.isArray(revisions)||Object.keys(revisions).length>201
   ||Object.entries(revisions).some(([id,r])=>!isMenuReferenceId(id)||!Number.isSafeInteger(r)||r<1))throw new Error('Vuelve a consultar el producto.');

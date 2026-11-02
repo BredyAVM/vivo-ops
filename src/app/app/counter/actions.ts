@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireCounterOperatorContext } from '@/lib/auth';
+import { readMenuOrderQuote } from '@/lib/brands/order-menu';
 import { sendPushToAdvisorDevices } from '@/lib/push';
 import type {
   CounterGiveChangeIntent,
@@ -905,6 +906,13 @@ async function executeCounterQuickSaleAction(
     throw new Error('Uno de los productos tiene una cantidad invalida.');
   }
 
+  const configuredItems = items.map(item => {
+    const quote = readMenuOrderQuote(item.editableDetailLines);
+    return quote ? { ...item, sourcePriceCurrency: 'USD', sourcePriceAmount: quote.unitUsd } : item;
+  });
+  // The atomic Counter command verifies menu/stock before its client write,
+  // after checking an existing receipt. Retries keep their original result.
+
   const payload = {
     clientId: input.clientId ?? null,
     clientName: String(input.clientName || '').trim(),
@@ -941,7 +949,7 @@ async function executeCounterQuickSaleAction(
     deliveryNoteDocumentId: String(input.deliveryNoteDocumentId || '').trim(),
     deliveryNoteAddress: String(input.deliveryNoteAddress || '').trim(),
     deliveryNotePhone: String(input.deliveryNotePhone || '').trim(),
-    items,
+    items: configuredItems,
   };
 
   const inventoryProductIds = Array.from(new Set([

@@ -124,6 +124,29 @@ Referencias de implementación revisadas: `src/lib/orders/order-composer.ts`, `s
 
 Cada bloque se verificará antes de publicarse. La apertura comercial requiere el menú y las condiciones pendientes; no requiere terminar el módulo futuro de gastos, compras y costos.
 
+### Secuencia operativa vigente · 2 de noviembre
+
+Los seis grupos anteriores son áreas funcionales. La secuencia de entrega detallada que estamos siguiendo es:
+
+| Bloque | Entrega | Estado |
+| --- | --- | --- |
+| 1 | Base de marcas y compatibilidad VIVO | Implementado |
+| 2 | Catálogo configurable en preparación | Implementado |
+| 3 | Configurador en creación de pedidos | Implementado |
+| 4 | Cocina, recetas y certificado de inventario | Implementado |
+| 5 | Estímulo configurable de hamburguesas | Implementado |
+| 6 | Monto fijo de combos, mayor una vez por pedido | Implementado |
+| 7 | Bebidas VIVO compartidas en combos | Implementado |
+| 8 | Canales y tipos de cliente | Implementado |
+| 9 | [Venta rápida de Counter](MUERDEME_BLOCK_9_COUNTER_2026-11-02.md) | Implementado; venta aún en preparación |
+| 10 | Administración del catálogo durante la operación | Pendiente |
+| 11 | Carga y aprobación del menú comercial real | Pendiente |
+| 12 | Recetas, existencias y preparación física reales | Pendiente |
+| 13 | Excepciones, modificaciones y repetición de pedidos | Pendiente |
+| 14 | Alcance VIVO de metas y seguimiento CRM | Pendiente |
+| 15 | Indicadores por marca y total del negocio | Pendiente |
+| 16 | Aceptación completa y apertura controlada | Pendiente |
+
 ## Comprobaciones de aceptación
 
 - VIVO solo: catálogo, precios, comisiones, pagos, metas e historial mantienen sus reglas.
