@@ -2,6 +2,8 @@
 
 import { useActionState, useRef, useState } from 'react';
 import { saveMuerdemeMenuDraft } from '@/lib/brands/menu-actions';
+import { menuChanges } from '@/lib/brands/menu-history';
+import MuerdemeMenuChanges from './MuerdemeMenuChanges';
 import {
   assertMenuReferences, menuKindLabels, menuMoneyText, menuPendingIssues, newMenuDocument,
   parseMenuDocument, parseMenuMoney, isVivoDrinkRef, type MenuDocument, type MenuEditorData, type MenuKind, type MenuReference,
@@ -40,32 +42,38 @@ export default function MuerdemeMenuEditor({ data, kind, returnTo }: { data: Men
     const entry = data.lookups.find(e => e.entryId === ref.entryId);
     return entry ? `${entry.name} · ${entry.variants.find(v => v.key === ref.variantKey)?.label ?? 'Presentación no disponible'}` : 'Opción no disponible';
   };
+  const preparedDocument = () => {
+    const next = structuredClone(document);
+    next.name = next.name.trim();
+    for (const v of next.variants) v.priceUsd = parseMenuMoney(amountText(v.key, v.priceUsd), true);
+    for (const g of next.comboGroups) for (const c of g.choices) c.supplementUsd = parseMenuMoney(amountText(priceKey(g.key, c), c.supplementUsd))!;
+    for (const u of next.friesUpgrades) u.supplementUsd = parseMenuMoney(amountText(`upgrade:${u.fromKey}:${u.toKey}`, u.supplementUsd))!;
+    if (next.kind === 'combo') next.comboIncentiveUsd = parseMenuMoney(amountText('combo-incentive', next.comboIncentiveUsd ?? null), true);
+    return parseMenuDocument(next);
+  };
   const [state, action, pending] = useActionState(async (previous: { error: string }, form: FormData) => {
     let payload: string;
     try {
-      const next = structuredClone(document);
-      next.name = next.name.trim();
-      for (const v of next.variants) v.priceUsd = parseMenuMoney(amountText(v.key, v.priceUsd), true);
-      for (const g of next.comboGroups) for (const c of g.choices) c.supplementUsd = parseMenuMoney(amountText(priceKey(g.key, c), c.supplementUsd))!;
-      for (const u of next.friesUpgrades) u.supplementUsd = parseMenuMoney(amountText(`upgrade:${u.fromKey}:${u.toKey}`, u.supplementUsd))!;
-      if (next.kind === 'combo') next.comboIncentiveUsd = parseMenuMoney(amountText('combo-incentive', next.comboIncentiveUsd ?? null), true);
-      parseMenuDocument(next); assertMenuReferences(next, data.lookups);
+      const next = preparedDocument();
+      assertMenuReferences(next, data.lookups);
       payload = JSON.stringify(next);
     } catch (error) { return { error: error instanceof Error ? error.message : 'Revisa la configuración.' }; }
-    const signature = JSON.stringify([data.entry?.entryId, data.entry?.revision ?? 0, payload]);
+    const signature = JSON.stringify([data.entry?.entryId, data.entry?.revision ?? 0, payload, String(form.get('changeNote') ?? '').trim()]);
     if (!attempt.current || attempt.current.payload !== signature) attempt.current = { id: crypto.randomUUID(), payload: signature };
     form.set('document', payload); form.set('operationId', attempt.current.id);
     form.set('entryId', data.entry?.entryId ?? ''); form.set('revision', String(data.entry?.revision ?? 0)); form.set('returnTo', returnTo);
     return saveMuerdemeMenuDraft(previous, form);
   }, { error: '' });
 
+  let changes = null;
+  try { changes = menuChanges(data.entry?.document ?? null, preparedDocument()); } catch { /* Incomplete input remains editable. */ }
   const pendingIssues = menuPendingIssues(document).filter(issue => issue !== 'Completar precios en USD');
   if (document.variants.some(v => amountText(v.key, v.priceUsd).trim() === '')) pendingIssues.unshift('Completar precios en USD');
   return <form action={action} noValidate aria-busy={pending} className="min-w-0 space-y-3 text-xs">
     <fieldset disabled={pending} className="min-w-0 space-y-3">
       <div className="grid min-w-0 gap-3 sm:grid-cols-[1fr_auto]">
         <label className={label}>Nombre del producto<input className={field} maxLength={120} value={document.name} required onChange={e => update(d => { d.name = e.target.value; })} /></label>
-        <p className="self-end py-2 text-[#BDBDC7]">{menuKindLabels[document.kind]} · En preparación</p>
+        <p className="self-end py-2 text-[#BDBDC7]">{menuKindLabels[document.kind]} · {data.salesEnabled ? 'En operación' : 'En preparación'}</p>
       </div>
       <section className="space-y-2" aria-label="Presentaciones">
         <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-medium text-[#DEDEE6]">Presentaciones y precios</h2>
@@ -177,12 +185,20 @@ export default function MuerdemeMenuEditor({ data, kind, returnTo }: { data: Men
           <button type="button" className={`${button} self-end`} onClick={() => update(d => { d.friesUpgrades.splice(index, 1); })}>Quitar</button>
         </div>)}
       </section> : null}
-      {data.entry ? <label className="inline-flex min-h-11 items-center gap-2 text-[#BDBDC7]"><input type="checkbox" checked={document.archived} onChange={e => update(d => { d.archived = e.target.checked; })} />Archivar de la preparación</label> : null}
+      {document.kind === 'burger' ? <p className="text-[11px] text-[#BDBDC7]">Las cantidades de queso, tocineta y demás ingredientes se completan en Preparación e inventario.</p> : null}
+      {data.entry ? <label className="inline-flex min-h-11 items-center gap-2 text-[#BDBDC7]"><input type="checkbox" checked={document.archived} onChange={e => update(d => { d.archived = e.target.checked; })} />Archivar producto</label> : null}
+      <details className="min-w-0 rounded-lg border border-[#30303D] px-3">
+        <summary className="min-h-11 cursor-pointer content-center text-[#DEDEE6]">{data.entry ? 'Revisar cambios' : 'Revisar configuración'}</summary>
+        <div className="space-y-2 pb-3">{changes ? <MuerdemeMenuChanges changes={changes} /> : <p className="text-[#BDBDC7]">Completa los campos para revisar la configuración.</p>}
+          <label className={label}>Nota del cambio · opcional<input name="changeNote" maxLength={300} className={field} placeholder="Ej.: actualización de precios" /></label>
+        </div>
+      </details>
     </fieldset>
     <div className="sticky bottom-20 z-10 space-y-2 rounded-lg border border-[#30303D] bg-[#111117] p-3 md:bottom-3">
       {state.error ? <p role="alert" className="text-xs text-orange-200">{state.error}</p> : null}
-      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[11px] text-[#BDBDC7]">{pendingIssues.join(' · ') || 'Configuración en preparación'}</p>
-        <button disabled={pending} className="min-h-11 rounded-lg bg-[#FFFF00] px-3 text-xs font-semibold text-black disabled:opacity-50 md:min-h-8">{pending ? 'Guardando…' : 'Guardar preparación'}</button>
+      <p className="text-[11px] text-[#BDBDC7]">Los pedidos guardados conservan sus precios, configuración y comisiones. {data.salesEnabled ? 'Los nuevos pedidos usarán esta versión.' : 'Guardar no habilita las ventas.'}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[11px] text-[#BDBDC7]">{pendingIssues.join(' · ') || (data.salesEnabled ? 'Configuración del catálogo' : 'Configuración en preparación')}</p>
+        <button disabled={pending} className="min-h-11 rounded-lg bg-[#FFFF00] px-3 text-xs font-semibold text-black disabled:opacity-50 md:min-h-8">{pending ? 'Guardando…' : data.salesEnabled ? 'Guardar nueva versión' : 'Guardar preparación'}</button>
       </div>
     </div>
   </form>;

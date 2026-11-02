@@ -23,8 +23,11 @@ export async function saveMuerdemeMenuDraft(_previous: MenuSaveState, form: Form
       || (entryId === null ? expected !== 0 : expected < 1)) {
       throw new Error('Vuelve a abrir el producto antes de guardar.');
     }
-    const { data, error } = await supabase.rpc('admin_muerdeme_menu_save_v1', {
+    const changeNote = String(form.get('changeNote') ?? '').trim();
+    if (changeNote.length > 300) throw new Error('La nota del cambio admite hasta 300 caracteres.');
+    const { data, error } = await supabase.rpc('admin_muerdeme_menu_save_v2', {
       p_entry_id: entryId, p_expected_revision: expected, p_document: document, p_operation_id: operationId,
+      p_change_note: changeNote || null,
     });
     if (error) {
       if (error.code === '40001') throw new Error('El producto cambió. Vuelve a consultarlo antes de guardar.');

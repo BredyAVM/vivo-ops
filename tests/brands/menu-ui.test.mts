@@ -15,9 +15,12 @@ const registerHooks = Reflect.get(nodeModule,'registerHooks') as (hooks:{
 registerHooks({resolve(s,c,next){
   if(s==='@/lib/brands/menu-actions')return {url:'data:text/javascript,export async function saveMuerdemeMenuDraft(){return {error:""}}',shortCircuit:true};
   if(s==='@/lib/brands/menu-model')return next(new URL('../../src/lib/brands/menu-model.ts',import.meta.url).href,c);
+  if(s==='@/lib/brands/menu-history')return next(new URL('../../src/lib/brands/menu-history.ts',import.meta.url).href,c);
+  if(s==='./menu-model'&&c.parentURL?.includes('/lib/brands/'))return next('./menu-model.ts',c);
+  if(s==='./MuerdemeMenuChanges')return next('./MuerdemeMenuChanges.tsx',c);
   return next(s,c);
 },load(url,c,next){
-  if(url.endsWith('/MuerdemeMenuEditor.tsx'))return {format:'module',shortCircuit:true,source:ts.transpileModule(readFileSync(fileURLToPath(url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText};
+  if(/\/MuerdemeMenu(Editor|Changes)\.tsx$/.test(url))return {format:'module',shortCircuit:true,source:ts.transpileModule(readFileSync(fileURLToPath(url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText};
   return next(url,c);
 }});
 const {default:Editor}=await import('../../src/components/admin/MuerdemeMenuEditor.tsx');
@@ -66,4 +69,11 @@ test('drink choices reuse the VIVO catalogue without presenting included beverag
   assert.match(html,/Coca Cola 1,5 Lts · VIVO · inventario compartido/);
   assert.doesNotMatch(html,/No duplicar bebida|Coca Cola 1,5 Lts.*USD 0,00/);
   assert.match(html,/sin crear productos nuevos/);
+});
+
+test('live editing identifies a new version, optional note and explicit USD price without promising stock quantities',()=>{
+  const document=menuDocument('burger','Hamburguesa');
+  const html=renderToStaticMarkup(createElement(Editor,{kind:'burger',returnTo:'/app/admin',data:{entry:null,lookups:[],lookupHasMore:false,salesEnabled:true}}));
+  assert.match(html,/Guardar nueva versión|En operación/);assert.match(html,/Nota del cambio · opcional/);assert.match(html,/name="changeNote"/);
+  const prepared=render(document);assert.match(prepared,/cantidades de queso, tocineta/);assert.match(prepared,/Los pedidos guardados conservan/);
 });

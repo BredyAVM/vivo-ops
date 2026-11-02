@@ -33,7 +33,7 @@ export type MenuListItem = {
   entryId: string; revision: number; name: string; kind: MenuKind;
   archived: boolean; variantCount: number; missingPrices: number; updatedAt: string;
 };
-export type MenuEditorData = { entry: MenuEntry | null; lookups: MenuLookup[]; lookupHasMore: boolean };
+export type MenuEditorData = { entry: MenuEntry | null; lookups: MenuLookup[]; lookupHasMore: boolean; salesEnabled?: boolean };
 export const isMenuId = (value: unknown): value is string => typeof value === 'string'
   && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 /** A reference to an existing VIVO product, never a new Muérdeme catalogue identity. */
@@ -201,5 +201,6 @@ export function decodeMenuEditor(value: unknown): MenuEditorData {
     });
     return { entryId: row.entryId, kind: row.kind, name: row.name, archived: row.archived, variants };
   });
-  return { entry, lookups, lookupHasMore: data.lookupHasMore };
+  check(data.salesEnabled === undefined || typeof data.salesEnabled === 'boolean', 'No se pudo comprobar el estado del catálogo.');
+  return { entry, lookups, lookupHasMore: data.lookupHasMore, salesEnabled: data.salesEnabled === true };
 }

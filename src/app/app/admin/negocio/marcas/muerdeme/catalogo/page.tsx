@@ -29,7 +29,7 @@ export default async function MuerdemeCataloguePage({ searchParams }: { searchPa
       <label className="inline-flex min-h-11 items-center gap-2 text-[#BDBDC7] md:min-h-8"><input type="checkbox" name="archivados" value="1" defaultChecked={query.archivados === '1'} />Ver archivados</label>
       <button className="min-h-11 rounded-lg border border-[#FFFF00]/40 px-3 text-[#FFFF00] md:min-h-8">Consultar catálogo</button>
     </WorkspaceForm>
-    <p className="text-[11px] text-[#BDBDC7]">En preparación. Guardar aquí todavía no habilita ventas.</p>
+    <p className="text-[11px] text-[#BDBDC7]">{result ? result.salesEnabled ? 'En operación · cada cambio crea una versión y conserva los pedidos anteriores.' : 'En preparación · guardar aquí no habilita ventas.' : 'Catálogo por versiones · consulta los productos cuando los necesites.'}</p>
     {failed ? <p role="alert" className="text-xs text-orange-200">No se pudo consultar el catálogo. Revisa los filtros e intenta de nuevo.</p> : null}
     {!result && !failed ? <p className="text-xs text-[#BDBDC7]">Consulta los productos cuando los necesites o empieza creando uno.</p> : null}
     {result ? <section aria-label="Productos de Muérdeme" className="min-w-0 rounded-xl border border-[#292937] bg-[#111117] p-3">

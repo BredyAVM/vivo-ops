@@ -139,7 +139,7 @@ Los seis grupos anteriores son áreas funcionales. La secuencia de entrega detal
 | 7 | Bebidas VIVO compartidas en combos | Implementado |
 | 8 | Canales y tipos de cliente | Implementado |
 | 9 | [Venta rápida de Counter](MUERDEME_BLOCK_9_COUNTER_2026-11-02.md) | Implementado; venta aún en preparación |
-| 10 | Administración del catálogo durante la operación | Pendiente |
+| 10 | [Administración del catálogo durante la operación](MUERDEME_BLOCK_10_LIVE_CATALOG_2026-11-02.md) | Implementado; no activa ventas |
 | 11 | Carga y aprobación del menú comercial real | Pendiente |
 | 12 | Recetas, existencias y preparación física reales | Pendiente |
 | 13 | Excepciones, modificaciones y repetición de pedidos | Pendiente |

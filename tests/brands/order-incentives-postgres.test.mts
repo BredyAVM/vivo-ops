@@ -25,6 +25,7 @@ test('fixed burger incentives integrate into closures without changing existing 
   await db.exec(readFileSync('supabase/migrations/20261030140956_muerdeme_combo_fixed_incentive_v1.sql','utf8'));assert.deepEqual(await db.query('select * from public.advisor_commission_closures order by id'),baseline);
   await db.exec("alter table public.products add column inventory_group text default 'other'");
   await db.exec(readFileSync('supabase/migrations/20261030145549_muerdeme_shared_vivo_drinks_v1.sql','utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261102154757_muerdeme_live_catalog_v1.sql','utf8'));
   const one=async<T=unknown>(sql:string,args:unknown[]=[])=>((await db.query<{v:T}>(sql,args)).rows[0]?.v);
   const admin='00000000-0000-4000-8000-000000000001',advisor='00000000-0000-4000-8000-000000000002';
   const auth=async(id=admin,role='authenticated')=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec('set role '+role);};
@@ -111,8 +112,7 @@ test('fixed burger incentives integrate into closures without changing existing 
    await addLine(80,805,highQuote);await addLine(80,806,highQuote);await addLine(80,807,zeroQuote);
    const selected=await state(80);assert.equal(selected.amountUsd,0.8);assert.equal(selected.fixedCombo!.entryId,high.entryId);assert.equal(selected.fixedCombo!.revision,1);
    await addLine(82,825,firstQuote);assert.equal((await state(82)).amountUsd,0.45); // zero combo does not cancel a separately sold burger
-   await db.exec("reset role;update app_private.commercial_brands set sales_enabled=false where code='muerdeme'");await auth();await one('select public.admin_muerdeme_menu_save_v1($1,1,$2,$3)as v',[high.entryId,{...high.doc,comboIncentiveUsd:1.25},randomUUID()]);
-   await db.exec("reset role;update app_private.commercial_brands set sales_enabled=true where code='muerdeme'");await auth();
+   await auth();await one('select public.admin_muerdeme_menu_save_v1($1,1,$2,$3)as v',[high.entryId,{...high.doc,comboIncentiveUsd:1.25},randomUUID()]);
    assert.deepEqual(await state(80),selected);assert.equal((await state(81)).amountUsd,0.8);
    await auth(advisor);await addOrder(84,high.entryId);assert.equal((await state(84)).amountUsd,1.25);assert.equal((await state(84)).fixedCombo!.revision,2);
    await db.exec('delete from public.order_items where id in(805,806)');assert.equal((await state(80)).amountUsd,0.2);

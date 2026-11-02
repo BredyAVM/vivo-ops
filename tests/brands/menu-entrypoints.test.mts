@@ -16,11 +16,11 @@ registerHooks({resolve(s,c,next){
   if(['@/lib/auth','next/cache','next/navigation'].includes(s))return{url:stub,shortCircuit:true};
   if(s==='server-only')return{url:'data:text/javascript,export{}',shortCircuit:true};
   if(s==='@/lib/navigation/return-navigation')return next(new URL('../../src/lib/navigation/return-navigation.ts',import.meta.url).href,c);
-  if(s==='./menu-model'&&c.parentURL?.includes('/lib/brands/'))return next('./menu-model.ts',c);
+  if(['./menu-model','./menu-history'].includes(s)&&c.parentURL?.includes('/lib/brands/'))return next(s+'.ts',c);
   return next(s,c);
 }});
 const control=await import(stub);
-const {loadMuerdemeMenuList,loadMuerdemeMenuEditor}=await import('../../src/lib/brands/menu-data.ts');
+const {loadMuerdemeMenuList,loadMuerdemeMenuEditor,loadMuerdemeMenuHistory}=await import('../../src/lib/brands/menu-data.ts');
 const {saveMuerdemeMenuDraft}=await import('../../src/lib/brands/menu-actions.ts');
 const savedId='00000000-0000-4000-8000-000000000020';
 const form=()=>{const f=new FormData();f.set('document',JSON.stringify(menuDocument('drink','Ensayo Bebida',null)));f.set('entryId','');f.set('revision','0');f.set('operationId','00000000-0000-4000-8000-000000000010');return f;};
@@ -61,4 +61,21 @@ test('server rejects unknown fields and does not report success for an uncertain
     control.reset();control.configure(response);const result=await saveMuerdemeMenuDraft({error:''},form());
     assert.ok(result.error);assert.doesNotMatch(result.error,/secret SQL|internal/);assert.equal(control.calls.some((c:string[])=>c[0]==='refresh'),false);
   }
+});
+
+test('history is manual, scoped to one product and bounded to a validated page',async()=>{
+  control.reset();assert.equal(await loadMuerdemeMenuHistory(savedId,{}),null);assert.deepEqual(control.calls,[['auth']]);
+  control.reset();await assert.rejects(()=>loadMuerdemeMenuHistory(savedId,{consultar:'1',page:'0'}),/página/);assert.deepEqual(control.calls,[['auth']]);
+  control.reset();control.configure({data:{entryId:savedId,name:'Hamburguesa',page:2,hasNext:false,rows:[]},error:null});
+  assert.equal((await loadMuerdemeMenuHistory(savedId,{consultar:'1',page:'2'}))!.page,2);
+  assert.deepEqual(control.calls,[['auth'],['rpc','admin_muerdeme_menu_history_v1',{p_entry_id:savedId,p_page:2}]]);
+  control.configure({data:{entryId:savedId,name:'Hamburguesa',page:1,hasNext:false,rows:[]},error:null});
+  await assert.rejects(()=>loadMuerdemeMenuHistory(savedId,{consultar:'1',page:'2'}),/corresponde/);
+});
+
+test('saving a live revision sends the optional note and rejects oversized notes before writing',async()=>{
+  control.reset();control.configure({data:{entryId:savedId,revision:1},error:null});const f=form();f.set('changeNote','  Revisión semanal  ');
+  await assert.rejects(()=>saveMuerdemeMenuDraft({error:''},f),/REDIRECT:/);
+  const rpc=control.calls.find((c:unknown[])=>c[0]==='rpc');assert.equal(rpc[1],'admin_muerdeme_menu_save_v2');assert.equal(rpc[2].p_change_note,'Revisión semanal');
+  control.reset();f.set('changeNote','a'.repeat(301));assert.match((await saveMuerdemeMenuDraft({error:''},f)).error,/300/);assert.deepEqual(control.calls,[['auth']]);
 });

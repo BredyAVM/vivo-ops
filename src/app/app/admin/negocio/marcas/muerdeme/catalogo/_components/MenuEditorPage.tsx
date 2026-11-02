@@ -18,9 +18,12 @@ export default async function MenuEditorPage({ entryId, kind, query }: { entryId
   return <div className="min-w-0 space-y-3">
     <header className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-lg font-semibold text-[#DEDEE6]">{data.entry ? data.entry.document.name : `Nueva configuración · ${menuKindLabels[documentKind]}`}</h1>
       {!requestedReturn ? <Link href={returnTo} prefetch={false} className="inline-flex min-h-11 items-center text-xs text-[#FFFF00]">Volver al catálogo</Link> : null}</header>
-    {query.guardado === '1' ? <p role="status" className="text-xs text-emerald-200">Preparación guardada. Las ventas siguen deshabilitadas.</p> : null}
+    {query.guardado === '1' ? <p role="status" className="text-xs text-emerald-200">{data.salesEnabled ? 'Nueva versión guardada. Los pedidos anteriores conservan sus condiciones.' : 'Preparación guardada. Las ventas siguen deshabilitadas.'}</p> : null}
     {data.entry ? <p className="text-[11px] text-[#BDBDC7]">Versión {data.entry.revision} · {new Intl.DateTimeFormat('es-VE', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Caracas' }).format(new Date(data.entry.updatedAt))}</p> : null}
-    {data.entry ? <Link href={`${menuRoot}/${data.entry.entryId}/inventario?`+new URLSearchParams({returnTo:`${menuRoot}/${data.entry.entryId}`})} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#FFFF00]/40 px-3 text-xs text-[#FFFF00] md:min-h-8">Preparación e inventario</Link> : null}
+    {data.entry ? <nav className="flex flex-wrap gap-2" aria-label="Administrar producto">
+      <Link href={`${menuRoot}/${data.entry.entryId}/inventario?`+new URLSearchParams({returnTo:`${menuRoot}/${data.entry.entryId}`})} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#FFFF00]/40 px-3 text-xs text-[#FFFF00] md:min-h-8">Preparación e inventario</Link>
+      <Link href={`${menuRoot}/${data.entry.entryId}/historial?consultar=1`} prefetch={false} className="inline-flex min-h-11 items-center rounded-lg border border-[#343442] px-3 text-xs text-[#DEDEE6] md:min-h-8">Historial de cambios</Link>
+    </nav> : null}
     {data.lookupHasMore ? <WorkspaceForm method="get" action={entryId ? `${menuRoot}/${entryId}` : `${menuRoot}/nuevo`} className="flex flex-wrap items-end gap-2 text-xs">
       <input type="hidden" name="tipo" value={documentKind} /><input type="hidden" name="returnTo" value={returnTo} />
       <label className="grid min-w-0 flex-1 gap-1 text-[#BDBDC7]">Filtrar opciones para vincular<input name="referencias" defaultValue={query.referencias ?? ''} maxLength={100} className="min-h-11 min-w-0 rounded-lg border border-[#343442] bg-[#14141C] px-2 text-xs md:min-h-8" /></label>
