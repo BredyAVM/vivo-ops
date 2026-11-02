@@ -65,9 +65,47 @@ const publication: AdvisorGoalPublicationSnapshot = {
 test('lee la configuración versionada del periodo sin crear tablas paralelas', () => {
   assert.deepEqual(readAdvisorGoalPeriodConfig(periodConfig), periodConfig);
   assert.equal(readAdvisorGoalPeriodConfig({ version: 2 }), null);
-  const scoring = resolveAdvisorGoalScoringConfiguration(periodConfig);
+  const scoring = resolveAdvisorGoalScoringConfiguration(periodConfig, '2026-08-01');
   assert.equal(scoring.metricBasePoints.billing, 100);
   assert.equal(scoring.bands.find((band) => band.key === 'platinum')?.commissionPct, 12);
+});
+
+test('el valor predeterminado desde octubre es 6 a 10 y septiembre conserva 8 a 12', () => {
+  const rates = (from?: string) => resolveAdvisorGoalScoringConfiguration(null, from).bands.map((band) => band.commissionPct);
+  assert.deepEqual(rates(), [6, 7, 8, 9, 10]);
+  assert.deepEqual(rates('2026-09-16'), [8, 9, 10, 11, 12]);
+  assert.deepEqual(rates('2026-10-01'), [6, 7, 8, 9, 10]);
+  assert.deepEqual(rates('2026-10-16'), [6, 7, 8, 9, 10]);
+  assert.deepEqual(rates('2026-11-01'), [6, 7, 8, 9, 10]);
+});
+
+test('un período nuevo hereda solo la última configuración aprobada de su misma política', () => {
+  const approvedScoring = resolveAdvisorGoalScoringConfiguration(null, '2026-10-01');
+  approvedScoring.bands.forEach((band) => { band.commissionPct -= 1; });
+  const approved = { ...periodConfig, scoring: approvedScoring };
+  const candidates = [
+    { date_from: '2026-10-01', goal_config: approved },
+    { date_from: '2026-10-16', goal_config: { ...approved, status: 'draft', scoring: resolveAdvisorGoalScoringConfiguration(null) } },
+    { date_from: '2026-11-16', goal_config: { ...approved, scoring: resolveAdvisorGoalScoringConfiguration(null) } },
+    { date_from: '2026-09-16', goal_config: { ...approved, scoring: resolveAdvisorGoalScoringConfiguration(null, '2026-09-16') } },
+  ];
+  const before = JSON.stringify(candidates);
+  const inherited = resolveAdvisorGoalScoringConfiguration(null, '2026-11-01', candidates);
+  assert.deepEqual(inherited.bands.map((band) => band.commissionPct), [5, 6, 7, 8, 9]);
+  inherited.bands[0].commissionPct = 0;
+  assert.equal(JSON.stringify(candidates), before, 'heredar nunca modifica la configuración de origen');
+  assert.deepEqual(resolveAdvisorGoalScoringConfiguration(null, '2026-10-01', candidates).bands.map((band) => band.commissionPct), [6, 7, 8, 9, 10]);
+  const newerApproved = { ...approved, scoring: resolveAdvisorGoalScoringConfiguration(null) };
+  assert.deepEqual(resolveAdvisorGoalScoringConfiguration(null, '2026-11-01', [
+    ...candidates, { date_from: '2026-10-16', goal_config: newerApproved },
+  ]).bands.map((band) => band.commissionPct), [6, 7, 8, 9, 10]);
+});
+
+test('las bandas explícitas de un período guardado prevalecen y nunca se reescriben al leer', () => {
+  const saved = { ...periodConfig, scoring: resolveAdvisorGoalScoringConfiguration(null, '2026-09-16') };
+  const before = JSON.stringify(saved);
+  assert.deepEqual(resolveAdvisorGoalScoringConfiguration(saved, '2026-10-16').bands.map((band) => band.commissionPct), [8, 9, 10, 11, 12]);
+  assert.equal(JSON.stringify(saved), before);
 });
 
 test('rechaza una base inconsistente y conserva compatibilidad con periodos anteriores', () => {

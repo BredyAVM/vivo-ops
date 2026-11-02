@@ -92,7 +92,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
 }) {
   const reason = params.reason.trim();
   const nextScoring = compactScoring(params.simulation);
-  const previousScoring = resolveAdvisorGoalScoringConfiguration(params.previousConfig);
+  const previousScoring = resolveAdvisorGoalScoringConfiguration(params.previousConfig, params.simulation.periodFrom);
   const configurationChanged = Boolean(params.previousConfig) && (
     params.previousConfig?.growthChallengePct !== params.simulation.appliedContext.growthChallengePct
     || (params.previousConfig?.campaignBoostPct ?? 0) !== params.simulation.appliedContext.campaignBoostPct

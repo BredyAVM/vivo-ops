@@ -1,5 +1,5 @@
 import {
-  ADVISOR_GOAL_BANDS,
+  advisorGoalDefaultBands,
   ADVISOR_GOAL_METRICS,
   buildAdvisorGoalTarget,
   buildAdvisorNewClientTarget,
@@ -325,7 +325,7 @@ export function buildAdvisorGoalSimulation(params: {
       weightPct: basePoints / 2,
     };
   });
-  const scoringBands = (params.context?.bands ?? ADVISOR_GOAL_BANDS).map((band) => ({ ...band }));
+  const scoringBands = (params.context?.bands ?? advisorGoalDefaultBands(params.periodFrom)).map((band) => ({ ...band }));
   validateAdvisorGoalConfiguration({ metrics: scoringMetrics, bands: scoringBands });
   const basePointsByKey = Object.fromEntries(
     scoringMetrics.map((metric) => [metric.key, metric.basePoints])

@@ -1,6 +1,8 @@
 import {
   ADVISOR_GOAL_BANDS,
   ADVISOR_GOAL_METRICS,
+  ADVISOR_GOAL_REDUCED_BANDS_FROM,
+  advisorGoalDefaultBands,
   validateAdvisorGoalConfiguration,
   type AdvisorGoalBand,
   type AdvisorGoalMetricKey,
@@ -109,12 +111,12 @@ function isPublicationStatus(value: unknown): value is AdvisorGoalPublicationSta
   return value === 'draft' || value === 'published' || value === 'provisional' || value === 'final';
 }
 
-function defaultAdvisorGoalScoringConfiguration(): AdvisorGoalScoringConfiguration {
+function defaultAdvisorGoalScoringConfiguration(periodFrom?: string): AdvisorGoalScoringConfiguration {
   return {
     metricBasePoints: Object.fromEntries(
       ADVISOR_GOAL_METRICS.map((metric) => [metric.key, metric.basePoints])
     ) as Record<AdvisorGoalMetricKey, number>,
-    bands: ADVISOR_GOAL_BANDS.map((band) => ({ ...band })),
+    bands: advisorGoalDefaultBands(periodFrom),
   };
 }
 
@@ -159,10 +161,27 @@ function readAdvisorGoalScoringConfiguration(value: unknown): AdvisorGoalScoring
 }
 
 export function resolveAdvisorGoalScoringConfiguration(
-  config: Pick<AdvisorGoalPeriodConfig, 'scoring'> | null | undefined
+  config: Pick<AdvisorGoalPeriodConfig, 'scoring'> | null | undefined,
+  periodFrom?: string,
+  previousPeriods: readonly { date_from: string; goal_config?: unknown }[] = [],
 ): AdvisorGoalScoringConfiguration {
-  return readAdvisorGoalScoringConfiguration(config?.scoring)
-    ?? defaultAdvisorGoalScoringConfiguration();
+  const stored = readAdvisorGoalScoringConfiguration(config?.scoring);
+  if (stored) return stored;
+  // Only approved, earlier periods in the same policy era can supply a new
+  // period's scoring. Never inherit drafts, future settings or September's
+  // legacy percentages across the October policy boundary.
+  const previous = periodFrom ? previousPeriods
+    .filter((period) => period.date_from < periodFrom
+      && (period.date_from < ADVISOR_GOAL_REDUCED_BANDS_FROM)
+        === (periodFrom < ADVISOR_GOAL_REDUCED_BANDS_FROM))
+    .toSorted((left, right) => right.date_from.localeCompare(left.date_from))
+    .flatMap((period) => {
+      const candidate = readAdvisorGoalPeriodConfig(period.goal_config);
+      const scoring = candidate && candidate.status !== 'draft'
+        ? readAdvisorGoalScoringConfiguration(candidate.scoring) : null;
+      return scoring ? [scoring] : [];
+    })[0] : null;
+  return previous ?? defaultAdvisorGoalScoringConfiguration(periodFrom);
 }
 
 export function readAdvisorGoalPeriodConfig(value: unknown): AdvisorGoalPeriodConfig | null {

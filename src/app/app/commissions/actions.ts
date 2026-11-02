@@ -318,7 +318,7 @@ export async function applyAdvisorCommissionGoalResults(input: {
   // even if subsequent score validation asks administration to review a date.
   await applySettlementToPreliminaryClosures({ periodId: input.periodId, scheduledLiquidationDate, previousSnapshotsByAdvisor,
     closureId: input.advisorUserId ? Number(editable[0].id) : undefined });
-  const scoring = resolveAdvisorGoalScoringConfiguration(config);
+  const scoring = resolveAdvisorGoalScoringConfiguration(config, period.date_from);
   const simulation = await loadAdvisorGoalSimulation({
     supabase, periodId: input.periodId, periodFrom: period.date_from, periodTo: period.date_to,
     usePublishedTargets: true, preserveFinal: input.intent !== 'final',

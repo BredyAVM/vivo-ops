@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   ADVISOR_GOAL_BANDS,
   ADVISOR_GOAL_METRICS,
+  advisorGoalDefaultBands,
   buildAdvisorGoalTarget,
   buildAdvisorNewClientTarget,
   calculateAdvisorCollectionOrderValue,
@@ -160,13 +161,13 @@ test('mantener todas las referencias da Bronce, cumplir metas da Oro y superarla
 
   assert.equal(maintained.points, 160);
   assert.equal(maintained.band.key, 'bronze');
-  assert.equal(maintained.calculatedCommissionPct, 9);
+  assert.equal(maintained.calculatedCommissionPct, 7);
   assert.equal(achieved.points, 200);
   assert.equal(achieved.band.key, 'gold');
-  assert.equal(achieved.calculatedCommissionPct, 11);
+  assert.equal(achieved.calculatedCommissionPct, 9);
   assert.equal(outstanding.points, 240);
   assert.equal(outstanding.band.key, 'platinum');
-  assert.equal(outstanding.calculatedCommissionPct, 12);
+  assert.equal(outstanding.calculatedCommissionPct, 10);
 });
 
 test('reproduce la simulación de Agosto 1 con trayectoria reciente', () => {
@@ -176,7 +177,7 @@ test('reproduce la simulación de Agosto 1 con trayectoria reciente', () => {
     { key: 'collection', actual: 0.9667, reference: 0.8, target: 1 },
     { key: 'new_own_clients', actual: 1, reference: 1, target: 2 },
     { key: 'new_assigned_clients', actual: 2, reference: 3, target: 4 },
-  ]);
+  ], advisorGoalDefaultBands('2026-08-01'));
 
   assert.equal(result.points, 148.779);
   assert.equal(result.band.key, 'bronze');
@@ -236,7 +237,7 @@ test('rechaza configuraciones que no suman 100% o 200 puntos', () => {
     () => validateAdvisorGoalConfiguration({
       metrics: ADVISOR_GOAL_METRICS,
       bands: ADVISOR_GOAL_BANDS.map((band) => band.key === 'gold'
-        ? { ...band, commissionPct: 8 }
+        ? { ...band, commissionPct: 7 }
         : band),
     }),
     /no pueden disminuir/

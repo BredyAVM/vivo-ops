@@ -34,12 +34,23 @@ export type AdvisorGoalBand = {
 };
 
 export const ADVISOR_GOAL_BANDS: readonly AdvisorGoalBand[] = [
-  { key: 'yuca', label: 'Yuca', minPoints: 0, commissionPct: 8 },
-  { key: 'bronze', label: 'Bronce', minPoints: 140, commissionPct: 9 },
-  { key: 'silver', label: 'Plata', minPoints: 170, commissionPct: 10 },
-  { key: 'gold', label: 'Oro', minPoints: 200, commissionPct: 11 },
-  { key: 'platinum', label: 'Platino', minPoints: 240, commissionPct: 12 },
+  { key: 'yuca', label: 'Yuca', minPoints: 0, commissionPct: 6 },
+  { key: 'bronze', label: 'Bronce', minPoints: 140, commissionPct: 7 },
+  { key: 'silver', label: 'Plata', minPoints: 170, commissionPct: 8 },
+  { key: 'gold', label: 'Oro', minPoints: 200, commissionPct: 9 },
+  { key: 'platinum', label: 'Platino', minPoints: 240, commissionPct: 10 },
 ] as const;
+
+export const ADVISOR_GOAL_REDUCED_BANDS_FROM = '2026-10-01';
+
+// Missing historical configuration must not retroactively apply the new policy.
+export function advisorGoalDefaultBands(periodFrom?: string): AdvisorGoalBand[] {
+  const legacy = Boolean(periodFrom && periodFrom < ADVISOR_GOAL_REDUCED_BANDS_FROM);
+  return ADVISOR_GOAL_BANDS.map((band) => ({
+    ...band,
+    commissionPct: band.commissionPct + (legacy ? 2 : 0),
+  }));
+}
 
 export type AdvisorGoalObservation = {
   periodKey: string;

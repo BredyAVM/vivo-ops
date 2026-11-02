@@ -353,7 +353,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
       ) ?? null
     : null;
   const storedConfig = readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config);
-  const storedScoring = resolveAdvisorGoalScoringConfiguration(storedConfig);
+  const storedScoring = resolveAdvisorGoalScoringConfiguration(storedConfig, selectedPeriod?.date_from, periods);
   const metricBasePoints = Object.fromEntries(
     ADVISOR_GOAL_METRICS.map((metric) => {
       const storedWeight = storedScoring.metricBasePoints[metric.key] / 2;

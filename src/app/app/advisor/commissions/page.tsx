@@ -482,7 +482,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const requestedPeriodId = Number(params.period || 0);
   const selectedPeriod = periods.find((period) => Number(period.id) === requestedPeriodId) ?? periods[0] ?? null;
   const goalScoring = resolveAdvisorGoalScoringConfiguration(
-    readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config)
+    readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config), selectedPeriod?.date_from, periods,
   );
   const orderedGoalBands = [...goalScoring.bands].sort((left, right) => left.minPoints - right.minPoints);
   const activeDetail = getCommissionDetail(params.detail);

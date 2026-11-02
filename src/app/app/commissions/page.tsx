@@ -357,6 +357,8 @@ export default async function CommissionAdministrationPage({
     periods.find((period) => Number(period.id) === requestedPeriodId) ?? periods[0] ?? null;
   const today = caracasToday();
   const selectedGoalConfig = readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config);
+  const selectedGoalScoring = resolveAdvisorGoalScoringConfiguration(selectedGoalConfig, selectedPeriod?.date_from, periods);
+  const initialCommissionPct = selectedGoalScoring.bands.find((band) => band.key === 'yuca')!.commissionPct;
   const selectedGoalJourney = selectedPeriod
     ? goalJourneyStatus(selectedPeriod, selectedGoalConfig, today)
     : null;
@@ -593,7 +595,7 @@ export default async function CommissionAdministrationPage({
   let goalRateLoadFailed = false;
   if (selectedPeriod && selectedGoalConfig?.status === 'published') {
     try {
-      const scoring = resolveAdvisorGoalScoringConfiguration(selectedGoalConfig);
+      const scoring = selectedGoalScoring;
       const simulation = await loadAdvisorGoalSimulation({
         supabase: ctx.supabase, periodId: Number(selectedPeriod.id),
         periodFrom: selectedPeriod.date_from, periodTo: selectedPeriod.date_to,
@@ -625,7 +627,7 @@ export default async function CommissionAdministrationPage({
         goalStatus: goal?.status ?? null,
         isGoalManaged: Boolean(goal && goal.status !== 'draft'),
         rate: closure?.base_commission_pct == null
-            ? 8
+            ? initialCommissionPct
             : numberValue(closure.base_commission_pct),
       };
     })
@@ -940,7 +942,7 @@ export default async function CommissionAdministrationPage({
                           <CommissionRateField
                             locked={selectedPeriod?.status !== 'open'}
                             userId={advisor.userId}
-                            value={8}
+                            value={advisor.rate}
                           />
                         </div>
                       </article>

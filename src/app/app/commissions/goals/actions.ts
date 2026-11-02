@@ -222,14 +222,15 @@ export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
     }
     if (closuresResult.error) throw new Error(closuresResult.error.message);
 
+    const initialRate = scoring.bands.find((band) => band.key === 'yuca')!.commissionPct;
     const storedRateByAdvisorId = new Map(
       (closuresResult.data ?? []).map((closure) => [
         String(closure.advisor_user_id),
-        Number(closure.base_commission_pct ?? 8),
+        Number(closure.base_commission_pct ?? initialRate),
       ])
     );
     const baseCommissionPctByAdvisor = Object.fromEntries(
-      advisors.map((advisor) => [advisor.userId, storedRateByAdvisorId.get(advisor.userId) ?? 8])
+      advisors.map((advisor) => [advisor.userId, storedRateByAdvisorId.get(advisor.userId) ?? initialRate])
     );
     await generateAdvisorCommissionClosuresAction({ periodId, baseCommissionPctByAdvisor });
 
