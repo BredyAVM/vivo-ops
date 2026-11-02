@@ -6,7 +6,8 @@ import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { calculateAdvisorGoalScore, type AdvisorGoalMetricKey } from '@/lib/commissions/goal-engine';
 import { summarizeAdvisorNewClients } from '@/lib/commissions/commercial-criteria';
 import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
-import { loadCommissionLiveCollections, mergeCommissionLiveOrders, type CommissionLiveCollection } from '@/lib/commissions/live-collections';
+import { loadCommissionLiveCollections, type CommissionLiveCollection } from '@/lib/commissions/live-collections';
+import { buildAdvisorCurrentCollection } from '@/lib/commissions/advisor-current-collection';
 import CollectionRefresh from '@/components/commissions/CollectionRefresh';
 import CollectionSummary from '@/components/commissions/CollectionSummary';
 import MuerdemeIncentiveBreakdown from'@/components/commissions/MuerdemeIncentiveBreakdown';
@@ -36,6 +37,7 @@ type CommissionDetail =
   | 'closures'
   | 'paid'
   | 'late'
+  | 'paid-unverified'
   | 'pending'
   | 'clients'
   | 'clients-own'
@@ -284,6 +286,7 @@ function getCommissionDetail(value: string | null | undefined): CommissionDetail
     'closures',
     'paid',
     'late',
+    'paid-unverified',
     'pending',
     'clients',
     'clients-own',
@@ -515,7 +518,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   }
 
   const snapshot = closure?.snapshot ?? {};
-  const orders = Array.isArray(snapshot.orders) ? snapshot.orders : [];
+  const recordedOrders = Array.isArray(snapshot.orders) ? snapshot.orders : [];
   const initialPendingOrders = Array.isArray(snapshot.pending_orders) ? snapshot.pending_orders : [];
   let live: CommissionLiveCollection | undefined;
   let collectionError: string | null = null;
@@ -525,16 +528,6 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
     })).get(Number(closure.id)); }
     catch (error) { collectionError = error instanceof Error ? error.message : 'Cobranza no disponible'; }
   }
-  const pendingOrders = live?.supported
-    ? mergeCommissionLiveOrders(orders, live.orders).filter((o) => o.pendingUsd > 0)
-    : initialPendingOrders;
-  const paidOrders = Array.isArray(snapshot.paid_orders) ? snapshot.paid_orders : [];
-  const punctualOrders = Array.isArray(snapshot.punctual_orders)
-    ? snapshot.punctual_orders
-    : paidOrders.filter((order) => order.paymentTiming !== 'late');
-  const lateOrders = Array.isArray(snapshot.late_orders)
-    ? snapshot.late_orders
-    : paidOrders.filter((order) => order.paymentTiming === 'late');
   const newClients = Array.isArray(snapshot.new_clients) ? snapshot.new_clients : [];
   const products = Array.isArray(snapshot.products) ? snapshot.products : [];
   const gifts = Array.isArray(snapshot.gifts) ? snapshot.gifts : [];
@@ -592,6 +585,14 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
       }
     }
   }
+  const { state: currentCollection, orders, pendingOrders, punctualOrders, lateOrders, unverifiedPaidOrders } =
+    buildAdvisorCurrentCollection({
+      closureId: Number(closure?.id),
+      recordedOrders,
+      live,
+      error: collectionError,
+      timingOrders: currentGoalCollection?.orders,
+    });
   const currentGoalBilling = currentGoalCommercialMetric?.billingUsd ?? numberValue(closure?.billed_usd);
   const currentGoalClosures = currentGoalCommercialMetric?.closuresCount ?? numberValue(closure?.delivered_orders_count);
   const currentGoalOwnClients = currentGoalCommercialMetric?.newOwnClientsCount ?? numberValue(closure?.new_own_clients_count);
@@ -766,6 +767,8 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
       ? punctualOrders
       : activeDetail === 'late'
         ? lateOrders
+        : activeDetail === 'paid-unverified'
+          ? unverifiedPaidOrders
         : activeDetail === 'pending'
           ? pendingOrders
           : orders;
@@ -775,7 +778,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
     activeDetail === 'commission-special-items' ||
     activeDetail === 'commission-special-orders'
       ? 'commissions'
-      : activeDetail === 'paid' || activeDetail === 'late' || activeDetail === 'pending'
+      : activeDetail === 'paid' || activeDetail === 'late' || activeDetail === 'paid-unverified' || activeDetail === 'pending'
         ? 'closures'
         : activeDetail === 'orders' || activeDetail === 'closures' || activeDetail === 'clients' || activeDetail === 'gifts'
           ? 'sales'
@@ -803,6 +806,8 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   ? 'Pagos puntuales'
                   : activeDetail === 'late'
                     ? 'Pagos impuntuales'
+                  : activeDetail === 'paid-unverified'
+                    ? 'Pagadas · fecha sin verificar'
                   : activeDetail === 'pending'
                     ? 'Pendientes por cobrar'
                     : activeDetail === 'clients'
@@ -818,7 +823,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                                 : activeDetail === 'deductions-direct'
                                   ? 'Deducibles directos'
                                   : activeDetail === 'payable'
-                                    ? 'Monto del acuerdo original'
+                                    ? 'Pendiente actual y acuerdo'
                                     : '';
 
   return (
@@ -826,11 +831,11 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
       <PageIntro
         eyebrow="Resultados"
         title="Mis comisiones"
-        description="Consulta el cierre generado por administración. Esta vista no modifica porcentajes, órdenes ni deducciones."
+        description="Consulta tu cobranza actual y el cálculo de administración por separado. Actualizar no modifica el acuerdo ni sus porcentajes."
       />
       {closure ? <>
         <CollectionRefresh checkedAt={live?.checkedAt} error={collectionError} />
-        <CollectionSummary state={live} initialPendingIds={initialPendingOrders.map((o) => Number(o.orderId))} error={collectionError} />
+        <CollectionSummary state={currentCollection} initialPendingIds={initialPendingOrders.map((o) => Number(o.orderId))} error={collectionError} />
       </> : null}
 
       <SectionCard title="Período" subtitle="Selecciona el cierre que quieres revisar.">
@@ -1045,6 +1050,10 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
           ) : null}
 
           <MuerdemeIncentiveBreakdown snapshot={closure.snapshot}/>
+          <p className="text-[11px] leading-5 text-[#AAB2C5]">
+            Ventas, comisión bruta y deducibles: último cálculo de administración ({dateLabel(closure.generated_at)}).
+            {' '}Cobranza y pendiente por pagar: consulta actual, incluso si el acuerdo ya fue pagado.
+          </p>
           <section className="grid grid-cols-2 gap-3">
             <CommissionSummaryLink
               label="Ventas"
@@ -1057,6 +1066,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 activeDetail === 'closures' ||
                 activeDetail === 'paid' ||
                 activeDetail === 'late' ||
+                activeDetail === 'paid-unverified' ||
                 activeDetail === 'pending' ||
                 activeDetail === 'clients' ||
                 activeDetail === 'clients-own' ||
@@ -1088,14 +1098,14 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
               }
             />
             <CommissionSummaryLink
-              label="A pagar"
-              value={money(closure.payable_usd)}
+              label="Pendiente por pagar"
+              value={currentCollection ? money(currentCollection.pendingUsd) : 'Sin verificar'}
               detail={
-                closure.status === 'paid'
-                  ? 'Pago registrado'
-                  : settlementIsCurrent
-                    ? 'Incluye saldos, deducciones y retenciones'
-                    : 'Comisión menos deducibles'
+                currentCollection
+                  ? currentCollection.transferredToClosureId
+                    ? 'Saldo trasladado · no se paga de nuevo aquí'
+                    : 'Saldo actual después de los abonos registrados'
+                  : 'No se pudo verificar el saldo actual'
               }
               href={commissionHref(selectedPeriod.id, 'payable')}
               active={activeDetail === 'payable'}
@@ -1106,7 +1116,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
             <div id="commission-detail" className="scroll-mt-20">
               <SectionCard
                 title={detailTitle}
-                subtitle="Detalle de solo lectura del cierre seleccionado."
+                subtitle="Solo lectura. Cobranza actual separada del último cálculo de administración."
                 action={
                   <Link
                     href={commissionHref(selectedPeriod.id, parentDetail || undefined)}
@@ -1238,6 +1248,13 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
 
               {activeDetail === 'payable' ? (
                 <div className="space-y-2.5">
+                  <CollectionSummary state={currentCollection} error={collectionError} />
+                  <details className="rounded-[16px] border border-[#252A37] px-3 py-2.5">
+                    <summary className="cursor-pointer text-xs font-semibold text-[#D9DDE7]">
+                      {closure.status === 'preliminary' ? 'Ver propuesta del último cálculo' : 'Ver acuerdo original'} · {money(closure.payable_usd)}
+                    </summary>
+                    <p className="my-2 text-[11px] leading-5 text-[#AAB2C5]">Importes guardados al calcular. No representan el pendiente actual ni se recalculan al consultar la cobranza.</p>
+                    <div className="space-y-2.5">
                   {settlementIsCurrent ? (
                     <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-sm">
                       <span className="text-[#AAB2C5]">Saldo a favor de períodos anteriores</span>
@@ -1281,7 +1298,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                     </div>
                   ) : null}
                   <div className="flex items-center justify-between gap-3 rounded-[16px] border border-[#F0D000] bg-[#201B08] px-3 py-3">
-                    <span className="text-sm font-semibold text-[#F5F7FB]">Monto a pagar</span>
+                    <span className="text-sm font-semibold text-[#F5F7FB]">{closure.status === 'preliminary' ? 'Propuesta del último cálculo' : 'Monto acordado originalmente'}</span>
                     <span className="text-xl font-semibold text-[#F7DA66]">{money(closure.payable_usd)}</span>
                   </div>
                   {settlementIsCurrent && (settlement.advisorDebtOutUsd > 0 || settlement.uncoveredCustomerDebtUsd > 0) ? (
@@ -1290,10 +1307,15 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                       {settlement.uncoveredCustomerDebtUsd > 0 ? <p>Deuda de clientes que excede la comisión disponible: {money(settlement.uncoveredCustomerDebtUsd)}.</p> : null}
                     </div>
                   ) : null}
+                    </div>
+                  </details>
                 </div>
               ) : null}
 
               {activeDetail === 'closures' ? (
+                <div className="space-y-2.5">
+                <p className="text-[11px] text-[#AAB2C5]">Estado de cobranza. Incluye órdenes arrastradas, sin contarlas como ventas nuevas del período.</p>
+                {!currentCollection ? <p className="text-xs text-amber-200">Cobranza actual sin verificar. Estas órdenes corresponden al último cálculo guardado.</p> : null}
                 <div className="grid grid-cols-2 gap-2.5">
                   <Link
                     href={commissionHref(selectedPeriod.id, 'paid')}
@@ -1319,9 +1341,17 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Pendientes</div>
                     <div className="mt-1.5 text-2xl font-semibold text-[#F7DA66]">{pendingOrders.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(live?.supported ? live.customerDebtUsd : closure.pending_collection_usd)}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{currentCollection ? money(currentCollection.customerDebtUsd) : 'Saldo actual sin verificar'}</div>
                     <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
                   </Link>
+                  {unverifiedPaidOrders.length > 0 ? <Link
+                    href={commissionHref(selectedPeriod.id, 'paid-unverified')}
+                    className="col-span-2 rounded-[16px] border border-[#343746] bg-[#11141C] px-3 py-3"
+                  >
+                    <div className="text-xs font-semibold text-[#D9DDE7]">Pagadas · fecha sin verificar: {unverifiedPaidOrders.length}</div>
+                    <p className="mt-1 text-[11px] text-[#AAB2C5]">No se asumen puntuales sin una fecha comprobada. Ver órdenes →</p>
+                  </Link> : null}
+                </div>
                 </div>
               ) : null}
 
@@ -1423,13 +1453,15 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 )
               ) : null}
 
-              {activeDetail === 'orders' || activeDetail === 'paid' || activeDetail === 'late' || activeDetail === 'pending' ? (
+              {activeDetail === 'orders' || activeDetail === 'paid' || activeDetail === 'late' || activeDetail === 'paid-unverified' || activeDetail === 'pending' ? (
                 detailOrders.length === 0 ? (
                   <EmptyBlock title="Sin órdenes" detail="No hay órdenes en esta categoría para el período." />
                 ) : (
                   <div className="space-y-2">
+                    {!currentCollection ? <p className="text-xs text-amber-200">Datos del último cálculo. La cobranza actual no se pudo verificar.</p> : null}
                     {detailOrders.map((order, index) => {
                       const orderId = numberValue(order.orderId);
+                      const isCarriedOrder = !orderById.has(orderId);
                       return (
                         <article key={`${orderId}-${index}`} className="rounded-[16px] border border-[#232632] bg-[#0D1017] px-3 py-2.5">
                           <div className="flex items-start justify-between gap-3">
@@ -1438,8 +1470,8 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                               <div className="mt-1 text-xs text-[#8B93A7]">Orden {orderLabel(order)} · {dateLabel(order.deliveryDate)}</div>
                             </div>
                             <div className="shrink-0 text-right">
-                              <div className="text-sm font-semibold text-[#F5F7FB]">{money(getOrderNetBilledUsd(order))}</div>
-                              <div className="mt-0.5 text-[10px] text-[#8B93A7]">Sin IVA · Comisión {money(order.commissionUsd)}</div>
+                              <div className="text-sm font-semibold text-[#F5F7FB]">{money(isCarriedOrder ? order.totalUsd : getOrderNetBilledUsd(order))}</div>
+                              <div className="mt-0.5 text-[10px] text-[#8B93A7]">{isCarriedOrder ? 'Total factura · período anterior' : `Sin IVA · Comisión ${money(order.commissionUsd)}`}</div>
                             </div>
                           </div>
                           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#AAB2C5]">
@@ -1457,7 +1489,9 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                                 ? `Pendiente ${money(order.pendingUsd)}`
                                 : order.paymentTiming === 'late'
                                   ? `Pagada ${dateLabel(order.paymentCompletedDate)}`
-                                  : 'Pago puntual'}
+                                  : order.paymentTiming === 'punctual'
+                                    ? 'Pago puntual'
+                                    : 'Pagada · fecha sin verificar'}
                             </span>
                           </div>
                           {orderId > 0 ? (
