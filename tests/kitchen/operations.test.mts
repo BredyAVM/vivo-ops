@@ -45,6 +45,88 @@ const comboInput = (qty: number, metadata = true): KitchenPresentationItem => ({
   composition: { editable: false, detailLimit: 50, components: comboComponents, snapshots: [] },
 });
 
+// Order 3752: saved Rumba Ajustado revision 6 vs catalog revision 7.
+// The old order item was later replaced; this reconstructs the audited draft,
+// original inventory commitments and archived recipe, not a new live order.
+function rumbaRecipeChangeInput(qty = 1): KitchenPresentationItem {
+  const saved = [[17, 20], [11, 24], [14, 12], [5, 20], [24, 1]];
+  const current = [[17, 20], [11, 12], [8, 12], [5, 32], [24, 1]];
+  const name = (id: number) => comboComponents.find(c => c.productId === id)!.name;
+  return {
+    qty, name: 'Combo Rumba Mix Frito (76 und) Ajustado', unitsPerService: 0,
+    notes: saved.map(([id, amount]) => `${amount * qty} ${name(id)}`).join('\n'),
+    composition: {
+      editable: false, detailLimit: 0,
+      snapshots: saved.map(([id, amount]) => ({ productId: id, name: name(id), qty: amount * qty })),
+      components: current.map(([id, amount]) => ({
+        ...comboComponents.find(c => c.productId === id)!, quantity: amount,
+      })),
+    },
+  };
+}
+
+test('3752 keeps the complete saved recipe: 76 pieces, no new empanadas or duplicate mandocas', () => {
+  const input = rumbaRecipeChangeInput();
+  const before = structuredClone(input);
+  const p = getKitchenItemPresentation(input);
+  assert.deepEqual(p.detailLines.map(l => [l.label, l.qty]), input.composition!.snapshots.map(s => [s.name, s.qty]));
+  assert.equal(p.preparedUnits, 76);
+  assert.equal(p.totalUnits, 76);
+  assert.equal(p.detailLines.filter(l => l.label.includes('Mandocas')).length, 1);
+  assert.ok(p.detailLines.every(l => !l.label.includes('Empanadas')));
+  assert.ok(p.quantityWarning);
+  assert.deepEqual(input, before, 'display must never rewrite the saved order');
+});
+
+test('new mandatory recipe ingredients cannot fill gaps in an existing snapshot', () => {
+  const input = comboInput(1);
+  input.notes = '10 Mini Tequeños Fritos';
+  input.composition!.snapshots = [{ productId: 5, name: 'Mini Tequeños Fritos', qty: 10 }];
+  const p = getKitchenItemPresentation(input);
+  assert.deepEqual(p.detailLines.map(l => l.qty), [10]);
+  assert.equal(p.preparedUnits, 10);
+  assert.ok(p.quantityWarning, 'incomplete snapshots require review, not automatic repair');
+});
+
+test('removed catalog components still count from their saved names and quantities', () => {
+  const input = rumbaRecipeChangeInput();
+  input.composition!.components = [];
+  const p = getKitchenItemPresentation(input);
+  assert.equal(p.preparedUnits, 76);
+  assert.equal(p.detailLines.length, 5);
+  assert.equal(p.detailLines.at(-1)?.qty, 1);
+  assert.ok(p.quantityWarning);
+});
+
+test('catalog renaming cannot change saved food and sauce classification', () => {
+  const input = rumbaRecipeChangeInput();
+  input.composition!.components = input.composition!.components.map(c => ({
+    ...c, name: c.productId === 5 ? 'Salsa nueva' : c.productId === 24 ? 'Tequeños nuevos' : c.name,
+  }));
+  const p = getKitchenItemPresentation(input);
+  assert.equal(p.preparedUnits, 76);
+  assert.ok(p.detailLines.some(l => l.label === 'Mini Tequeños Fritos' && l.qty === 20));
+  assert.ok(p.detailLines.some(l => l.label === 'Salsa Tártara 5oz' && l.qty === 1));
+});
+
+test('multiple saved combos are totals, even after a recipe change', () => {
+  const p = getKitchenItemPresentation(rumbaRecipeChangeInput(2));
+  assert.deepEqual(p.detailLines.map(l => l.qty), [40, 48, 24, 40, 2]);
+  assert.equal(p.preparedUnits, 152);
+  assert.equal(p.repeatsSameConfiguration, false);
+  assert.ok(p.quantityWarning);
+});
+
+test('invalid saved quantities cannot be silently replaced with catalog defaults', () => {
+  const input = rumbaRecipeChangeInput();
+  input.composition!.snapshots = [{ productId: 5, name: 'Mini Tequeños Fritos', qty: NaN }];
+  input.notes = null;
+  const p = getKitchenItemPresentation(input);
+  assert.equal(p.preparedUnits, 0);
+  assert.equal(p.detailLines.length, 0);
+  assert.match(p.quantityWarning!, /inválida/);
+});
+
 test('prioritizes modified, incident and late kitchen orders in that order', () => {
   assert.equal(kitchenOrderPriority({
     hasPendingChanges: true,
@@ -350,6 +432,15 @@ test('the actual Kitchen JSX renders the same corrected quantities and review wa
   assert.match(warned, /Revisar cantidades con Máster/);
   assert.match(warned, />Revisar<\/div>/);
   assert.doesNotMatch(warned, /150 piezas en total/);
+  order.items[0].qty = 1;
+  order.items[0].name = 'Combo Rumba Mix Frito (76 und) Ajustado';
+  order.items[0].presentation = getKitchenItemPresentation(rumbaRecipeChangeInput());
+  const changedRecipe = render();
+  assert.match(changedRecipe, /24 × Cachitas Fritas/);
+  assert.match(changedRecipe, /12 × Mandocas Fritas/);
+  assert.doesNotMatch(changedRecipe, /Empanadas Fritas/);
+  assert.match(changedRecipe, /REVISAR CANTIDADES:/);
+  assert.equal(order.items[0].presentation.preparedUnits, 76);
   const graph=orderMenuGraph();const selection=defaultMenuOrderSelection(graph.entries.find(e=>e.entryId===menuIds.combo)!);
   selection.slots[0].removed=['sauce'];selection.slots[1].extras=[{entryId:menuIds.extra,variantKey:'standard',quantity:1}];
   const quote=quoteMenuOrder(graph,selection),stock=buildMenuStockSnapshot(graph,quote,stockRecipes(graph),stocks);

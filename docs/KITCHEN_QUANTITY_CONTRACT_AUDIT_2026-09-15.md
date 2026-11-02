@@ -13,9 +13,11 @@ Fecha: 2026-09-15. Alcance: lectura y presentación de Cocina. No se modificaron
 
 La prioridad coincide con `app_private.inventory_order_sale_diagnostics_v1`, inspeccionada en producción:
 
-1. Totales guardados en `order_item_components`, cuando existen.
+1. Composición completa guardada en `order_item_components`, cuando existe. Es una fuente cerrada: no se completa con ingredientes de la receta actual, aunque ahora sean obligatorios.
 2. Totales de selección `@sel` si no hay composición guardada.
-3. Solo para componentes fijos obligatorios ausentes: receta por cantidad de presentaciones.
+3. Solo si NO existe composición guardada, para componentes fijos obligatorios ausentes: receta por cantidad de presentaciones.
+
+La receta actual puede producir una advertencia de revisión, pero no agregar, quitar ni reemplazar cantidades de una composición guardada. Los nombres guardados también se usan para reconocer las notas y contar las piezas, incluso si el ingrediente fue retirado o renombrado en el catálogo.
 
 `@sel` no identifica por sí solo cantidades por presentación. Los nombres Single Pack, Combo y los textos de jugadas no deciden multiplicadores. `counts_toward_detail_limit` valida selecciones editables; no clasifica las piezas de combos fijos (la configuración de la 2621 tiene ese indicador apagado).
 
@@ -40,3 +42,17 @@ La prioridad coincide con `app_private.inventory_order_sale_diagnostics_v1`, ins
 ## Límite pendiente
 
 El pedido actual puede guardar una selección agregada sin una distribución individual por pack. Para exigir ese reparto en el origen se necesitaría autorización sobre el módulo creador/editor y un contrato explícito. Cocina no inventa esa información ni modifica esos módulos.
+
+## Corrección por cambio de receta — 2026-11-02
+
+Auditoría de la orden 3752 (horas de Caracas):
+
+- 13:13: creada desde el borrador 979 con Rumba Mix Ajustado: 20 bombys, 24 cachitas, 12 mandocas y 20 tequeños, más 1 salsa. El borrador y los compromisos iniciales de inventario corroboran esta composición de 76 piezas.
+- 13:25: el catálogo del producto 104 pasó de la revisión 6 a la 7 mientras el pedido estaba en preparación. La receta nueva incorporó empanadas y quitó mandocas, además de cambiar cantidades.
+- 13:35: se reemplazó la línea por el Rumba Mix normal (producto 67), motivo «rumba sale completo». La salida real de inventario fue de 76 piezas y 1 salsa.
+
+La prueba histórica es una reconstrucción con esas evidencias: la línea original ya había sido reemplazada. La vista anterior podía mezclar sus componentes guardados con ingredientes obligatorios nuevos, duplicar notas de ingredientes retirados y excluirlos del contador.
+
+La corrección queda limitada a `src/lib/kitchen/order-presentation.ts`, sus pruebas y este contrato. No modifica inventario, catálogo, pedidos ni otros módulos. Incluso un snapshot incompleto o inválido solicita revisión sin rellenarse con la receta vigente.
+
+Pruebas de Cocina ampliadas a 32: caso 3752, ingredientes añadidos/retirados/renombrados, varias presentaciones, snapshots inválidos y renderizado de pantalla/ticket. Primero se comprobó que los nuevos casos fallaban con la implementación anterior; después pasaron con la corrección. Se conservan las regresiones de las órdenes 1828 y 2621.

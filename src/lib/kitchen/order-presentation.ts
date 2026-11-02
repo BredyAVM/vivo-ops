@@ -150,8 +150,9 @@ export function getKitchenItemPresentation(
     markers.set(id, (markers.get(id) ?? 0) + qty);
   }
 
-  // Same precedence as inventory_order_sale_diagnostics_v1:
-  // stored component totals > @sel totals > required fixed recipe × item qty.
+  // Kitchen reads stored component totals first, then @sel totals. A stored
+  // composition is a complete historical recipe, never a partial overlay on
+  // today's catalog. Fixed-recipe fallback is only for items WITHOUT a snapshot.
   // @sel is a selection ID, NOT a "per presentation" flag.
   const snapshots = new Map<number, number>();
   const snapshotNames = new Map<number, string>();
@@ -180,11 +181,16 @@ export function getKitchenItemPresentation(
   }
 
   const componentsById = new Map(composition.components.map(component => [component.productId, component]));
-  const resolved = new Map<number, number>();
+  const resolved = new Map<number, number>(hasSnapshot ? snapshots : []);
   for (const component of composition.components) {
     const qty = selections.get(component.productId)
-      ?? (component.mode === 'fixed' && component.required ? item.qty * component.quantity : null);
-    if (qty == null) continue;
+      ?? (!hasSnapshot && component.mode === 'fixed' && component.required ? item.qty * component.quantity : null);
+    if (qty == null) {
+      if (hasSnapshot && component.mode === 'fixed' && component.required) {
+        warn('La receta actual incluye componentes que no están en la composición guardada. Se conserva el pedido sin agregarlos.');
+      }
+      continue;
+    }
     if (!Number.isFinite(qty) || qty <= 0) {
       warn(`La cantidad de ${component.name} no es válida.`);
       continue;
@@ -222,11 +228,14 @@ export function getKitchenItemPresentation(
   // Keep instructions and aliases. Numeric instructions ("2 bolsas separadas")
   // are text, not additional pieces. Compare known product labels exactly.
   const noteLines: KitchenPresentationDetailLine[] = [];
+  // Include historical IDs removed from the catalog so their visible notes
+  // are recognized as the same ingredient, not printed again as instructions.
+  const detailProductIds = new Set([...componentsById.keys(), ...snapshotNames.keys()]);
   for (const line of baseDetailLines) {
-    const matches = composition.components.filter(component =>
-      component.name === line.label || snapshotNames.get(component.productId) === line.label);
+    const matches = [...detailProductIds].filter(id =>
+      componentsById.get(id)?.name === line.label || snapshotNames.get(id) === line.label);
     if (line.qty != null && matches.length === 1) {
-      const id = matches[0].productId;
+      const id = matches[0];
       const expectedTextQty = confirmedLegacyPerPack ? markers.get(id) : resolved.get(id);
       if (expectedTextQty == null || !same(line.qty, expectedTextQty)) {
         warn('El detalle escrito difiere de las cantidades confirmadas. Revisa el pedido con Máster.');
@@ -248,10 +257,11 @@ export function getKitchenItemPresentation(
   }));
   detailLines.push(...noteLines);
   const preparedUnits = [...resolved].reduce((sum, [id, qty]) => {
-    const component = componentsById.get(id);
+    const name = snapshotNames.get(id) || componentsById.get(id)?.name;
     // countsTowardLimit validates editable choices; fixed combos may set it
     // false for every component. It is not a prepared-pieces classification.
-    return sum + (component && isKitchenPreparedLine(component.name) ? qty : 0);
+    // Removed/renamed ingredients must still count under their saved identity.
+    return sum + (name && isKitchenPreparedLine(name) ? qty : 0);
   }, 0);
 
   return {
