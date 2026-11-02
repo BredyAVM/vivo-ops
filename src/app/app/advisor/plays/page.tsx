@@ -7,6 +7,7 @@ import { playValidityLabel } from '@/lib/crm/play-conditions';
 import { offerRestLabel } from '@/lib/crm/offer-rest';
 import { isPlayFollowUpDue, workflowPresentation } from '@/lib/crm/play-member-presentation';
 import { isEvaluablePlayMember } from '@/lib/crm/no-apply';
+import { ADVISOR_PUBLISHED_PLAY_STATUSES, advisorMonthLabel, advisorPlayPeriod, advisorPlayIsReadOnly, advisorPlaysHref, readAdvisorPlayPages } from '@/lib/crm/advisor-play-history';
 
 type PlayRow = {
   id: number | string;
@@ -81,7 +82,7 @@ type MemberRow = {
 };
 
 type ViewFilter = 'all' | 'pending' | 'follow_up' | 'contacted' | 'responded' | 'launched' | 'converted' | 'no_apply';
-type SearchParams = Promise<{ play?: string; view?: string }>;
+type SearchParams = Promise<{ play?: string; view?: string; month?: string }>;
 
 const dateTimeFormatter = new Intl.DateTimeFormat('es-VE', {
   day: '2-digit',
@@ -204,7 +205,7 @@ function dateTimeLabel(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? value : dateTimeFormatter.format(parsed);
 }
 
-function CompactPageHeader({ status }: { status?: 'active' | 'paused' }) {
+function CompactPageHeader({ status }: { status?: 'active' | 'paused' | 'historical' }) {
   return (
     <header className="flex items-center justify-between gap-3 px-1 py-0.5">
       <div>
@@ -213,8 +214,8 @@ function CompactPageHeader({ status }: { status?: 'active' | 'paused' }) {
       </div>
       {status ? (
         <StatusBadge
-          label={status === 'paused' ? 'Pausada' : 'Activa'}
-          tone={status === 'paused' ? 'warning' : 'success'}
+          label={status === 'historical' ? 'Histórica · solo consulta' : status === 'paused' ? 'Pausada' : 'Activa'}
+          tone={status === 'historical' ? 'neutral' : status === 'paused' ? 'warning' : 'success'}
         />
       ) : null}
     </header>
@@ -236,10 +237,14 @@ function viewValue(value: string | undefined): ViewFilter {
     : 'all';
 }
 
-function playsHref(playId: number, view: ViewFilter = 'all') {
-  const params = new URLSearchParams({ play: String(playId) });
-  if (view !== 'all') params.set('view', view);
-  return `/app/advisor/plays?${params.toString()}`;
+function MonthPicker({ month, months }: { month: string; months: string[] }) {
+  return <form action="/app/advisor/plays" method="get" className="flex items-center gap-2 px-1">
+    <label htmlFor="plays-month" className="text-xs text-[#AAB2C5]">Mes</label>
+    <select key={month} id="plays-month" name="month" defaultValue={month} className="h-10 min-w-0 flex-1 rounded-xl border border-[#2A3040] bg-[#12151D] px-3 text-xs text-[#F5F7FB]">
+      {months.map(value => <option key={value} value={value}>{advisorMonthLabel(value)}</option>)}
+    </select>
+    <button type="submit" className="h-10 rounded-xl border border-[#F0D000] px-4 text-xs font-semibold text-[#F7DA66]">Ver</button>
+  </form>;
 }
 
 function isDue(member: MemberRow, now: number) {
@@ -280,18 +285,20 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const query = (await searchParams) ?? {};
   const requestedPlayId = Math.trunc(Number(query.play));
   const view = viewValue(query.view);
-  const playsResult = await ctx.supabase
+  const playsResult = await readAdvisorPlayPages<PlayRow>((from, to) => ctx.supabase
     .from('crm_plays')
     .select(`
       id, name, description, status, rules_snapshot, advisor_guidance,
       starts_at, ends_at, gift_product_id, gift_quantity,
-      benefit_selection_mode, purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode, benefit_fulfillment
+      benefit_selection_mode, purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode, benefit_fulfillment,
+      assigned:crm_play_members!inner()
     `)
     // Draft and frozen plays remain private to the master dashboard.
-    .in('status', ['active', 'paused'])
+    .in('status', ADVISOR_PUBLISHED_PLAY_STATUSES)
+    .eq('assigned.advisor_id_snapshot', ctx.user.id)
     .order('starts_at', { ascending: false })
     .order('id', { ascending: false })
-    .limit(50);
+    .range(from, to));
 
   if (playsResult.error) {
     console.error('Unable to load advisor CRM plays', playsResult.error.message);
@@ -303,16 +310,20 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     );
   }
 
-  const plays = (playsResult.data ?? []) as unknown as PlayRow[];
+  const requestNow = new Date();
+  const period = advisorPlayPeriod(playsResult.data, query, requestNow);
+  const plays = period.plays as PlayRow[];
   const selectedPlay = plays.find((play) => Number(play.id) === requestedPlayId) ?? plays[0] ?? null;
+  const monthPicker = <MonthPicker month={period.selectedMonth} months={period.months} />;
 
   if (!selectedPlay) {
     return (
       <div className="space-y-3">
         <CompactPageHeader />
+        {monthPicker}
         <EmptyBlock
-          title="Todavía no tienes jugadas activas"
-          detail="Tu cartera continúa disponible y actualizada. Cuando se publique una jugada, verás aquí sus clientes, beneficio y seguimiento."
+          title="No tienes jugadas en este mes"
+          detail="Selecciona otro mes para consultar tus listas anteriores. Las nuevas jugadas aparecerán cuando se publiquen para ti."
           href="/app/advisor/clients"
           cta="Ver mi cartera"
         />
@@ -320,8 +331,10 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     );
   }
 
+  const isHistorical = advisorPlayIsReadOnly(selectedPlay, period.selectedMonth, requestNow);
+
   const [membersResult, benefitOptionsResult, benefitUpgradesResult] = await Promise.all([
-    ctx.supabase
+    readAdvisorPlayPages<MemberRow>((from, to) => ctx.supabase
       .from('crm_play_members')
       .select(`
         id, play_id, client_id, workflow_status, benefit_status, purchase_count,
@@ -333,7 +346,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
       .eq('play_id', Number(selectedPlay.id))
       .eq('advisor_id_snapshot', ctx.user.id)
       .order('id', { ascending: true })
-      .limit(500),
+      .range(from, to)),
     ctx.supabase
       .from('crm_play_benefits')
       .select('id, quantity, unit_benefit_value_usd, unit_advisor_cost_usd, product:products!crm_play_benefits_product_id_fkey(name)')
@@ -343,7 +356,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     ctx.supabase
       .from('crm_play_benefit_upgrades')
       .select(`
-        id, play_benefit_id, target_quantity, customer_difference_usd_snapshot:current_customer_difference_usd,
+        id, play_benefit_id, target_quantity, ${isHistorical ? 'customer_difference_usd_snapshot' : 'customer_difference_usd_snapshot:current_customer_difference_usd'},
         product:products!crm_play_benefit_upgrades_target_product_id_fkey(name)
       `)
       .eq('play_id', Number(selectedPlay.id))
@@ -355,7 +368,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const allMembers = (membersResult.data ?? []) as unknown as MemberRow[];
   const latestRequest = (member: MemberRow) => (member.no_apply ?? []).reduce<MemberRow['no_apply'][number] | null>(
     (latest, request) => !latest || Number(request.id) > Number(latest.id) ? request : latest, null);
-  const members = allMembers.filter(isEvaluablePlayMember);
+  const members = isHistorical ? allMembers : allMembers.filter(isEvaluablePlayMember);
   const noApplyMembers = allMembers.filter(member => {
     const request = latestRequest(member);
     return request?.status === 'pending' || (request?.status === 'approved' && member.workflow_status === 'removed');
@@ -386,8 +399,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const selectionCriteria = playCriteria(selectedPlay.rules_snapshot, selectedPlay.starts_at);
 
   // This is a server-only request snapshot used to classify due follow-ups consistently.
-  // eslint-disable-next-line react-hooks/purity
-  const now = Date.now();
+  const now = requestNow.getTime();
   const pendingCount = members.filter((member) => member.benefit_status !== 'redeemed' && !member.contacted_at).length;
   const contactedCount = members.filter((member) => Boolean(member.contacted_at)).length;
   const respondedCount = members.filter((member) => Boolean(member.responded_at)).length;
@@ -396,7 +408,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const visibleMembers = (view === 'no_apply' ? noApplyMembers : members)
     .filter((member) => view === 'no_apply' || memberMatchesView(member, view, now))
     .sort((left, right) => sortMembers(left, right, now));
-  const currentHref = playsHref(numberValue(selectedPlay.id), view);
+  const currentHref = advisorPlaysHref(selectedPlay.id, period.selectedMonth, view);
   const filters: Array<{ value: ViewFilter; label: string; count: number }> = [
     { value: 'all', label: 'Todos', count: members.length },
     { value: 'pending', label: 'Sin tocar', count: pendingCount },
@@ -410,7 +422,9 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
 
   return (
     <div className="space-y-3">
-      <CompactPageHeader status={selectedPlay.status === 'paused' ? 'paused' : 'active'} />
+      <CompactPageHeader status={isHistorical ? 'historical' : selectedPlay.status === 'paused' ? 'paused' : 'active'} />
+      {monthPicker}
+      {isHistorical ? <p className="px-1 text-[11px] leading-4 text-[#AAB2C5]">Consulta de la lista y sus resultados guardados. No reactiva beneficios ni permite registrar nuevos seguimientos.</p> : null}
 
       {plays.length > 1 ? (
         <div className="flex gap-1.5 overflow-x-auto pb-0.5">
@@ -419,7 +433,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
             return (
               <Link
                 key={String(play.id)}
-                href={playsHref(numberValue(play.id))}
+                href={advisorPlaysHref(play.id, period.selectedMonth)}
                 aria-current={active ? 'page' : undefined}
                 className={[
                   'inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-[11px] font-semibold',
@@ -455,7 +469,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
           {selectedPlay.description?.trim() || 'Reconocimiento preparado para este grupo de clientes.'}
         </p>
         <div className="mt-2">
-          <PlayConditionsCard play={selectedPlay} benefits={benefitOptions} />
+          <PlayConditionsCard play={selectedPlay} benefits={benefitOptions} defaultOpen={!isHistorical} />
         </div>
 
         <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
@@ -501,7 +515,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
           return (
             <Link
               key={filter.value}
-              href={playsHref(numberValue(selectedPlay.id), filter.value)}
+              href={advisorPlaysHref(selectedPlay.id, period.selectedMonth, filter.value)}
               aria-current={active ? 'page' : undefined}
               className={[
                 'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium',
@@ -546,7 +560,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
               ? null
               : Math.max(0, Math.round(numberValue(member.days_since_last_purchase)));
             const detailHref = withAdvisorReturnTo(
-              `/app/advisor/clients/${member.client_id}?playMember=${member.id}`,
+              isHistorical ? `/app/advisor/plays/history/${member.id}` : `/app/advisor/clients/${member.client_id}?playMember=${member.id}`,
               currentHref,
             );
             const timingTitle = due
