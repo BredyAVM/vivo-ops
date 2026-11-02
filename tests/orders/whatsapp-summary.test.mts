@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildWhatsAppOrderSummaryText, sanitizeWhatsAppCustomerNote, formatWhatsAppItemPrice,
-  formatWhatsAppBs, formatWhatsAppExchangeRate, getWhatsAppLineUnits,
+  formatWhatsAppBs, formatWhatsAppExchangeRate, formatWhatsAppCalculationDate, formatWhatsAppCalculationTime, getWhatsAppLineUnits,
   cleanWhatsAppUnitsFromName } from "../../src/lib/orders/whatsapp-summary.ts";
 
 test("removes the internal master reapproval marker from a customer note", () => {
@@ -87,12 +87,12 @@ test('four services keep 100 pieces and their agreed line total without unit-pri
   assert.match(text, /4 Serv\. Mini Tequeños Fritos \(100 und\): \$52\.53/);
   assert.doesNotMatch(text, /c\/u|\$13\.13/);
   assert.match(text, /\*TOTAL USD:\* \$52\.53/);
-  assert.match(text, /\*Equivalente en bolívares:\* Bs 45\.997,89/);
-  assert.match(text, /\*Tasa del presupuesto:\* 875,65 Bs\/USD/);
+  assert.match(text, /\*TOTAL BS:\* Bs 45\.997,89/);
+  assert.match(text, /\*Tasa del BCV \(\$\):\* 875,65 Bs\/USD/);
   assert.match(text, /\*Calculado:\* 09\/10\/2026/);
 });
 
-test('WhatsApp shows certified total Bs, USD, real FX and Caracas calculation timestamp', () => {
+test('WhatsApp shows certified total Bs, USD, real FX and Caracas calculation date', () => {
   const input = {
     clientName: 'Cliente', fulfillment: 'pickup' as const, deliveryText: 'Hoy',
     lines: [{ text: `1 Mini: ${formatWhatsAppItemPrice(1, 14)}` }],
@@ -108,4 +108,36 @@ test('WhatsApp shows certified total Bs, USD, real FX and Caracas calculation ti
   assert.equal(JSON.stringify(input), before);
   assert.equal(formatWhatsAppBs(11500.73), 'Bs 11.500,73');
   assert.equal(formatWhatsAppExchangeRate(860.2345), '860,2345 Bs/USD');
+});
+
+test('order summaries and budgets use the exact compact totals block requested', () => {
+  for (const title of ['Resumen de Pedido', 'Presupuesto']) {
+    const input = {
+      title, clientName: 'Cliente', fulfillment: 'pickup' as const, deliveryText: 'Hoy',
+      lines: [{ text: '1 Producto: $45.00' }],
+      price: { totalUsd: 45, totalBs: 40031.10 }, exchangeRate: 889.58,
+      calculatedAt: '2026-11-02T02:30:00Z',
+    };
+    const before = JSON.stringify(input);
+    const text = buildWhatsAppOrderSummaryText(input);
+    assert.ok(text.includes([
+      '*TOTAL USD:* $45.00',
+      '*TOTAL BS:* Bs 40.031,10',
+      '*Tasa del BCV ($):* 889,58 Bs/USD',
+      '*Calculado:* 01/11/2026',
+      '',
+      '*Entrega:* Pickup',
+    ].join('\n')));
+    assert.doesNotMatch(text, /Equivalente en bolívares|Tasa del presupuesto/);
+    assert.equal(JSON.stringify(input), before);
+  }
+});
+
+test('compact rate/date formatting does not change payment quote precision or timestamps', () => {
+  assert.equal(formatWhatsAppExchangeRate(889.5845, 2), '889,58 Bs/USD');
+  assert.equal(formatWhatsAppExchangeRate(889.5845), '889,5845 Bs/USD');
+  assert.equal(formatWhatsAppCalculationDate('2026-11-02T02:30:00Z'), '01/11/2026');
+  assert.equal(formatWhatsAppCalculationDate('2026-11-02T04:00:00Z'), '02/11/2026');
+  assert.match(formatWhatsAppCalculationTime('2026-11-02T02:30:00Z'), /10:30/);
+  assert.throws(() => formatWhatsAppCalculationDate('invalid'));
 });

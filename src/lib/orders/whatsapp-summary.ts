@@ -105,11 +105,11 @@ export function formatWhatsAppItemPrice(quantity: number | string | null, lineTo
   return formatWhatsAppUsd(total);
 }
 
-export function formatWhatsAppExchangeRate(value: number) {
+export function formatWhatsAppExchangeRate(value: number, maximumFractionDigits = 4) {
   if (!Number.isFinite(value) || value <= 0) throw new Error('La tasa de la cotización no es válida.');
   return `${new Intl.NumberFormat('es-VE', {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 4,
+    maximumFractionDigits,
   }).format(value)} Bs/USD`;
 }
 
@@ -119,6 +119,14 @@ export function formatWhatsAppCalculationTime(value: string) {
   return new Intl.DateTimeFormat('es-VE', {
     timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit', hour12: true,
+  }).format(date);
+}
+
+export function formatWhatsAppCalculationDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error('La fecha de la cotización no es válida.');
+  return new Intl.DateTimeFormat('es-VE', {
+    timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric',
   }).format(date);
 }
 
@@ -356,11 +364,11 @@ export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) 
     );
   }
   parts.push(`*TOTAL USD:* ${formatWhatsAppUsd(price.totalUsd)}`);
-  parts.push(`*Equivalente en bolívares:* ${formatWhatsAppBs(price.totalBs)}`);
+  parts.push(`*TOTAL BS:* ${formatWhatsAppBs(price.totalBs)}`);
   if (input.exchangeRate != null && input.exchangeRate > 0) {
-    parts.push(`*Tasa del presupuesto:* ${formatWhatsAppExchangeRate(input.exchangeRate)}`);
+    parts.push(`*Tasa del BCV ($):* ${formatWhatsAppExchangeRate(input.exchangeRate, 2)}`);
   }
-  if (input.calculatedAt) parts.push(`*Calculado:* ${formatWhatsAppCalculationTime(input.calculatedAt)}`);
+  if (input.calculatedAt) parts.push(`*Calculado:* ${formatWhatsAppCalculationDate(input.calculatedAt)}`);
 
   parts.push('');
   parts.push(`*Entrega:* ${input.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
