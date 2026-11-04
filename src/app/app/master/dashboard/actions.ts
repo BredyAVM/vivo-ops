@@ -37,6 +37,7 @@ import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicate
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from '@/lib/orders/approved-price-preservation';
 import { preservedAgreedPriceSnapshot, preservedOperationalSnapshot } from '@/lib/orders/operational-edit-pricing';
+import { resolveEditedOrderAdvisor } from '@/lib/orders/edited-order-advisor';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { searchClientSummaries } from '@/lib/search/client-search';
@@ -8116,12 +8117,18 @@ export async function updateOrderAction(input: {
     throw new Error(previousOrderItemsError.message);
   }
 
+  const attributedAdvisorId = resolveEditedOrderAdvisor({
+    source,
+    currentAdvisorId: currentOrder.attributed_advisor_id ?? null,
+    selectedAdvisorId: input.attributedAdvisorUserId,
+    hasCrmBenefit: input.items.some((item) => item.crmPlayMemberId != null),
+  });
   const approvedPricesById = new Map((previousOrderItems ?? []).map((row) => [Number(row.id), storedApprovedPriceLine(row)]));
   const hasApprovedPrices = (previousOrderItems ?? []).some((row) => row.admin_price_override_usd != null);
   if (!isAdmin && (hasUnauthorizedPriceChange(input.items, [...approvedPricesById.values()], true) ||
     (hasApprovedPrices && (Number(input.selectedClientId) !== Number(currentOrder.client_id) ||
       source !== currentOrder.source ||
-      (input.attributedAdvisorUserId ?? null) !== (currentOrder.attributed_advisor_id ?? null))))) {
+      attributedAdvisorId !== (currentOrder.attributed_advisor_id ?? null))))) {
     return { ok: false as const, code: 'approved_price_changed', message: APPROVED_PRICE_CHANGE_MESSAGE };
   }
   const preservedPriceById = new Map(input.items.flatMap((item) => {
@@ -8263,14 +8270,6 @@ export async function updateOrderAction(input: {
 
   if (!clientProfile) {
     throw new Error('No se pudo confirmar la actualización del cliente.');
-  }
-
-  const attributedAdvisorId =
-    source === 'advisor' || input.items.some((item) => item.crmPlayMemberId != null)
-      ? input.attributedAdvisorUserId : user.id;
-
-  if (!attributedAdvisorId) {
-    throw new Error('No se pudo resolver el asesor atribuido.');
   }
 
   const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
@@ -8898,6 +8897,10 @@ export async function updateOrderAction(input: {
         change_summary: changeMeta.summary,
         reason: String(input.adminEditReason || '').trim() || null,
         queued_needs_reapproval: currentOrder.status === 'queued',
+        ...(changedFields.includes('attributed_advisor_id') ? {
+          previous_advisor_user_id: beforeSnapshot.attributed_advisor_id,
+          next_advisor_user_id: attributedAdvisorId,
+        } : {}),
       },
       recipients: [
         { targetRole: 'master', requiresAction: currentOrder.status === 'queued' },
