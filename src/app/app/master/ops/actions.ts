@@ -23,7 +23,7 @@ import {
 } from "@/lib/orders/order-change-detail";
 import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
-import { APPROVED_PRICE_CHANGE_MESSAGE, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from "@/lib/orders/approved-price-preservation";
+import { APPROVED_PRICE_CHANGE_MESSAGE, approvedPriceTermsChanged, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from "@/lib/orders/approved-price-preservation";
 import { preservedAgreedPriceSnapshot, preservedOperationalSnapshot } from "@/lib/orders/operational-edit-pricing";
 import {
   cancelOrderAction,
@@ -2007,10 +2007,10 @@ async function prepareMasterOpsOrderSave(
       ? null
       : Number(existingItem.admin_price_override_usd);
     const nextOverride = item.adminPriceOverrideUsd == null ? null : Number(item.adminPriceOverrideUsd);
-    const overrideChanged = Boolean(existingItem) &&
-      (existingOverride !== nextOverride ||
-        String(existingItem?.admin_price_override_reason || "").trim() !==
-          String(item.adminPriceOverrideReason || "").trim());
+    const overrideChanged = existingItem != null && approvedPriceTermsChanged({
+      sourcePriceCurrency: item.sourcePriceCurrency, sourcePriceAmount: Number(item.sourcePriceAmount),
+      adminPriceOverrideUsd: nextOverride, adminPriceOverrideReason: item.adminPriceOverrideReason ?? null,
+    }, storedApprovedPriceLine(existingItem));
     const isNewLine = !existingItem;
     const linePricingChanged = isNewLine || productChanged || quantityChanged || overrideChanged ||
       (muerdemeQuotes.has(productId) && !closeNumber(existingItem?.pricing_origin_amount, item.sourcePriceAmount));

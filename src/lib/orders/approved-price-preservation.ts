@@ -63,6 +63,19 @@ function detailSignature(lines: string[]) {
   return JSON.stringify(lines.map((line) => line.trim()).filter(Boolean).sort());
 }
 
+type ApprovedPriceTerms = Pick<ApprovedPriceLine, 'sourcePriceCurrency' | 'sourcePriceAmount' | 'adminPriceOverrideUsd' | 'adminPriceOverrideReason'>;
+
+/** The native amount is part of the approval, even when USD stays zero. */
+export function approvedPriceTermsChanged(next: ApprovedPriceTerms, previous: ApprovedPriceTerms) {
+  return next.adminPriceOverrideUsd !== previous.adminPriceOverrideUsd ||
+    (next.adminPriceOverrideReason ?? '').trim() !== (previous.adminPriceOverrideReason ?? '').trim() ||
+    (next.adminPriceOverrideUsd != null && previous.adminPriceOverrideUsd != null && (
+      next.sourcePriceCurrency !== previous.sourcePriceCurrency ||
+      !Number.isFinite(next.sourcePriceAmount) || !Number.isFinite(previous.sourcePriceAmount) ||
+      Math.abs(next.sourcePriceAmount - previous.sourcePriceAmount) > 0.000001
+    ));
+}
+
 export function hasUnauthorizedPriceChange(next: ApprovedPriceLine[], previous: ApprovedPriceLine[], operational = false) {
   const byId = new Map(previous.map((item) => [item.orderItemId, item]));
   return next.some((item) => item.adminPriceOverrideUsd != null &&

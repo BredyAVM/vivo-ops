@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from '../../src/lib/orders/approved-price-preservation.ts';
+import { approvedPriceTermsChanged, hasUnauthorizedPriceChange, preservedApprovedPriceSnapshot, storedApprovedPriceLine } from '../../src/lib/orders/approved-price-preservation.ts';
 
 const approved = storedApprovedPriceLine({
   id: 10, product_id: 5, qty: .5, pricing_origin_currency: 'USD', pricing_origin_amount: 0,
@@ -12,6 +12,21 @@ const approved = storedApprovedPriceLine({
 test('zero-price approval is retained, including its original snapshots', () => {
   assert.deepEqual(preservedApprovedPriceSnapshot(approved, approved), { unitUsd: 0, lineUsd: 0, unitBs: 0, lineBs: 0 });
   assert.equal(hasUnauthorizedPriceChange([approved], [approved]), false);
+});
+
+test('re-entering zero repairs a stale native price instead of preserving the old Counter amount', () => {
+  const stale={...approved,sourcePriceAmount:14,unitPriceUsdSnapshot:14,lineTotalUsd:14};
+  assert.equal(approvedPriceTermsChanged(approved,stale),true);
+  assert.equal(approvedPriceTermsChanged(approved,approved),false);
+  assert.equal(preservedApprovedPriceSnapshot(approved,stale),null);
+  assert.equal(hasUnauthorizedPriceChange([approved],[stale]),true);
+});
+
+test('approval changes detect native currency, decimals, reason, amount and removal while preserving ordinary lines',()=>{
+  for(const change of [{sourcePriceCurrency:'VES'},{sourcePriceAmount:.25},{adminPriceOverrideUsd:.25},{adminPriceOverrideUsd:null},{adminPriceOverrideReason:'Nuevo acuerdo'}])
+    assert.equal(approvedPriceTermsChanged({...approved,...change},approved),true);
+  const ordinary={...approved,adminPriceOverrideUsd:null,adminPriceOverrideReason:null};
+  assert.equal(approvedPriceTermsChanged({...ordinary,sourcePriceAmount:25},ordinary),false);
 });
 test('unchanged VES approval uses stored USD and Bs, not current FX or client totals', () => {
   const ves = { ...approved, sourcePriceCurrency: 'VES', sourcePriceAmount: 2012.5, qty: 2,
