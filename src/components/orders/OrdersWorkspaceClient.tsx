@@ -1,5 +1,6 @@
 "use client";
 import { salesChannelLabel } from "@/lib/clients/commercial-classification";
+import { copyLiveOrderWhatsApp } from '@/lib/orders/copy-live-whatsapp';
 
 import dynamic from "next/dynamic";
 import { assignOwnTransportAction } from "@/app/app/master/ops/own-transport-actions";
@@ -84,7 +85,6 @@ import {
   MASTER_ORDER_DETAIL_TABS,
   MasterOrderDetailBody,
   MasterOrderDetailMetric,
-  buildMasterOrderWhatsAppSummary,
   formatMasterOrderBs,
   formatMasterOrderDateTime,
   formatMasterOrderRateBs,
@@ -1372,6 +1372,9 @@ function OrderDetailPanel({
   const [operationalNote, setOperationalNote] = useState("");
   const [pickupChangeReviewNotes, setPickupChangeReviewNotes] = useState("");
   const [whatsAppCopyStatus, setWhatsAppCopyStatus] = useState<"copied" | "error" | null>(null);
+  const [copyingWhatsApp, setCopyingWhatsApp] = useState(false);
+  const [whatsAppCopyError, setWhatsAppCopyError] = useState<string | null>(null);
+  const copyingWhatsAppRef = useRef(false);
   const canReturn = !isIncompleteOrder && canReturnMasterOpsOrderToAdvisor(order);
   const canKitchenTake = !isIncompleteOrder && canKitchenTakeOrder(order);
   const canCorrectDeliveredDelivery =
@@ -1453,16 +1456,24 @@ function OrderDetailPanel({
   const canOpenRetentionReport = !isIncompleteOrder && activeTab === "pagos" && retentionPaymentOptions.length > 0;
   const canOpenStaffPayroll = activeTab === "pagos" && canApplyStaffPayroll(roles, order);
   const operationalNotes = order.events.filter((event) => event.title.trim().toLowerCase() === "nota operativa");
-  const canCopyWhatsApp = !detailLoading && !detailError && order.lines.length > 0;
+  const canCopyWhatsApp = !copyingWhatsApp && !detailLoading && !detailError && order.lines.length > 0;
 
   async function handleCopyWhatsApp() {
-    if (!canCopyWhatsApp) return;
+    if (!canCopyWhatsApp || copyingWhatsAppRef.current) return;
 
+    copyingWhatsAppRef.current = true;
+    setCopyingWhatsApp(true);
+    setWhatsAppCopyStatus(null);
+    setWhatsAppCopyError(null);
     try {
-      await navigator.clipboard.writeText(buildMasterOrderWhatsAppSummary(order));
+      await copyLiveOrderWhatsApp(order.id);
       setWhatsAppCopyStatus("copied");
-    } catch {
+    } catch (copyError) {
       setWhatsAppCopyStatus("error");
+      setWhatsAppCopyError(copyError instanceof Error ? copyError.message : "No se pudo verificar el resumen actual.");
+    } finally {
+      copyingWhatsAppRef.current = false;
+      setCopyingWhatsApp(false);
     }
   }
 
@@ -2032,6 +2043,7 @@ function OrderDetailPanel({
                   ].join(" ")}
                   type="button"
                   disabled={!canCopyWhatsApp}
+                  aria-busy={copyingWhatsApp}
                   onClick={handleCopyWhatsApp}
                   title={
                     detailLoading
@@ -2039,11 +2051,11 @@ function OrderDetailPanel({
                       : detailError || order.lines.length === 0
                         ? "Los productos de la orden aun no estan disponibles"
                         : whatsAppCopyStatus === "error"
-                          ? "El navegador no permitio copiar el resumen"
+                          ? whatsAppCopyError ?? "No se pudo copiar el resumen actualizado"
                           : undefined
                   }
                 >
-                  {detailLoading
+                  {copyingWhatsApp ? "Actualizando resumen" : detailLoading
                     ? "Cargando resumen"
                     : detailError || order.lines.length === 0
                       ? "Resumen no disponible"
