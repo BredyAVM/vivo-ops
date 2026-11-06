@@ -1596,6 +1596,7 @@ export default function AdvisorOrderComposer({
   const savingOrderRef = useRef(false);
   const orderCreationRequestRef = useRef<string | null>(null);
   const orderCreationTimeRef = useRef<Date | null>(null);
+  const createdOrderIdRef = useRef<number | null>(null);
   const originalItemPricesRef = useRef(new Map<number, ApprovedPriceLine>());
   const savingDraftRef = useRef(false);
   const crmLookupRequestRef = useRef(0);
@@ -4025,175 +4026,179 @@ export default function AdvisorOrderComposer({
     }
     if (savingOrderRef.current) return;
 
-    clearMessages();
-
-    const restoredGifts = activeDraftId != null && !isEditingOrder
-      ? draftItems.filter(item => item.crm_benefit)
-      : [];
-    if (restoredGifts.length > 0) {
-      try { restoreDraftCrmItems(restoredGifts, crmContext); }
-      catch (restoreError) {
-        setError(restoreError instanceof Error ? restoreError.message : 'Revisa la jugada del borrador.');
-        return;
-      }
-      if (!crmPurchaseEligible) {
-        setError('El borrador conserva el obsequio, pero falta completar la compra mínima. Ajusta la compra o retira el beneficio expresamente antes de guardar.');
-        return;
-      }
-    }
-
-    const blockedDraft = draftItems.find((item) =>
-      availabilityByProductId.get(item.product_id)?.inventory_blocks_submission,
-    );
-    if (!isEditingOrder && blockedDraft) {
-      setError(
-        availabilityByProductId.get(blockedDraft.product_id)?.message
-          ?? `${blockedDraft.product_name_snapshot} está detenido temporalmente por Máster.`,
-      );
+    if (!isEditingOrder && createdOrderIdRef.current) {
+      router.push(`/app/advisor/orders/${createdOrderIdRef.current}`);
       return;
     }
-    const protectedDraft = !isEditingOrder
-      ? protectedDraftViolation(draftItems, availabilityByProductId)
-      : null;
-    if (protectedDraft) {
-      setError(protectedDraft.message || 'La orden supera el saldo protegido disponible para esa fecha.');
-      return;
-    }
-
-    if (!createReady) {
-      if (!scheduleReady) {
-        setError('Falta colocar la fecha y la hora de entrega.');
-      } else {
-        setError('Completa cliente, items y entrega para continuar.');
-      }
-      return;
-    }
-
-    if (
-      crmContext
-      && Number(selectedClient?.id) !== Number(crmContext.client.id)
-    ) {
-      setError('El pedido de una jugada debe conservar el cliente para quien fue publicado el beneficio.');
-      return;
-    }
-
-    if (!isAsap && !deliveryDate.trim()) {
-      setError('Falta colocar la fecha de entrega.');
-      return;
-    }
-
-    if (!isAsap && (!deliveryHour12.trim() || !deliveryMinute.trim())) {
-      setError('Falta colocar la hora de entrega.');
-      return;
-    }
-
-    let deliveryTime24 = '';
+    // Lock before the first asynchronous validation, not only before the write.
+    savingOrderRef.current = true;
+    setSaving(true);
     try {
-      deliveryTime24 = from12hTo24h(
-        deliveryHour12.trim() || (isAsap ? rounded.hour12 : ''),
-        deliveryMinute.trim() || (isAsap ? rounded.minute : ''),
-        isAsap && !deliveryHour12.trim() ? rounded.ampm : deliveryAmPm,
-      );
-    } catch (timeError) {
-      setError(timeError instanceof Error ? timeError.message : 'Hora invalida.');
-      return;
-    }
+      clearMessages();
 
-    if (!isEditingOrder && !isAsap && isPastAdvisorSchedule(deliveryDate.trim(), deliveryTime24)) {
-      setError('No puedes crear una orden con fecha y hora anteriores al momento actual.');
-      return;
-    }
-
-    if (!isEditingOrder && availabilityTargetAt) {
-      const selectedComponentIds = draftItems.flatMap((item) =>
-        item.editable_detail_lines.flatMap((line) => {
-          const match = line.match(/^@sel\|([1-9][0-9]*)\|/);
-          return match ? [Number(match[1])] : [];
-        }),
-      );
-      const productIds = Array.from(new Set([
-        ...draftItems.map((item) => item.product_id),
-        ...selectedComponentIds,
-      ])).slice(0, 200);
-      const { data: currentAvailability, error: availabilityValidationError } = await supabase.rpc(
-        'inventory_catalog_availability_v1',
-        {
-          p_target_at: isAsap ? new Date().toISOString() : availabilityTargetAt,
-          p_product_ids: productIds,
-          p_surface: 'advisor_availability',
-        },
-      );
-      if (!availabilityValidationError) {
-        const currentRows = Array.isArray(currentAvailability?.products)
-          ? currentAvailability.products as ProductAvailability[]
-          : [];
-        const currentMap = new Map(currentRows.map((product) => [Number(product.product_id), product]));
-        const blocked = currentRows.find((product) => product.inventory_blocks_submission)
-          ?? protectedDraftViolation(draftItems, currentMap);
-        if (blocked) {
-          setError(blocked.message || 'Máster detuvo temporalmente uno de los productos para esa fecha.');
+      const restoredGifts = activeDraftId != null && !isEditingOrder
+        ? draftItems.filter(item => item.crm_benefit)
+        : [];
+      if (restoredGifts.length > 0) {
+        try { restoreDraftCrmItems(restoredGifts, crmContext); }
+        catch (restoreError) {
+          setError(restoreError instanceof Error ? restoreError.message : 'Revisa la jugada del borrador.');
+          return;
+        }
+        if (!crmPurchaseEligible) {
+          setError('El borrador conserva el obsequio, pero falta completar la compra mínima. Ajusta la compra o retira el beneficio expresamente antes de guardar.');
           return;
         }
       }
-    }
 
-    if (advisorRecalculationMode) {
-      const { data: activeRateData, error: activeRateError } = await supabase
-        .from('exchange_rates')
-        .select('rate_bs_per_usd')
-        .eq('is_active', true)
-        .order('effective_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (activeRateError) {
-        setError(activeRateError.message);
-        return;
-      }
-
-      const latestRate = toSafeNumber(activeRateData?.rate_bs_per_usd, 0);
-      if (latestRate <= 0) {
-        setError('No hay una tasa activa para recalcular esta orden.');
-        return;
-      }
-
-      const normalizedLatestRate = Number(latestRate.toFixed(2));
-      if (Math.abs(normalizedLatestRate - fxRateNumber) > 0.000001) {
-        setFxRate(String(normalizedLatestRate));
-        setInfo('La tasa activa cambió. Se actualizaron los totales; revísalos y vuelve a guardar.');
-        return;
-      }
-    }
-
-    if (fxRateLockedForAdvisorEdit && originalEditSnapshot?.fxRate && fxRate !== originalEditSnapshot.fxRate) {
-      setFxRate(originalEditSnapshot.fxRate);
-      setError('La tasa snapshot de una orden creada solo puede corregirla master o admin desde el dashboard.');
-      return;
-    }
-
-    if (fxRateNumber <= 0) {
-      setError('Falta una tasa valida para la orden.');
-      return;
-    }
-
-    if (advisorEditHasCatalogPriceDrift) {
-      setError(
-        'Hay items con precios distintos al catalogo vigente. Recalcula los precios antes de guardar para no conservar snapshots vencidos.'
+      const blockedDraft = draftItems.find((item) =>
+        availabilityByProductId.get(item.product_id)?.inventory_blocks_submission,
       );
-      return;
-    }
-
-    if (crmContext && crmPurchaseEligible) {
-      if (crmContext.benefitSelectionMode === 'single' && crmFulfillments.length > 1) {
-        setError('Esta jugada permite aplicar un solo beneficio por pedido.');
+      if (!isEditingOrder && blockedDraft) {
+        setError(
+          availabilityByProductId.get(blockedDraft.product_id)?.message
+            ?? `${blockedDraft.product_name_snapshot} está detenido temporalmente por Máster.`,
+        );
         return;
       }
-    }
+      const protectedDraft = !isEditingOrder
+        ? protectedDraftViolation(draftItems, availabilityByProductId)
+        : null;
+      if (protectedDraft) {
+        setError(protectedDraft.message || 'La orden supera el saldo protegido disponible para esa fecha.');
+        return;
+      }
 
-    savingOrderRef.current = true;
-    setSaving(true);
+      if (!createReady) {
+        if (!scheduleReady) {
+          setError('Falta colocar la fecha y la hora de entrega.');
+        } else {
+          setError('Completa cliente, items y entrega para continuar.');
+        }
+        return;
+      }
 
-    try {
+      if (
+        crmContext
+        && Number(selectedClient?.id) !== Number(crmContext.client.id)
+      ) {
+        setError('El pedido de una jugada debe conservar el cliente para quien fue publicado el beneficio.');
+        return;
+      }
+
+      if (!isAsap && !deliveryDate.trim()) {
+        setError('Falta colocar la fecha de entrega.');
+        return;
+      }
+
+      if (!isAsap && (!deliveryHour12.trim() || !deliveryMinute.trim())) {
+        setError('Falta colocar la hora de entrega.');
+        return;
+      }
+
+      let deliveryTime24 = '';
+      try {
+        deliveryTime24 = from12hTo24h(
+          deliveryHour12.trim() || (isAsap ? rounded.hour12 : ''),
+          deliveryMinute.trim() || (isAsap ? rounded.minute : ''),
+          isAsap && !deliveryHour12.trim() ? rounded.ampm : deliveryAmPm,
+        );
+      } catch (timeError) {
+        setError(timeError instanceof Error ? timeError.message : 'Hora invalida.');
+        return;
+      }
+
+      if (!isEditingOrder && !isAsap && isPastAdvisorSchedule(deliveryDate.trim(), deliveryTime24)) {
+        setError('No puedes crear una orden con fecha y hora anteriores al momento actual.');
+        return;
+      }
+
+      if (!isEditingOrder && availabilityTargetAt) {
+        const selectedComponentIds = draftItems.flatMap((item) =>
+          item.editable_detail_lines.flatMap((line) => {
+            const match = line.match(/^@sel\|([1-9][0-9]*)\|/);
+            return match ? [Number(match[1])] : [];
+          }),
+        );
+        const productIds = Array.from(new Set([
+          ...draftItems.map((item) => item.product_id),
+          ...selectedComponentIds,
+        ])).slice(0, 200);
+        const { data: currentAvailability, error: availabilityValidationError } = await supabase.rpc(
+          'inventory_catalog_availability_v1',
+          {
+            p_target_at: isAsap ? new Date().toISOString() : availabilityTargetAt,
+            p_product_ids: productIds,
+            p_surface: 'advisor_availability',
+          },
+        );
+        if (!availabilityValidationError) {
+          const currentRows = Array.isArray(currentAvailability?.products)
+            ? currentAvailability.products as ProductAvailability[]
+            : [];
+          const currentMap = new Map(currentRows.map((product) => [Number(product.product_id), product]));
+          const blocked = currentRows.find((product) => product.inventory_blocks_submission)
+            ?? protectedDraftViolation(draftItems, currentMap);
+          if (blocked) {
+            setError(blocked.message || 'Máster detuvo temporalmente uno de los productos para esa fecha.');
+            return;
+          }
+        }
+      }
+
+      if (advisorRecalculationMode) {
+        const { data: activeRateData, error: activeRateError } = await supabase
+          .from('exchange_rates')
+          .select('rate_bs_per_usd')
+          .eq('is_active', true)
+          .order('effective_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (activeRateError) {
+          setError(activeRateError.message);
+          return;
+        }
+
+        const latestRate = toSafeNumber(activeRateData?.rate_bs_per_usd, 0);
+        if (latestRate <= 0) {
+          setError('No hay una tasa activa para recalcular esta orden.');
+          return;
+        }
+
+        const normalizedLatestRate = Number(latestRate.toFixed(2));
+        if (Math.abs(normalizedLatestRate - fxRateNumber) > 0.000001) {
+          setFxRate(String(normalizedLatestRate));
+          setInfo('La tasa activa cambió. Se actualizaron los totales; revísalos y vuelve a guardar.');
+          return;
+        }
+      }
+
+      if (fxRateLockedForAdvisorEdit && originalEditSnapshot?.fxRate && fxRate !== originalEditSnapshot.fxRate) {
+        setFxRate(originalEditSnapshot.fxRate);
+        setError('La tasa snapshot de una orden creada solo puede corregirla master o admin desde el dashboard.');
+        return;
+      }
+
+      if (fxRateNumber <= 0) {
+        setError('Falta una tasa valida para la orden.');
+        return;
+      }
+
+      if (advisorEditHasCatalogPriceDrift) {
+        setError(
+          'Hay items con precios distintos al catalogo vigente. Recalcula los precios antes de guardar para no conservar snapshots vencidos.'
+        );
+        return;
+      }
+
+      if (crmContext && crmPurchaseEligible) {
+        if (crmContext.benefitSelectionMode === 'single' && crmFulfillments.length > 1) {
+          setError('Esta jugada permite aplicar un solo beneficio por pedido.');
+          return;
+        }
+      }
+
       if (draftItems.some(item => hasMenuOrderDetails(item.editable_detail_lines))) await validateAdvisorMuerdemeItemsAction(draftItems.map(item => ({
         productId: item.product_id, qty: item.qty, sourcePriceCurrency: item.source_price_currency,
         sourcePriceAmount: item.source_price_amount, editableDetailLines: persistableOrderDetailLines(item.editable_detail_lines),
@@ -4331,8 +4336,8 @@ export default function AdvisorOrderComposer({
           throw new Error(createResult.message);
         }
         targetOrderId = createResult.orderId;
-        orderCreationRequestRef.current = null;
-        orderCreationTimeRef.current = null;
+        createdOrderIdRef.current = targetOrderId;
+        setInfo('Pedido creado. Si la pantalla no cambia, pulsa de nuevo para abrirlo sin crear otro.');
       }
 
       router.push(`/app/advisor/orders/${targetOrderId}`);
