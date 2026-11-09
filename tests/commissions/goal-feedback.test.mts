@@ -120,3 +120,13 @@ test('new client components cannot publish, calculate, notify or access financia
     assert.doesNotMatch(source, /supabase|fetch\(|\.rpc\(|notifyAdvisor|generateAdvisorCommission|router\.push|router\.replace|dangerouslySetInnerHTML/);
   }
 });
+
+test('a simulation read timeout cannot hide the completed operation or imply that a saved publication was undone', () => {
+  const page = readFileSync(join(root, 'src/app/app/commissions/goals/page.tsx'), 'utf8');
+  const fallback = page.indexOf("{!simulation || storedConfig?.status === 'closed'");
+  assert.ok(fallback >= 0);
+  assert.ok(page.indexOf('<GoalActionFeedback', fallback) < page.indexOf('{simulation ? ('));
+  assert.match(page, /Este problema de carga no revierte una publicación ya guardada/);
+  assert.match(page, /La meta sigue publicada/);
+  assert.match(page, /Volver a cargar/);
+});

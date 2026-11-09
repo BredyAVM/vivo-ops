@@ -21,6 +21,7 @@ import {
 } from './actions';
 import { AdvisorGoalCollectionBreakdown } from '../AdvisorGoalCollectionBreakdown';
 import GoalConfigurationActions from './GoalConfigurationActions';
+import GoalActionFeedback from './GoalActionFeedback';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -443,6 +444,10 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
       </header>
 
       <div className="mx-auto max-w-[1500px] space-y-5 px-5 py-6">
+        {!simulation || storedConfig?.status === 'closed' ? (
+          <GoalActionFeedback key={`${params.feedback ?? ''}:${params.notice ?? ''}:${params.error ?? ''}`}
+            notice={params.notice} error={params.error} periodName={selectedPeriod?.name} />
+        ) : null}
         {params.notice ? (
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">{params.notice}</div>
         ) : null}
@@ -501,7 +506,13 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
         ) : null}
 
         {simulationError ? (
-          <section className="rounded-3xl border border-red-500/30 bg-red-500/10 p-5 text-sm text-red-100">{simulationError}</section>
+          <section role="alert" className="space-y-2 rounded-3xl border border-red-500/30 bg-red-500/10 p-5 text-sm text-red-100">
+            <h2 className="font-semibold">No se pudo cargar la simulación actual</h2>
+            <p className="text-xs leading-5">Este problema de carga no revierte una publicación ya guardada. No necesitas volver a publicar para recargar esta vista.</p>
+            {storedConfig?.status === 'published' ? <p className="text-xs text-emerald-200">La meta sigue publicada. Última publicación guardada: {storedConfig.publishedAt ? dateLabel(storedConfig.publishedAt) : 'sin fecha verificada'}.</p> : null}
+            <Link href={`/app/commissions/goals?period=${selectedPeriod?.id ?? ''}`} className="inline-flex min-h-10 items-center rounded-xl border border-current/30 px-3 text-xs font-semibold">Volver a cargar</Link>
+            <details className="text-xs opacity-80"><summary className="cursor-pointer">Ver detalle del problema</summary><p className="mt-2">{simulationError}</p></details>
+          </section>
         ) : null}
 
         {simulation ? (
