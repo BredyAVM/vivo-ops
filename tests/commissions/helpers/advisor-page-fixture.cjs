@@ -9,7 +9,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.resolve(__dirname, '../../..');
 const externalRequire = createRequire(path.join(root, 'package.json'));
 
-async function renderAdvisorPage(detail = 'payable', scenario = 'released') {
+async function renderAdvisorPage(detail = 'payable', scenario = 'released', options = {}) {
   const recorded = { orderId: 2478, orderNumber: '2478', clientName: 'Cliente de prueba',
     deliveryDate: '2026-10-16', totalUsd: 116, billedUsd: 100, confirmedPaidUsd: 106,
     pendingUsd: 10, commissionUsd: 5, commissionMode: 'fixed_order', paymentTiming: 'pending' };
@@ -30,7 +30,7 @@ async function renderAdvisorPage(detail = 'payable', scenario = 'released') {
     generated_at: '2026-10-17T14:00:00Z', closed_at: '2026-10-20T14:00:00Z', paid_at: '2026-10-20T14:00:00Z',
     deductions: [], snapshot: { orders: [recorded], pending_orders: [recorded],
       settlement: { formulaVersion: 'advisor-settlement-v1', retainedCommissionUsd: 18.88 } } };
-  const before = JSON.stringify({ closure, live });
+  const period = { id: 10, name: 'Octubre 02', date_from: '2026-10-16', date_to: '2026-10-31', status: 'open' };
   const reads = [];
   const supabase = {
     from(table) {
@@ -42,7 +42,7 @@ async function renderAdvisorPage(detail = 'payable', scenario = 'released') {
         order() { return builder; },
         async limit() {
           if (table !== 'advisor_commission_periods') throw new Error('Unexpected query');
-          return { data: [{ id: 10, name: 'Octubre 02', date_from: '2026-10-16', date_to: '2026-10-31', status: 'open' }], error: null };
+          return { data: [period], error: null };
         },
         async maybeSingle() {
           if (table === 'profiles') return { data: { receives_commissions: true }, error: null };
@@ -64,7 +64,11 @@ async function renderAdvisorPage(detail = 'payable', scenario = 'released') {
   const cache = new Map();
   const mocks = {
     '@/lib/auth': { getAuthContext: async () => ({ user: { id: 'fixture-advisor' }, supabase }) },
-    '@/lib/commissions/goal-data': {},
+    '@/lib/commissions/goal-data': {
+      loadAdvisorGoalCollectionForClosure: async () => null,
+      loadAdvisorGoalCurrentCollection: async () => null,
+      loadAdvisorGoalCurrentCommercialMetric: async () => null,
+    },
     'next/link': { __esModule: true, default: ({ children, ...props }) => React.createElement('a', props, children) },
     'next/navigation': { useRouter: () => ({ refresh() {} }), redirect: (url) => { throw new Error(`Redirect ${url}`); } },
   };
@@ -87,6 +91,29 @@ async function renderAdvisorPage(detail = 'payable', scenario = 'released') {
     new Function('require', 'module', 'exports', code)(localRequire, module, module.exports);
     return module.exports;
   }
+  if (scenario === 'goal') {
+    const { buildAdvisorGoalSimulation } = load(path.join(root, 'src/lib/commissions/goal-simulation.ts'));
+    const { buildAdvisorGoalPublicationBundle } = load(path.join(root, 'src/lib/commissions/goal-publication.ts'));
+    const periods = [[7,1],[7,2],[8,1],[8,2],[9,1],[9,2],[10,1],[10,2]];
+    const simulation = buildAdvisorGoalSimulation({
+      periodFrom: period.date_from, periodTo: period.date_to,
+      metrics: periods.map(([month, half]) => ({
+        periodKey: `2026-${String(month).padStart(2,'0')}-${half}`,
+        periodFrom: `2026-${String(month).padStart(2,'0')}-${half === 1 ? '01' : '16'}`,
+        periodTo: `2026-${String(month).padStart(2,'0')}-${half === 1 ? '15' : month === 9 ? '30' : '31'}`,
+        periodYear: 2026, periodMonth: month, periodHalf: half,
+        advisorUserId: 'fixture-advisor', advisorName: 'Asesor de prueba',
+        billingUsd: 100, closuresCount: 1, newOwnClientsCount: 0, newAssignedClientsCount: 0,
+      })),
+      context: { billingContextPct: 0, closuresContextPct: 0, growthChallengePct: 10, bands: options.bands },
+    });
+    const bundle = buildAdvisorGoalPublicationBundle({ simulation, periodId: 10, intent: 'publish',
+      reason: '', publicationMessage: null, actorUserId: 'fixture-admin', recordedAt: '2026-10-16T14:00:00Z',
+      previousConfig: null, previousByAdvisorId: new Map() });
+    period.goal_config = bundle.config;
+    closure.snapshot.advisorGoal = bundle.publications[0].publication;
+  }
+  const before = JSON.stringify({ closure, live });
   const Page = load(path.join(root, 'src/app/app/advisor/commissions/page.tsx')).default;
   const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({ period: '10', detail }) }));
   if (JSON.stringify({ closure, live }) !== before) throw new Error('Rendering mutated the agreement or live data');
