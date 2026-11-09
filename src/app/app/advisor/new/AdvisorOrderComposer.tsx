@@ -21,6 +21,7 @@ import { isCrmOnlyCatalogProduct, isInternalOrderDetailLine } from '@/lib/crm/pl
 import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persistence';
 import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import { refreshAdvisorAsapSchedule } from '@/lib/orders/advisor-creation-schedule';
+import { clientDocumentProfilePatch } from '@/lib/clients/document-profile';
 import RewardLineSelector from '@/components/rewards/RewardLineSelector';
 import { REWARD_GRANT_SELECT, type RewardGrant } from '@/lib/rewards/wallet-model';
 import { fundedOrderSnapshot, rewardDraftAvailable, type RewardLineFunding } from '@/lib/rewards/order-funding';
@@ -2477,6 +2478,7 @@ export default function AdvisorOrderComposer({
       } else if (initialCrmContext) {
         setCrmContext(initialCrmContext);
         setSelectedClient(initialCrmContext.client);
+        applyClientProfile(initialCrmContext.client);
         rememberClient(initialCrmContext.client);
         setSearchTerm(initialCrmContext.client.phone || initialCrmContext.client.full_name || '');
         setClientResults([]);
@@ -2488,6 +2490,7 @@ export default function AdvisorOrderComposer({
       } else if (initialClient) {
         setCrmContext(null);
         setSelectedClient(initialClient);
+        applyClientProfile(initialClient);
         rememberClient(initialClient);
         setSearchTerm(initialClient.phone || initialClient.full_name || '');
         setClientResults([]);
@@ -2869,15 +2872,15 @@ export default function AdvisorOrderComposer({
     }
   }
 
-  function applyClientProfile(client: ClientRow) {
-    setInvoiceCompanyName(client.billing_company_name || '');
-    setInvoiceTaxId(client.billing_tax_id || '');
-    setInvoiceAddress(client.billing_address || '');
-    setInvoicePhone(client.billing_phone || '');
-    setDeliveryNoteName(client.delivery_note_name || '');
-    setDeliveryNoteDocumentId(client.delivery_note_document_id || '');
-    setDeliveryNoteAddress(client.delivery_note_address || '');
-    setDeliveryNotePhone(client.delivery_note_phone || '');
+  function applyClientProfile(client: ClientRow | null) {
+    setInvoiceCompanyName(client?.billing_company_name || '');
+    setInvoiceTaxId(client?.billing_tax_id || '');
+    setInvoiceAddress(client?.billing_address || '');
+    setInvoicePhone(client?.billing_phone || '');
+    setDeliveryNoteName(client?.delivery_note_name || '');
+    setDeliveryNoteDocumentId(client?.delivery_note_document_id || '');
+    setDeliveryNoteAddress(client?.delivery_note_address || '');
+    setDeliveryNotePhone(client?.delivery_note_phone || '');
   }
 
   async function detectClientCrmContext(client: ClientRow, fallbackNotice: string) {
@@ -2941,6 +2944,7 @@ export default function AdvisorOrderComposer({
     setCrmContextLoading(false);
     setCrmContext(null);
     setSelectedClient(null);
+    applyClientProfile(null);
     setDraftItems((current) => current.filter((item) => !item.crm_benefit));
     setSearchTerm('');
     setClientResults([]);
@@ -4237,14 +4241,10 @@ export default function AdvisorOrderComposer({
       const { error: clientProfileError } = await supabase
         .from('clients')
         .update({
-          billing_company_name: hasInvoice ? invoiceCompanyName.trim() || null : null,
-          billing_tax_id: hasInvoice ? invoiceTaxId.trim() || null : null,
-          billing_address: hasInvoice ? invoiceAddress.trim() || null : null,
-          billing_phone: hasInvoice ? normalizePhone(invoicePhone) || null : null,
-          delivery_note_name: hasDeliveryNote ? deliveryNoteName.trim() || null : null,
-          delivery_note_document_id: hasDeliveryNote ? deliveryNoteDocumentId.trim() || null : null,
-          delivery_note_address: hasDeliveryNote ? deliveryNoteAddress.trim() || null : null,
-          delivery_note_phone: hasDeliveryNote ? normalizePhone(deliveryNotePhone) || null : null,
+          ...clientDocumentProfilePatch({
+            hasInvoice, invoiceCompanyName, invoiceTaxId, invoiceAddress, invoicePhone,
+            hasDeliveryNote, deliveryNoteName, deliveryNoteDocumentId, deliveryNoteAddress, deliveryNotePhone,
+          }),
           recent_addresses: recentAddresses,
         })
         .eq('id', clientId);
@@ -4576,6 +4576,7 @@ export default function AdvisorOrderComposer({
               onClick={() => {
                 setIsNewClientMode((current) => !current);
                 setSelectedClient(null);
+                applyClientProfile(null);
               }}
               className="h-10 rounded-[14px] border border-[#232632] text-sm font-medium text-[#F5F7FB]"
             >
@@ -5230,12 +5231,6 @@ export default function AdvisorOrderComposer({
                 onChange={(e) => {
                   setHasDeliveryNote(e.target.checked);
                   setDeliveryNotePanelOpen(e.target.checked);
-                  if (!e.target.checked) {
-                    setDeliveryNoteName('');
-                    setDeliveryNoteDocumentId('');
-                    setDeliveryNoteAddress('');
-                    setDeliveryNotePhone('');
-                  }
                 }}
               />
               <span>Lleva nota de entrega</span>
@@ -5252,10 +5247,6 @@ export default function AdvisorOrderComposer({
                     setInvoiceTaxPct('16');
                   }
                   if (!e.target.checked) {
-                    setInvoiceCompanyName('');
-                    setInvoiceTaxId('');
-                    setInvoiceAddress('');
-                    setInvoicePhone('');
                     setInvoiceTaxPct('16');
                   }
                 }}
