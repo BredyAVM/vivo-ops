@@ -32,6 +32,7 @@ test('shared coupon: canonical pricing, edit, reservation, delivery, cancellatio
       alter table crm_play_benefit_upgrades add column target_product_name_snapshot text,add column target_source_price_currency_snapshot text,
         add column target_source_price_amount_snapshot numeric,add column target_catalog_price_usd_snapshot numeric;
       alter table crm_play_redemptions add column recurrence_mode_snapshot text default 'once',add column benefit_day date;
+      alter table crm_play_benefits add constraint crm_play_benefits_sort_order_check check(sort_order between 1 and 8);
       create table app_private.crm_order_minimum_exceptions(order_id bigint,play_member_id bigint,benefit_fingerprint text,
         minimum_authorized_usd numeric,reason text,approved_at timestamptz,approved_by uuid);
       create function public.is_admin() returns boolean language sql as $$select auth.role()='admin'$$;
@@ -50,6 +51,7 @@ test('shared coupon: canonical pricing, edit, reservation, delivery, cancellatio
     // SQL helpers must exist before dependent SQL functions are installed.
     await db.exec(read('tests/crm/fixtures/coupon-installed-functions.sql'));
     await db.exec(read('supabase/migrations/20261109185549_crm_shared_coupon_v1.sql'));
+    await db.exec(read('supabase/migrations/20261109191708_crm_coupon_catalog_options_v1.sql'));
     const lifecycle=read('supabase/migrations/20260912001929_crm_benefit_reservation_delivery_lifecycle_v1.sql');
     await db.exec(extract(lifecycle,'app_private.crm_finalize_order_benefits_on_delivery_v1'));
     await db.exec(extract(lifecycle,'app_private.crm_void_play_redemptions_on_order_cancel_v1'));
@@ -130,6 +132,10 @@ test('shared coupon: canonical pricing, edit, reservation, delivery, cancellatio
     await assert.rejects(db.exec('select public.crm_confirm_play_v1(2)'),/costos/);
     const summary=(await rows('select public.crm_refresh_play_preview_summary_v1(2) v'))[0].v;
     assert.equal(summary.benefit_value_per_client_max_usd,4);assert.equal(summary.company_cost_per_client_max_usd,null);
+    await db.exec(`create trigger coupon_options_guard before insert or update or delete on crm_play_benefits for each row execute function app_private.crm_play_benefit_guard_v2();
+      insert into crm_play_benefits(id,play_id,product_id,sort_order) values(90,2,14,9);
+      update crm_plays set status='draft' where id=1;`);
+    await assert.rejects(db.exec('insert into crm_play_benefits(id,play_id,product_id,sort_order) values(91,1,14,9)'),/ocho alternativas/);
     assert.equal(await scalar(`select has_function_privilege('anon','public.crm_prepare_coupon_selection_v1(bigint,bigint[],bigint)','execute') v`),false);
   } finally { await db.close(); }
 });
