@@ -22,6 +22,7 @@ import { persistableOrderDetailLines } from '@/lib/orders/order-detail-persisten
 import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import { refreshAdvisorAsapSchedule } from '@/lib/orders/advisor-creation-schedule';
 import { clientDocumentProfilePatch } from '@/lib/clients/document-profile';
+import ClientCompanyProfiles from '@/components/clients/ClientCompanyProfiles';
 import RewardLineSelector from '@/components/rewards/RewardLineSelector';
 import { REWARD_GRANT_SELECT, type RewardGrant } from '@/lib/rewards/wallet-model';
 import { fundedOrderSnapshot, rewardDraftAvailable, type RewardLineFunding } from '@/lib/rewards/order-funding';
@@ -4242,6 +4243,7 @@ export default function AdvisorOrderComposer({
         .from('clients')
         .update({
           ...clientDocumentProfilePatch({
+            preserveClientCommercialProfile: Boolean(selectedClient),
             hasInvoice, invoiceCompanyName, invoiceTaxId, invoiceAddress, invoicePhone,
             hasDeliveryNote, deliveryNoteName, deliveryNoteDocumentId, deliveryNoteAddress, deliveryNotePhone,
           }),
@@ -5222,6 +5224,26 @@ export default function AdvisorOrderComposer({
             <input type="checkbox" checked={paymentRequiresChange} onChange={(e) => setPaymentRequiresChange(e.target.checked)} />
             <span>Requiere cambio</span>
           </label>
+
+          {selectedClient ? (
+            <ClientCompanyProfiles
+              key={selectedClient.id}
+              clientId={selectedClient.id}
+              autoSelectDefault={!isEditingOrder && !initialDraft && !isRepeatingOrder}
+              disabled={saving}
+              value={{ invoiceCompanyName, invoiceTaxId, invoiceAddress, invoicePhone, deliveryNoteName, deliveryNoteDocumentId, deliveryNoteAddress, deliveryNotePhone }}
+              onApply={data => {
+                setInvoiceCompanyName(data.invoiceCompanyName);
+                setInvoiceTaxId(data.invoiceTaxId);
+                setInvoiceAddress(data.invoiceAddress);
+                setInvoicePhone(data.invoicePhone);
+                setDeliveryNoteName(data.deliveryNoteName);
+                setDeliveryNoteDocumentId(data.deliveryNoteDocumentId);
+                setDeliveryNoteAddress(data.deliveryNoteAddress);
+                setDeliveryNotePhone(data.deliveryNotePhone);
+              }}
+            />
+          ) : null}
 
           <div className="grid grid-cols-2 gap-3">
             <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">

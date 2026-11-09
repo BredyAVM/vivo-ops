@@ -7415,18 +7415,18 @@ export async function createOrderAction(input: {
       invoice_data_note: input.invoiceDataNote.trim() || null,
       invoice_snapshot: input.hasInvoice
         ? {
-            company_name: clientProfile?.billing_company_name ?? null,
-            tax_id: clientProfile?.billing_tax_id ?? null,
-            address: clientProfile?.billing_address ?? null,
-            phone: clientProfile?.billing_phone ?? null,
+            company_name: input.invoiceCompanyName.trim() || null,
+            tax_id: input.invoiceTaxId.trim() || null,
+            address: input.invoiceAddress.trim() || null,
+            phone: normalizePhone(input.invoicePhone) || null,
           }
         : null,
       delivery_note_snapshot: input.hasDeliveryNote
         ? {
-            name: clientProfile?.delivery_note_name ?? null,
-            document_id: clientProfile?.delivery_note_document_id ?? null,
-            address: clientProfile?.delivery_note_address ?? null,
-            phone: clientProfile?.delivery_note_phone ?? null,
+            name: input.deliveryNoteName.trim() || null,
+            document_id: input.deliveryNoteDocumentId.trim() || null,
+            address: input.deliveryNoteAddress.trim() || null,
+            phone: normalizePhone(input.deliveryNotePhone) || null,
           }
         : null,
     },
@@ -7911,6 +7911,7 @@ export async function updateDeliveredOrderPaymentIntentAction(input: {
 }
 
 export async function updateOrderAction(input: {
+  preserveClientCommercialProfile?: boolean;
   orderId: number;
   expectedLastModifiedAt?: string | null;
 
@@ -8330,18 +8331,18 @@ export async function updateOrderAction(input: {
       invoice_data_note: input.invoiceDataNote.trim() || null,
       invoice_snapshot: input.hasInvoice
         ? {
-            company_name: clientProfile?.billing_company_name ?? null,
-            tax_id: clientProfile?.billing_tax_id ?? null,
-            address: clientProfile?.billing_address ?? null,
-            phone: clientProfile?.billing_phone ?? null,
+            company_name: input.invoiceCompanyName.trim() || null,
+            tax_id: input.invoiceTaxId.trim() || null,
+            address: input.invoiceAddress.trim() || null,
+            phone: normalizePhone(input.invoicePhone) || null,
           }
         : null,
       delivery_note_snapshot: input.hasDeliveryNote
         ? {
-            name: clientProfile?.delivery_note_name ?? null,
-            document_id: clientProfile?.delivery_note_document_id ?? null,
-            address: clientProfile?.delivery_note_address ?? null,
-            phone: clientProfile?.delivery_note_phone ?? null,
+            name: input.deliveryNoteName.trim() || null,
+            document_id: input.deliveryNoteDocumentId.trim() || null,
+            address: input.deliveryNoteAddress.trim() || null,
+            phone: normalizePhone(input.deliveryNotePhone) || null,
           }
         : null,
     },

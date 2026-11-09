@@ -34,6 +34,14 @@ Este documento fija los límites operativos del módulo Asesor para que futuras 
 - Productos y obsequios pueden agruparse visualmente, pero el detalle original del snapshot debe conservarse.
 - Una futura acción de "conforme / no conforme" requiere una tabla, estados y permisos propios; no debe guardarse como nota informal.
 
+## Empresas y documentos del cliente
+
+- Un cliente puede tener varias empresas con datos fiscales y de nota de entrega independientes. El contrato ampliado esta en `CLIENT_COMPANY_PROFILES_2026-11-09.md`.
+- Elegir una empresa solo rellena campos. Factura, IVA y nota de entrega se habilitan expresamente para cada pedido.
+- Guardar como nueva y actualizar seleccionada son acciones diferentes. Guardar el pedido no sobrescribe las empresas guardadas.
+- El pedido conserva sus propios snapshots de documentos. Modificar una ficha de empresa no cambia pedidos anteriores ni reemplaza automaticamente documentos de borradores o ediciones.
+- Una empresa principal se propone solo al crear un pedido nuevo. Los accesos y comandos de empresa mantienen los permisos vigentes de clientes; no conceden acceso a ordenes ajenas.
+
 ## Borradores y presupuestos
 
 - `draft` y `quoted` son trabajos activos del asesor.

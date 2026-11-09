@@ -3,6 +3,7 @@ import { countsTowardCrmMinimum, dailyBenefitConflict, isDeliveryProduct } from 
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { parseDecimalInput } from "@/lib/number-input";
+import ClientCompanyProfiles from '@/components/clients/ClientCompanyProfiles';
 import CrmOrderMinimumPanel from "./CrmOrderMinimumPanel";
 import { useDialogFocus } from "@/components/ui/useDialogFocus";
 import { currencyLabel } from "@/lib/ui/currency-label";
@@ -1205,6 +1206,7 @@ export default function MasterOpsOrderEditor({
         clientFundAmountUsd: form.useClientFund ? String(effectiveFundAmount) : "",
         hasDeliveryNote: form.hasDeliveryNote,
         hasInvoice: form.hasInvoice,
+        preserveClientCommercialProfile: Boolean(form.selectedClientId),
         invoiceDataNote: [
           form.invoiceCompanyName,
           form.invoiceTaxId,
@@ -1789,6 +1791,18 @@ export default function MasterOpsOrderEditor({
                           placeholder="Banco, referencia esperada, cambio, etc."
                         />
                       </Field>
+                      {form.selectedClientId ? (
+                        <div className="sm:col-span-2">
+                          <ClientCompanyProfiles
+                            key={form.selectedClientId}
+                            clientId={form.selectedClientId}
+                            autoSelectDefault={isCreateMode && !templateOrderId}
+                            disabled={saving}
+                            value={{ invoiceCompanyName: form.invoiceCompanyName, invoiceTaxId: form.invoiceTaxId, invoiceAddress: form.invoiceAddress, invoicePhone: form.invoicePhone, deliveryNoteName: form.deliveryNoteName, deliveryNoteDocumentId: form.deliveryNoteDocumentId, deliveryNoteAddress: form.deliveryNoteAddress, deliveryNotePhone: form.deliveryNotePhone }}
+                            onApply={data => patchForm(data)}
+                          />
+                        </div>
+                      ) : null}
                       <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
                         <input
                           className="accent-[#FEEF00]"

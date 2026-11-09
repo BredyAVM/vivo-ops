@@ -1,6 +1,7 @@
 import { normalizePhone } from '../phone/normalize-phone.ts';
 
 export type ClientDocumentInput = {
+  preserveClientCommercialProfile?: boolean;
   hasInvoice: boolean;
   invoiceCompanyName?: string | null;
   invoiceTaxId?: string | null;
@@ -17,6 +18,7 @@ const clean = (value: string | null | undefined) => value?.trim() || null;
 
 // A document omitted from this order is not a request to erase the client's profile.
 export function clientDocumentProfilePatch(input: ClientDocumentInput) {
+  if (input.preserveClientCommercialProfile) return {};
   return {
     ...(input.hasInvoice ? {
       billing_company_name: clean(input.invoiceCompanyName),
