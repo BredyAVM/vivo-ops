@@ -1,4 +1,5 @@
 export type AdvisorCrmOrderContext = {
+  coupon?: { label: string; maximum_discount_usd: number } | null;
   playMemberId: number;
   playName: string;
   recurrenceMode?: 'once' | 'daily';

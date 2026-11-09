@@ -1,4 +1,6 @@
 "use client";
+import { allocateCoupon } from '@/lib/crm/coupon';
+import CouponSelector from '@/components/crm/CouponSelector';
 import { countsTowardCrmMinimum, dailyBenefitConflict, isDeliveryProduct } from "@/lib/crm/benefit-eligibility";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -528,18 +530,27 @@ export default function MasterOpsOrderEditor({
 
   const selectedProduct = selectedProductId ? catalogById.get(Number(selectedProductId)) ?? null : null;
 
+  const currentCrmContext = crmContext?.client.id === crmClientId ? crmContext : null;
+  const couponQuotes = useMemo(() => currentCrmContext?.coupon ? allocateCoupon(currentCrmContext.coupon.maximum_discount_usd,
+    (form?.items ?? []).filter(item => item.crmPlayMemberId === currentCrmContext.playMemberId).map(item => {
+      const product = catalogById.get(item.productId);
+      const currency = item.couponSourceCurrency ?? product?.sourcePriceCurrency;
+      const amount = item.couponSourceAmount ?? product?.sourcePriceAmount ?? 0;
+      return { benefitId: Number(item.crmPlayBenefitId), grossUsd: (currency === 'VES' ? amount / fxRate : amount) * item.qty };
+    })) : [], [currentCrmContext, form?.items, catalogById, fxRate]);
   const calculatedItems = useMemo(
     () => (form?.items ?? []).map((item) => {
+      const quote = item.crmPlayMemberId ? couponQuotes.find(q => q.benefitId === item.crmPlayBenefitId) : null;
+      if (quote) return recalculateItem({ ...item, sourcePriceCurrency: 'USD', sourcePriceAmount: quote.netUsd / item.qty }, fxRate);
       const original = data?.order.items.find((row) => row.orderItemId === item.orderItemId);
       const preserved = preservedAgreedPriceSnapshot(item, original, Number(data?.order.fxRate || 0)) ??
         (!isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null);
       return preserved ? { ...item, unitPriceUsdSnapshot: preserved.unitUsd, lineTotalUsd: preserved.lineUsd,
         unitPriceBsSnapshot: preserved.unitBs, lineTotalBsSnapshot: preserved.lineBs } : recalculateItem(item, fxRate);
     }),
-    [form?.items, fxRate, data?.order.items, data?.order.fxRate, isAdmin]
+    [form?.items, fxRate, data?.order.items, data?.order.fxRate, isAdmin, couponQuotes]
   );
 
-  const currentCrmContext = crmContext?.client.id === crmClientId ? crmContext : null;
   const crmAdvisorMatches = Boolean(currentCrmContext?.advisorUserId &&
     form?.attributedAdvisorUserId === currentCrmContext.advisorUserId);
   const crmAdvisor = data?.advisors.find((advisor) => advisor.id === currentCrmContext?.advisorUserId);
@@ -870,6 +881,13 @@ export default function MasterOpsOrderEditor({
   }
 
   function appendCrmItem(item: MasterOpsEditOrderItem) {
+    if (currentCrmContext?.coupon) {
+      setForm(current => current ? { ...current, items: [...current.items.filter(existing =>
+        existing.crmPlayBenefitId !== item.crmPlayBenefitId &&
+        !(existing.productId === item.productId && existing.qty === item.qty && !existing.crmPlayMemberId) &&
+        !(isDeliveryProduct(item.productNameSnapshot, item.skuSnapshot) && isDeliveryProduct(existing.productNameSnapshot, existing.skuSnapshot))), item] } : current);
+      return;
+    }
     setForm((current) => current ? {
       ...current,
       items: [...current.items.filter((existing) =>
@@ -880,7 +898,7 @@ export default function MasterOpsOrderEditor({
   }
 
   function addCrmBenefit(benefitId: number, upgradeId: number | null = null) {
-    if (!form || !currentCrmContext || !crmAdvisorMatches || hasPersistedCrmBenefit) return;
+    if (!form || !currentCrmContext || !crmAdvisorMatches || (hasPersistedCrmBenefit && !currentCrmContext.coupon)) return;
     const conflict = currentCrmContext.recurrenceMode === 'daily'
       ? dailyBenefitConflict(currentCrmContext.dailyUses ?? [], form.deliveryDate, data?.order.id) : null;
     if (conflict) { setError(`El beneficio de ese día ya está reservado o entregado en la orden #${conflict.orderId}.`); return; }
@@ -895,6 +913,7 @@ export default function MasterOpsOrderEditor({
       const choice = resolveCrmOrderBenefit(currentCrmContext, benefitId, upgradeId);
       const product = catalogById.get(choice.productId);
       if (!product?.isActive) throw new Error("El producto del beneficio no está disponible.");
+      if (currentCrmContext.coupon && isDeliveryProduct(product.name, product.sku) && form.fulfillment !== 'delivery') throw new Error('Selecciona entrega por delivery para bonificar el envío.');
       const item: MasterOpsEditOrderItem = {
         ...choice,
         localId: `crm-${choice.crmPlayMemberId}-${benefitId}`,
@@ -907,6 +926,7 @@ export default function MasterOpsOrderEditor({
         adminPriceOverrideReason: null,
         adminPriceOverrideByUserId: null,
         adminPriceOverrideAt: null,
+        ...(currentCrmContext.coupon ? { couponSourceCurrency: product.sourcePriceCurrency, couponSourceAmount: product.sourcePriceAmount } : {}),
       };
       setError(null);
       if (product.isDetailEditable) openConfig(product, null, item);
@@ -1523,8 +1543,13 @@ export default function MasterOpsOrderEditor({
                               ) : null}
                             </div>
                           ) : null}
-                          {hasPersistedCrmBenefit ? <p className="text-amber-100">Ya hay un beneficio reservado en el pedido. Retíralo y guarda si necesitas cambiarlo.</p> : null}
-                          {currentCrmContext.benefits.map((benefit) => {
+                          {hasPersistedCrmBenefit && !currentCrmContext.coupon ? <p className="text-amber-100">Ya hay un beneficio reservado en el pedido. Retíralo y guarda si necesitas cambiarlo.</p> : null}
+                          {currentCrmContext.coupon ? <CouponSelector cap={currentCrmContext.coupon.maximum_discount_usd}
+                            options={currentCrmContext.benefits} selected={form.items.filter(i => i.crmPlayMemberId === currentCrmContext.playMemberId).map(i => Number(i.crmPlayBenefitId))}
+                            discount={couponQuotes.reduce((n,q) => n+q.discountUsd,0)} delivery={form.fulfillment === 'delivery'}
+                            disabled={!crmAdvisorMatches || !crmPurchaseEligible || saving}
+                            onToggle={id => { if (form.items.some(i => i.crmPlayBenefitId === id)) setForm(current => current ? { ...current, items: current.items.filter(i => i.crmPlayBenefitId !== id) } : current); else addCrmBenefit(id); }}
+                          /> : currentCrmContext.benefits.map((benefit) => {
                             const selected = form.items.find((item) => item.crmPlayMemberId === currentCrmContext.playMemberId && item.crmPlayBenefitId === benefit.playBenefitId);
                             const disabled = !crmAdvisorMatches || !crmPurchaseEligible || hasPersistedCrmBenefit || saving;
                             return (

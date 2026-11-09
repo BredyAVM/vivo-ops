@@ -74,7 +74,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       .limit(100),
     ctx.supabase
       .from('products')
-      .select('id, name, sku, type, is_active, base_price_usd, extra_fields, advisor_gift_cost_usd:extra_fields->>advisor_gift_cost_usd')
+      .select('id, name, sku, type, is_active, base_price_usd, inventory_group, extra_fields, advisor_gift_cost_usd:extra_fields->>advisor_gift_cost_usd')
       .order('name', { ascending: true })
       .limit(1000),
     ctx.supabase
@@ -467,6 +467,7 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
       sku: row.sku == null ? null : String(row.sku),
       type: String(row.type),
       referenceValueUsd: benefitValue,
+      inventoryGroup: row.inventory_group,
       referenceAdvisorCostUsd: Math.min(advisorCost, benefitValue),
       referenceCompanyCostUsd: Math.max(0, benefitValue - advisorCost),
     };

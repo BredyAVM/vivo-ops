@@ -856,6 +856,7 @@ export async function resolveAdvisorCatalogGiftAction(input: { clientId: number;
 export async function prepareAdvisorCrmPlayBenefitsAction(input: {
   playMemberId: number;
   playBenefitIds: number[];
+  orderId?: number | null;
 }) {
   try {
     const ctx = await requireAuthContext();
@@ -869,9 +870,10 @@ export async function prepareAdvisorCrmPlayBenefitsAction(input: {
       return { ok: false as const, message: 'La selección del beneficio no es válida.' };
     }
 
-    const { error } = await ctx.supabase.rpc('crm_set_play_benefits_v2', {
-      p_play_member_id: playMemberId,
-      p_play_benefit_ids: playBenefitIds,
+    const { error } = await ctx.supabase.rpc('crm_prepare_coupon_selection_v1', {
+      p_member: playMemberId,
+      p_benefits: playBenefitIds,
+      p_order: input.orderId ?? null,
     });
     if (error) return { ok: false as const, message: error.message };
 
@@ -906,6 +908,7 @@ export async function loadAdvisorExistingOrderCrmContextAction(input: { orderId:
     supabase: ctx.supabase,
     advisorUserId: ctx.user.id,
     clientId,
+    orderId,
   });
 }
 
@@ -1281,6 +1284,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
   const originalPrices = new Map((existingItems ?? []).map((item) => [Number(item.id), storedApprovedPriceLine(item)]));
   const originalFunding = new Map((existingItems ?? []).map((item) => [Number(item.id), item]));
   for (const [index, item] of input.items.entries()) {
+    if (item.crmPlayMemberId) continue; // CRM validates its price; coupon allocation changes when another line is removed.
     // Never restore the former customer's charge over a newly selected prize
     // (or restore the former discount when the advisor removes/changes it).
     if (rewardFundingChanged(item, originalFunding.get(Number(item.orderItemId)))) continue;

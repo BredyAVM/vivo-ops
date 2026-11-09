@@ -1,4 +1,5 @@
 import 'server-only';
+import { readCrmCoupon } from './coupon';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isPlayOrderAvailableAt, allowsCrmCatalogProduct } from '@/lib/crm/play-order';
@@ -9,6 +10,7 @@ type LoadAdvisorCrmOrderContextInput = {
   advisorUserId: string;
   clientId: number;
   playMemberId?: number | null;
+  orderId?: number | null;
 };
 
 type RelatedRow = Record<string, unknown> | Array<Record<string, unknown>> | null;
@@ -30,6 +32,7 @@ async function loadCrmOrderContext({
   advisorUserId,
   clientId,
   playMemberId = null,
+  orderId = null,
 }: Omit<LoadAdvisorCrmOrderContextInput, 'advisorUserId'> & { advisorUserId?: string }): Promise<MasterCrmOrderContext | null> {
   let memberQuery = supabase
     .from('crm_play_members')
@@ -41,7 +44,7 @@ async function loadCrmOrderContext({
         delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone
       ),
       play:crm_plays!crm_play_members_play_id_fkey(
-        id, name, status, starts_at, ends_at, benefit_selection_mode,
+        id, name, status, starts_at, ends_at, benefit_selection_mode, rules_snapshot,
         purchase_requirement_mode, minimum_order_amount_usd, benefit_recurrence_mode, benefit_fulfillment
       )
     `)
@@ -58,8 +61,14 @@ async function loadCrmOrderContext({
   const { data: memberRows, error: memberError } = await memberQuery.limit(20);
   if (memberError) throw new Error(memberError.message);
 
+  const { data: reservedRows, error: reservedError } = orderId
+    ? await supabase.from('crm_play_redemptions').select('play_member_id').eq('order_id', orderId).eq('status', 'reserved')
+    : { data: [], error: null };
+  if (reservedError) throw new Error(reservedError.message);
+  const reservedIds = new Set((reservedRows ?? []).map(r => Number(r.play_member_id)));
   const activeMember = (memberRows ?? []).find((candidate) => {
     const play = firstRelated(candidate.play as RelatedRow);
+    if (play && reservedIds.has(Number(candidate.id)) && ['active', 'paused', 'closed'].includes(String(play.status))) return true;
     return Boolean(play) && (candidate.benefit_status === 'available' || play?.benefit_recurrence_mode === 'daily') && isPlayOrderAvailableAt({
       status: String(play?.status ?? ''),
       startsAt: play?.starts_at == null ? null : String(play.starts_at),
@@ -157,6 +166,7 @@ async function loadCrmOrderContext({
     dailyUses = (uses ?? []).filter((use) => use.benefit_day).map((use) => ({ day: String(use.benefit_day), orderId: Number(use.order_id) }));
   }
   return {
+    coupon: readCrmCoupon(play.rules_snapshot as Record<string, unknown> | null),
     recurrenceMode: play.benefit_recurrence_mode === 'daily' ? 'daily' : 'once',
     benefitFulfillment: play.benefit_fulfillment as 'any' | 'pickup' | 'delivery_zone_1',
     dailyUses,

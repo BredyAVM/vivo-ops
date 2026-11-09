@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireAdminContext, requireMasterOrAdminContext } from '@/lib/auth';
 import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
+import { isCouponCatalogProduct, readCrmCoupon } from '@/lib/crm/coupon';
 import { offerRestRules, type OfferRestInput } from '@/lib/crm/offer-rest';
 import { purchasedProductRules, type PurchasedProductInput } from '@/lib/crm/purchased-products';
 
@@ -55,6 +56,7 @@ export type PlayBenefitInput = {
 };
 
 export type SavePlayDraftInput = OfferRestInput & PurchasedProductInput & {
+  coupon?: { capUsd: number; advisorContributionUsd: number | null; costsReviewed: boolean } | null;
   playId?: number | null;
   name: string;
   description?: string;
@@ -397,7 +399,11 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const plannedBudgetUsd = input.plannedBudgetUsd == null
       ? null
       : finiteNumber(input.plannedBudgetUsd, Number.NaN);
-    const benefitSelectionMode = normalizeBenefitSelectionMode(input.benefitSelectionMode);
+    const coupon = input.coupon;
+    if (coupon && (!Number.isFinite(coupon.capUsd) || coupon.capUsd <= 0 || coupon.capUsd > 1000
+      || (coupon.advisorContributionUsd != null && (!Number.isFinite(coupon.advisorContributionUsd) || coupon.advisorContributionUsd < 0 || coupon.advisorContributionUsd > coupon.capUsd))
+      || (coupon.costsReviewed && coupon.advisorContributionUsd == null))) throw new Error('Revisa el límite y el aporte del asesor del cupón.');
+    const benefitSelectionMode = coupon ? 'multiple' : normalizeBenefitSelectionMode(input.benefitSelectionMode);
     const purchaseRequirementMode = normalizePurchaseRequirementMode(input.purchaseRequirementMode);
     const minimumOrderAmountUsd = purchaseRequirementMode === 'minimum_order'
       ? finiteNumber(input.minimumOrderAmountUsd, Number.NaN)
@@ -407,7 +413,7 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const benefitStackPolicy = normalizeBenefitStackPolicy(input.benefitStackPolicy);
     const evaluationWindowDays = Math.trunc(finiteNumber(input.evaluationWindowDays, 90));
     const metricWindow = Math.max(2, Math.min(50, Math.trunc(finiteNumber(input.metricWindow, 6))));
-    const benefitOptions = Array.isArray(input.benefits)
+    let benefitOptions = Array.isArray(input.benefits)
       ? input.benefits.slice(0, 8).map((option) => ({
           productId: Math.trunc(finiteNumber(option.productId, 0)),
           quantity: finiteNumber(option.quantity, 0),
@@ -422,6 +428,18 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
           )),
         }))
       : [];
+
+    if (coupon) {
+      const { data: catalog, error } = await ctx.supabase.from('products')
+        .select('id,name,type,inventory_group,is_active,extra_fields').eq('is_active',true)
+        .or('inventory_group.eq.beverages,name.ilike.Delivery Zona %');
+      if (error) throw new Error(error.message);
+      benefitOptions = (catalog ?? []).filter(p => isCouponCatalogProduct(p) && allowsCrmCatalogProduct(p)).map(p => ({
+        productId:Number(p.id),quantity:1,unitBenefitValueUsd:Number(coupon.capUsd.toFixed(2)),
+        unitAdvisorCostUsd:coupon.advisorContributionUsd ?? 0,
+        unitCompanyCostUsd:Number((coupon.capUsd-(coupon.advisorContributionUsd ?? 0)).toFixed(2)),upgradeProductIds:[],
+      }));
+    }
 
     if (!name) throw new Error('Escribe un nombre para la jugada.');
     if (Date.parse(startBoundary(startsOn)) >= Date.parse(endBoundary(endsOn))) {
@@ -494,6 +512,7 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       if (currentPlayError) throw new Error(currentPlayError.message);
       if (!currentPlay) throw new Error('La jugada ya no existe.');
       if (currentPlay.status !== 'draft') throw new Error('La definición ya fue confirmada y no se puede editar.');
+      if (readCrmCoupon(currentPlay.rules_snapshot) && !coupon) throw new Error('Actualiza la página para conservar el cupón y su límite compartido.');
       excludedClientIds = readExcludedClientIds(currentPlay.rules_snapshot);
     }
 
@@ -501,6 +520,14 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const benefitFulfillment = ['pickup', 'delivery_zone_1'].includes(input.benefitFulfillment ?? '') ? input.benefitFulfillment : 'any';
     if (recurrenceMode === 'daily' && benefitSelectionMode !== 'single') throw new Error('Una jugada diaria permite un beneficio por cliente y por día.');
     const rulesSnapshot = rulesFromInput(input, excludedClientIds);
+    if (coupon) Object.assign(rulesSnapshot, { coupon_draft: {
+      schema_version:1,label:`Cupón VIVO de hasta $${coupon.capUsd}`,maximum_discount_usd:Number(coupon.capUsd.toFixed(2)),
+      eligible_categories:['beverages','delivery'],allow_combination:true,shared_cap_per_order:true,uses_per_client:1,
+      single_order:true,carry_forward_balance:false,cash_redemption:false,pay_excess:true,
+      execution_support:'shared_cap_v1',expires_on:endsOn,
+      economics:{review_status:coupon.costsReviewed?'approved':'pending',advisor_contribution_usd:coupon.advisorContributionUsd,
+        company_contribution_usd:coupon.advisorContributionUsd == null ? null : Number((coupon.capUsd-coupon.advisorContributionUsd).toFixed(2))},
+    }});
     const payload = {
       name,
       description,

@@ -6,6 +6,7 @@ import BackLink from '@/components/navigation/BackLink';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
+import { readCrmCoupon, isCouponCatalogProduct } from '@/lib/crm/coupon';
 import { workflowPresentation } from '@/lib/crm/play-member-presentation';
 import NoApplyRequestsPanel, { type NoApplyReviewRow } from './NoApplyRequestsPanel';
 import { readOfferRestMode, type OfferRestMode } from '@/lib/crm/offer-rest';
@@ -41,6 +42,7 @@ import {
 } from './actions';
 
 export type PlayBenefit = {
+  inventoryGroup?: string | null;
   id: number;
   name: string;
   sku: string | null;
@@ -429,6 +431,11 @@ function PlayDefinitionForm({
   const today = useMemo(() => caracasToday(), []);
   const fallbackBenefit = benefits.find((benefit) => benefit.id === play?.giftProductId) ?? benefits[0];
   const rules = play?.rules ?? {};
+  const coupon = readCrmCoupon(rules);
+  const couponCapUsd = coupon?.maximum_discount_usd;
+  const couponCatalog = benefits.filter(b => isCouponCatalogProduct({ name: b.name, type: b.type, inventory_group: b.inventoryGroup }));
+  const [couponAdvisor, setCouponAdvisor] = useState(coupon?.economics.advisor_contribution_usd == null ? '' : String(coupon.economics.advisor_contribution_usd));
+  const [couponCostsReviewed, setCouponCostsReviewed] = useState(coupon?.economics.review_status === 'approved');
   const [name, setName] = useState(play?.name ?? '');
   const [description, setDescription] = useState(play?.description ?? '');
   const [advisorGuidance, setAdvisorGuidance] = useState(play?.advisorGuidance ?? '');
@@ -496,7 +503,8 @@ function PlayDefinitionForm({
     const activeIds = new Set(activeAdvisors.map((advisor) => advisor.id));
     return storedIds.map(String).filter((id) => activeIds.has(id));
   });
-  const projectedEconomicsPerClient = useMemo(() => {
+  const projectedEconomicsPerClient = (() => {
+    if (couponCapUsd != null) return couponAdvisor === '' ? null : { companyMinimum: 0, companyMaximum: Math.max(0, couponCapUsd - Number(couponAdvisor)), advisorMinimum: 0, advisorMaximum: Number(couponAdvisor) };
     const rows = benefitOptions.flatMap((option) => {
       const quantity = Number(option.quantity);
       const companyCost = Number(option.unitCompanyCostUsd);
@@ -523,7 +531,7 @@ function PlayDefinitionForm({
           advisorMinimum: Math.min(...advisorValues),
           advisorMaximum: Math.max(...advisorValues),
         };
-  }, [benefitOptions, benefitSelectionMode]);
+  })();
 
   function applyPreset(nextKind: PlayKind) {
     setKind(nextKind);
@@ -628,6 +636,7 @@ function PlayDefinitionForm({
       kind,
       startsOn,
       endsOn,
+      coupon: coupon ? { capUsd: coupon.maximum_discount_usd, advisorContributionUsd: couponAdvisor === '' ? null : Number(couponAdvisor), costsReviewed: couponCostsReviewed } : null,
       benefits: benefitOptions.map((option) => ({
         productId: Number(option.productId),
         quantity: Number(option.quantity),
@@ -751,7 +760,24 @@ function PlayDefinitionForm({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#3C3410] bg-[#171506] p-3">
+        {coupon ? <div className="space-y-3 rounded-2xl border border-cyan-400/30 bg-cyan-400/5 p-3">
+          <h3 className="text-sm font-semibold text-cyan-100">Cupón VIVO · hasta {moneyFormatter.format(coupon.maximum_discount_usd)} compartidos</h3>
+          <p className="text-xs text-cyan-100/80">Bebidas, delivery o ambos. Un solo uso en un solo pedido. El cliente paga la diferencia; el sobrante no se acumula.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Aporte máximo del asesor USD" hint="Por cupón utilizado completo">
+              <input className={inputClass} type="number" min="0" max={coupon.maximum_discount_usd} step="0.01" placeholder="Pendiente de definir" value={couponAdvisor}
+                onChange={e => { setCouponAdvisor(e.target.value); setCouponCostsReviewed(false); }} />
+            </Field>
+            <Field label="Aporte máximo de la empresa USD" hint="Se calcula con el límite compartido">
+              <input className={inputClass} readOnly value={couponAdvisor === '' ? '' : Math.max(0, coupon.maximum_discount_usd - Number(couponAdvisor)).toFixed(2)} placeholder="Pendiente de definir" />
+            </Field>
+          </div>
+          <p className="text-[11px] text-cyan-100/70">Si se utiliza menos del límite, los aportes se reducen proporcionalmente. Solo se liquidan al entregar el pedido.</p>
+          <label className="flex items-center gap-2 text-xs text-cyan-100"><input type="checkbox" checked={couponCostsReviewed} disabled={couponAdvisor === ''}
+            onChange={e => setCouponCostsReviewed(e.target.checked)} />Costos revisados · permite confirmar después de probar</label>
+          <details className="text-xs text-cyan-100/75"><summary>Productos autorizados · {couponCatalog.length}</summary>
+            <p className="mt-2">{couponCatalog.map(b => b.name).join(' · ')}</p></details>
+        </div> : <div className="rounded-2xl border border-[#3C3410] bg-[#171506] p-3">
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-xs font-semibold text-[#FFF18B]">Beneficios disponibles</h3>
@@ -916,6 +942,7 @@ function PlayDefinitionForm({
           </div>
         </div>
 
+        }
         <div className="rounded-2xl border border-blue-400/20 bg-blue-400/[0.04] p-3">
           <div className="grid gap-3 md:grid-cols-[1fr_220px] md:items-end">
             <div>
@@ -2042,7 +2069,7 @@ export default function MasterPlaysClient({
                       Beneficios · {selectedPlay.benefitSelectionMode === 'multiple' ? 'uno o varios' : 'se entrega uno'}
                     </div>
                     <div className="mt-1 flex max-w-96 flex-wrap justify-end gap-1">
-                      {selectedPlay.benefits.map((option) => (
+                      {readCrmCoupon(selectedPlay.rules) ? <span className="text-xs text-cyan-100">Cupón compartido · hasta {moneyFormatter.format(readCrmCoupon(selectedPlay.rules)!.maximum_discount_usd)} · bebidas o delivery<br />{readCrmCoupon(selectedPlay.rules)!.economics.review_status === 'approved' ? 'Costos revisados' : 'Costos pendientes de revisión'}</span> : selectedPlay.benefits.map((option) => (
                         <span key={option.id} className="rounded-full border border-[#554912] bg-[#151304] px-2 py-0.5 text-[9px] font-semibold text-[#FFF18B]">
                           {option.quantity} × {option.name} · asesor {moneyFormatter.format(option.unitAdvisorCostUsd * option.quantity)}
                           {option.upgrades.length > 0 ? ` · ${option.upgrades.length} ampliación${option.upgrades.length === 1 ? '' : 'es'}` : ''}
@@ -2171,7 +2198,7 @@ export default function MasterPlaysClient({
                   <div className="flex shrink-0 gap-2">
                     <button type="button" disabled={pending} onClick={() => removeDraft(selectedPlay.id)} className="inline-flex h-9 items-center justify-center rounded-xl border border-red-500/30 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:opacity-45">Eliminar prueba</button>
                     <button type="button" disabled={pending} onClick={() => run(() => generatePlayListAction(selectedPlay.id))} className={buttonSecondary}>Probar condiciones guardadas</button>
-                    <button type="button" disabled={pending || !selectedHasPreview || selectedSummaryTotal <= 0} onClick={() => run(() => confirmPlayListAction(selectedPlay.id))} className={buttonPrimary}>Confirmar snapshot</button>
+                    <button type="button" disabled={pending || !selectedHasPreview || selectedSummaryTotal <= 0 || readCrmCoupon(selectedPlay.rules)?.economics.review_status === 'pending'} onClick={() => run(() => confirmPlayListAction(selectedPlay.id))} className={buttonPrimary}>{readCrmCoupon(selectedPlay.rules)?.economics.review_status === 'pending' ? 'Revisa los costos del cupón' : 'Confirmar snapshot'}</button>
                   </div>
                 </section>
               ) : selectedPlay.status === 'frozen' ? (

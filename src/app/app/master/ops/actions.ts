@@ -11,6 +11,7 @@ import { inventoryUnitLabel } from "@/app/app/inventory/display";
 import { requireMasterOrAdminContext } from "@/lib/auth";
 import { paymentActionFailure } from "@/lib/payments/action-result";
 import { loadMasterCrmOrderContext } from "@/lib/crm/advisor-order-context";
+import { allocateCoupon } from "@/lib/crm/coupon";
 import { resolveCrmOrderBenefit, validateMasterCrmBenefitSelection } from "@/lib/crm/master-order-benefit";
 import {
   mapOrderFinancialActivity,
@@ -1257,6 +1258,8 @@ type RawOrderEditRow = {
 };
 
 type RawOrderItemEditRow = {
+  crm_coupon_source_currency?: 'USD' | 'VES' | null;
+  crm_coupon_source_amount?: number | string | null;
   pricing_fx_rate_snapshot?: number | string | null;
   product?: EditorCommissionProduct | EditorCommissionProduct[] | null;
   id: number | string;
@@ -1399,6 +1402,8 @@ export type MasterOpsAdvisorSuggestion = {
 };
 
 export type MasterOpsEditOrderItem = EditorCommissionFields & {
+  couponSourceCurrency?: 'USD' | 'VES' | null;
+  couponSourceAmount?: number | null;
   orderItemId: number | null;
   localId: string;
   productId: number;
@@ -1662,6 +1667,8 @@ type MasterOpsSaveComponentRow = {
 };
 
 type MasterOpsExistingSaveItemRow = {
+  crm_coupon_source_currency?: 'USD' | 'VES' | null;
+  crm_coupon_source_amount?: number | string | null;
   reward_grant_id?: number | null;
   reward_purpose?: 'customer_gift' | 'personal_purchase' | null;
   reward_amount_usd?: number | string | null;
@@ -1779,7 +1786,7 @@ export async function loadMasterOpsClientCrmContextAction(input: { clientId: num
     if (error) throw new Error(error.message);
     if (!order || !canEditMasterOpsOrder(order)) return null;
   }
-  return loadMasterCrmOrderContext({ supabase: ctx.supabase, clientId: input.clientId });
+  return loadMasterCrmOrderContext({ supabase: ctx.supabase, clientId: input.clientId, orderId: input.orderId });
 }
 
 async function prepareMasterOpsOrderSave(
@@ -1878,7 +1885,7 @@ async function prepareMasterOpsOrderSave(
         ? ctx.supabase
             .from("order_items")
             .select(
-              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, reward_grant_id, reward_purpose, reward_amount_usd"
+              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes, crm_coupon_source_currency, crm_coupon_source_amount, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, reward_grant_id, reward_purpose, reward_amount_usd"
             )
             .eq("order_id", Number(orderId))
         : Promise.resolve({ data: [], error: null }),
@@ -1953,15 +1960,17 @@ async function prepareMasterOpsOrderSave(
     : { data: [], error: null };
   if (commissionAudits.error) throw new Error(commissionAudits.error.message);
   const newCrmItems = input.items.filter((item) => !item.orderItemId && item.crmPlayMemberId != null);
-  const newCrmContext = newCrmItems.length
+  const allCrmItems = input.items.filter(item => item.crmPlayMemberId != null);
+  const newCrmContext = allCrmItems.length
     ? await loadMasterCrmOrderContext({
         supabase: ctx.supabase,
         clientId: Number(input.selectedClientId || 0),
-        playMemberId: Number(newCrmItems[0].crmPlayMemberId),
+        playMemberId: Number(allCrmItems[0].crmPlayMemberId),
+        orderId: mode === 'edit' ? Number(orderId) : null,
       })
     : null;
   if (newCrmItems.length && !newCrmContext) throw new Error("La jugada ya no está disponible para este cliente. Vuelve a abrir el editor.");
-  if (newCrmItems.length && input.items.some((item) => item.orderItemId && existingItemsById.get(Number(item.orderItemId))?.crm_play_member_id)) {
+  if (newCrmItems.length && !newCrmContext?.coupon && input.items.some((item) => item.orderItemId && existingItemsById.get(Number(item.orderItemId))?.crm_play_member_id)) {
     throw new Error("La orden ya tiene un beneficio reservado. Conserva ese beneficio o retíralo y guarda antes de elegir otro.");
   }
   const submittedExistingIds = new Set<number>();
@@ -2014,7 +2023,7 @@ async function prepareMasterOpsOrderSave(
     const isNewLine = !existingItem;
     const linePricingChanged = isNewLine || productChanged || quantityChanged || overrideChanged ||
       (muerdemeQuotes.has(productId) && !closeNumber(existingItem?.pricing_origin_amount, item.sourcePriceAmount));
-    if (existingItem?.crm_play_member_id && (productChanged || quantityChanged || overrideChanged)) {
+    if (existingItem?.crm_play_member_id && (productChanged || quantityChanged || (overrideChanged && !newCrmContext?.coupon) || nextOverride != null)) {
       throw new Error("El beneficio reservado conserva su producto, cantidad y condiciones económicas.");
     }
     if (newCrmChoice && nextOverride != null) throw new Error("El precio del beneficio lo determina la jugada.");
@@ -2185,10 +2194,25 @@ async function prepareMasterOpsOrderSave(
   }
 
   const approvedPricesById = new Map(existingItems.map((row) => [Number(row.id), storedApprovedPriceLine(row)]));
-  if (!isAdmin && hasUnauthorizedPriceChange(preparedItems, [...approvedPricesById.values()], true)) {
+  const couponQuotes = newCrmContext?.coupon ? allocateCoupon(newCrmContext.coupon.maximum_discount_usd,
+    preparedItems.filter(item => item.crmPlayMemberId).map(item => {
+      const existing = existingItemsById.get(Number(item.orderItemId));
+      const product = liveProducts.get(item.productId)!;
+      const currency = existing?.crm_coupon_source_currency ?? product.source_price_currency;
+      const amount = Number(existing?.crm_coupon_source_amount ?? product.source_price_amount ?? product.base_price_usd);
+      return { benefitId: Number(item.crmPlayBenefitId), grossUsd: (currency === 'VES' ? amount / effectiveFxRate : amount) * item.qty };
+    })) : [];
+  if (!isAdmin && hasUnauthorizedPriceChange(preparedItems.filter(item => !item.crmPlayMemberId), [...approvedPricesById.values()], true)) {
     throw new Error(APPROVED_PRICE_CHANGE_MESSAGE);
   }
   const recalculatedItems = preparedItems.map((item) => {
+    const couponQuote = item.crmPlayMemberId ? couponQuotes.find(quote => quote.benefitId === item.crmPlayBenefitId) : null;
+    if (couponQuote) {
+      const sourceAmount = couponQuote.netUsd / item.qty;
+      const snapshot = calculateOrderLineSnapshot({ sourceCurrency: 'USD', sourceAmount, quantity: item.qty, fxRate: effectiveFxRate });
+      return { ...item, sourcePriceCurrency: 'USD' as const, sourcePriceAmount: sourceAmount,
+        unitPriceUsdSnapshot: snapshot.unitUsd, lineTotalUsd: snapshot.lineUsd, lineTotalBsSnapshot: snapshot.lineBs };
+    }
     const original = approvedPricesById.get(Number(item.orderItemId));
     const preserved = preservedAgreedPriceSnapshot(item, original, currentFxRate) ??
       (!isAdmin ? preservedApprovedPriceSnapshot(item, original, true) ?? preservedOperationalSnapshot(item, original) : null);
@@ -2275,7 +2299,7 @@ async function prepareMasterOpsOrderSave(
     throw new Error(validationIssues[0].message);
   }
 
-  if (newCrmContext) {
+  if (newCrmContext && (newCrmItems.length || newCrmContext.coupon)) {
     const commercialSubtotalUsd = recalculatedItems
       .filter((item) => countsTowardCrmMinimum({ productName: item.productNameSnapshot, sku: item.skuSnapshot, isCrmBenefit: Boolean(item.crmPlayMemberId), lineUsd: item.lineTotalUsd }))
       .reduce((sum, item) => sum + item.lineTotalUsd, 0) * (1 - requestedDiscountPct / 100);
@@ -2284,11 +2308,12 @@ async function prepareMasterOpsOrderSave(
       clientId: Number(input.selectedClientId),
       advisorUserId: attributedAdvisorUserId || null,
       commercialSubtotalUsd,
-      items: newCrmItems,
+      items: newCrmContext.coupon ? allCrmItems : newCrmItems,
     });
-    const { error } = await ctx.supabase.rpc("crm_set_play_benefits_v2", {
-      p_play_member_id: newCrmContext.playMemberId,
-      p_play_benefit_ids: newCrmItems.map((item) => Number(item.crmPlayBenefitId)),
+    const { error } = await ctx.supabase.rpc("crm_prepare_coupon_selection_v1", {
+      p_member: newCrmContext.playMemberId,
+      p_benefits: (newCrmContext.coupon ? allCrmItems : newCrmItems).map((item) => Number(item.crmPlayBenefitId)),
+      p_order: mode === 'edit' ? Number(orderId) : null,
     });
     if (error) throw new Error(error.message);
   }
@@ -2818,6 +2843,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         sku_snapshot,
         notes,
         crm_play_member_id,
+        crm_coupon_source_currency,
+        crm_coupon_source_amount,
         crm_play_benefit_id,
         crm_play_benefit_upgrade_id,
         product:products!order_items_product_id_fkey(commission_mode, commission_value, extra_fields)
@@ -3090,6 +3117,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       crmPlayBenefitUpgradeId:
         item.crm_play_benefit_upgrade_id == null ? null : Number(item.crm_play_benefit_upgrade_id),
       crmRedemptionStatus: crmRedemptionStatusByOrderItemId.get(Number(item.id)) ?? null,
+      couponSourceCurrency: item.crm_coupon_source_currency ?? null,
+      couponSourceAmount: item.crm_coupon_source_amount == null ? null : Number(item.crm_coupon_source_amount),
       crmPlayName: ((crmRedemptionsResult.data ?? []) as MasterOpsCrmRedemptionRow[])
         .find((redemption) => Number(redemption.order_item_id) === Number(item.id))?.play_name_snapshot ?? null,
     };

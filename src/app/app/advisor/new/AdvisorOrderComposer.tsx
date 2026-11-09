@@ -26,6 +26,8 @@ import { REWARD_GRANT_SELECT, type RewardGrant } from '@/lib/rewards/wallet-mode
 import { fundedOrderSnapshot, rewardDraftAvailable, type RewardLineFunding } from '@/lib/rewards/order-funding';
 import type { AdvisorCrmOrderContext } from '@/lib/crm/advisor-order-context-types';
 import { readDraftCrmBenefit, restoreDraftCrmItems, type DraftCrmBenefit } from '@/lib/crm/order-benefit-preservation';
+import { allocateCoupon } from '@/lib/crm/coupon';
+import CouponSelector from '@/components/crm/CouponSelector';
 import { shouldResolveCatalogGift } from '@/lib/crm/catalog-gift';
 import {
   buildWhatsAppOrderSummaryText,
@@ -278,6 +280,8 @@ type ExistingOrderItemRow = {
   crm_play_member_id: number | string | null;
   crm_play_benefit_id: number | string | null;
   crm_play_benefit_upgrade_id: number | string | null;
+  crm_coupon_source_currency?: 'USD' | 'VES' | null;
+  crm_coupon_source_amount?: number | string | null;
   product:
     | {
         type: ProductRow['type'];
@@ -681,6 +685,7 @@ function buildCrmBenefitDraftItem(
       eligibleUnitPriceUsd: quantity > 0 ? customerDifferenceUsd / quantity : 0,
       catalogSourceCurrency: catalogPricing.sourceCurrency,
       catalogSourceAmount: catalogPricing.sourceAmount,
+      couponCapUsd: context.coupon?.maximum_discount_usd,
     },
   } satisfies DraftItem;
 }
@@ -1671,6 +1676,15 @@ export default function AdvisorOrderComposer({
   const crmPurchaseEligible = !crmContext
     || crmContext.purchaseRequirementMode === 'none'
     || commercialSubtotalAfterDiscountUsd + 0.005 >= Number(crmContext.minimumOrderAmountUsd ?? 0);
+  const couponQuotes = useMemo(() => {
+    const lines = draftItems.filter(item => item.crm_benefit?.couponCapUsd);
+    if (!lines.length || fxRateNumber <= 0) return [];
+    return allocateCoupon(lines[0].crm_benefit!.couponCapUsd!, lines.map(item => ({
+      benefitId: item.crm_benefit!.playBenefitId,
+      grossUsd: calculateOrderLineSnapshot({ sourceCurrency: item.crm_benefit!.catalogSourceCurrency,
+        sourceAmount: item.crm_benefit!.catalogSourceAmount, quantity: item.qty, fxRate: fxRateNumber }).lineUsd,
+    })));
+  }, [draftItems, fxRateNumber]);
   const effectiveDraftPricing = useMemo(() => draftItems.map((item) => {
     if (!item.crm_benefit) {
       return {
@@ -1679,20 +1693,21 @@ export default function AdvisorOrderComposer({
       };
     }
     if (crmPurchaseEligible || (isEditingOrder && item.persistedOrderItemId) || activeDraftId != null) {
+      const quote = item.crm_benefit.couponCapUsd ? couponQuotes.find(q => q.benefitId === item.crm_benefit!.playBenefitId) : null;
       return {
         sourceCurrency: 'USD' as const,
-        sourceAmount: Number(item.crm_benefit.eligibleUnitPriceUsd || 0),
+        sourceAmount: quote ? quote.netUsd / item.qty : Number(item.crm_benefit.eligibleUnitPriceUsd || 0),
       };
     }
     return {
       sourceCurrency: item.crm_benefit.catalogSourceCurrency,
       sourceAmount: Number(item.crm_benefit.catalogSourceAmount || 0),
     };
-  }), [crmPurchaseEligible, draftItems, isEditingOrder, activeDraftId]);
+  }), [crmPurchaseEligible, draftItems, isEditingOrder, activeDraftId, couponQuotes]);
   const draftItemSnapshots = useMemo(
     () =>
       draftItems.map((item, index) => {
-        const preserved = isEditingOrder && !advisorRecalculationMode
+        const preserved = isEditingOrder && !advisorRecalculationMode && !item.crm_benefit?.couponCapUsd
           ? preservedAgreedPriceSnapshot({
               orderItemId: item.persistedOrderItemId, productId: item.product_id, qty: item.qty,
               sourcePriceCurrency: item.source_price_currency, sourcePriceAmount: item.source_price_amount,
@@ -2107,7 +2122,7 @@ export default function AdvisorOrderComposer({
             supabase
               .from('order_items')
               .select(
-                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, sku_snapshot, product_name_snapshot, notes, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, reward_grant_id, reward_purpose, reward_amount_usd, product:products(type, units_per_service)'
+                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, pricing_fx_rate_snapshot, unit_price_usd_snapshot, line_total_usd, unit_price_bs_snapshot, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, sku_snapshot, product_name_snapshot, notes, crm_coupon_source_currency, crm_coupon_source_amount, crm_play_member_id, crm_play_benefit_id, crm_play_benefit_upgrade_id, reward_grant_id, reward_purpose, reward_amount_usd, product:products(type, units_per_service)'
               )
               .eq('order_id', Number(sourceOrderId))
               .order('id', { ascending: true }),
@@ -2266,9 +2281,10 @@ export default function AdvisorOrderComposer({
                     Number(item.qty || 0) > 0
                       ? Number(item.line_total_usd ?? 0) / Number(item.qty || 1)
                       : 0,
-                  catalogSourceCurrency: (currentProduct?.source_price_currency || 'USD') as CurrencyCode,
+                  couponCapUsd: item.crm_coupon_source_currency ? existingOrderCrmContext?.coupon?.maximum_discount_usd : undefined,
+                  catalogSourceCurrency: (item.crm_coupon_source_currency || currentProduct?.source_price_currency || 'USD') as CurrencyCode,
                   catalogSourceAmount: Number(
-                    currentProduct?.source_price_amount
+                    item.crm_coupon_source_amount ?? currentProduct?.source_price_amount
                       ?? currentProduct?.base_price_usd
                       ?? 0,
                   ) || 0,
@@ -3201,6 +3217,13 @@ export default function AdvisorOrderComposer({
 
   function applyCrmBenefitDraftItem(nextItem: DraftItem, editingLocalId: string | null, context = crmContext) {
     setDraftItems((current) => {
+      if (context?.coupon) {
+        const deliveryItem = isDeliveryCatalogItemName(nextItem.product_name_snapshot);
+        const matchingNormal = current.find(item => !item.crm_benefit && !item.reward && item.product_id === nextItem.product_id && item.qty === nextItem.qty);
+        const keep = current.filter(item => item !== matchingNormal && item.localId !== editingLocalId
+          && !(deliveryItem && isDeliveryCatalogItemName(item.product_name_snapshot)));
+        return [...keep, nextItem];
+      }
       const channelItems = context?.benefitFulfillment === 'delivery_zone_1'
         ? current.filter((item) => item.crm_benefit || !isDeliveryCatalogItemName(item.product_name_snapshot))
         : current;
@@ -3231,6 +3254,9 @@ export default function AdvisorOrderComposer({
     }
     const benefit = context.benefits.find((option) => option.playBenefitId === playBenefitId);
     if (!benefit) return;
+    if (context.coupon && /^Delivery Zona /i.test(benefit.name) && fulfillment !== 'delivery') {
+      setError('Selecciona entrega por delivery para bonificar el envío.'); return;
+    }
     const upgrade = playBenefitUpgradeId == null
       ? null
       : benefit.upgrades.find((option) => option.id === playBenefitUpgradeId) ?? null;
@@ -4211,6 +4237,7 @@ export default function AdvisorOrderComposer({
         const preparation = await prepareAdvisorCrmPlayBenefitsAction({
           playMemberId: crmContext.playMemberId,
           playBenefitIds: crmFulfillments.map((fulfillment) => fulfillment.playBenefitId),
+          orderId: isEditingOrder ? Number(existingOrderId) : null,
         });
         if (!preparation.ok) {
           throw new Error(`No se pudo preparar el beneficio: ${preparation.message}`);
@@ -4273,7 +4300,7 @@ export default function AdvisorOrderComposer({
 
         return {
           orderItemId: item.persistedOrderItemId ?? null,
-          draftPriceAgreementKey: activeDraftId && !isEditingOrder && !item.reward ? item.localId : null,
+          draftPriceAgreementKey: activeDraftId && !isEditingOrder && !item.reward && !item.crm_benefit ? item.localId : null,
           rewardGrantId: item.reward?.grantId ?? null,
           rewardPurpose: item.reward?.purpose ?? null,
           rewardAmountUsd: item.reward?.amountUsd ?? null,
@@ -4403,7 +4430,7 @@ export default function AdvisorOrderComposer({
                 <div className="mt-1 text-sm font-semibold text-[#FFF18B]">{crmContext.playName}</div>
                 {crmContext.recurrenceMode === 'daily' ? <p className="mt-1 text-[11px] text-[#D8CC82]">Un beneficio por cliente y por día de entrega. Puede repetir en días distintos. Compra mínima en productos pagados, sin delivery ni obsequios.{crmContext.benefitFulfillment === 'pickup' ? ' Solo retiro en el local.' : crmContext.benefitFulfillment === 'delivery_zone_1' ? ' Solo delivery zona 1: confirma el destino.' : ''}</p> : null}
                 <p className={`mt-1 text-xs ${crmPurchaseEligible ? 'text-[#7CE0A9]' : 'text-[#F7DA66]'}`}>
-                  {crmPurchaseEligible && crmFulfillments.length === 0
+                  {crmContext.coupon ? `Compra mínima de ${formatUsd(Number(crmContext.minimumOrderAmountUsd ?? 0))} en otros productos. El cupón se aplica solo si lo eliges y el pedido cumple la condición.` : crmPurchaseEligible && crmFulfillments.length === 0
                     ? crmContext.benefitSelectionMode === 'single'
                       ? 'Elige abajo el beneficio que desea usar el cliente.'
                       : 'Elige uno o varios beneficios para armar la combinación del cliente.'
@@ -4426,7 +4453,7 @@ export default function AdvisorOrderComposer({
             </div>
 
             <div className="mt-3 space-y-2">
-              <div className="rounded-[12px] border border-[#4A421B] bg-[#100F08] px-3 py-2 text-[11px] leading-5 text-[#D8CC82]">
+              {!crmContext.coupon ? <><div className="rounded-[12px] border border-[#4A421B] bg-[#100F08] px-3 py-2 text-[11px] leading-5 text-[#D8CC82]">
                 El obsequio no entra automáticamente. Toca una opción, define su composición cuando corresponda y confirma.
               </div>
               {crmContext.benefits.map((benefit) => {
@@ -4457,7 +4484,13 @@ export default function AdvisorOrderComposer({
                     </div>
                   </div>
                 );
-              })}
+              })}</> : <CouponSelector cap={crmContext.coupon.maximum_discount_usd} options={crmContext.benefits}
+                selected={crmFulfillments.map(f => f.playBenefitId)} delivery={fulfillment === 'delivery'}
+                discount={crmPurchaseEligible ? couponQuotes.reduce((n,q) => n + q.discountUsd,0) : 0}
+                onToggle={id => {
+                  if (draftItems.some(i => i.crm_benefit?.playBenefitId === id)) setDraftItems(current => current.filter(i => i.crm_benefit?.playBenefitId !== id));
+                  else selectCrmBenefitProduct(id, null);
+                }} />}
             </div>
           </section>
         ) : null}

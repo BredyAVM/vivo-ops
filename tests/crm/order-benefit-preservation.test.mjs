@@ -24,7 +24,7 @@ const rehydrate = declaration('orderItems','existingOrderItems.map');
 const effective = declaration('effectiveDraftPricing','draftItems.map');
 const drift = declaration('catalogPriceDriftItems','draftItems.filter');
 function runtime(values={}) {
-  const context=vm.createContext({console,...values});
+  const context=vm.createContext({console,couponQuotes:[],...values});
   const js=ts.transpileModule(prices+'\n'+details+'\n'+helper+'\n'+functions,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInContext(js,context); return context;
 }
@@ -99,7 +99,7 @@ test('actual price calculation never recharges a restored gift; unmet minimum st
   assert.match(submit,/prepareAdvisorCrmPlayBenefitsAction/);
   assert.match(submit,/crmPlayMemberId: item\.crm_benefit/);
   const manual=composer.slice(composer.indexOf('function handleRecalculateDraftPricesFromCatalog'),composer.indexOf('function handleRecalculateDraftPricesFromCatalog')+1800);
-  assert.match(manual,/if \(item.crm_benefit\) return item/);
+  assert.match(manual,/if \(item.crm_benefit(?: \|\| hasMenuOrderDetails\(item.editable_detail_lines\))?\) return item/);
 });
 test('draft route resolves the saved membership under the actual advisor session, not a cached client-side context',()=>{
   const page=read('src/app/app/advisor/new/page.tsx');

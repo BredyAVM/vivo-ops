@@ -1,4 +1,5 @@
 import { buildPlayConditions, playLastDayLabel, type PlayConditionsBenefit, type PlayConditionsDefinition } from '@/lib/crm/play-conditions';
+import { readCrmCoupon } from '@/lib/crm/coupon';
 
 export default function PlayConditionsCard({ play, benefits, defaultOpen = true }: {
   play: PlayConditionsDefinition;
@@ -6,6 +7,7 @@ export default function PlayConditionsCard({ play, benefits, defaultOpen = true 
   defaultOpen?: boolean;
 }) {
   const conditions = buildPlayConditions(play, benefits);
+  const coupon = readCrmCoupon(play.rules_snapshot);
   return (
     <details open={defaultOpen} className="group/conditions rounded-xl border border-[#343B49] bg-[#0D1017]">
       <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 text-[11px] [&::-webkit-details-marker]:hidden">
@@ -28,7 +30,7 @@ export default function PlayConditionsCard({ play, benefits, defaultOpen = true 
         {benefits.length > 0 ? (
           <details className="group/options mt-2 border-t border-[#232632] pt-1">
             <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-2 text-[11px] font-medium text-[#F7DA66] [&::-webkit-details-marker]:hidden">
-              <span>Ver beneficios, ampliaciones y cargo al asesor</span>
+              <span>{coupon ? 'Ver bebidas y deliveries autorizados' : 'Ver beneficios, ampliaciones y cargo al asesor'}</span>
               <span aria-hidden="true" className="transition group-open/options:rotate-180">⌄</span>
             </summary>
             <ul className="space-y-2 pb-1">
@@ -36,9 +38,9 @@ export default function PlayConditionsCard({ play, benefits, defaultOpen = true 
                 <li key={benefit.id} className="rounded-lg border border-[#292E3B] px-2 py-1.5 text-[11px] leading-4">
                   <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
                     <span className="font-medium text-[#F5F7FB]">{benefit.quantity.toLocaleString('es-VE')} × {benefit.name}</span>
-                    <span className="text-[#AAB2C5]">Cargo asesor: ${benefit.advisorCostUsd.toFixed(2)} por entrega</span>
+                    {!coupon ? <span className="text-[#AAB2C5]">Cargo asesor: ${benefit.advisorCostUsd.toFixed(2)} por entrega</span> : null}
                   </div>
-                  {benefit.upgrades.length > 0 ? (
+                  {coupon ? null : benefit.upgrades.length > 0 ? (
                     <>
                       <p className="mt-1 text-[#AAB2C5]">Puede entregar el base o usar su beneficio de ${benefit.benefitValueUsd.toFixed(2)} para ampliar a:</p>
                       <ul className="mt-1 space-y-1 text-[#D6DAE4]">

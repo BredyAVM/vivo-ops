@@ -7,6 +7,7 @@ export type DraftCrmBenefit = {
   eligibleUnitPriceUsd: number;
   catalogSourceCurrency: 'USD' | 'VES';
   catalogSourceAmount: number;
+  couponCapUsd?: number;
   redemptionStatus?: 'reserved' | 'redeemed' | null;
 };
 
@@ -30,6 +31,7 @@ export function readDraftCrmBenefit(value: unknown): DraftCrmBenefit | undefined
     playBenefitUpgradeId: row.playBenefitUpgradeId == null ? null : Number(row.playBenefitUpgradeId),
     eligibleUnitPriceUsd: row.eligibleUnitPriceUsd,
     catalogSourceCurrency: row.catalogSourceCurrency as 'USD' | 'VES', catalogSourceAmount: row.catalogSourceAmount,
+    ...(typeof row.couponCapUsd === 'number' && Number.isFinite(row.couponCapUsd) && row.couponCapUsd > 0 ? { couponCapUsd: row.couponCapUsd } : {}),
     // A saved draft cannot claim a reservation/delivery that belongs to an order.
   };
 }
@@ -59,6 +61,7 @@ export function restoreDraftCrmItems<T extends { product_id: number; qty: number
       || item.product_id !== (upgrade?.productId ?? benefit.productId)
       || Math.abs(item.qty - (upgrade?.quantity ?? benefit.quantity)) > 0.000001) throw invalidBenefit();
     return { ...item, crm_benefit: { ...saved,
+      couponCapUsd: context.coupon?.maximum_discount_usd,
       eligibleUnitPriceUsd: (upgrade?.customerDifferenceUsd ?? 0) / item.qty } };
   });
 }
