@@ -20,6 +20,7 @@ import {
   saveAdvisorGoalConfigurationAction,
 } from './actions';
 import { AdvisorGoalCollectionBreakdown } from '../AdvisorGoalCollectionBreakdown';
+import GoalConfigurationActions from './GoalConfigurationActions';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -33,6 +34,7 @@ type SearchParams = Promise<{
   growth?: string;
   notice?: string;
   error?: string;
+  feedback?: string;
 }>;
 
 type PeriodRow = {
@@ -715,10 +717,8 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                         <input className="mt-1 h-10 w-full rounded-xl border border-[#3D3A27] bg-[#0E0E0B] px-3 text-sm outline-none focus:border-[#F0D000]" defaultValue={storedConfig?.publicationMessage ?? ''} maxLength={500} name="publicationMessage" placeholder="Ej.: este período impulsaremos cierres" />
                         <span className="mt-1 block text-[10px] text-[#817E6C]">Acompaña la meta publicada; no altera ningún cálculo.</span>
                       </label>
-                      <div className="flex flex-wrap justify-end gap-2 md:col-span-2">
-                        <button className="h-10 rounded-xl border border-[#6A6140] px-4 text-sm font-semibold text-[#E2D99D]" name="intent" type="submit" value="draft">Guardar borrador</button>
-                        <button className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] hover:bg-[#FFE44F]" name="intent" type="submit" value="publish">Publicar meta</button>
-                      </div>
+                      <GoalConfigurationActions publishedAt={storedConfig?.status === 'published' ? storedConfig.publishedAt : null}
+                        notice={params.notice} error={params.error} feedbackKey={params.feedback} periodName={selectedPeriod?.name} />
                     </WorkspaceForm>
                   </div>
                   {storedConfig ? <div className="mt-4"><ConfigurationHistory audit={storedConfig.audit} /></div> : null}

@@ -1,0 +1,5 @@
+{
+  "name": "commission-feedback-local-test",
+  "private": true,
+  "dependencies": { "next": "16.3.8", "react": "19.2.3", "react-dom": "19.2.3" }
+}
