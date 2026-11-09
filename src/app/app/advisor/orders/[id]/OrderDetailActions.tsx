@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { copyLiveOrderWhatsApp } from '@/lib/orders/copy-live-whatsapp';
 import OrderPaymentQuoteButton from '@/components/orders/OrderPaymentQuoteButton';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { parseDecimalInput } from '@/lib/number-input';
@@ -23,7 +23,6 @@ import {
   requestClientFundApplicationAction,
 } from './actions';
 
-const ADVISOR_DISPLAY_NAME_KEY = 'advisor_display_name_v1';
 type MoneyAccountOption = {
   id: number;
   name: string;
@@ -54,20 +53,8 @@ function inputClass(multiline = false) {
   ].join(' ');
 }
 
-function normalizeAdvisorLabel(value: string | null | undefined) {
-  return String(value || '').trim() || 'Asesor';
-}
-
 function getPaymentMethodLabel(method: string) {
   return getSharedPaymentMethodLabel(method, { fallback: method });
-}
-
-function patchAdvisorLabelInSummary(summary: string, advisorLabel: string) {
-  const nextLabel = normalizeAdvisorLabel(advisorLabel);
-
-  return summary
-    .replace(/\*Asesor:\*.*$/m, `*Asesor:* ${nextLabel}`)
-    .replace(/✅ Asesor:.*$/m, `✅ Asesor: ${nextLabel}`);
 }
 
 function Field({
@@ -134,7 +121,6 @@ export default function OrderDetailActions({
   const searchParams = useSearchParams();
   const sourceReturnTo = searchParams.get('returnTo');
   const orderDetailReturnTo = withAdvisorReturnTo(`/app/advisor/orders/${orderId}`, sourceReturnTo || '');
-  const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [isPending, startTransition] = useTransition();
   const [fundRequestPending, startFundRequestTransition] = useTransition();
   const copySummaryRef = useRef(false);
@@ -153,7 +139,6 @@ export default function OrderDetailActions({
   const [cancelReason, setCancelReason] = useState('');
   const [sendingCancel, setSendingCancel] = useState(false);
   const [fundRequestSent, setFundRequestSent] = useState(hasPendingFundRequest);
-  const [advisorLabel, setAdvisorLabel] = useState('Asesor');
   const [paymentAccounts, setPaymentAccounts] = useState<MoneyAccountOption[]>(moneyAccounts);
   const [paymentOptionsLoaded, setPaymentOptionsLoaded] = useState(moneyAccounts.length > 0);
   const [paymentOptionsLoading, setPaymentOptionsLoading] = useState(false);
@@ -189,11 +174,6 @@ export default function OrderDetailActions({
   const whatsappButtonClass = preferWhatsApp
     ? 'inline-flex h-9 items-center justify-center rounded-full bg-[#25D366] px-3.5 text-xs font-semibold text-[#07150C]'
     : 'inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#25D366]';
-  const effectiveWhatsappSummary = useMemo(
-    () => patchAdvisorLabelInSummary(whatsappSummary, advisorLabel),
-    [advisorLabel, whatsappSummary],
-  );
-
   const loadPaymentOptions = useCallback(async (force = false) => {
     if (!canReportPayment || (!force && paymentOptionsLoaded) || paymentOptionsLoading) return;
 
@@ -212,42 +192,6 @@ export default function OrderDetailActions({
       setPaymentOptionsLoading(false);
     }
   }, [canReportPayment, orderId, paymentOptionsLoaded, paymentOptionsLoading]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAdvisorLabel() {
-      if (typeof window !== 'undefined') {
-        const stored = window.localStorage.getItem(ADVISOR_DISPLAY_NAME_KEY)?.trim();
-        if (stored && !cancelled) {
-          setAdvisorLabel(stored);
-          return;
-        }
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user || cancelled) return;
-
-      const nextLabel = normalizeAdvisorLabel(
-        user.user_metadata?.full_name ||
-          user.user_metadata?.name ||
-          'Asesor',
-      );
-
-      if (!cancelled) {
-        setAdvisorLabel(nextLabel);
-      }
-    }
-
-    void loadAdvisorLabel();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [supabase]);
 
   useEffect(() => {
     if (!reportBoxOpen || !canReportPayment) return;
@@ -276,10 +220,10 @@ export default function OrderDetailActions({
     setCopyingSummary(true);
 
     try {
-      await navigator.clipboard.writeText(effectiveWhatsappSummary);
+      await copyLiveOrderWhatsApp(orderId);
       setSuccess('Resumen copiado para WhatsApp.');
-    } catch {
-      setError('No se pudo copiar el resumen.');
+    } catch (copyError) {
+      setError(copyError instanceof Error ? copyError.message : 'No se pudo copiar el resumen actualizado.');
     } finally {
       copySummaryRef.current = false;
       setCopyingSummary(false);

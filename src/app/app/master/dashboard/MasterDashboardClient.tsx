@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { copyLiveOrderWhatsApp } from '@/lib/orders/copy-live-whatsapp';
 import OrderPaymentEntry from '@/components/orders/OrderPaymentEntry';
 import { useKitchenDispatch } from '@/lib/orders/use-kitchen-dispatch';
 import { isPaymentMethodApplicableToAccount, getPaymentMethodRolesForAccount } from '@/lib/payments/account-rule-policy';
@@ -167,7 +168,6 @@ import { getMasterDashboardPermissions } from './permissions';
 import MasterPushPanel from './MasterPushPanel';
 import {
   MasterOrderDetailBody,
-  buildMasterOrderWhatsAppSummary,
   type MasterOrderDetailOrder,
 } from '../_components/MasterOrderDetailCore';
 
@@ -3205,10 +3205,6 @@ function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
     riderName: order.riderName ?? null,
     externalPartner: order.externalPartner ?? null,
   };
-}
-
-function buildWhatsAppOrderSummary(order: Order) {
-  return buildMasterOrderWhatsAppSummary(toMasterOrderDetailOrder(order));
 }
 
 function isCommittedStatus(s: OrderStatus) {
@@ -6966,11 +6962,10 @@ const handleSaveDashboardUser = async () => {
 
 const handleCopyOrderWhatsApp = async (order: Order) => {
   try {
-    const text = buildWhatsAppOrderSummary(order);
-    await navigator.clipboard.writeText(text);
+    await copyLiveOrderWhatsApp(order.id);
     showToast('success', 'Resumen copiado para WhatsApp.');
   } catch (err) {
-    showToast('error', 'No se pudo copiar el resumen.');
+    showToast('error', err instanceof Error ? err.message : 'No se pudo copiar el resumen actualizado.');
   }
 };
 

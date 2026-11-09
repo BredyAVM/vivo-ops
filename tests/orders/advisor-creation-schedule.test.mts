@@ -41,5 +41,6 @@ test('composer refreshes only on creation, keeps retry time and rechecks ASAP av
   assert.match(composer, /buildExtraFields\(isEditingOrder \? undefined : orderCreationTimeRef\.current/);
   assert.match(composer, /schedule: creationTime \? refreshAdvisorAsapSchedule\(/);
   assert.match(composer, /p_target_at: isAsap \? new Date\(\)\.toISOString\(\) : availabilityTargetAt/);
-  assert.match(composer, /targetOrderId = createResult\.orderId;\s*orderCreationRequestRef\.current = null;\s*orderCreationTimeRef\.current = null/);
+  assert.match(composer, /targetOrderId = createResult\.orderId;\s*createdOrderIdRef\.current = targetOrderId/);
+  assert.doesNotMatch(composer, /orderCreationTimeRef\.current = null;/);
 });

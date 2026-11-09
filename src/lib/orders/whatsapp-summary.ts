@@ -343,7 +343,7 @@ export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) 
       parts.push(line.text);
       for (const detail of line.detailLines ?? []) {
         const normalized = clean(detail);
-      if (normalized && !/^@muerdeme(?:-stock)?\|/.test(normalized)) parts.push(`    - ${normalized}`);
+      if (normalized && !/^@(sel|prep|event|crm|muerdeme(?:-stock)?)\|/i.test(normalized)) parts.push(`    - ${normalized}`);
       }
       if (index < lines.length - 1) parts.push('');
     });

@@ -969,6 +969,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                               {isCompletedBand ? '✓' : bandIndex + 1}
                             </div>
                             <span className={isCurrentBand ? 'mt-1.5 truncate text-[9px] font-bold text-[#FFF4A8]' : 'mt-1.5 truncate text-[9px] font-medium text-[#8E927F]'}>{band.label}</span>
+                            <span aria-label={`Desde ${band.minPoints} puntos`} className="mt-0.5 text-[9px] leading-3 tabular-nums text-[#ABB1BD]">{new Intl.NumberFormat('es-VE', { maximumFractionDigits: 4 }).format(band.minPoints)} pts</span>
                             <span className={isCurrentBand ? 'mt-0.5 text-[9px] text-[#F0D000]' : 'mt-0.5 text-[9px] text-[#686E7B]'}>{band.commissionPct.toFixed(0)}%</span>
                           </div>
                         );
