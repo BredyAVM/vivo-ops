@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireAdminContext, requireMasterOrAdminContext } from '@/lib/auth';
 import { allowsCrmCatalogProduct } from '@/lib/crm/play-order';
-import { isCouponCatalogProduct, readCrmCoupon } from '@/lib/crm/coupon';
+import { isCouponCatalogProduct, readCrmCoupon, COUPON_FAMILIES, type CouponFamily } from '@/lib/crm/coupon';
 import { offerRestRules, type OfferRestInput } from '@/lib/crm/offer-rest';
 import { purchasedProductRules, type PurchasedProductInput } from '@/lib/crm/purchased-products';
 
@@ -56,7 +56,7 @@ export type PlayBenefitInput = {
 };
 
 export type SavePlayDraftInput = OfferRestInput & PurchasedProductInput & {
-  coupon?: { capUsd: number; advisorContributionUsd: number | null; costsReviewed: boolean } | null;
+  coupon?: { capUsd: number; families?: CouponFamily[]; autoIncludeNewProducts?: boolean; advisorContributionUsd: number | null; costsReviewed: boolean } | null;
   playId?: number | null;
   name: string;
   description?: string;
@@ -400,6 +400,8 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
       ? null
       : finiteNumber(input.plannedBudgetUsd, Number.NaN);
     const coupon = input.coupon;
+    const couponFamilies = coupon?.families ?? COUPON_FAMILIES;
+    if (coupon && (!Array.isArray(couponFamilies) || !couponFamilies.length || couponFamilies.some(f => !COUPON_FAMILIES.includes(f)))) throw new Error('Selecciona las familias permitidas para el cupón.');
     if (coupon && (!Number.isFinite(coupon.capUsd) || coupon.capUsd <= 0 || coupon.capUsd > 1000
       || (coupon.advisorContributionUsd != null && (!Number.isFinite(coupon.advisorContributionUsd) || coupon.advisorContributionUsd < 0 || coupon.advisorContributionUsd > coupon.capUsd))
       || (coupon.costsReviewed && coupon.advisorContributionUsd == null))) throw new Error('Revisa el límite y el aporte del asesor del cupón.');
@@ -431,10 +433,9 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
 
     if (coupon) {
       const { data: catalog, error } = await ctx.supabase.from('products')
-        .select('id,name,type,inventory_group,is_active,extra_fields').eq('is_active',true)
-        .or('inventory_group.eq.beverages,name.ilike.Delivery Zona %');
+        .select('id,name,sku,type,inventory_group,is_active,extra_fields').eq('is_active',true).eq('type','product');
       if (error) throw new Error(error.message);
-      benefitOptions = (catalog ?? []).filter(p => isCouponCatalogProduct(p) && allowsCrmCatalogProduct(p)).map(p => ({
+      benefitOptions = (catalog ?? []).filter(p => isCouponCatalogProduct(p, couponFamilies) && allowsCrmCatalogProduct(p)).map(p => ({
         productId:Number(p.id),quantity:1,unitBenefitValueUsd:Number(coupon.capUsd.toFixed(2)),
         unitAdvisorCostUsd:coupon.advisorContributionUsd ?? 0,
         unitCompanyCostUsd:Number((coupon.capUsd-(coupon.advisorContributionUsd ?? 0)).toFixed(2)),upgradeProductIds:[],
@@ -522,7 +523,8 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     const rulesSnapshot = rulesFromInput(input, excludedClientIds);
     if (coupon) Object.assign(rulesSnapshot, { coupon_draft: {
       schema_version:1,label:`Cupón VIVO de hasta $${coupon.capUsd}`,maximum_discount_usd:Number(coupon.capUsd.toFixed(2)),
-      eligible_categories:['beverages','delivery'],allow_combination:true,shared_cap_per_order:true,uses_per_client:1,
+      eligibility_mode:'families',eligible_categories:couponFamilies,auto_include_new_products:coupon.autoIncludeNewProducts === true,
+      allow_combination:true,shared_cap_per_order:true,uses_per_client:1,
       single_order:true,carry_forward_balance:false,cash_redemption:false,pay_excess:true,
       execution_support:'shared_cap_v1',expires_on:endsOn,
       economics:{review_status:coupon.costsReviewed?'approved':'pending',advisor_contribution_usd:coupon.advisorContributionUsd,
@@ -575,7 +577,9 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
         .eq('status', 'draft');
       if (updateError) throw new Error(updateError.message);
 
-      const { data: insertedBenefits, error: benefitsError } = await ctx.supabase
+      const { data: insertedBenefits, error: benefitsError } = coupon
+        ? { data: [], error: (await ctx.supabase.rpc('crm_sync_coupon_options_v1', { p_play_id: playId })).error }
+        : await ctx.supabase
         .from('crm_play_benefits')
         .insert(benefitOptions.map((option, index) => ({
           play_id: playId,
@@ -621,7 +625,9 @@ export async function savePlayDraftAction(input: SavePlayDraftInput): Promise<Pl
     if (createError) throw new Error(createError.message);
 
     const createdId = Number(created.id);
-    const { data: insertedBenefits, error: benefitsError } = await ctx.supabase
+    const { data: insertedBenefits, error: benefitsError } = coupon
+      ? { data: [], error: (await ctx.supabase.rpc('crm_sync_coupon_options_v1', { p_play_id: createdId })).error }
+      : await ctx.supabase
       .from('crm_play_benefits')
       .insert(benefitOptions.map((option, index) => ({
         play_id: createdId,

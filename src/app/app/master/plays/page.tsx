@@ -92,6 +92,11 @@ export default async function MasterPlaysPage({ searchParams }: { searchParams?:
   if (rolesResult.error) throw new Error(rolesResult.error.message);
 
   const playIds = (playsResult.data ?? []).map((row) => Number(row.id));
+  await Promise.all((playsResult.data ?? []).filter(row => ['draft', 'frozen', 'active', 'paused'].includes(row.status)
+    && row.rules_snapshot?.coupon_draft?.eligibility_mode === 'families').map(async row => {
+    const { error } = await ctx.supabase.rpc('crm_sync_coupon_options_v1', { p_play_id: Number(row.id) });
+    if (error) throw new Error(error.message);
+  }));
   const [benefitOptionsResult, benefitUpgradesResult, compatibilityResult] = await Promise.all([
     ctx.supabase
       .from('crm_play_benefits')

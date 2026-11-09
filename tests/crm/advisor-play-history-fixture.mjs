@@ -1,4 +1,4 @@
-import {readFileSync} from 'node:fs';
+import {readFileSync,existsSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {runInNewContext} from 'node:vm';
 import ts from 'typescript';
@@ -18,7 +18,7 @@ export function compile(path, overrides={}){
   if(name==='next/link')return {default:({children,prefetch,...props})=>React.createElement('a',props,children)};
   if(name.startsWith('@/'))return compile('../../src/'+name.slice(2)+'.ts',overrides);
   if(name.startsWith('.')){
-   const relative=new URL(name.endsWith('.ts')||name.endsWith('.tsx')?name:name+'.tsx',file);
+   const relative=new URL(name.endsWith('.ts')||name.endsWith('.tsx')?name:existsSync(new URL(name+'.ts',file))?name+'.ts':name+'.tsx',file);
    return compile(relative.href,overrides);
   }
   return require(name);

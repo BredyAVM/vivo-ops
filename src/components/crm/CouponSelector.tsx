@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { isDeliveryProduct } from '@/lib/crm/benefit-eligibility';
 
 export default function CouponSelector({ cap, options, selected, discount, delivery, disabled, onToggle }: {
   cap: number;
-  options: Array<{ playBenefitId: number; name: string }>;
+  options: Array<{ playBenefitId: number; name: string; sku?: string | null }>;
   selected: number[];
   discount: number;
   delivery: boolean;
@@ -23,8 +24,13 @@ export default function CouponSelector({ cap, options, selected, discount, deliv
       <select aria-label="Bebida o delivery para el cupón" className="min-w-0 flex-1 rounded-lg border border-cyan-300/30 bg-[#101419] px-2 py-2 text-xs text-white"
         value={choice} disabled={disabled} onChange={e => setChoice(e.target.value)}>
         <option value="">Seleccionar bebida o delivery</option>
-        {options.filter(o => !selected.includes(o.playBenefitId)).map(o => <option key={o.playBenefitId} value={o.playBenefitId}
-          disabled={!delivery && /^Delivery Zona /i.test(o.name)}>{o.name}{!delivery && /^Delivery Zona /i.test(o.name) ? ' · requiere delivery' : ''}</option>)}
+        {[false, true].map(isDelivery => {
+          const available = options.filter(o => !selected.includes(o.playBenefitId) && isDeliveryProduct(o.name, o.sku) === isDelivery);
+          return available.length ? <optgroup key={String(isDelivery)} label={isDelivery ? 'Delivery' : 'Bebidas'}>
+            {available.map(o => <option key={o.playBenefitId} value={o.playBenefitId}
+              disabled={!delivery && isDelivery}>{o.name}{!delivery && isDelivery ? ' · requiere delivery' : ''}</option>)}
+          </optgroup> : null;
+        })}
       </select>
       <button type="button" disabled={disabled || !choice} className="rounded-lg bg-cyan-200 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40"
         onClick={() => { onToggle(Number(choice)); setChoice(''); }}>Aplicar cupón</button>

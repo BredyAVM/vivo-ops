@@ -1,5 +1,5 @@
 'use client';
-import { countsTowardCrmMinimum, dailyBenefitConflict } from '@/lib/crm/benefit-eligibility';
+import { countsTowardCrmMinimum, dailyBenefitConflict, isDeliveryProduct } from '@/lib/crm/benefit-eligibility';
 
 import { type FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
@@ -1851,7 +1851,7 @@ export default function AdvisorOrderComposer({
     }, 0);
   }, [configProductId, configSelections, productComponents]);
   const hasDeliveryItem = useMemo(
-    () => draftItems.some((item) => isDeliveryCatalogItemName(item.product_name_snapshot)),
+    () => draftItems.some((item) => isDeliveryProduct(item.product_name_snapshot, item.sku_snapshot)),
     [draftItems]
   );
   const scheduleReady =
@@ -3224,10 +3224,10 @@ export default function AdvisorOrderComposer({
   function applyCrmBenefitDraftItem(nextItem: DraftItem, editingLocalId: string | null, context = crmContext) {
     setDraftItems((current) => {
       if (context?.coupon) {
-        const deliveryItem = isDeliveryCatalogItemName(nextItem.product_name_snapshot);
+        const deliveryItem = isDeliveryProduct(nextItem.product_name_snapshot, nextItem.sku_snapshot);
         const matchingNormal = current.find(item => !item.crm_benefit && !item.reward && item.product_id === nextItem.product_id && item.qty === nextItem.qty);
         const keep = current.filter(item => item !== matchingNormal && item.localId !== editingLocalId
-          && !(deliveryItem && isDeliveryCatalogItemName(item.product_name_snapshot)));
+          && !(deliveryItem && isDeliveryProduct(item.product_name_snapshot, item.sku_snapshot)));
         return [...keep, nextItem];
       }
       const channelItems = context?.benefitFulfillment === 'delivery_zone_1'
@@ -3260,7 +3260,7 @@ export default function AdvisorOrderComposer({
     }
     const benefit = context.benefits.find((option) => option.playBenefitId === playBenefitId);
     if (!benefit) return;
-    if (context.coupon && /^Delivery Zona /i.test(benefit.name) && fulfillment !== 'delivery') {
+    if (context.coupon && isDeliveryProduct(benefit.name, benefit.sku) && fulfillment !== 'delivery') {
       setError('Selecciona entrega por delivery para bonificar el envío.'); return;
     }
     const upgrade = playBenefitUpgradeId == null

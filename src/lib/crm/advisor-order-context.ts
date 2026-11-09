@@ -1,5 +1,5 @@
 import 'server-only';
-import { readCrmCoupon } from './coupon';
+import { readCrmCoupon, isCouponCatalogProduct } from './coupon';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isPlayOrderAvailableAt, allowsCrmCatalogProduct } from '@/lib/crm/play-order';
@@ -83,13 +83,18 @@ async function loadCrmOrderContext({
   const activePlayId = Number(play?.id ?? 0);
   const activeMemberId = Number(activeMember.id ?? 0);
   if (!play || !client || activePlayId <= 0 || activeMemberId <= 0) return null;
+  const coupon = readCrmCoupon(play.rules_snapshot as Record<string, unknown> | null);
+  if (coupon) {
+    const { error } = await supabase.rpc('crm_sync_coupon_options_v1', { p_play_id: activePlayId });
+    if (error) throw new Error(error.message);
+  }
 
   const [{ data: optionRows, error: optionError }, { data: selectionRows, error: selectionError }] = await Promise.all([
     supabase
       .from('crm_play_benefits')
       .select(`
         id, product_id, quantity, unit_benefit_value_usd, sort_order,
-        product:products!crm_play_benefits_product_id_fkey(name, sku, is_active, extra_fields)
+        product:products!crm_play_benefits_product_id_fkey(name, sku, type, inventory_group, is_active, extra_fields)
       `)
       .eq('play_id', activePlayId)
       .order('sort_order', { ascending: true })
@@ -138,6 +143,7 @@ async function loadCrmOrderContext({
   const benefits = (optionRows ?? []).flatMap((option) => {
     const product = firstRelated(option.product as RelatedRow);
     if (!product || product.is_active === false || !allowsCrmCatalogProduct({ extra_fields: product.extra_fields as Record<string, unknown> | null })) return [];
+    if (coupon && !isCouponCatalogProduct(product as { name?: string; sku?: string; type?: string; inventory_group?: string; is_active?: boolean }, coupon.families)) return [];
     const optionId = Number(option.id);
     const quantity = Number(option.quantity);
     if (optionId <= 0 || Number(option.product_id) <= 0 || quantity <= 0) return [];
@@ -166,7 +172,7 @@ async function loadCrmOrderContext({
     dailyUses = (uses ?? []).filter((use) => use.benefit_day).map((use) => ({ day: String(use.benefit_day), orderId: Number(use.order_id) }));
   }
   return {
-    coupon: readCrmCoupon(play.rules_snapshot as Record<string, unknown> | null),
+    coupon,
     recurrenceMode: play.benefit_recurrence_mode === 'daily' ? 'daily' : 'once',
     benefitFulfillment: play.benefit_fulfillment as 'any' | 'pickup' | 'delivery_zone_1',
     dailyUses,

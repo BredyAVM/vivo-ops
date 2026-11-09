@@ -54,10 +54,10 @@ export function buildPlayConditions(play: PlayConditionsDefinition, benefits: Pl
   const coupon = readCrmCoupon(play.rules_snapshot);
   if (coupon) return [
     { label: 'Vigencia', value: playValidityLabel(play) },
-    { label: 'Cupón', value: `Hasta $${coupon.maximum_discount_usd.toFixed(2)} en bebidas o delivery · límite compartido` },
+    { label: 'Cupón', value: `Hasta $${coupon.maximum_discount_usd.toFixed(2)} en ${coupon.families.map(f => f === 'beverages' ? 'bebidas' : 'delivery').join(' o ')} · límite compartido` },
     { label: 'Compra mínima', value: `$${Number(play.minimum_order_amount_usd ?? 0).toFixed(2)} en productos pagados · sin envío ni productos bonificados` },
     { label: 'Uso permitido', value: 'Una vez, en un solo pedido · sin saldo acumulable' },
-    { label: 'Combinación', value: 'Puede combinar bebidas y un envío · el cliente paga el exceso' },
+    { label: 'Combinación', value: `${coupon.families.length > 1 ? 'Puede combinar bebidas y un envío' : 'Solo la familia indicada'} · el cliente paga el exceso` },
     { label: 'Cargo al asesor', value: coupon.economics.review_status === 'approved' ? `Hasta $${Number(coupon.economics.advisor_contribution_usd).toFixed(2)} · proporcional al cupón utilizado` : 'Pendiente de revisión' },
   ];
   const hasUpgrades = benefits.some((benefit) => benefit.upgrades.length > 0);

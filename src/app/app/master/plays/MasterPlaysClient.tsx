@@ -6,7 +6,7 @@ import BackLink from '@/components/navigation/BackLink';
 import { useWorkspaceRouter as useRouter } from '@/components/navigation/useWorkspaceRouter';
 import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from 'react';
 import { getPlayBudgetProgress } from '@/lib/crm/play-finance';
-import { readCrmCoupon, isCouponCatalogProduct } from '@/lib/crm/coupon';
+import { readCrmCoupon, isCouponCatalogProduct, COUPON_FAMILIES, type CouponFamily } from '@/lib/crm/coupon';
 import { workflowPresentation } from '@/lib/crm/play-member-presentation';
 import NoApplyRequestsPanel, { type NoApplyReviewRow } from './NoApplyRequestsPanel';
 import { readOfferRestMode, type OfferRestMode } from '@/lib/crm/offer-rest';
@@ -433,7 +433,9 @@ function PlayDefinitionForm({
   const rules = play?.rules ?? {};
   const coupon = readCrmCoupon(rules);
   const couponCapUsd = coupon?.maximum_discount_usd;
-  const couponCatalog = benefits.filter(b => isCouponCatalogProduct({ name: b.name, type: b.type, inventory_group: b.inventoryGroup }));
+  const [couponFamilies, setCouponFamilies] = useState<CouponFamily[]>(coupon?.families ?? COUPON_FAMILIES);
+  const [couponAutoInclude, setCouponAutoInclude] = useState(coupon?.auto_include_new_products ?? false);
+  const couponCatalog = benefits.filter(b => isCouponCatalogProduct({ name: b.name, sku: b.sku, type: b.type, inventory_group: b.inventoryGroup }, couponFamilies));
   const [couponAdvisor, setCouponAdvisor] = useState(coupon?.economics.advisor_contribution_usd == null ? '' : String(coupon.economics.advisor_contribution_usd));
   const [couponCostsReviewed, setCouponCostsReviewed] = useState(coupon?.economics.review_status === 'approved');
   const [name, setName] = useState(play?.name ?? '');
@@ -636,7 +638,7 @@ function PlayDefinitionForm({
       kind,
       startsOn,
       endsOn,
-      coupon: coupon ? { capUsd: coupon.maximum_discount_usd, advisorContributionUsd: couponAdvisor === '' ? null : Number(couponAdvisor), costsReviewed: couponCostsReviewed } : null,
+      coupon: coupon ? { capUsd: coupon.maximum_discount_usd, families: couponFamilies, autoIncludeNewProducts: couponAutoInclude, advisorContributionUsd: couponAdvisor === '' ? null : Number(couponAdvisor), costsReviewed: couponCostsReviewed } : null,
       benefits: benefitOptions.map((option) => ({
         productId: Number(option.productId),
         quantity: Number(option.quantity),
@@ -763,6 +765,16 @@ function PlayDefinitionForm({
         {coupon ? <div className="space-y-3 rounded-2xl border border-cyan-400/30 bg-cyan-400/5 p-3">
           <h3 className="text-sm font-semibold text-cyan-100">Cupón VIVO · hasta {moneyFormatter.format(coupon.maximum_discount_usd)} compartidos</h3>
           <p className="text-xs text-cyan-100/80">Bebidas, delivery o ambos. Un solo uso en un solo pedido. El cliente paga la diferencia; el sobrante no se acumula.</p>
+          <fieldset className="space-y-2 text-xs text-cyan-100">
+            <legend className="mb-2 font-semibold">Familias permitidas</legend>
+            <div className="flex flex-wrap gap-4">{COUPON_FAMILIES.map(family => <label key={family} className="flex items-center gap-2">
+              <input type="checkbox" checked={couponFamilies.includes(family)} onChange={e => {
+                setCouponFamilies(current => e.target.checked ? [...current, family] : current.filter(f => f !== family));
+              }} />{family === 'beverages' ? 'Bebidas' : 'Delivery'}
+            </label>)}</div>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={couponAutoInclude} onChange={e => setCouponAutoInclude(e.target.checked)} />Incluir productos nuevos también después de publicar</label>
+            <p className="text-[11px] text-cyan-100/70">En borrador se actualizan estas familias. Al publicar, los productos nuevos solo entrarán si activas esta opción. Los desactivados no se ofrecen.</p>
+          </fieldset>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Aporte máximo del asesor USD" hint="Por cupón utilizado completo">
               <input className={inputClass} type="number" min="0" max={coupon.maximum_discount_usd} step="0.01" placeholder="Pendiente de definir" value={couponAdvisor}
@@ -775,7 +787,7 @@ function PlayDefinitionForm({
           <p className="text-[11px] text-cyan-100/70">Si se utiliza menos del límite, los aportes se reducen proporcionalmente. Solo se liquidan al entregar el pedido.</p>
           <label className="flex items-center gap-2 text-xs text-cyan-100"><input type="checkbox" checked={couponCostsReviewed} disabled={couponAdvisor === ''}
             onChange={e => setCouponCostsReviewed(e.target.checked)} />Costos revisados · permite confirmar después de probar</label>
-          <details className="text-xs text-cyan-100/75"><summary>Productos autorizados · {couponCatalog.length}</summary>
+          <details className="text-xs text-cyan-100/75"><summary>Ver productos disponibles hoy · {couponCatalog.length}</summary>
             <p className="mt-2">{couponCatalog.map(b => b.name).join(' · ')}</p></details>
         </div> : <div className="rounded-2xl border border-[#3C3410] bg-[#171506] p-3">
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

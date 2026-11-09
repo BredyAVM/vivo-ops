@@ -23,5 +23,12 @@ test('costs remain pending until a valid split is approved; eligible catalog exc
   assert.equal(isCouponCatalogProduct({ name: 'Single Pack', type: 'combo', inventory_group: 'other' }), false);
   assert.equal(isCouponCatalogProduct({ name: 'Cola', type: 'product', inventory_group: 'beverages' }), true);
   assert.equal(isCouponCatalogProduct({ name: 'Delivery Zona 7', type: 'product' }), true);
+  assert.equal(isCouponCatalogProduct({ name: 'Delivery Zona 8', type: 'product' }), true);
+  assert.equal(isCouponCatalogProduct({ name: 'Envío costa', sku: 'DEL_COAST', type: 'product' }), true);
+  assert.equal(isCouponCatalogProduct({ name: 'Agua nueva', type: 'product', inventory_group: 'beverages' }, ['beverages']), true);
+  assert.equal(isCouponCatalogProduct({ name: 'Delivery express', type: 'product' }, ['beverages']), false);
+  assert.equal(isCouponCatalogProduct({ name: 'Agua', type: 'product', inventory_group: 'beverages' }, ['delivery']), false);
+  assert.deepEqual(readCrmCoupon({ coupon_draft: { maximum_discount_usd: 4, eligible_categories: ['beverages'] } })?.families, ['beverages']);
+  assert.throws(() => readCrmCoupon({ coupon_draft: { maximum_discount_usd: 4, eligible_categories: [] } }));
   assert.equal(isCouponCatalogProduct({ name: 'Cola', type: 'product', inventory_group: 'beverages', is_active: false }), false);
 });
