@@ -15,12 +15,11 @@ import {
   type KitchenConnectionState,
 } from './useKitchenLiveSync';
 import {
-  kitchenTakeAction,
   markReadyAction,
   reportKitchenIncidentAction,
   updateKitchenEtaAction,
 } from '../master/dashboard/actions';
-import { acknowledgeKitchenOrderChangesAction } from './actions';
+import { acknowledgeKitchenOrderChangesAction, takeOrderForKitchenAction, type KitchenTakeResult } from './actions';
 
 export type KitchenOrderItem = {
   id: number;
@@ -435,6 +434,8 @@ export default function KitchenClient({
   const [isRefreshPending, startRefreshTransition] = useTransition();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const actionInFlightRef = useRef(false);
   const [etaByOrder, setEtaByOrder] = useState<Record<number, string>>({});
   const [incidentOrderId, setIncidentOrderId] = useState<number | null>(null);
   const [incidentReasonByOrder, setIncidentReasonByOrder] = useState<Record<number, string>>({});
@@ -688,21 +689,35 @@ export default function KitchenClient({
                 ? 'Sin push'
                 : 'Activar push';
 
-  const runAction = (key: string, action: () => Promise<void>) => {
-    if (isPending) return;
+  const runAction = (key: string, action: () => Promise<void | KitchenTakeResult>) => {
+    // A ref blocks two taps in the same render, before isPending updates.
+    if (actionInFlightRef.current || isPending) return;
     if (!navigator.onLine) {
       setErrorMessage('No hay conexión. Recupera internet antes de realizar esta acción.');
       return;
     }
+    actionInFlightRef.current = true;
     setPendingKey(key);
     setErrorMessage(null);
+    setActionNotice(null);
     startActionTransition(async () => {
       try {
-        await action();
-        requestRefresh('action', true);
+        const result = await action();
+        if (result?.outcome === 'error') setErrorMessage(result.message);
+        if (result?.outcome === 'state_changed') setActionNotice(result.message);
+        if (result?.status === 'in_kitchen' || result?.status === 'ready') {
+          setActiveStatus(result.status);
+        }
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'No se pudo completar la acción.');
+        // Transport/production errors must not leak React's minified message.
+        console.error('Kitchen action response failed', error);
+        setErrorMessage(error instanceof Error && error.message === 'Indica un ETA entre 1 y 180 minutos.'
+          ? error.message
+          : 'No pudimos confirmar la acción. Revisa el estado actualizado antes de volver a intentarlo.');
       } finally {
+        // Refresh on BOTH success and rejection; never retry the mutation.
+        requestRefresh('action', true);
+        actionInFlightRef.current = false;
         setPendingKey(null);
       }
     });
@@ -1048,6 +1063,15 @@ export default function KitchenClient({
               onClick={() => setPushTestResult(null)}
               className="shrink-0 rounded-lg border border-current/30 px-2 py-1 text-xs font-semibold"
             >
+              Cerrar
+            </button>
+          </div>
+        ) : null}
+
+        {actionNotice ? (
+          <div className="mt-3 flex items-start justify-between gap-3 rounded-xl border border-sky-400/40 bg-sky-400/10 px-3 py-2.5 text-sm text-sky-100" role="status" aria-live="polite">
+            <span>{actionNotice}</span>
+            <button type="button" onClick={() => setActionNotice(null)} className="shrink-0 rounded-lg border border-sky-300/30 px-2 py-1 text-xs font-semibold">
               Cerrar
             </button>
           </div>
@@ -1449,7 +1473,10 @@ export default function KitchenClient({
                               onClick={() =>
                                 runAction(takeActionKey, async () => {
                                   const etaMinutes = normalizeEtaMinutes(etaValue);
-                                  await kitchenTakeAction({ orderId: order.id, etaMinutes });
+                                  const result = await takeOrderForKitchenAction({ orderId: order.id, etaMinutes });
+                                  return result.message
+                                    ? { ...result, message: `Pedido #${order.displayNumber}: ${result.message}` }
+                                    : result;
                                 })
                               }
                               className="col-span-3 h-12 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 text-sm font-black text-emerald-200 disabled:opacity-60 sm:col-span-1"

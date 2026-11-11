@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import './take-order.test.mts';
 import {
   getKitchenShiftDateBounds,
   getKitchenDayRange,
@@ -444,7 +445,7 @@ test('the actual Kitchen JSX renders the same corrected quantities and review wa
   const graph=orderMenuGraph();const selection=defaultMenuOrderSelection(graph.entries.find(e=>e.entryId===menuIds.combo)!);
   selection.slots[0].removed=['sauce'];selection.slots[1].extras=[{entryId:menuIds.extra,variantKey:'standard',quantity:1}];
   const quote=quoteMenuOrder(graph,selection),stock=buildMenuStockSnapshot(graph,quote,stockRecipes(graph),stocks);
-  order.items=[{id:123,qty:1,name:quote.title,presentation:getKitchenItemPresentation({qty:1,name:quote.title,unitsPerService:0,notes:[...menuQuoteDetailLines(quote),MUERDEME_STOCK_PREFIX+JSON.stringify(stock)].join('\n')})}];
+  order.items=[{id:123,qty:1,name:quote.title,crmPlayName:null,presentation:getKitchenItemPresentation({qty:1,name:quote.title,unitsPerService:0,notes:[...menuQuoteDetailLines(quote),MUERDEME_STOCK_PREFIX+JSON.stringify(stock)].join('\n')})}];
   const configured=render();assert.equal((configured.match(/2 hamburguesas · 2 porciones de papas · 1 bebida/g)??[]).length,2);
   assert.match(configured,/Sin Salsa/);assert.match(configured,/Extra: 1 Ensayo Tocineta/);assert.match(configured,/preparaciones/);assert.doesNotMatch(configured,/@muerdeme|USD 15|1 piezas en total/);
 });
