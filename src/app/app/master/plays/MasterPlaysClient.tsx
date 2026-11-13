@@ -2112,11 +2112,19 @@ export default function MasterPlaysClient({
                 </div>
                 <PlayProgress status={selectedPlay.status} hasPreview={selectedHasPreview} />
 
-                <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.5fr)]">
                   <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedSummaryTotal}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Clientes</div></div>
                   <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedAdvisorCount}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Asesores</div></div>
                   <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{selectedTotalClosures.toLocaleString('es-VE')}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Cierres acumulados</div></div>
                   <div className="rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center"><div className="text-lg font-semibold tabular-nums">{moneyFormatter.format(selectedRevenue)}</div><div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Facturación acumulada</div></div>
+                  <div className="col-span-2 flex flex-col justify-center rounded-xl border border-[#242433] bg-[#0D0D11] px-2 py-2 text-center lg:col-span-1">
+                    <div className="flex flex-wrap justify-center gap-x-1 text-sm font-semibold tabular-nums">
+                      {selectedPlay.startsAt ? <time dateTime={selectedPlay.startsAt}>{selectedPlay.endsAt ? '' : 'Desde '}{dateLabel(selectedPlay.startsAt)}</time> : null}
+                      {selectedPlay.endsAt ? <time dateTime={selectedPlay.endsAt}>{selectedPlay.startsAt ? 'al ' : 'Hasta '}{dateLabel(selectedPlay.endsAt)}</time> : null}
+                      {!selectedPlay.startsAt && !selectedPlay.endsAt ? 'Sin fechas' : null}
+                    </div>
+                    <div className="text-[9px] uppercase tracking-[0.1em] text-[#9B9BA7]">Vigencia</div>
+                  </div>
                 </div>
 
                 {selectedHasPreview ? (
