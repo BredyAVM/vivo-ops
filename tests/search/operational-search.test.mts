@@ -24,7 +24,9 @@ const source = (path: string) => readFileSync(new URL('../../' + path, import.me
 test('both master surfaces use the same directory search and a distinct client profile', () => {
   for (const path of ['src/components/orders/OrdersWorkspaceClient.tsx', 'src/app/app/master/dashboard/MasterDashboardClient.tsx']) {
     const text = source(path);
-    assert.match(text, /searchMasterDirectoryAction\(\{ query, limit: 10 \}\)/);
+    assert.match(text, path.includes('OrdersWorkspaceClient')
+      ? /searchOrderDirectoryWithPaymentsAction\(\{ query, localOrderIds:/
+      : /searchMasterDirectoryAction\(\{ query, limit: 10 \}\)/);
     assert.match(text, /MasterClientSearchResults clients=\{clientSearchResults\}/);
     assert.match(text, /matchesPhoneSearch\(/);
   }

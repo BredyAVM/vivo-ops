@@ -15,6 +15,28 @@
 
 ## Implementación
 
+### Saldo en resultados de Máster Ops / Administración (2026-11-19)
+
+El workspace operativo añade estado de pago e importe pendiente a cada resultado,
+independientemente de que la orden esté entregada. Reutiliza la búsqueda base y
+consulta `get_orders_financial_state` una vez por búsqueda explícita para hasta
+20 IDs únicos (10 locales + 10 históricos). No carga saldos nuevos al abrir el
+módulo ni ejecuta consultas por fila. La fecha operativa permanece sin cambios.
+
+`searchOrderDirectoryWithPaymentsAction` valida sesión Máster/Admin y proyecta
+solo saldo USD, saldo a favor y número de reportes pendientes. Un reporte por
+revisar no se cuenta como pago. Respuestas incompletas/duplicadas/erróneas muestran
+«Saldo no disponible», nunca un cero supuesto ni «Pagado». Canceladas remiten a
+revisar pagos en el detalle. No se cambian RPC, permisos, escrituras o archivos
+de Dashboard; el nuevo adaptador solo se consume en el workspace Máster/Admin.
+
+Las guías Supabase/React orientan la consulta agrupada, autenticación por acción
+y dependencias estables, sin precarga ni polling adicional.
+Validación: `test:search-payments` (17), `test:orders-workspace` (32),
+`test:master-read-efficiency` (13) y compilación de producción correctos.
+Consulta real de solo lectura con contexto Máster: el RPC devuelve saldo, saldo
+a favor y reportes pendientes para órdenes entregadas; no se modifica su historia.
+
 - `searchMasterDirectoryAction` es la acción compartida de Máster Ops/Dashboard:
   órdenes existentes + hasta 8 fichas resumidas. Ambos muestran
   `MasterClientSearchResults`, con diálogo de ficha e historial.

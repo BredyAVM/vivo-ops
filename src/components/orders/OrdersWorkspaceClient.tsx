@@ -30,7 +30,9 @@ import MasterClientSearchResults from "@/app/app/master/_components/MasterClient
 import { ordersWorkspaceNavigation, type OrdersWorkspaceSurface } from "@/lib/orders/workspace-navigation";
 import type { ClientSearchSummary } from "@/lib/search/client-search";
 import { matchesPhoneSearch } from "@/lib/search/phone-search";
-import { searchMasterDirectoryAction } from "@/app/app/master/dashboard/actions";
+import { searchOrderDirectoryWithPaymentsAction } from "@/lib/search/order-search-payment-actions";
+import type { OrderSearchPayment } from "@/lib/search/order-search-payments";
+import OrderSearchPaymentStatus from "@/components/orders/OrderSearchPaymentStatus";
 import { useOrderCancellationPreview } from "@/lib/orders/use-order-cancellation-preview";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
@@ -174,6 +176,7 @@ type MasterOpsMergedSearchResult = {
   sub: string;
   operationalDate: string;
   source: "local" | "remote";
+  cancelled: boolean;
 };
 
 export type OperationStatsSummary = ReturnType<typeof buildOperationStats>;
@@ -3899,6 +3902,7 @@ export default function OrdersWorkspaceClient({
   const [isOrderSearchSubmitted, setIsOrderSearchSubmitted] = useState(false);
   const [orderSearchSubmissionVersion, setOrderSearchSubmissionVersion] = useState(0);
   const [remoteOrderSearchResults, setRemoteOrderSearchResults] = useState<MasterOpsOrderSearchResult[]>([]);
+  const [searchPayments, setSearchPayments] = useState<OrderSearchPayment[]>([]);
   const [clientSearchResults, setClientSearchResults] = useState<ClientSearchSummary[]>([]);
   const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
   const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
@@ -4141,6 +4145,7 @@ export default function OrdersWorkspaceClient({
         sub: `${ORDER_STATUS_LABELS[order.status]} - ${caracasDateKeyFromISO(order.deliveryAtISO)} - ${fmtUSD(order.totalUsd)}`,
         operationalDate: caracasDateKeyFromISO(order.deliveryAtISO),
         source: "local",
+        cancelled: order.status === "cancelled",
       });
     });
 
@@ -4148,6 +4153,8 @@ export default function OrdersWorkspaceClient({
       .sort((a, b) => a.matchPriority - b.matchPriority || b.id - a.id)
       .slice(0, 10);
   }, [orders, submittedOrderSearch]);
+  const localSearchOrderIdsKey = localOrderSearchResults.map(result => result.id).join(',');
+  const searchPaymentById = useMemo(() => new Map(searchPayments.map(payment => [payment.orderId, payment])), [searchPayments]);
   const mergedOrderSearchResults = useMemo<MasterOpsMergedSearchResult[]>(() => {
     const localIds = new Set(localOrderSearchResults.map((result) => result.id));
     const remote = remoteOrderSearchResults
@@ -4159,6 +4166,7 @@ export default function OrdersWorkspaceClient({
         sub: `${ORDER_STATUS_LABELS[result.status as OrderStatus] ?? result.status} - ${result.operationalDate} - ${fmtUSD(result.totalUsd)}`,
         operationalDate: result.operationalDate,
         source: "remote" as const,
+        cancelled: result.status === "cancelled",
       }));
 
     return [...localOrderSearchResults, ...remote]
@@ -4277,6 +4285,7 @@ export default function OrdersWorkspaceClient({
     const query = submittedOrderSearch.trim();
 
     if (!shouldSearchOrders) {
+      setSearchPayments([]);
       setRemoteOrderSearchResults([]);
       setClientSearchResults([]);
       setRemoteOrderSearchLoading(false);
@@ -4285,17 +4294,19 @@ export default function OrdersWorkspaceClient({
     }
 
     let cancelled = false;
+    setSearchPayments([]);
     setRemoteOrderSearchLoading(true);
     setRemoteOrderSearchResults([]);
     setClientSearchResults([]);
     setRemoteOrderSearchError(null);
 
     const timer = window.setTimeout(() => {
-      searchMasterDirectoryAction({ query, limit: 10 })
+      searchOrderDirectoryWithPaymentsAction({ query, localOrderIds: localSearchOrderIdsKey ? localSearchOrderIdsKey.split(',').map(Number) : [] })
         .then((results) => {
           if (cancelled) return;
           setRemoteOrderSearchResults(results.orders as MasterOpsOrderSearchResult[]);
           setClientSearchResults(results.clients);
+          setSearchPayments(results.payments);
         })
         .catch((error) => {
           if (cancelled) return;
@@ -4312,7 +4323,7 @@ export default function OrdersWorkspaceClient({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [submittedOrderSearch, orderSearchSubmissionVersion, shouldSearchOrders]);
+  }, [submittedOrderSearch, orderSearchSubmissionVersion, shouldSearchOrders, localSearchOrderIdsKey]);
 
   useEffect(() => {
     const openOrderValue = searchParams.get("openOrder");
@@ -5015,6 +5026,7 @@ export default function OrdersWorkspaceClient({
                       </span>
                     </div>
                     <div className="mt-0.5 text-xs text-[#B7B7C2]">{result.sub}</div>
+                    <OrderSearchPaymentStatus payment={searchPaymentById.get(result.id)} cancelled={result.cancelled} loading={remoteOrderSearchLoading} />
                   </button>
                 )) : null}
                 {shouldSearchOrders ? <MasterClientSearchResults clients={clientSearchResults} /> : null}
