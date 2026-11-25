@@ -14,6 +14,7 @@ function moduleWithHooks(name, hooks) {
     if (id === 'react') return hooks;
     if (id === './actions' || id === './read-actions') return {};
     if (id.startsWith('./')) return moduleWithHooks(id.slice(2) + '.ts', hooks);
+    if (id.startsWith('../')) return createRequire(new URL(name, root))(id);
     return require(id);
   }, module.exports, module);
   return module.exports;

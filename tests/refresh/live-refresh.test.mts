@@ -7,7 +7,7 @@ import { createRefreshCoordinator } from '../../src/lib/refresh/refresh-coordina
 
 // Execute the production hooks with deterministic browser, transport and React
 // lifecycle boundaries. No database mutations or network requests are made.
-function fixture(kind: 'kitchen' | 'advisor', initiallyOnline = true) {
+function fixture(kind: 'kitchen' | 'advisor' | 'collection' | 'wallet' | 'inbox', initiallyOnline = true) {
   const require = createRequire(import.meta.url);
   let now = Date.parse('2026-10-27T12:00:00Z');
   let busy = false;
@@ -60,6 +60,11 @@ function fixture(kind: 'kitchen' | 'advisor', initiallyOnline = true) {
       if (!same(slots[index]?.deps, deps)) slots[index] = { value: callback, deps };
       return slots[index].value;
     },
+    useMemo(create: () => unknown, deps: unknown[]) {
+      const index = cursor++;
+      if (!same(slots[index]?.deps, deps)) slots[index] = { value: create(), deps };
+      return slots[index].value;
+    },
     useEffect(setup: Slot['setup'], deps: unknown[]) {
       const index = cursor++;
       if (same(slots[index]?.deps, deps)) return;
@@ -103,16 +108,30 @@ function fixture(kind: 'kitchen' | 'advisor', initiallyOnline = true) {
   const coalesced = load('../../src/lib/refresh/use-coalesced-refresh.ts', {
     './refresh-coordinator': { createRefreshCoordinator },
   });
-  const source = kind === 'kitchen'
-    ? '../../src/app/app/kitchen/useKitchenLiveSync.ts'
-    : '../../src/app/app/advisor/commissions/AdvisorGoalLiveRefresh.tsx';
-  const loaded = load(source, { '@/lib/refresh/use-coalesced-refresh': coalesced });
+  const sources = {
+    kitchen: '../../src/app/app/kitchen/useKitchenLiveSync.ts',
+    advisor: '../../src/app/app/advisor/commissions/AdvisorGoalLiveRefresh.tsx',
+    collection: '../../src/components/commissions/CollectionRefresh.tsx',
+    wallet: '../../src/app/app/advisor/wallet/WalletRefresh.tsx',
+    inbox: '../../src/app/app/advisor/inbox/AdvisorInboxClient.tsx',
+  };
+  const loaded = load(sources[kind], {
+    '@/lib/refresh/use-coalesced-refresh': coalesced,
+    '@/lib/advisor-navigation': { withAdvisorReturnTo: (href: string) => href },
+    '../AdvisorPendingLink': { default: () => null },
+    '../advisor-ui': { EmptyBlock: () => null, SectionCard: () => null, StatusBadge: () => null },
+    './actions': { markAdvisorInboxItemsReadAction: () => { throw new Error('No writes in refresh verification'); } },
+    './inbox-shared': { FILTERS: [], formatEventTime: () => '' },
+  });
+  const initialEvents: unknown[] = [];
   let output: { requestRefresh: (reason: string, immediate?: boolean) => void; props?: unknown };
   function render() {
     cursor = 0;
     output = kind === 'kitchen'
       ? loaded.useKitchenLiveSync(supabase, onRefresh, busy)
-      : loaded.AdvisorGoalLiveRefresh({ observedAt });
+      : kind === 'advisor'
+        ? loaded.AdvisorGoalLiveRefresh({ observedAt })
+        : loaded.default(kind === 'inbox' ? { activeFilter: 'updates', initialEvents } : { checkedAt: observedAt });
     const pending = effects;
     effects = [];
     pending.forEach((effect) => effect());
@@ -136,6 +155,7 @@ function fixture(kind: 'kitchen' | 'advisor', initiallyOnline = true) {
     visible(value: boolean) { document.visibilityState = value ? 'visible' : 'hidden'; dispatch('visibilitychange'); },
     online(value: boolean) { navigator.onLine = value; dispatch(value ? 'online' : 'offline'); },
     focus() { dispatch('focus'); },
+    notify() { dispatch('advisor:notification'); },
     manual() {
       function findButton(element: unknown): { onClick: () => void } | undefined {
         if (!element || typeof element !== 'object') return;
@@ -261,5 +281,47 @@ test('Advisor manual refresh remains immediate and delays the next automatic rea
   f.manual(); assert.equal(f.calls.length, 1);
   f.complete(); f.tick(270_000); assert.equal(f.calls.length, 1);
   f.tick(30_000); assert.equal(f.calls.length, 2);
+  f.complete(); f.unmount();
+});
+
+test('collection polling keeps its 30-second cadence without overlapping a slow read', () => {
+  const f = fixture('collection');
+  f.tick(30_000); assert.equal(f.calls.length, 1);
+  f.tick(90_000); assert.equal(f.calls.length, 1);
+  f.complete(); f.tick(30_000); assert.equal(f.calls.length, 2);
+  f.complete(); f.unmount();
+});
+
+test('hidden and offline collection views defer reads and reconcile once on return', () => {
+  const f = fixture('collection');
+  f.visible(false); f.tick(90_000); assert.equal(f.calls.length, 0);
+  f.visible(true); f.focus(); assert.equal(f.calls.length, 1);
+  f.complete(); f.online(false); f.tick(90_000); assert.equal(f.calls.length, 1);
+  f.online(true); f.focus(); assert.equal(f.calls.length, 2);
+  f.complete(); f.manual(); assert.equal(f.calls.length, 3);
+  f.complete(); f.unmount();
+});
+
+test('wallet focus bursts make one read, retain manual refresh, and recover offline gaps', () => {
+  const f = fixture('wallet');
+  for (let i = 0; i < 20; i++) f.focus();
+  assert.equal(f.calls.length, 1);
+  f.complete(); f.manual(); assert.equal(f.calls.length, 2);
+  f.complete(); f.online(false); f.focus(); assert.equal(f.calls.length, 2);
+  f.online(true); f.focus(); assert.equal(f.calls.length, 3);
+  f.complete(); f.unmount();
+});
+
+test('advisor inbox notification bursts reconcile once and preserve events received during a read', () => {
+  const f = fixture('inbox');
+  for (let i = 0; i < 50; i++) f.notify();
+  f.tick(280); assert.equal(f.calls.length, 1);
+  for (let i = 0; i < 50; i++) f.notify();
+  f.tick(1_000); assert.equal(f.calls.length, 1);
+  f.complete(); f.tick(280); assert.equal(f.calls.length, 2);
+  f.complete(); f.visible(false);
+  for (let i = 0; i < 50; i++) f.notify();
+  f.tick(60_000); assert.equal(f.calls.length, 2);
+  f.visible(true); f.focus(); assert.equal(f.calls.length, 3);
   f.complete(); f.unmount();
 });

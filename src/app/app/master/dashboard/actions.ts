@@ -22,6 +22,7 @@ export async function updateDashboardUserAction(input: Parameters<typeof configu
 import { buildOrderCancellationCommand, readOrderCancellationPreview, readOrderCancellationReceipt, type OrderCancellationInput } from '@/lib/domain/order-cancellation-command';
 
 import { buildPaymentConfirmationCommand, readPaymentConfirmationReceipt, type PaymentConfirmationInput } from '@/lib/domain/payment-confirmation-command';
+import { observeServerOperation } from '@/lib/observability/server-operation';
 
 import { revalidatePath, updateTag } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -1749,9 +1750,13 @@ export async function createPaymentReportAction(input: {
 
 export async function confirmPaymentReportAction(input: PaymentConfirmationInput) {
   const { supabase, user } = await requirePaymentReportOperator();
-  const { data, error } = await supabase.rpc('confirm_payment_report_atomic_v1', {
-    p_input: buildPaymentConfirmationCommand(input),
-  });
+  const { data, error } = await observeServerOperation(
+    { surface: 'master', operation: 'confirm_payment_report' },
+    () => supabase.rpc('confirm_payment_report_atomic_v1', {
+      p_input: buildPaymentConfirmationCommand(input),
+    }),
+    { logSuccess: true },
+  );
   if (error) throw new Error(error.message);
   const receipt = readPaymentConfirmationReceipt(data);
   // Money and the visible event are committed together. Push delivery is best

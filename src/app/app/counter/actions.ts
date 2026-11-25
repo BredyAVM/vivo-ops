@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireCounterOperatorContext } from '@/lib/auth';
+import { observeServerOperation } from '@/lib/observability/server-operation';
 import { readMenuOrderQuote } from '@/lib/brands/order-menu';
 import { sendPushToAdvisorDevices } from '@/lib/push';
 import type {
@@ -367,14 +368,18 @@ export async function applyCounterPaymentAction(
       ? input.overpaymentHandling
       : null;
 
-  const { data, error } = await ctx.supabase.rpc('counter_apply_order_payments', {
-    p_idempotency_key: idempotencyKey,
-    p_order_id: orderId,
-    p_payment_lines: paymentLines,
-    p_overpayment_handling: overpaymentHandling,
-    p_change_lines: changeLines,
-    p_notes: String(input.notes || '').trim() || null,
-  });
+  const { data, error } = await observeServerOperation(
+    { surface: 'counter', operation: 'apply_order_payments' },
+    () => ctx.supabase.rpc('counter_apply_order_payments', {
+      p_idempotency_key: idempotencyKey,
+      p_order_id: orderId,
+      p_payment_lines: paymentLines,
+      p_overpayment_handling: overpaymentHandling,
+      p_change_lines: changeLines,
+      p_notes: String(input.notes || '').trim() || null,
+    }),
+    { logSuccess: true },
+  );
 
   if (error) throw new Error(error.message);
   const result = asRecord(data);

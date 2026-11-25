@@ -25,6 +25,7 @@ test('advisor selects a historical daily rate and reports the exact date/rate wi
     if(id.endsWith('order-labels'))return {getPaymentMethodLabel:m=>m};
     if(id.endsWith('number-input'))return {parseDecimalInput:v=>Number(String(v).replace(',','.'))};
     if(id.endsWith('advisor-navigation'))return {withAdvisorReturnTo:v=>v};
+    if(id.endsWith('copy-live-whatsapp'))return {copyLiveOrderWhatsApp:()=>{throw new Error('Clipboard is outside this payment test');}};
     if(id.endsWith('collection-policy'))return require('../../src/lib/orders/collection-policy.ts');
     if(id.endsWith('rate-review'))return require('../../src/lib/payments/rate-review.ts');
     if(id.endsWith('payment-report-rules'))return require('../../src/lib/payments/payment-report-rules.ts');

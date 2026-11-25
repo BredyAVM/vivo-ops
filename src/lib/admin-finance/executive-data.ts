@@ -20,6 +20,7 @@ import {
 import { isRecognizedBillingOrder } from '../orders/order-sales';
 import { getOrderMoneySnapshot } from '../orders/order-money';
 import { indexKpiFinancialStates } from '../orders/operational-kpis';
+import { observeServerOperation } from '../observability/server-operation';
 
 const EXECUTIVE_ORDER_LIMIT = 8_000;
 const EXECUTIVE_ORDER_BATCH_SIZE = 250;
@@ -107,7 +108,18 @@ export async function loadAdminExecutiveKpis(input: {
     latestDeliveredEventByOrderId.set(orderId, event);
   }
 
-  const deliveredOrderIds = Array.from(latestDeliveredEventByOrderId.keys());
+  const rowsById = new Map<number, ExecutiveOrderRow>();
+  for (const order of scheduledRows) {
+    rowsById.set(Number(order.id), order);
+  }
+  for (const order of legacyCreatedRows) {
+    if (!hasScheduledDate(order)) rowsById.set(Number(order.id), order);
+  }
+
+  // Reuse only rows read in this request. Older orders delivered in this window
+  // still need their own lookup; canonical balances are always read afterward.
+  const deliveredOrderIds = Array.from(latestDeliveredEventByOrderId.keys())
+    .filter((orderId) => !rowsById.has(orderId));
   const deliveredOrderBatches = Array.from(
     { length: Math.ceil(deliveredOrderIds.length / EXECUTIVE_ORDER_BATCH_SIZE) },
     (_, index) =>
@@ -116,27 +128,20 @@ export async function loadAdminExecutiveKpis(input: {
         (index + 1) * EXECUTIVE_ORDER_BATCH_SIZE
       )
   );
-  const deliveredOrderResults = await Promise.all(
-    deliveredOrderBatches.map((orderIds) =>
-      input.supabase.from('orders').select(orderSelect).in('id', orderIds)
-    )
-  );
-  const deliveredOrderError = deliveredOrderResults.find((result) => result.error)?.error;
-  if (deliveredOrderError) {
-    throw new Error(deliveredOrderError.message || 'No se pudieron consultar las ventas entregadas.');
-  }
-
-  const rowsById = new Map<number, ExecutiveOrderRow>();
-
-  for (const order of scheduledRows.slice(0, EXECUTIVE_ORDER_LIMIT)) {
-    rowsById.set(Number(order.id), order);
-  }
-  for (const order of legacyCreatedRows.slice(0, EXECUTIVE_ORDER_LIMIT)) {
-    if (!hasScheduledDate(order)) rowsById.set(Number(order.id), order);
-  }
-  for (const result of deliveredOrderResults) {
-    for (const order of (result.data ?? []) as unknown as ExecutiveOrderRow[]) {
-      rowsById.set(Number(order.id), order);
+  for (let offset = 0; offset < deliveredOrderBatches.length; offset += 4) {
+    const results = await Promise.all(
+      deliveredOrderBatches.slice(offset, offset + 4).map((orderIds) =>
+        input.supabase.from('orders').select(orderSelect).in('id', orderIds)
+      )
+    );
+    const deliveredOrderError = results.find((result) => result.error)?.error;
+    if (deliveredOrderError) {
+      throw new Error(deliveredOrderError.message || 'No se pudieron consultar las ventas entregadas.');
+    }
+    for (const result of results) {
+      for (const order of (result.data ?? []) as unknown as ExecutiveOrderRow[]) {
+        rowsById.set(Number(order.id), order);
+      }
     }
   }
   for (const [orderId, event] of latestDeliveredEventByOrderId) {
@@ -218,7 +223,10 @@ export async function loadAdminExecutiveKpiDomain(input: {
   growthPct?: number;
 }): Promise<AdminExecutiveKpiDomain> {
   try {
-    return { status: 'ready', data: await loadAdminExecutiveKpis(input) };
+    return { status: 'ready', data: await observeServerOperation(
+      { surface: 'admin', operation: 'read_executive_kpis' },
+      () => loadAdminExecutiveKpis(input),
+    ) };
   } catch (error) {
     console.warn(
       'admin executive KPI overview skipped',

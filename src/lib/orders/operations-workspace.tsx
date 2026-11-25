@@ -25,6 +25,7 @@ import MasterOpsClient, {
 import { canAssignMasterOpsDelivery } from "@/app/app/master/ops/operational-rules";
 import { readWorkspaceOrderPeriods } from "@/lib/orders/workspace-order-periods";
 import { createWorkspaceInventoryNavigation } from "@/lib/orders/workspace-inventory-navigation";
+import { observeServerOperation } from "@/lib/observability/server-operation";
 
 const CLIENT_IMPORT_CUTOFF_ISO = "2026-06-02T00:00:00-04:00";
 const CLIENT_IMPORT_CUTOFF_MS = Date.parse(CLIENT_IMPORT_CUTOFF_ISO);
@@ -797,10 +798,10 @@ export async function OrdersWorkspace({ searchParams, surface }: {
       .order("effective_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    readWorkspaceOrderPeriods<RawOrderRow>({
+    observeServerOperation({ surface, operation: "read_order_periods" }, () => readWorkspaceOrderPeriods<RawOrderRow>({
       supabase: ctx.supabase, orderSelect, focusDate, dayRange, weekRange,
-      reuseWeekRows: surface === "master",
-    }),
+      reuseWeekRows: true,
+    }), { slowAfterMs: 500 }),
     ctx.supabase
       .from("delivery_partners")
       .select("id, name, partner_type, whatsapp_phone, is_active")
@@ -889,11 +890,11 @@ export async function OrdersWorkspace({ searchParams, surface }: {
   const paymentReportRoles = ctx.roles.filter((role) => role === "admin" || role === "master");
   const [financialStateResult, clientHistoryResult] = await Promise.all([
     allOrderIds.length > 0
-      ? (ctx.supabase as any).rpc("get_orders_financial_state", {
+      ? observeServerOperation({ surface, operation: "read_order_balances" }, () => (ctx.supabase as any).rpc("get_orders_financial_state", {
           p_order_ids: allOrderIds,
           p_operation_date: null,
           p_active_bs_rate: activeRate > 0 ? activeRate : null,
-        })
+        }), { slowAfterMs: 500 })
       : Promise.resolve({ data: [], error: null }),
     clientIds.length > 0
       ? ctx.supabase

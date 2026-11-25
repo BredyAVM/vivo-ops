@@ -1,7 +1,8 @@
 'use client';
 
-import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent, useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { useCoalescedRefresh } from '@/lib/refresh/use-coalesced-refresh';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorPendingLink from '../AdvisorPendingLink';
 import { EmptyBlock, SectionCard, StatusBadge } from '../advisor-ui';
@@ -79,34 +80,23 @@ export default function AdvisorInboxClient({
   const [events, setEvents] = useState(initialEvents);
   const [savingIds, setSavingIds] = useState<string[]>([]);
   const [markingAll, setMarkingAll] = useState(false);
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [refreshing, startRefresh] = useTransition();
+  const runRefresh = useCallback(() => startRefresh(() => router.refresh()), [router]);
+  const requestRefresh = useCoalescedRefresh(runRefresh, refreshing);
 
   useEffect(() => {
     setEvents(initialEvents);
   }, [initialEvents]);
 
   useEffect(() => {
-    const refreshInbox = () => {
-      if (refreshTimerRef.current) {
-        clearTimeout(refreshTimerRef.current);
-      }
-
-      refreshTimerRef.current = setTimeout(() => {
-        router.refresh();
-        refreshTimerRef.current = null;
-      }, 220);
-    };
+    const refreshInbox = () => requestRefresh();
 
     window.addEventListener('advisor:notification', refreshInbox);
 
     return () => {
-      if (refreshTimerRef.current) {
-        clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
       window.removeEventListener('advisor:notification', refreshInbox);
     };
-  }, [router]);
+  }, [requestRefresh]);
 
   const unreadCount = useMemo(
     () => events.filter((event) => !event.readAt).length,

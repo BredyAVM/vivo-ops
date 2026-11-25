@@ -47,13 +47,12 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
     redirect(resolveHomePath(ctx.roles));
   }
 
-  const { data: profile } = await ctx.supabase
-    .from('profiles')
-    .select('full_name, receives_commissions')
-    .eq('id', ctx.user.id)
-    .maybeSingle();
-
-  const [recipientsResult, commissionNotificationsResult] = await Promise.all([
+  const [profileResult, recipientsResult, commissionNotificationsResult] = await Promise.all([
+    ctx.supabase
+      .from('profiles')
+      .select('full_name, receives_commissions')
+      .eq('id', ctx.user.id)
+      .maybeSingle(),
     ctx.supabase
       .from('order_timeline_event_recipients')
       .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
@@ -68,6 +67,7 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
       .order('created_at', { ascending: false })
       .limit(100),
   ]);
+  const profile = profileResult.data;
   const orderNotificationCounts = countCoalescedNotificationsByKind(
     (recipientsResult.data ?? []) as unknown as InboxRecipientCountRow[]
   );
